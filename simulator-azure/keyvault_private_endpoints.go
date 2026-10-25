@@ -18,7 +18,7 @@ type KeyVaultPrivateEndpointConnection struct {
 }
 
 func keyVaultPECID(sub, rg, vault, pec string) string {
-	return keyVaultResourceID(sub, rg, vault) + "/privateEndpointConnections/" + pec
+	return armChildID(keyVaultResourceID(sub, rg, vault), "privateEndpointConnections", pec)
 }
 
 func handleKeyVaultPECPut(w http.ResponseWriter, r *http.Request) {

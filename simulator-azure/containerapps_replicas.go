@@ -470,7 +470,7 @@ func registerContainerAppsReplicas(srv *sim.Server, apps sim.Store[ContainerApp]
 
 	lookupApp := func(w http.ResponseWriter, r *http.Request) (ContainerApp, bool) {
 		sub, rg, name := sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "appName")
-		app, ok := apps.Get(fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.App/containerApps/%s", sub, rg, name))
+		app, ok := apps.Get(armResourceID(sub, rg, "Microsoft.App", "containerApps", name))
 		if !ok {
 			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The Resource 'Microsoft.App/containerApps/%s' under resource group '%s' was not found.", name, rg)

@@ -173,19 +173,19 @@ func registerCosmosDB(srv *sim.Server) {
 }
 
 func cosmosAccountID(sub, rg, account string) string {
-	return fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.DocumentDB/databaseAccounts/%s", sub, rg, account)
+	return armResourceID(sub, rg, "Microsoft.DocumentDB", "databaseAccounts", account)
 }
 
 func cosmosSQLDatabaseID(sub, rg, account, database string) string {
-	return cosmosAccountID(sub, rg, account) + "/sqlDatabases/" + database
+	return armChildID(cosmosAccountID(sub, rg, account), "sqlDatabases", database)
 }
 
 func cosmosSQLContainerID(sub, rg, account, database, container string) string {
-	return cosmosSQLDatabaseID(sub, rg, account, database) + "/containers/" + container
+	return armChildID(cosmosSQLDatabaseID(sub, rg, account, database), "containers", container)
 }
 
 func cosmosTableID(sub, rg, account, table string) string {
-	return cosmosAccountID(sub, rg, account) + "/tables/" + table
+	return armChildID(cosmosAccountID(sub, rg, account), "tables", table)
 }
 
 func cosmosDocKey(account, database, container, doc string) string {
@@ -403,8 +403,7 @@ func handleCosmosGetAccount(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleCosmosListAccounts(w http.ResponseWriter, r *http.Request) {
-	prefix := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.DocumentDB/databaseAccounts/",
-		sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"))
+	prefix := armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.DocumentDB", "databaseAccounts") + "/"
 	all := cosmosAccounts.Filter(func(a CosmosAccount) bool { return strings.HasPrefix(a.ID, prefix) })
 	page, next, pageOK := armQueryPage(w, r, all, func(x CosmosAccount) string { return x.ID })
 	if !pageOK {

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"net/http"
 	"strings"
 )
@@ -57,7 +56,7 @@ func azureResourceGroupScope(path string) (sub, group string, ok bool) {
 // azureLookupResourceGroup finds a group the way ARM does, ignoring the case
 // of the subscription ID and the group name.
 func azureLookupResourceGroup(sub, name string) (ResourceGroup, bool) {
-	id := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s", sub, name)
+	id := armResourceGroupID(sub, name)
 	if group, ok := azureResourceGroups.Get(id); ok {
 		return group, true
 	}

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -133,31 +134,23 @@ func registerEventGrid(srv *sim.Server) {
 }
 
 func eventGridTopicID(sub, rg, name string) string {
-	return fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.EventGrid/topics/%s", sub, rg, name)
+	return armResourceID(sub, rg, "Microsoft.EventGrid", "topics", name)
 }
 
 func eventGridDomainID(sub, rg, name string) string {
-	return fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.EventGrid/domains/%s", sub, rg, name)
+	return armResourceID(sub, rg, "Microsoft.EventGrid", "domains", name)
 }
 
 func eventGridDomainTopicID(sub, rg, domain, topic string) string {
-	return eventGridDomainID(sub, rg, domain) + "/topics/" + topic
+	return armChildID(eventGridDomainID(sub, rg, domain), "topics", topic)
 }
 
 func eventGridSystemTopicID(sub, rg, name string) string {
-	return fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.EventGrid/systemTopics/%s", sub, rg, name)
+	return armResourceID(sub, rg, "Microsoft.EventGrid", "systemTopics", name)
 }
 
 func eventGridPartnerTopicID(sub, rg, name string) string {
-	return fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.EventGrid/partnerTopics/%s", sub, rg, name)
-}
-
-func eventGridSubscriptionID(topicID, name string) string {
-	return topicID + "/providers/Microsoft.EventGrid/eventSubscriptions/" + name
-}
-
-func eventGridSystemTopicSubscriptionID(systemTopicID, name string) string {
-	return systemTopicID + "/eventSubscriptions/" + name
+	return armResourceID(sub, rg, "Microsoft.EventGrid", "partnerTopics", name)
 }
 
 func eventGridScopeFromRequest(r *http.Request) (string, sim.Store[EventGridTopic], bool) {
@@ -192,9 +185,9 @@ func eventGridScopeFromRequest(r *http.Request) (string, sim.Store[EventGridTopi
 // groups). The ID mirrors whichever form addressed it.
 func eventGridSubscriptionIDForRequest(r *http.Request, scopeID, name string) string {
 	if strings.Contains(r.URL.Path, "/providers/Microsoft.EventGrid/eventSubscriptions/") {
-		return eventGridSubscriptionID(scopeID, name)
+		return armProviderID(scopeID, "Microsoft.EventGrid", "eventSubscriptions", name)
 	}
-	return eventGridSystemTopicSubscriptionID(scopeID, name)
+	return armChildID(scopeID, "eventSubscriptions", name)
 }
 
 func eventGridEndpointHost(r *http.Request, topic string) string {
@@ -275,15 +268,16 @@ func handleEventGridCreateTopic(w http.ResponseWriter, r *http.Request) {
 
 func handleEventGridGetTopic(w http.ResponseWriter, r *http.Request) {
 	id := eventGridTopicID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "topicName"))
-	topic, ok := eventGridTopics.Get(id)
-	if !ok {
-		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "topic %q not found", id)
-		return
-	}
-	// Pure read: derive the endpoint into the response copy without persisting
-	// a request-Host-derived value back into the store.
-	topic = eventGridTopicWithEndpoint(r, topic)
-	sim.WriteJSON(w, http.StatusOK, topic)
+	armGet(w, eventGridTopicResources(r), id)
+}
+
+// eventGridTopicResources reads custom topics with their data-plane endpoint
+// derived into each response copy, never persisting a request-Host-derived
+// value back into the store.
+func eventGridTopicResources(r *http.Request) armResources[EventGridTopic] {
+	topics := eventGridResources(eventGridTopics, "topic")
+	topics.project = func(t *EventGridTopic) { *t = eventGridTopicWithEndpoint(r, *t) }
+	return topics
 }
 
 func handleEventGridListTopicKeys(w http.ResponseWriter, r *http.Request) {
@@ -297,42 +291,28 @@ func handleEventGridListTopicKeys(w http.ResponseWriter, r *http.Request) {
 
 func handleEventGridDeleteTopic(w http.ResponseWriter, r *http.Request) {
 	id := eventGridTopicID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "topicName"))
-	if !eventGridTopics.Delete(id) {
-		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "topic %q not found", id)
-		return
-	}
-	for _, sub := range eventGridSubscriptions.List() {
-		if strings.HasPrefix(sub.ID, id+"/providers/Microsoft.EventGrid/eventSubscriptions/") {
-			eventGridSubscriptions.Delete(sub.ID)
-		}
-	}
-	eventGridDropKeyGens(id)
-	w.WriteHeader(http.StatusNoContent)
+	armDelete(w, r, eventGridResources(eventGridTopics, "topic"), id, armDeletion[EventGridTopic]{
+		status: http.StatusNoContent,
+		after: func(_ context.Context, id string, _ EventGridTopic) {
+			for _, sub := range eventGridSubscriptions.List() {
+				if strings.HasPrefix(sub.ID, id+"/providers/Microsoft.EventGrid/eventSubscriptions/") {
+					eventGridSubscriptions.Delete(sub.ID)
+				}
+			}
+			eventGridDropKeyGens(id)
+		},
+	})
 }
 
 func handleEventGridListTopicsByRG(w http.ResponseWriter, r *http.Request) {
 	sub := sim.PathParam(r, "subscriptionId")
 	rg := sim.PathParam(r, "resourceGroupName")
-	prefix := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.EventGrid/topics/", sub, rg)
-	out := make([]EventGridTopic, 0)
-	for _, topic := range eventGridTopics.List() {
-		if strings.HasPrefix(topic.ID, prefix) {
-			out = append(out, eventGridTopicWithEndpoint(r, topic))
-		}
-	}
-	sim.WriteJSON(w, http.StatusOK, map[string]any{"value": out})
+	armList(w, eventGridTopicResources(r), armResourceID(sub, rg, "Microsoft.EventGrid", "topics")+"/")
 }
 
 func handleEventGridListTopicsBySubscription(w http.ResponseWriter, r *http.Request) {
 	sub := sim.PathParam(r, "subscriptionId")
-	prefix := fmt.Sprintf("/subscriptions/%s/resourceGroups/", sub)
-	out := make([]EventGridTopic, 0)
-	for _, topic := range eventGridTopics.List() {
-		if strings.HasPrefix(topic.ID, prefix) {
-			out = append(out, eventGridTopicWithEndpoint(r, topic))
-		}
-	}
-	sim.WriteJSON(w, http.StatusOK, map[string]any{"value": out})
+	armList(w, eventGridTopicResources(r), armSubscriptionID(sub)+"/resourceGroups/")
 }
 
 func handleEventGridCreateDomain(w http.ResponseWriter, r *http.Request) {
@@ -350,7 +330,7 @@ func handleEventGridCreateDomain(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleEventGridGetDomain(w http.ResponseWriter, r *http.Request) {
-	eventGridGetARMResource(w, eventGridDomains, eventGridDomainID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "domainName")), "domain")
+	armGet(w, eventGridResources(eventGridDomains, "domain"), eventGridDomainID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "domainName")))
 }
 
 func handleEventGridListDomainKeys(w http.ResponseWriter, r *http.Request) {
@@ -364,31 +344,31 @@ func handleEventGridListDomainKeys(w http.ResponseWriter, r *http.Request) {
 
 func handleEventGridDeleteDomain(w http.ResponseWriter, r *http.Request) {
 	id := eventGridDomainID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "domainName"))
-	if !eventGridDomains.Delete(id) {
-		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "domain %q not found", id)
-		return
-	}
-	for _, topic := range eventGridDomainTopics.List() {
-		if strings.HasPrefix(topic.ID, id+"/topics/") {
-			deleteEventGridScope(topic.ID)
-			eventGridDomainTopics.Delete(topic.ID)
-		}
-	}
-	eventGridDropKeyGens(id)
-	w.WriteHeader(http.StatusNoContent)
+	armDelete(w, r, eventGridResources(eventGridDomains, "domain"), id, armDeletion[EventGridTopic]{
+		status: http.StatusNoContent,
+		after: func(_ context.Context, id string, _ EventGridTopic) {
+			for _, topic := range eventGridDomainTopics.List() {
+				if strings.HasPrefix(topic.ID, id+"/topics/") {
+					deleteEventGridScope(topic.ID)
+					eventGridDomainTopics.Delete(topic.ID)
+				}
+			}
+			eventGridDropKeyGens(id)
+		},
+	})
 }
 
 func handleEventGridListDomainsByRG(w http.ResponseWriter, r *http.Request) {
 	sub := sim.PathParam(r, "subscriptionId")
 	rg := sim.PathParam(r, "resourceGroupName")
-	prefix := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.EventGrid/domains/", sub, rg)
-	eventGridListARMResources(w, eventGridDomains, prefix)
+	prefix := armResourceID(sub, rg, "Microsoft.EventGrid", "domains") + "/"
+	armList(w, eventGridResources(eventGridDomains, ""), prefix)
 }
 
 func handleEventGridListDomainsBySubscription(w http.ResponseWriter, r *http.Request) {
 	sub := sim.PathParam(r, "subscriptionId")
-	prefix := fmt.Sprintf("/subscriptions/%s/resourceGroups/", sub)
-	eventGridListARMResources(w, eventGridDomains, prefix)
+	prefix := armSubscriptionID(sub) + "/resourceGroups/"
+	armList(w, eventGridResources(eventGridDomains, ""), prefix)
 }
 
 func handleEventGridCreateDomainTopic(w http.ResponseWriter, r *http.Request) {
@@ -413,22 +393,17 @@ func handleEventGridCreateDomainTopic(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleEventGridGetDomainTopic(w http.ResponseWriter, r *http.Request) {
-	eventGridGetARMResource(w, eventGridDomainTopics, eventGridDomainTopicID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "domainName"), sim.PathParam(r, "domainTopicName")), "domain topic")
+	armGet(w, eventGridResources(eventGridDomainTopics, "domain topic"), eventGridDomainTopicID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "domainName"), sim.PathParam(r, "domainTopicName")))
 }
 
 func handleEventGridDeleteDomainTopic(w http.ResponseWriter, r *http.Request) {
 	id := eventGridDomainTopicID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "domainName"), sim.PathParam(r, "domainTopicName"))
-	if !eventGridDomainTopics.Delete(id) {
-		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "domain topic %q not found", id)
-		return
-	}
-	deleteEventGridScope(id)
-	w.WriteHeader(http.StatusNoContent)
+	armDelete(w, r, eventGridResources(eventGridDomainTopics, "domain topic"), id, eventGridScopeDeletion)
 }
 
 func handleEventGridListDomainTopics(w http.ResponseWriter, r *http.Request) {
 	prefix := eventGridDomainID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "domainName")) + "/topics/"
-	eventGridListARMResources(w, eventGridDomainTopics, prefix)
+	armList(w, eventGridResources(eventGridDomainTopics, ""), prefix)
 }
 
 func handleEventGridCreateSystemTopic(w http.ResponseWriter, r *http.Request) {
@@ -442,30 +417,25 @@ func handleEventGridCreateSystemTopic(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleEventGridGetSystemTopic(w http.ResponseWriter, r *http.Request) {
-	eventGridGetARMResource(w, eventGridSystemTopics, eventGridSystemTopicID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "systemTopicName")), "system topic")
+	armGet(w, eventGridResources(eventGridSystemTopics, "system topic"), eventGridSystemTopicID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "systemTopicName")))
 }
 
 func handleEventGridDeleteSystemTopic(w http.ResponseWriter, r *http.Request) {
 	id := eventGridSystemTopicID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "systemTopicName"))
-	if !eventGridSystemTopics.Delete(id) {
-		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "system topic %q not found", id)
-		return
-	}
-	deleteEventGridScope(id)
-	w.WriteHeader(http.StatusNoContent)
+	armDelete(w, r, eventGridResources(eventGridSystemTopics, "system topic"), id, eventGridScopeDeletion)
 }
 
 func handleEventGridListSystemTopicsByRG(w http.ResponseWriter, r *http.Request) {
 	sub := sim.PathParam(r, "subscriptionId")
 	rg := sim.PathParam(r, "resourceGroupName")
-	prefix := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.EventGrid/systemTopics/", sub, rg)
-	eventGridListARMResources(w, eventGridSystemTopics, prefix)
+	prefix := armResourceID(sub, rg, "Microsoft.EventGrid", "systemTopics") + "/"
+	armList(w, eventGridResources(eventGridSystemTopics, ""), prefix)
 }
 
 func handleEventGridListSystemTopicsBySubscription(w http.ResponseWriter, r *http.Request) {
 	sub := sim.PathParam(r, "subscriptionId")
-	prefix := fmt.Sprintf("/subscriptions/%s/resourceGroups/", sub)
-	eventGridListARMResources(w, eventGridSystemTopics, prefix)
+	prefix := armSubscriptionID(sub) + "/resourceGroups/"
+	armList(w, eventGridResources(eventGridSystemTopics, ""), prefix)
 }
 
 func handleEventGridCreatePartnerTopic(w http.ResponseWriter, r *http.Request) {
@@ -480,33 +450,11 @@ func handleEventGridCreatePartnerTopic(w http.ResponseWriter, r *http.Request) {
 
 func handleEventGridUpdatePartnerTopic(w http.ResponseWriter, r *http.Request) {
 	id := eventGridPartnerTopicID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "partnerTopicName"))
-	existing, ok := eventGridPartnerTopics.Get(id)
-	if !ok {
-		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "partner topic %q not found", id)
-		return
-	}
-	var req EventGridTopic
-	if err := sim.ReadJSON(r, &req); err != nil {
-		AzureErrorf(w, "InvalidRequestContent", http.StatusBadRequest, "invalid request body: %v", err)
-		return
-	}
-	if req.Tags != nil {
-		existing.Tags = req.Tags
-	}
-	if req.Properties != nil {
-		if existing.Properties == nil {
-			existing.Properties = map[string]any{}
-		}
-		for k, v := range req.Properties {
-			existing.Properties[k] = v
-		}
-	}
-	eventGridPartnerTopics.Put(id, existing)
-	sim.WriteJSON(w, http.StatusOK, existing)
+	eventGridUpdateARMResource(w, r, eventGridPartnerTopics, id, "partner topic")
 }
 
 func handleEventGridGetPartnerTopic(w http.ResponseWriter, r *http.Request) {
-	eventGridGetARMResource(w, eventGridPartnerTopics, eventGridPartnerTopicID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "partnerTopicName")), "partner topic")
+	armGet(w, eventGridResources(eventGridPartnerTopics, "partner topic"), eventGridPartnerTopicID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "partnerTopicName")))
 }
 
 func handleEventGridActivatePartnerTopic(w http.ResponseWriter, r *http.Request) {
@@ -543,25 +491,20 @@ func handleEventGridDeactivatePartnerTopic(w http.ResponseWriter, r *http.Reques
 
 func handleEventGridDeletePartnerTopic(w http.ResponseWriter, r *http.Request) {
 	id := eventGridPartnerTopicID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "partnerTopicName"))
-	if !eventGridPartnerTopics.Delete(id) {
-		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "partner topic %q not found", id)
-		return
-	}
-	deleteEventGridScope(id)
-	w.WriteHeader(http.StatusNoContent)
+	armDelete(w, r, eventGridResources(eventGridPartnerTopics, "partner topic"), id, eventGridScopeDeletion)
 }
 
 func handleEventGridListPartnerTopicsByRG(w http.ResponseWriter, r *http.Request) {
 	sub := sim.PathParam(r, "subscriptionId")
 	rg := sim.PathParam(r, "resourceGroupName")
-	prefix := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.EventGrid/partnerTopics/", sub, rg)
-	eventGridListARMResources(w, eventGridPartnerTopics, prefix)
+	prefix := armResourceID(sub, rg, "Microsoft.EventGrid", "partnerTopics") + "/"
+	armList(w, eventGridResources(eventGridPartnerTopics, ""), prefix)
 }
 
 func handleEventGridListPartnerTopicsBySubscription(w http.ResponseWriter, r *http.Request) {
 	sub := sim.PathParam(r, "subscriptionId")
-	prefix := fmt.Sprintf("/subscriptions/%s/resourceGroups/", sub)
-	eventGridListARMResources(w, eventGridPartnerTopics, prefix)
+	prefix := armSubscriptionID(sub) + "/resourceGroups/"
+	armList(w, eventGridResources(eventGridPartnerTopics, ""), prefix)
 }
 
 func eventGridCreateARMResource(w http.ResponseWriter, r *http.Request, store sim.Store[EventGridTopic], id, name, resourceType string, mutate func(map[string]any)) {
@@ -599,23 +542,23 @@ func eventGridCreateARMResourceStatus(w http.ResponseWriter, r *http.Request, st
 	sim.WriteJSON(w, status, resource)
 }
 
-func eventGridGetARMResource(w http.ResponseWriter, store sim.Store[EventGridTopic], id, label string) {
-	resource, ok := store.Get(id)
-	if !ok {
-		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "%s %q not found", label, id)
-		return
+// eventGridResources is an Event Grid resource type held in store, which
+// reports an absent resource by label.
+func eventGridResources(store sim.Store[EventGridTopic], label string) armResources[EventGridTopic] {
+	return armResources[EventGridTopic]{
+		store: store,
+		id:    func(t *EventGridTopic) string { return t.ID },
+		notFound: func(w http.ResponseWriter, id string) {
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "%s %q not found", label, id)
+		},
 	}
-	sim.WriteJSON(w, http.StatusOK, resource)
 }
 
-func eventGridListARMResources(w http.ResponseWriter, store sim.Store[EventGridTopic], prefix string) {
-	out := make([]EventGridTopic, 0)
-	for _, resource := range store.List() {
-		if strings.HasPrefix(resource.ID, prefix) {
-			out = append(out, resource)
-		}
-	}
-	sim.WriteJSON(w, http.StatusOK, map[string]any{"value": out})
+// eventGridScopeDeletion deletes a resource that event subscriptions hang off,
+// and its subscriptions with it.
+var eventGridScopeDeletion = armDeletion[EventGridTopic]{
+	status: http.StatusNoContent,
+	after:  func(_ context.Context, id string, _ EventGridTopic) { deleteEventGridScope(id) },
 }
 
 func deleteEventGridScope(scopeID string) {
@@ -766,7 +709,7 @@ func publishEventGridScope(w http.ResponseWriter, r *http.Request, scope eventGr
 	for i, event := range events {
 		topic := scope.resource.ID
 		if scope.isDomain {
-			topic = eventGridDomainTopicScopeID(scope.resource.ID, event.Topic)
+			topic = armChildID(scope.resource.ID, "topics", event.Topic)
 		}
 		stamped, stampErr := stampEventGridEvent(rawEventGridEvent(body, i), topic)
 		if stampErr != nil {
@@ -798,12 +741,6 @@ func stampEventGridEvent(raw json.RawMessage, topic string) (json.RawMessage, er
 	event["topic"] = topicJSON
 	event["metadataVersion"] = json.RawMessage(`"1"`)
 	return json.Marshal(event)
-}
-
-// eventGridDomainTopicScopeID is the resource ID of a domain topic beneath a
-// domain, which is the scope a domain-published event's subscriptions hang off.
-func eventGridDomainTopicScopeID(domainID, topic string) string {
-	return domainID + "/topics/" + topic
 }
 
 // rawEventGridEvent returns the i-th event of a publish batch exactly as the

@@ -355,8 +355,7 @@ func registerNetworkListsAndTags(srv *sim.Server) {
 	subBase := azureNetworkSubBase()
 
 	rgPrefix := func(r *http.Request, resourceType string) string {
-		return fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/%s/",
-			sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), resourceType)
+		return armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Network", resourceType) + "/"
 	}
 
 	srv.HandleFunc("GET "+armBase+"/virtualNetworks", func(w http.ResponseWriter, r *http.Request) {
@@ -364,12 +363,11 @@ func registerNetworkListsAndTags(srv *sim.Server) {
 		azureWriteList(w, azureRefreshedVnets(prefix))
 	})
 	srv.HandleFunc("GET "+subBase+"/virtualNetworks", func(w http.ResponseWriter, r *http.Request) {
-		prefix := fmt.Sprintf("/subscriptions/%s/", sim.PathParam(r, "subscriptionId"))
+		prefix := armSubscriptionID(sim.PathParam(r, "subscriptionId")) + "/"
 		azureWriteList(w, azureRefreshedVnets(prefix))
 	})
 	srv.HandleFunc("PATCH "+armBase+"/virtualNetworks/{vnetName}", func(w http.ResponseWriter, r *http.Request) {
-		id := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/virtualNetworks/%s",
-			sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "vnetName"))
+		id := armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Network", "virtualNetworks", sim.PathParam(r, "vnetName"))
 		if !azureApplyTagsPatch(w, r, func(set map[string]string) bool {
 			return azureVnets.Update(id, func(v *VirtualNetwork) { v.Tags = set })
 		}) {
@@ -385,12 +383,11 @@ func registerNetworkListsAndTags(srv *sim.Server) {
 		azureWriteList(w, azureNSGs.Filter(func(n NetworkSecurityGroup) bool { return strings.HasPrefix(n.ID, prefix) }))
 	})
 	srv.HandleFunc("GET "+subBase+"/networkSecurityGroups", func(w http.ResponseWriter, r *http.Request) {
-		prefix := fmt.Sprintf("/subscriptions/%s/", sim.PathParam(r, "subscriptionId"))
+		prefix := armSubscriptionID(sim.PathParam(r, "subscriptionId")) + "/"
 		azureWriteList(w, azureNSGs.Filter(func(n NetworkSecurityGroup) bool { return strings.HasPrefix(n.ID, prefix) }))
 	})
 	srv.HandleFunc("PATCH "+armBase+"/networkSecurityGroups/{nsgName}", func(w http.ResponseWriter, r *http.Request) {
-		id := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/networkSecurityGroups/%s",
-			sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "nsgName"))
+		id := armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Network", "networkSecurityGroups", sim.PathParam(r, "nsgName"))
 		if !azureApplyTagsPatch(w, r, func(set map[string]string) bool {
 			return azureNSGs.Update(id, func(n *NetworkSecurityGroup) { n.Tags = set })
 		}) {
@@ -405,12 +402,11 @@ func registerNetworkListsAndTags(srv *sim.Server) {
 		azureWriteList(w, azureRouteTables.Filter(func(rt RouteTable) bool { return strings.HasPrefix(rt.ID, prefix) }))
 	})
 	srv.HandleFunc("GET "+subBase+"/routeTables", func(w http.ResponseWriter, r *http.Request) {
-		prefix := fmt.Sprintf("/subscriptions/%s/", sim.PathParam(r, "subscriptionId"))
+		prefix := armSubscriptionID(sim.PathParam(r, "subscriptionId")) + "/"
 		azureWriteList(w, azureRouteTables.Filter(func(rt RouteTable) bool { return strings.HasPrefix(rt.ID, prefix) }))
 	})
 	srv.HandleFunc("PATCH "+armBase+"/routeTables/{name}", func(w http.ResponseWriter, r *http.Request) {
-		id := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/routeTables/%s",
-			sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"))
+		id := armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Network", "routeTables", sim.PathParam(r, "name"))
 		if !azureApplyTagsPatch(w, r, func(set map[string]string) bool {
 			return azureRouteTables.Update(id, func(rt *RouteTable) { rt.Tags = set })
 		}) {
@@ -421,7 +417,7 @@ func registerNetworkListsAndTags(srv *sim.Server) {
 	})
 
 	srv.HandleFunc("GET "+subBase+"/natGateways", func(w http.ResponseWriter, r *http.Request) {
-		prefix := fmt.Sprintf("/subscriptions/%s/", sim.PathParam(r, "subscriptionId"))
+		prefix := armSubscriptionID(sim.PathParam(r, "subscriptionId")) + "/"
 		items := azureNatGateways.Filter(func(gw NatGateway) bool { return strings.HasPrefix(gw.ID, prefix) })
 		for i := range items {
 			items[i].Properties.Subnets = azureSubnetsForNatGateway(items[i].ID)
@@ -429,8 +425,7 @@ func registerNetworkListsAndTags(srv *sim.Server) {
 		azureWriteList(w, items)
 	})
 	srv.HandleFunc("PATCH "+armBase+"/natGateways/{name}", func(w http.ResponseWriter, r *http.Request) {
-		id := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/natGateways/%s",
-			sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"))
+		id := armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Network", "natGateways", sim.PathParam(r, "name"))
 		if !azureApplyTagsPatch(w, r, func(set map[string]string) bool {
 			return azureNatGateways.Update(id, func(gw *NatGateway) { gw.Tags = set })
 		}) {
@@ -442,7 +437,7 @@ func registerNetworkListsAndTags(srv *sim.Server) {
 	})
 
 	srv.HandleFunc("GET "+subBase+"/loadBalancers", func(w http.ResponseWriter, r *http.Request) {
-		prefix := fmt.Sprintf("/subscriptions/%s/", sim.PathParam(r, "subscriptionId"))
+		prefix := armSubscriptionID(sim.PathParam(r, "subscriptionId")) + "/"
 		azureWriteList(w, azureLBs.Filter(func(lb LoadBalancer) bool { return strings.HasPrefix(lb.ID, prefix) }))
 	})
 	srv.HandleFunc("PATCH "+armBase+"/loadBalancers/{loadBalancerName}", func(w http.ResponseWriter, r *http.Request) {
@@ -457,12 +452,11 @@ func registerNetworkListsAndTags(srv *sim.Server) {
 	})
 
 	srv.HandleFunc("GET "+subBase+"/networkInterfaces", func(w http.ResponseWriter, r *http.Request) {
-		prefix := fmt.Sprintf("/subscriptions/%s/", sim.PathParam(r, "subscriptionId"))
+		prefix := armSubscriptionID(sim.PathParam(r, "subscriptionId")) + "/"
 		azureWriteList(w, azureNICs.Filter(func(n NetworkInterface) bool { return strings.HasPrefix(n.ID, prefix) }))
 	})
 	srv.HandleFunc("PATCH "+armBase+"/networkInterfaces/{networkInterfaceName}", func(w http.ResponseWriter, r *http.Request) {
-		id := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/networkInterfaces/%s",
-			sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "networkInterfaceName"))
+		id := armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Network", "networkInterfaces", sim.PathParam(r, "networkInterfaceName"))
 		if !azureApplyTagsPatch(w, r, func(set map[string]string) bool {
 			return azureNICs.Update(id, func(n *NetworkInterface) { n.Tags = set })
 		}) {
@@ -473,12 +467,11 @@ func registerNetworkListsAndTags(srv *sim.Server) {
 	})
 
 	srv.HandleFunc("GET "+subBase+"/publicIPAddresses", func(w http.ResponseWriter, r *http.Request) {
-		prefix := fmt.Sprintf("/subscriptions/%s/", sim.PathParam(r, "subscriptionId"))
+		prefix := armSubscriptionID(sim.PathParam(r, "subscriptionId")) + "/"
 		azureWriteList(w, azurePublicIPs.Filter(func(p PublicIPAddress) bool { return strings.HasPrefix(p.ID, prefix) }))
 	})
 	srv.HandleFunc("PATCH "+armBase+"/publicIPAddresses/{publicIPName}", func(w http.ResponseWriter, r *http.Request) {
-		id := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/publicIPAddresses/%s",
-			sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "publicIPName"))
+		id := armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Network", "publicIPAddresses", sim.PathParam(r, "publicIPName"))
 		if !azureApplyTagsPatch(w, r, func(set map[string]string) bool {
 			return azurePublicIPs.Update(id, func(p *PublicIPAddress) { p.Tags = set })
 		}) {
@@ -489,7 +482,7 @@ func registerNetworkListsAndTags(srv *sim.Server) {
 	})
 
 	srv.HandleFunc("GET "+subBase+"/publicIPPrefixes", func(w http.ResponseWriter, r *http.Request) {
-		prefix := fmt.Sprintf("/subscriptions/%s/", sim.PathParam(r, "subscriptionId"))
+		prefix := armSubscriptionID(sim.PathParam(r, "subscriptionId")) + "/"
 		azureWriteList(w, azurePublicIPPrefixes.Filter(func(p PublicIPPrefix) bool { return strings.HasPrefix(p.ID, prefix) }))
 	})
 	srv.HandleFunc("PATCH "+armBase+"/publicIPPrefixes/{publicIPPrefixName}", func(w http.ResponseWriter, r *http.Request) {
@@ -541,8 +534,7 @@ func registerVirtualNetworkSubResources(srv *sim.Server) {
 
 	// Subnets list.
 	srv.HandleFunc("GET "+armBase+"/virtualNetworks/{vnetName}/subnets", func(w http.ResponseWriter, r *http.Request) {
-		vnetID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/virtualNetworks/%s",
-			sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "vnetName"))
+		vnetID := armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Network", "virtualNetworks", sim.PathParam(r, "vnetName"))
 		azureWriteList(w, azureSubnets.Filter(func(s Subnet) bool { return strings.HasPrefix(s.ID, vnetID+"/subnets/") }))
 	})
 
@@ -556,8 +548,7 @@ func registerVirtualNetworkSubResources(srv *sim.Server) {
 
 	// Virtual-network peerings.
 	peeringID := func(r *http.Request) string {
-		return fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/virtualNetworks/%s/virtualNetworkPeerings/%s",
-			sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "vnetName"), sim.PathParam(r, "peeringName"))
+		return armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Network", "virtualNetworks", sim.PathParam(r, "vnetName"), "virtualNetworkPeerings", sim.PathParam(r, "peeringName"))
 	}
 	srv.HandleFunc("PUT "+armBase+"/virtualNetworks/{vnetName}/virtualNetworkPeerings/{peeringName}", func(w http.ResponseWriter, r *http.Request) {
 		var req VirtualNetworkPeering
@@ -592,8 +583,7 @@ func registerVirtualNetworkSubResources(srv *sim.Server) {
 		w.WriteHeader(http.StatusOK)
 	})
 	srv.HandleFunc("GET "+armBase+"/virtualNetworks/{vnetName}/virtualNetworkPeerings", func(w http.ResponseWriter, r *http.Request) {
-		vnetID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/virtualNetworks/%s",
-			sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "vnetName"))
+		vnetID := armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Network", "virtualNetworks", sim.PathParam(r, "vnetName"))
 		azureWriteList(w, azureVNetPeerings.Filter(func(p VirtualNetworkPeering) bool { return strings.HasPrefix(p.ID, vnetID+"/virtualNetworkPeerings/") }))
 	})
 
@@ -628,8 +618,7 @@ func registerVirtualNetworkSubResources(srv *sim.Server) {
 func registerNSGDefaultRules(srv *sim.Server) {
 	armBase := azureNetworkArmBase()
 	srv.HandleFunc("GET "+armBase+"/networkSecurityGroups/{nsgName}/defaultSecurityRules", func(w http.ResponseWriter, r *http.Request) {
-		nsgID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/networkSecurityGroups/%s",
-			sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "nsgName"))
+		nsgID := armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Network", "networkSecurityGroups", sim.PathParam(r, "nsgName"))
 		if _, ok := azureNSGs.Get(nsgID); !ok {
 			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "NSG %q not found.", sim.PathParam(r, "nsgName"))
 			return
@@ -637,8 +626,7 @@ func registerNSGDefaultRules(srv *sim.Server) {
 		azureWriteList(w, azureDefaultSecurityRules(nsgID))
 	})
 	srv.HandleFunc("GET "+armBase+"/networkSecurityGroups/{nsgName}/defaultSecurityRules/{defaultSecurityRuleName}", func(w http.ResponseWriter, r *http.Request) {
-		nsgID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/networkSecurityGroups/%s",
-			sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "nsgName"))
+		nsgID := armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Network", "networkSecurityGroups", sim.PathParam(r, "nsgName"))
 		want := sim.PathParam(r, "defaultSecurityRuleName")
 		for _, rule := range azureDefaultSecurityRules(nsgID) {
 			if strings.EqualFold(rule.Name, want) {
@@ -784,8 +772,7 @@ func registerLoadBalancerSubResources(srv *sim.Server) {
 func registerNetworkInterfaceSubResources(srv *sim.Server) {
 	armBase := azureNetworkArmBase()
 	nicID := func(r *http.Request) string {
-		return fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/networkInterfaces/%s",
-			sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "networkInterfaceName"))
+		return armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Network", "networkInterfaces", sim.PathParam(r, "networkInterfaceName"))
 	}
 
 	srv.HandleFunc("GET "+armBase+"/networkInterfaces/{networkInterfaceName}/ipConfigurations", func(w http.ResponseWriter, r *http.Request) {
@@ -872,8 +859,7 @@ func registerNetworkInterfaceSubResources(srv *sim.Server) {
 func registerRouteTableRoutes(srv *sim.Server) {
 	armBase := azureNetworkArmBase()
 	tableID := func(r *http.Request) string {
-		return fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/routeTables/%s",
-			sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "routeTableName"))
+		return armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Network", "routeTables", sim.PathParam(r, "routeTableName"))
 	}
 	srv.HandleFunc("PUT "+armBase+"/routeTables/{routeTableName}/routes/{routeName}", func(w http.ResponseWriter, r *http.Request) {
 		id := tableID(r)

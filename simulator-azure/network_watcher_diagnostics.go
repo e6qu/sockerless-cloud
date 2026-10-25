@@ -648,7 +648,7 @@ func handleNetworkWatcherTopology(w http.ResponseWriter, r *http.Request) {
 	case req.TargetVirtualNetwork != nil && req.TargetVirtualNetwork.ID != "":
 		scope = req.TargetVirtualNetwork.ID
 	case req.TargetResourceGroupName != "":
-		scope = "/subscriptions/" + subscription + "/resourceGroups/" + req.TargetResourceGroupName + "/"
+		scope = armResourceGroupID(subscription, req.TargetResourceGroupName) + "/"
 	default:
 		AzureErrorf(w, "InvalidRequestFormat", http.StatusBadRequest,
 			"The request format was unexpected: a topology request must name a target resource group, virtual network or subnet.")
@@ -1043,7 +1043,7 @@ func handleNetworkWatcherConfigureFlowLog(w http.ResponseWriter, r *http.Request
 	}
 	watcherID := networkWatcherID(r)
 	name := azureResourceLeafName(req.TargetResourceID)
-	id := azureNetworkChildID(watcherID, "flowLogs", name)
+	id := armChildID(watcherID, "flowLogs", name)
 	if existing, ok := networkWatcherFlowLogForTarget(watcherID, req.TargetResourceID); ok {
 		id, name = existing.ID, existing.Name
 	}

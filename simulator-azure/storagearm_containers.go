@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -32,9 +31,7 @@ func registerBlobContainersARM(srv *sim.Server, armBase string, storageAccounts 
 			return
 		}
 
-		resourceID := fmt.Sprintf(
-			"/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Storage/storageAccounts/%s/blobServices/default/containers/%s",
-			sub, rg, acct, name)
+		resourceID := armResourceID(sub, rg, "Microsoft.Storage", "storageAccounts", acct, "blobServices", "default", "containers", name)
 
 		container := BlobContainer{
 			ID:   resourceID,
@@ -69,9 +66,7 @@ func registerBlobContainersARM(srv *sim.Server, armBase string, storageAccounts 
 		rg := sim.PathParam(r, "resourceGroupName")
 		acct := sim.PathParam(r, "accountName")
 		name := sim.PathParam(r, "containerName")
-		resourceID := fmt.Sprintf(
-			"/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Storage/storageAccounts/%s/blobServices/default/containers/%s",
-			sub, rg, acct, name)
+		resourceID := armResourceID(sub, rg, "Microsoft.Storage", "storageAccounts", acct, "blobServices", "default", "containers", name)
 		container, ok := blobContainers.Get(resourceID)
 		if !ok {
 			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
@@ -86,9 +81,7 @@ func registerBlobContainersARM(srv *sim.Server, armBase string, storageAccounts 
 		rg := sim.PathParam(r, "resourceGroupName")
 		acct := sim.PathParam(r, "accountName")
 		name := sim.PathParam(r, "containerName")
-		resourceID := fmt.Sprintf(
-			"/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Storage/storageAccounts/%s/blobServices/default/containers/%s",
-			sub, rg, acct, name)
+		resourceID := armResourceID(sub, rg, "Microsoft.Storage", "storageAccounts", acct, "blobServices", "default", "containers", name)
 		blobContainers.Delete(resourceID)
 		// The same one object goes on both surfaces.
 		removeARMContainerFromBlobPlane(acct, name)
@@ -99,9 +92,7 @@ func registerBlobContainersARM(srv *sim.Server, armBase string, storageAccounts 
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
 		acct := sim.PathParam(r, "accountName")
-		prefix := fmt.Sprintf(
-			"/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Storage/storageAccounts/%s/blobServices/default/containers/",
-			sub, rg, acct)
+		prefix := armResourceID(sub, rg, "Microsoft.Storage", "storageAccounts", acct, "blobServices", "default", "containers") + "/"
 		all := blobContainers.Filter(func(c BlobContainer) bool {
 			return strings.HasPrefix(c.ID, prefix)
 		})

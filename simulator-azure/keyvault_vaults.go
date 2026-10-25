@@ -25,8 +25,7 @@ func registerKeyVaultVaults(srv *sim.Server, armBase string) {
 			AzureError(w, "InvalidRequestContent", "The 'location' property is required.", http.StatusBadRequest)
 			return
 		}
-		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.KeyVault/vaults/%s",
-			sub, rg, name)
+		resourceID := armResourceID(sub, rg, "Microsoft.KeyVault", "vaults", name)
 		if req.Properties.Sku == nil {
 			req.Properties.Sku = &KeyVaultSku{Family: "A", Name: "standard"}
 		}
@@ -61,8 +60,7 @@ func registerKeyVaultVaults(srv *sim.Server, armBase string) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
 		name := sim.PathParam(r, "name")
-		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.KeyVault/vaults/%s",
-			sub, rg, name)
+		resourceID := armResourceID(sub, rg, "Microsoft.KeyVault", "vaults", name)
 		v, ok := keyVaults.Get(resourceID)
 		if !ok {
 			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
@@ -136,8 +134,7 @@ func registerKeyVaultVaults(srv *sim.Server, armBase string) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
 		name := sim.PathParam(r, "name")
-		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.KeyVault/vaults/%s",
-			sub, rg, name)
+		resourceID := armResourceID(sub, rg, "Microsoft.KeyVault", "vaults", name)
 		v, ok := keyVaults.Get(resourceID)
 		if !ok {
 			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
@@ -152,8 +149,7 @@ func registerKeyVaultVaults(srv *sim.Server, armBase string) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
 		name := sim.PathParam(r, "name")
-		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.KeyVault/vaults/%s",
-			sub, rg, name)
+		resourceID := armResourceID(sub, rg, "Microsoft.KeyVault", "vaults", name)
 		if v, ok := keyVaults.Get(resourceID); ok {
 			now := time.Now().UTC()
 			purgeAt := now.Add(90 * 24 * time.Hour)
@@ -176,8 +172,7 @@ func registerKeyVaultVaults(srv *sim.Server, armBase string) {
 	srv.HandleFunc("GET "+armBase+"/vaults", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
-		prefix := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.KeyVault/vaults/",
-			sub, rg)
+		prefix := armResourceID(sub, rg, "Microsoft.KeyVault", "vaults") + "/"
 		all := keyVaults.Filter(func(v KeyVault) bool {
 			return strings.HasPrefix(v.ID, prefix)
 		})
@@ -204,7 +199,7 @@ func registerKeyVaultVaults(srv *sim.Server, armBase string) {
 	// azurerm_key_vault_secret's KV URI on every plan refresh).
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/providers/Microsoft.KeyVault/vaults", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
-		prefix := fmt.Sprintf("/subscriptions/%s/", sub)
+		prefix := armSubscriptionID(sub) + "/"
 		all := keyVaults.Filter(func(v KeyVault) bool {
 			return strings.HasPrefix(v.ID, prefix)
 		})
@@ -230,8 +225,7 @@ func registerKeyVaultVaults(srv *sim.Server, armBase string) {
 		rg := sim.PathParam(r, "resourceGroupName")
 		name := sim.PathParam(r, "name")
 		operation := sim.PathParam(r, "operationKind")
-		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.KeyVault/vaults/%s",
-			sub, rg, name)
+		resourceID := armResourceID(sub, rg, "Microsoft.KeyVault", "vaults", name)
 		v, ok := keyVaults.Get(resourceID)
 		if !ok {
 			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
@@ -274,13 +268,10 @@ func registerKeyVaultVaults(srv *sim.Server, armBase string) {
 		})
 	})
 
-	// GET /subscriptions/{sub}/providers/Microsoft.KeyVault/locations/{location}/deletedVaults/{name}
-	// terraform-provider-azurerm queries this pre-create to detect
-	// recoverable soft-deleted vaults (KV soft-delete is enabled by
-	// default and has a 90-day recovery window). The sim doesn't model
-	// vault-level soft-delete, so the truthful response is 404 in the
-	// Azure envelope (i.e. not the Go default 404 page that breaks the
-	// provider's error parser). Same for the list variant.
+	// terraform-provider-azurerm reads a location's deleted vault before
+	// creating one, to find a soft-deleted vault it can recover; a vault
+	// never deleted answers VaultNotFound in the ARM error envelope, which
+	// the provider's error parser reads.
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/providers/Microsoft.KeyVault/locations/{location}/deletedVaults/{name}", func(w http.ResponseWriter, r *http.Request) {
 		id := deletedVaultID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "location"), sim.PathParam(r, "name"))
 		v, ok := deletedVaults.Get(id)
@@ -300,7 +291,7 @@ func registerKeyVaultVaults(srv *sim.Server, armBase string) {
 		location := sim.PathParam(r, "location")
 		name := sim.PathParam(r, "name")
 		deletedVaults.Delete(deletedVaultID(sub, location, name))
-		operationPath := fmt.Sprintf("/subscriptions/%s/providers/Microsoft.KeyVault/locations/%s/deletedVaults/%s/purge/operation", sub, location, name)
+		operationPath := armSubscriptionResourceID(sub, "Microsoft.KeyVault", "locations", location, "deletedVaults", name, "purge", "operation")
 		w.Header().Set("Location", azureRequestScheme(r)+"://"+r.Host+operationPath+"?api-version="+r.URL.Query().Get("api-version"))
 		w.WriteHeader(http.StatusAccepted)
 	})
@@ -312,7 +303,7 @@ func registerKeyVaultVaults(srv *sim.Server, armBase string) {
 	})
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/providers/Microsoft.KeyVault/deletedVaults", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
-		prefix := fmt.Sprintf("/subscriptions/%s/providers/Microsoft.KeyVault/", sub)
+		prefix := armSubscriptionResourceID(sub, "Microsoft.KeyVault") + "/"
 		all := deletedVaults.Filter(func(v DeletedKeyVault) bool {
 			return strings.HasPrefix(v.ID, prefix)
 		})
@@ -324,14 +315,14 @@ func registerKeyVaultVaults(srv *sim.Server, armBase string) {
 }
 
 func deletedVaultID(sub, location, name string) string {
-	return fmt.Sprintf("/subscriptions/%s/providers/Microsoft.KeyVault/locations/%s/deletedVaults/%s", sub, location, name)
+	return armSubscriptionResourceID(sub, "Microsoft.KeyVault", "locations", location, "deletedVaults", name)
 }
 
 func deleteDeletedVaultsFor(sub, name string) {
 	if deletedVaults == nil {
 		return
 	}
-	prefix := fmt.Sprintf("/subscriptions/%s/providers/Microsoft.KeyVault/locations/", sub)
+	prefix := armSubscriptionResourceID(sub, "Microsoft.KeyVault", "locations") + "/"
 	for _, v := range deletedVaults.List() {
 		if strings.HasPrefix(v.ID, prefix) && v.Name == name {
 			deletedVaults.Delete(v.ID)
@@ -340,7 +331,7 @@ func deleteDeletedVaultsFor(sub, name string) {
 }
 
 func keyVaultResourceID(sub, rg, name string) string {
-	return fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.KeyVault/vaults/%s", sub, rg, name)
+	return armResourceID(sub, rg, "Microsoft.KeyVault", "vaults", name)
 }
 
 // handleKeyVaultCheckNameAvailability reports whether a vault name is free.
@@ -359,7 +350,7 @@ func handleKeyVaultCheckNameAvailability(w http.ResponseWriter, r *http.Request)
 		AzureError(w, "BadRequest", "name is required", http.StatusBadRequest)
 		return
 	}
-	prefix := fmt.Sprintf("/subscriptions/%s/", sub)
+	prefix := armSubscriptionID(sub) + "/"
 	taken := false
 	for _, v := range keyVaults.List() {
 		if strings.HasPrefix(v.ID, prefix) && strings.EqualFold(v.Name, req.Name) {

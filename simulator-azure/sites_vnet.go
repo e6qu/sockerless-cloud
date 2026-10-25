@@ -533,7 +533,7 @@ func swiftConnectionName(subnetID string) string {
 // is .../networkConfig/virtualNetwork, but the resource's id (and the value
 // clients like terraform-provider-azurerm parse from the response) is the
 // config sub-resource .../config/virtualNetwork.
-func swiftConfigID(resID string) string { return resID + "/config/virtualNetwork" }
+func swiftConfigID(resID string) string { return armChildID(resID, "config", "virtualNetwork") }
 
 // withPlanRoutes renders a connection with the routes member assembled from
 // the App Service plan's route records for the same connection name.

@@ -305,8 +305,7 @@ func registerDataCollectionRules(srv *sim.Server) {
 	dataCollectionRules = sim.MakeStore[DataCollectionRule](srv.DB(), "monitor_data_collection_rules")
 	const base = "/subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Insights/dataCollectionRules"
 	ruleID := func(r *http.Request) string {
-		return fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Insights/dataCollectionRules/%s",
-			sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "dataCollectionRuleName"))
+		return armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Insights", "dataCollectionRules", sim.PathParam(r, "dataCollectionRuleName"))
 	}
 	notFound := func(w http.ResponseWriter, r *http.Request) {
 		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
@@ -418,11 +417,10 @@ func registerDataCollectionRules(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"value": out})
 	}
 	srv.HandleFunc("GET "+base, func(w http.ResponseWriter, r *http.Request) {
-		list(w, r, fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Insights/dataCollectionRules/",
-			sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName")))
+		list(w, r, armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Insights", "dataCollectionRules")+"/")
 	})
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/providers/Microsoft.Insights/dataCollectionRules", func(w http.ResponseWriter, r *http.Request) {
-		list(w, r, fmt.Sprintf("/subscriptions/%s/", sim.PathParam(r, "subscriptionId")))
+		list(w, r, armSubscriptionID(sim.PathParam(r, "subscriptionId"))+"/")
 	})
 
 	srv.HandleFunc("POST /dataCollectionRules/{ruleId}/streams/{stream}", handleLogsIngestionUpload)
@@ -455,8 +453,7 @@ func dataCollectionEndpointByID(id string) (DataCollectionEndpoint, bool) {
 	if len(parts) != 8 || !strings.EqualFold(parts[6], "dataCollectionEndpoints") {
 		return DataCollectionEndpoint{}, false
 	}
-	return dataCollectionEndpoints.Get(fmt.Sprintf(
-		"/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Insights/dataCollectionEndpoints/%s", parts[1], parts[3], parts[7]))
+	return dataCollectionEndpoints.Get(armResourceID(parts[1], parts[3], "Microsoft.Insights", "dataCollectionEndpoints", parts[7]))
 }
 
 // logsIngestionMaxBody is the API's limit on one call's body.
@@ -692,8 +689,7 @@ func registerDataCollectionEndpoints(srv *sim.Server) {
 	dataCollectionEndpoints = sim.MakeStore[DataCollectionEndpoint](srv.DB(), "monitor_data_collection_endpoints")
 	const base = "/subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Insights/dataCollectionEndpoints"
 	endpointID := func(r *http.Request) string {
-		return fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Insights/dataCollectionEndpoints/%s",
-			sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "dataCollectionEndpointName"))
+		return armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Insights", "dataCollectionEndpoints", sim.PathParam(r, "dataCollectionEndpointName"))
 	}
 	notFound := func(w http.ResponseWriter, r *http.Request) {
 		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
@@ -802,10 +798,9 @@ func registerDataCollectionEndpoints(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"value": out})
 	}
 	srv.HandleFunc("GET "+base, func(w http.ResponseWriter, r *http.Request) {
-		list(w, r, fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Insights/dataCollectionEndpoints/",
-			sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName")))
+		list(w, r, armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Insights", "dataCollectionEndpoints")+"/")
 	})
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/providers/Microsoft.Insights/dataCollectionEndpoints", func(w http.ResponseWriter, r *http.Request) {
-		list(w, r, fmt.Sprintf("/subscriptions/%s/", sim.PathParam(r, "subscriptionId")))
+		list(w, r, armSubscriptionID(sim.PathParam(r, "subscriptionId"))+"/")
 	})
 }

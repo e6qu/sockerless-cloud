@@ -155,7 +155,7 @@ func registerPublicDNS(srv *sim.Server) {
 	srv.HandleFunc("GET "+armBase+"/dnsZones", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
-		prefix := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/dnsZones/", sub, rg)
+		prefix := armResourceID(sub, rg, "Microsoft.Network", "dnsZones") + "/"
 		filtered := zones.Filter(func(z PublicDnsZone) bool {
 			return strings.HasPrefix(z.ID, prefix)
 		})
@@ -280,11 +280,11 @@ func registerPublicDNS(srv *sim.Server) {
 }
 
 func publicDNSZoneID(sub, rg, zoneName string) string {
-	return fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/dnsZones/%s", sub, rg, zoneName)
+	return armResourceID(sub, rg, "Microsoft.Network", "dnsZones", zoneName)
 }
 
 func publicDNSRecordID(zoneID, recordType, recordName string) string {
-	return fmt.Sprintf("%s/%s/%s", zoneID, recordType, recordName)
+	return armChildID(zoneID, recordType, recordName)
 }
 
 func publicDNSRecordPrefix(zoneID, recordType string) string {

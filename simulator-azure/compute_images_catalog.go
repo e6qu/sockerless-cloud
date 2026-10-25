@@ -229,8 +229,7 @@ func registerComputeImages(srv *sim.Server) {
 	azureImageBackings = sim.MakeStore[vminstance.Image](srv.DB(), "compute_image_backings")
 	const armBase = "/subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Compute"
 	imageID := func(r *http.Request) string {
-		return fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Compute/images/%s",
-			sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "imageName"))
+		return armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Compute", "images", sim.PathParam(r, "imageName"))
 	}
 
 	srv.HandleFunc("PUT "+armBase+"/images/{imageName}", func(w http.ResponseWriter, r *http.Request) {
@@ -342,8 +341,7 @@ func registerComputeImages(srv *sim.Server) {
 	})
 
 	srv.HandleFunc("GET "+armBase+"/images", func(w http.ResponseWriter, r *http.Request) {
-		prefix := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Compute/images/",
-			sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"))
+		prefix := armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Compute", "images") + "/"
 		items := azureComputeImages.Filter(func(i ComputeImage) bool { return strings.HasPrefix(strings.ToLower(i.ID), strings.ToLower(prefix)) })
 		if items == nil {
 			items = []ComputeImage{}
@@ -352,7 +350,7 @@ func registerComputeImages(srv *sim.Server) {
 	})
 
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/providers/Microsoft.Compute/images", func(w http.ResponseWriter, r *http.Request) {
-		prefix := fmt.Sprintf("/subscriptions/%s/", sim.PathParam(r, "subscriptionId"))
+		prefix := armSubscriptionID(sim.PathParam(r, "subscriptionId")) + "/"
 		items := azureComputeImages.Filter(func(i ComputeImage) bool { return strings.HasPrefix(strings.ToLower(i.ID), strings.ToLower(prefix)) })
 		if items == nil {
 			items = []ComputeImage{}

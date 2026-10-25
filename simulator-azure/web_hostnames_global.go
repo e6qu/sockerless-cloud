@@ -108,7 +108,7 @@ func registerWebHostnameTruth(srv *sim.Server, both func(string, string, http.Ha
 		}
 
 		siteID := webResourceID(r)
-		subPrefix := "/subscriptions/" + sim.PathParam(r, "subscriptionId") + "/"
+		subPrefix := armSubscriptionID(sim.PathParam(r, "subscriptionId")) + "/"
 		for _, b := range webHostNameBindings.List() {
 			if !strings.EqualFold(webBindingHostName(b), host) {
 				continue
@@ -167,7 +167,7 @@ func registerWebHostnameTruth(srv *sim.Server, both func(string, string, http.Ha
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/providers/Microsoft.Web/customhostnameSites", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
 		filter := r.URL.Query().Get("hostname")
-		subPrefix := "/subscriptions/" + sub + "/"
+		subPrefix := armSubscriptionID(sub) + "/"
 
 		type entry struct {
 			region  string
@@ -220,7 +220,7 @@ func registerWebHostnameTruth(srv *sim.Server, both func(string, string, http.Ha
 				})
 			}
 			out = append(out, map[string]any{
-				"id":   "/subscriptions/" + sub + "/providers/Microsoft.Web/customhostnameSites/" + h,
+				"id":   armSubscriptionResourceID(sub, "Microsoft.Web", "customhostnameSites", h),
 				"name": h,
 				"type": "Microsoft.Web/customhostnameSites",
 				"properties": map[string]any{
@@ -243,7 +243,7 @@ func registerWebHostnameTruth(srv *sim.Server, both func(string, string, http.Ha
 			AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
 			return
 		}
-		subPrefix := "/subscriptions/" + sim.PathParam(r, "subscriptionId") + "/"
+		subPrefix := armSubscriptionID(sim.PathParam(r, "subscriptionId")) + "/"
 		out := []map[string]any{}
 		seen := map[string]bool{}
 		for _, b := range webHostNameBindings.List() {

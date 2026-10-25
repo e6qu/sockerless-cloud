@@ -675,8 +675,7 @@ func logicWorkflowAccessEndpoint(r *http.Request, workflowID string) string {
 // owns the addressed trigger (or trigger version), so every callback issued
 // under a workflow is signed with that workflow's access key.
 func logicWorkflowIDForPath(r *http.Request) string {
-	return fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Logic/workflows/%s",
-		sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "workflowName"))
+	return armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Logic", "workflows", sim.PathParam(r, "workflowName"))
 }
 
 func handleLogicTriggerReset(w http.ResponseWriter, r *http.Request) {
@@ -908,7 +907,7 @@ func handleLogicIntegrationAccountDelete(w http.ResponseWriter, r *http.Request)
 func handleLogicIntegrationAccountListBySub(w http.ResponseWriter, r *http.Request) {
 	sub := sim.PathParam(r, "subscriptionId")
 	writeLogicResourceList(w, logicIntegrationAccts, func(res LogicResource) bool {
-		return strings.HasPrefix(res.ID, "/subscriptions/"+sub+"/resourceGroups/") &&
+		return strings.HasPrefix(res.ID, armSubscriptionID(sub)+"/resourceGroups/") &&
 			strings.Contains(res.ID, "/providers/Microsoft.Logic/integrationAccounts/")
 	})
 }
@@ -1116,7 +1115,7 @@ func handleLogicServiceEnvDelete(w http.ResponseWriter, r *http.Request) {
 func handleLogicServiceEnvListBySub(w http.ResponseWriter, r *http.Request) {
 	sub := sim.PathParam(r, "subscriptionId")
 	writeLogicResourceList(w, logicServiceEnvs, func(res LogicResource) bool {
-		return strings.HasPrefix(res.ID, "/subscriptions/"+sub+"/resourceGroups/") &&
+		return strings.HasPrefix(res.ID, armSubscriptionID(sub)+"/resourceGroups/") &&
 			strings.Contains(res.ID, "/providers/Microsoft.Logic/integrationServiceEnvironments/")
 	})
 }

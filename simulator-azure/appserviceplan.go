@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"net/http"
 	"strings"
 
@@ -114,8 +113,7 @@ func registerAppServicePlan(srv *sim.Server) {
 				return
 			}
 
-			resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Web/serverfarms/%s",
-				sub, rg, planName)
+			resourceID := armResourceID(sub, rg, "Microsoft.Web", "serverfarms", planName)
 
 			// A plan placed in an App Service Environment is placed in one
 			// that exists; the resource provider refuses a reference to an
@@ -175,8 +173,7 @@ func registerAppServicePlan(srv *sim.Server) {
 			sub := sim.PathParam(r, "subscriptionId")
 			rg := sim.PathParam(r, "resourceGroupName")
 			planName := sim.PathParam(r, "planName")
-			resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Web/serverfarms/%s",
-				sub, rg, planName)
+			resourceID := armResourceID(sub, rg, "Microsoft.Web", "serverfarms", planName)
 
 			plan, ok := plans.Get(resourceID)
 			if !ok {
@@ -192,8 +189,7 @@ func registerAppServicePlan(srv *sim.Server) {
 			sub := sim.PathParam(r, "subscriptionId")
 			rg := sim.PathParam(r, "resourceGroupName")
 			planName := sim.PathParam(r, "planName")
-			resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Web/serverfarms/%s",
-				sub, rg, planName)
+			resourceID := armResourceID(sub, rg, "Microsoft.Web", "serverfarms", planName)
 
 			plans.Delete(resourceID)
 			// The plan's own networking children go with it: VNet routes and
@@ -215,8 +211,7 @@ func registerAppServicePlan(srv *sim.Server) {
 	srv.HandleFunc("GET "+armBase+"/serverFarms", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
-		prefix := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Web/serverfarms/",
-			sub, rg)
+		prefix := armResourceID(sub, rg, "Microsoft.Web", "serverfarms") + "/"
 		filtered := plans.Filter(func(p AppServicePlan) bool {
 			return strings.HasPrefix(p.ID, prefix)
 		})

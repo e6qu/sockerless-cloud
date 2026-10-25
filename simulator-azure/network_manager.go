@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -189,8 +188,7 @@ func registerNetworkManagerCommits(srv *sim.Server) {
 	base := armBase + "/networkManagers/{networkManagerName}"
 
 	managerID := func(r *http.Request) string {
-		return fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/networkManagers/%s",
-			sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "networkManagerName"))
+		return armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Network", "networkManagers", sim.PathParam(r, "networkManagerName"))
 	}
 
 	srv.HandleFunc("POST "+base+"/commit", func(w http.ResponseWriter, r *http.Request) {

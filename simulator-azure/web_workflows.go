@@ -389,7 +389,7 @@ func webWorkflowRunsList(w http.ResponseWriter, r *http.Request) {
 }
 
 func webWorkflowRunID(r *http.Request) string {
-	return webWorkflowID(r, sim.PathParam(r, "workflowName")) + "/runs/" + sim.PathParam(r, "runName")
+	return armChildID(webWorkflowID(r, sim.PathParam(r, "workflowName")), "runs", sim.PathParam(r, "runName"))
 }
 
 func webWorkflowRunsGet(w http.ResponseWriter, r *http.Request) {

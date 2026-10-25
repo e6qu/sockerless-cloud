@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"net/http"
 
 	"github.com/e6qu/sockerless-cloud/sim"
@@ -22,7 +21,7 @@ func registerSiteConfigReads(srv *sim.Server, armBase string, sites sim.Store[Si
 		rg := sim.PathParam(r, "resourceGroupName")
 		name := sim.PathParam(r, "siteName")
 
-		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Web/sites/%s", sub, rg, name)
+		resourceID := armResourceID(sub, rg, "Microsoft.Web", "sites", name)
 		site, ok := sites.Get(resourceID)
 		if !ok {
 			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
@@ -64,7 +63,7 @@ func registerSiteConfigReads(srv *sim.Server, armBase string, sites sim.Store[Si
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
 		name := sim.PathParam(r, "siteName")
-		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Web/sites/%s", sub, rg, name)
+		resourceID := armResourceID(sub, rg, "Microsoft.Web", "sites", name)
 		site, ok := sites.Get(resourceID)
 		if !ok {
 			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
@@ -98,7 +97,7 @@ func registerSiteConfigReads(srv *sim.Server, armBase string, sites sim.Store[Si
 			sub := sim.PathParam(r, "subscriptionId")
 			rg := sim.PathParam(r, "resourceGroupName")
 			name := sim.PathParam(r, "siteName")
-			resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Web/sites/%s", sub, rg, name)
+			resourceID := armResourceID(sub, rg, "Microsoft.Web", "sites", name)
 			if _, ok := sites.Get(resourceID); !ok {
 				AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 					"The Resource 'Microsoft.Web/sites/%s' under resource group '%s' was not found.", name, rg)
@@ -118,7 +117,7 @@ func registerSiteConfigReads(srv *sim.Server, armBase string, sites sim.Store[Si
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
 		name := sim.PathParam(r, "siteName")
-		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Web/sites/%s", sub, rg, name)
+		resourceID := armResourceID(sub, rg, "Microsoft.Web", "sites", name)
 		if _, ok := sites.Get(resourceID); !ok {
 			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The Resource 'Microsoft.Web/sites/%s' under resource group '%s' was not found.", name, rg)
@@ -150,7 +149,7 @@ func registerSiteConfigReads(srv *sim.Server, armBase string, sites sim.Store[Si
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
 		name := sim.PathParam(r, "siteName")
-		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Web/sites/%s", sub, rg, name)
+		resourceID := armResourceID(sub, rg, "Microsoft.Web", "sites", name)
 		if _, ok := sites.Get(resourceID); !ok {
 			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The Resource 'Microsoft.Web/sites/%s' under resource group '%s' was not found.", name, rg)
@@ -173,7 +172,7 @@ func registerSiteConfigReads(srv *sim.Server, armBase string, sites sim.Store[Si
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
 		name := sim.PathParam(r, "siteName")
-		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Web/sites/%s", sub, rg, name)
+		resourceID := armResourceID(sub, rg, "Microsoft.Web", "sites", name)
 		if _, ok := sites.Get(resourceID); !ok {
 			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The Resource 'Microsoft.Web/sites/%s' under resource group '%s' was not found.", name, rg)
@@ -210,7 +209,7 @@ func registerSiteConfigReads(srv *sim.Server, armBase string, sites sim.Store[Si
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
 		name := sim.PathParam(r, "siteName")
-		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Web/sites/%s", sub, rg, name)
+		resourceID := armResourceID(sub, rg, "Microsoft.Web", "sites", name)
 		site, ok := sites.Get(resourceID)
 		if !ok {
 			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
@@ -285,7 +284,7 @@ func registerSiteConfigHandlers(srv *sim.Server, armBase string, sites sim.Store
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
 		name := sim.PathParam(r, "siteName")
-		return fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Web/sites/%s", sub, rg, name)
+		return armResourceID(sub, rg, "Microsoft.Web", "sites", name)
 	}
 	siteExists := func(resourceID string) bool {
 		_, ok := sites.Get(resourceID)

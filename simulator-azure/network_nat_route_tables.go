@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"net/http"
 	"strings"
 
@@ -33,9 +32,7 @@ func registerNATGatewaysAndRouteTables(srv *sim.Server, armBase string) {
 			AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
 			return
 		}
-		resourceID := fmt.Sprintf(
-			"/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/natGateways/%s",
-			sub, rg, name)
+		resourceID := armResourceID(sub, rg, "Microsoft.Network", "natGateways", name)
 		gw := NatGateway{
 			ID:       resourceID,
 			Name:     name,
@@ -73,9 +70,7 @@ func registerNATGatewaysAndRouteTables(srv *sim.Server, armBase string) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
 		name := sim.PathParam(r, "name")
-		resourceID := fmt.Sprintf(
-			"/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/natGateways/%s",
-			sub, rg, name)
+		resourceID := armResourceID(sub, rg, "Microsoft.Network", "natGateways", name)
 		gw, ok := natGateways.Get(resourceID)
 		if !ok {
 			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
@@ -87,8 +82,7 @@ func registerNATGatewaysAndRouteTables(srv *sim.Server, armBase string) {
 	})
 
 	srv.HandleFunc("GET "+armBase+"/natGateways", func(w http.ResponseWriter, r *http.Request) {
-		prefix := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/natGateways/",
-			sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"))
+		prefix := armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Network", "natGateways") + "/"
 		items := natGateways.Filter(func(gw NatGateway) bool {
 			return strings.HasPrefix(gw.ID, prefix)
 		})
@@ -105,9 +99,7 @@ func registerNATGatewaysAndRouteTables(srv *sim.Server, armBase string) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
 		name := sim.PathParam(r, "name")
-		resourceID := fmt.Sprintf(
-			"/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/natGateways/%s",
-			sub, rg, name)
+		resourceID := armResourceID(sub, rg, "Microsoft.Network", "natGateways", name)
 		natGateways.Delete(resourceID)
 		azureRemoveNATGatewayEgress(resourceID)
 		azureReapplyRoutes()
@@ -123,9 +115,7 @@ func registerNATGatewaysAndRouteTables(srv *sim.Server, armBase string) {
 			AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
 			return
 		}
-		resourceID := fmt.Sprintf(
-			"/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/routeTables/%s",
-			sub, rg, name)
+		resourceID := armResourceID(sub, rg, "Microsoft.Network", "routeTables", name)
 		rt := RouteTable{
 			ID:       resourceID,
 			Name:     name,
@@ -146,9 +136,7 @@ func registerNATGatewaysAndRouteTables(srv *sim.Server, armBase string) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
 		name := sim.PathParam(r, "name")
-		resourceID := fmt.Sprintf(
-			"/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/routeTables/%s",
-			sub, rg, name)
+		resourceID := armResourceID(sub, rg, "Microsoft.Network", "routeTables", name)
 		rt, ok := routeTables.Get(resourceID)
 		if !ok {
 			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
@@ -162,9 +150,7 @@ func registerNATGatewaysAndRouteTables(srv *sim.Server, armBase string) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
 		name := sim.PathParam(r, "name")
-		resourceID := fmt.Sprintf(
-			"/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/routeTables/%s",
-			sub, rg, name)
+		resourceID := armResourceID(sub, rg, "Microsoft.Network", "routeTables", name)
 		routeTables.Delete(resourceID)
 		w.WriteHeader(http.StatusOK)
 	})

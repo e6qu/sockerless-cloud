@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"net/http"
 	"strings"
 
@@ -51,7 +50,7 @@ func registerResourceGroups(srv *sim.Server) {
 			return
 		}
 
-		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s", sub, rgName)
+		resourceID := armResourceGroupID(sub, rgName)
 
 		current, exists := resourceGroups.Get(resourceID)
 		if exists && current.Properties.ProvisioningState == "Deleting" {
@@ -81,7 +80,7 @@ func registerResourceGroups(srv *sim.Server) {
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rgName := sim.PathParam(r, "resourceGroupName")
-		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s", sub, rgName)
+		resourceID := armResourceGroupID(sub, rgName)
 
 		rg, ok := resourceGroups.Get(resourceID)
 		if !ok {
@@ -95,7 +94,7 @@ func registerResourceGroups(srv *sim.Server) {
 	// GET - List resource groups
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
-		prefix := fmt.Sprintf("/subscriptions/%s/resourceGroups/", sub)
+		prefix := armSubscriptionID(sub) + "/resourceGroups/"
 		all := resourceGroups.Filter(func(rg ResourceGroup) bool {
 			return strings.HasPrefix(rg.ID, prefix)
 		})
@@ -143,7 +142,7 @@ func registerResourceGroups(srv *sim.Server) {
 	srv.HandleFunc("HEAD /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rgName := sim.PathParam(r, "resourceGroupName")
-		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s", sub, rgName)
+		resourceID := armResourceGroupID(sub, rgName)
 
 		if _, ok := resourceGroups.Get(resourceID); ok {
 			w.WriteHeader(http.StatusNoContent)

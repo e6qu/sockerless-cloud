@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -27,12 +26,12 @@ func registerWebSites(srv *sim.Server, armBase string, sites sim.Store[Site], fu
 			return
 		}
 
-		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Web/sites/%s", sub, rg, name)
+		resourceID := armResourceID(sub, rg, "Microsoft.Web", "sites", name)
 
 		// The resource provider takes a plan in the site's own resource group
 		// by name, as az functionapp create names it, and records its ID.
 		if plan := req.Properties.ServerFarmID; plan != "" && !strings.Contains(plan, "/") {
-			req.Properties.ServerFarmID = fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Web/serverfarms/%s", sub, rg, plan)
+			req.Properties.ServerFarmID = armResourceID(sub, rg, "Microsoft.Web", "serverfarms", plan)
 		}
 
 		// A site placed in an App Service Environment is placed in one that
@@ -199,7 +198,7 @@ func registerWebSites(srv *sim.Server, armBase string, sites sim.Store[Site], fu
 		rg := sim.PathParam(r, "resourceGroupName")
 		name := sim.PathParam(r, "siteName")
 
-		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Web/sites/%s", sub, rg, name)
+		resourceID := armResourceID(sub, rg, "Microsoft.Web", "sites", name)
 
 		site, ok := sites.Get(resourceID)
 		if !ok {
@@ -215,7 +214,7 @@ func registerWebSites(srv *sim.Server, armBase string, sites sim.Store[Site], fu
 	srv.HandleFunc("GET "+armBase+"/sites", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
-		prefix := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Web/sites/", sub, rg)
+		prefix := armResourceID(sub, rg, "Microsoft.Web", "sites") + "/"
 
 		filtered := sites.Filter(func(s Site) bool {
 			return strings.HasPrefix(s.ID, prefix)
@@ -234,7 +233,7 @@ func registerWebSites(srv *sim.Server, armBase string, sites sim.Store[Site], fu
 		rg := sim.PathParam(r, "resourceGroupName")
 		name := sim.PathParam(r, "siteName")
 
-		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Web/sites/%s", sub, rg, name)
+		resourceID := armResourceID(sub, rg, "Microsoft.Web", "sites", name)
 
 		deleted, existed := sites.Get(resourceID)
 		if sites.Delete(resourceID) {
@@ -267,7 +266,7 @@ func registerWebSites(srv *sim.Server, armBase string, sites sim.Store[Site], fu
 		rg := sim.PathParam(r, "resourceGroupName")
 		name := sim.PathParam(r, "siteName")
 
-		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Web/sites/%s", sub, rg, name)
+		resourceID := armResourceID(sub, rg, "Microsoft.Web", "sites", name)
 
 		site, ok := sites.Get(resourceID)
 		if !ok {
@@ -288,10 +287,9 @@ func registerWebSites(srv *sim.Server, armBase string, sites sim.Store[Site], fu
 		siteName := sim.PathParam(r, "siteName")
 		funcName := sim.PathParam(r, "functionName")
 
-		funcID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Web/sites/%s/functions/%s",
-			sub, rg, siteName, funcName)
+		funcID := armResourceID(sub, rg, "Microsoft.Web", "sites", siteName, "functions", funcName)
 
-		siteID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Web/sites/%s", sub, rg, siteName)
+		siteID := armResourceID(sub, rg, "Microsoft.Web", "sites", siteName)
 		fn, ok := functionConfigs.Get(funcID)
 		if site, isSite := sites.Get(siteID); isSite && !ok {
 			fn, ok = siteFunction(&site, funcName)

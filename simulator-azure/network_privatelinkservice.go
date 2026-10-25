@@ -192,7 +192,7 @@ func provisionPrivateLinkService(ctx context.Context, pls *PrivateLinkService, p
 		if ipcfg.Name == "" {
 			ipcfg.Name = fmt.Sprintf("ipconfig%d", i+1)
 		}
-		ipcfg.ID = azureNetworkChildID(pls.ID, "ipConfigurations", ipcfg.Name)
+		ipcfg.ID = armChildID(pls.ID, "ipConfigurations", ipcfg.Name)
 		ipcfg.Type = "Microsoft.Network/privateLinkServices/ipConfigurations"
 		ipcfg.Etag = azureNetworkEtag()
 		if ipcfg.Properties.PrivateIPAllocationMethod == "" {
@@ -306,11 +306,10 @@ func registerPrivateLinkServiceConnections(srv *sim.Server) {
 	base := armBase + "/privateLinkServices/{serviceName}/privateEndpointConnections"
 
 	serviceID := func(r *http.Request) string {
-		return fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/privateLinkServices/%s",
-			sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "serviceName"))
+		return armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Network", "privateLinkServices", sim.PathParam(r, "serviceName"))
 	}
 	connID := func(r *http.Request) string {
-		return azureNetworkChildID(serviceID(r), "privateEndpointConnections", sim.PathParam(r, "peConnectionName"))
+		return armChildID(serviceID(r), "privateEndpointConnections", sim.PathParam(r, "peConnectionName"))
 	}
 
 	srv.HandleFunc("GET "+base, func(w http.ResponseWriter, r *http.Request) {

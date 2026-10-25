@@ -118,7 +118,7 @@ var kqlPlatformCustomLogTables = map[string][]Column{
 }
 
 func logAnalyticsTableID(workspaceID, table string) string {
-	return workspaceID + "/tables/" + table
+	return armChildID(workspaceID, "tables", table)
 }
 
 // logAnalyticsTableColumns converts engine columns to the Tables API's.
@@ -231,8 +231,7 @@ func logAnalyticsWorkspaceByID(id string) (Workspace, bool) {
 	if !ok {
 		return Workspace{}, false
 	}
-	return azureMonitorWorkspaces.Get(fmt.Sprintf(
-		"/subscriptions/%s/resourceGroups/%s/providers/Microsoft.OperationalInsights/workspaces/%s", sub, rg, name))
+	return azureMonitorWorkspaces.Get(armResourceID(sub, rg, "Microsoft.OperationalInsights", "workspaces", name))
 }
 
 // parseWorkspaceResourceID splits a workspace's ARM id.
@@ -252,8 +251,7 @@ func registerLogAnalyticsTables(srv *sim.Server, armBase string) {
 
 	workspace := func(w http.ResponseWriter, r *http.Request) (Workspace, bool) {
 		sub, rg, name := sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "workspaceName")
-		ws, ok := azureMonitorWorkspaces.Get(fmt.Sprintf(
-			"/subscriptions/%s/resourceGroups/%s/providers/Microsoft.OperationalInsights/workspaces/%s", sub, rg, name))
+		ws, ok := azureMonitorWorkspaces.Get(armResourceID(sub, rg, "Microsoft.OperationalInsights", "workspaces", name))
 		if !ok {
 			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The Resource 'Microsoft.OperationalInsights/workspaces/%s' under resource group '%s' was not found.", name, rg)

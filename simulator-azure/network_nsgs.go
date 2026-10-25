@@ -20,8 +20,7 @@ func registerNetworkSecurityGroups(srv *sim.Server, armBase string, nsgs sim.Sto
 			return
 		}
 
-		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/networkSecurityGroups/%s",
-			sub, rg, nsgName)
+		resourceID := armResourceID(sub, rg, "Microsoft.Network", "networkSecurityGroups", nsgName)
 
 		for _, rule := range req.Properties.SecurityRules {
 			if port := azureInvalidSecurityRulePort(rule.Properties); port != "" {
@@ -58,8 +57,7 @@ func registerNetworkSecurityGroups(srv *sim.Server, armBase string, nsgs sim.Sto
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
 		nsgName := sim.PathParam(r, "nsgName")
-		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/networkSecurityGroups/%s",
-			sub, rg, nsgName)
+		resourceID := armResourceID(sub, rg, "Microsoft.Network", "networkSecurityGroups", nsgName)
 
 		nsg, ok := nsgs.Get(resourceID)
 		if !ok {
@@ -74,8 +72,7 @@ func registerNetworkSecurityGroups(srv *sim.Server, armBase string, nsgs sim.Sto
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
 		nsgName := sim.PathParam(r, "nsgName")
-		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/networkSecurityGroups/%s",
-			sub, rg, nsgName)
+		resourceID := armResourceID(sub, rg, "Microsoft.Network", "networkSecurityGroups", nsgName)
 
 		nsgs.Delete(resourceID)
 		azureReapplyIngress()
@@ -98,9 +95,7 @@ func registerNetworkSecurityGroups(srv *sim.Server, armBase string, nsgs sim.Sto
 			rg := sim.PathParam(r, "resourceGroupName")
 			nsgName := sim.PathParam(r, "nsgName")
 			ruleName := sim.PathParam(r, "ruleName")
-			nsgID := fmt.Sprintf(
-				"/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/networkSecurityGroups/%s",
-				sub, rg, nsgName)
+			nsgID := armResourceID(sub, rg, "Microsoft.Network", "networkSecurityGroups", nsgName)
 			ruleID := fmt.Sprintf("%s/securityRules/%s", nsgID, ruleName)
 
 			nsg, ok := nsgs.Get(nsgID)
@@ -171,9 +166,7 @@ func registerNetworkSecurityGroups(srv *sim.Server, armBase string, nsgs sim.Sto
 			rg := sim.PathParam(r, "resourceGroupName")
 			nsgName := sim.PathParam(r, "nsgName")
 			ruleName := sim.PathParam(r, "ruleName")
-			nsgID := fmt.Sprintf(
-				"/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/networkSecurityGroups/%s",
-				sub, rg, nsgName)
+			nsgID := armResourceID(sub, rg, "Microsoft.Network", "networkSecurityGroups", nsgName)
 
 			nsg, ok := nsgs.Get(nsgID)
 			if !ok {
@@ -198,9 +191,7 @@ func registerNetworkSecurityGroups(srv *sim.Server, armBase string, nsgs sim.Sto
 			rg := sim.PathParam(r, "resourceGroupName")
 			nsgName := sim.PathParam(r, "nsgName")
 			ruleName := sim.PathParam(r, "ruleName")
-			nsgID := fmt.Sprintf(
-				"/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/networkSecurityGroups/%s",
-				sub, rg, nsgName)
+			nsgID := armResourceID(sub, rg, "Microsoft.Network", "networkSecurityGroups", nsgName)
 
 			nsg, ok := nsgs.Get(nsgID)
 			if !ok {
@@ -225,9 +216,7 @@ func registerNetworkSecurityGroups(srv *sim.Server, armBase string, nsgs sim.Sto
 			sub := sim.PathParam(r, "subscriptionId")
 			rg := sim.PathParam(r, "resourceGroupName")
 			nsgName := sim.PathParam(r, "nsgName")
-			nsgID := fmt.Sprintf(
-				"/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/networkSecurityGroups/%s",
-				sub, rg, nsgName)
+			nsgID := armResourceID(sub, rg, "Microsoft.Network", "networkSecurityGroups", nsgName)
 
 			nsg, ok := nsgs.Get(nsgID)
 			if !ok {

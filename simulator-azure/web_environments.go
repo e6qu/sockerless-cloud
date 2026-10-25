@@ -241,13 +241,11 @@ func int32Value(p *int32) int32 {
 // identifiers and lookups
 
 func aseResourceID(r *http.Request) string {
-	return fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Web/hostingEnvironments/%s",
-		sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"))
+	return armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Web", "hostingEnvironments", sim.PathParam(r, "name"))
 }
 
 func kubeResourceID(r *http.Request) string {
-	return fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Web/kubeEnvironments/%s",
-		sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"))
+	return armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Web", "kubeEnvironments", sim.PathParam(r, "name"))
 }
 
 // aseLookup resolves the environment the request addresses, writing ARM's 404
@@ -636,12 +634,11 @@ func registerWebEnvironmentCRUD(srv *sim.Server, ase func(string, string, http.H
 	})
 
 	srv.HandleFunc("GET "+webProvider+"/hostingEnvironments", func(w http.ResponseWriter, r *http.Request) {
-		prefix := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Web/hostingEnvironments/",
-			sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"))
+		prefix := armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Web", "hostingEnvironments") + "/"
 		writeASECollection(w, r, prefix)
 	})
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/providers/Microsoft.Web/hostingEnvironments", func(w http.ResponseWriter, r *http.Request) {
-		writeASECollection(w, r, "/subscriptions/"+sim.PathParam(r, "subscriptionId")+"/")
+		writeASECollection(w, r, armSubscriptionID(sim.PathParam(r, "subscriptionId"))+"/")
 	})
 }
 
@@ -1114,10 +1111,6 @@ func asePoolName(r *http.Request, collection string) string {
 	return sim.PathParam(r, "workerPoolName")
 }
 
-func asePoolID(aseID, collection, name string) string {
-	return aseID + "/" + collection + "/" + name
-}
-
 func asePoolsUnder(aseID, collection string) []WebWorkerPoolResource {
 	prefix := aseID + "/" + collection + "/"
 	pools := webEnvironmentPools.Filter(func(p WebWorkerPoolResource) bool {
@@ -1149,7 +1142,7 @@ func asePoolRead(collection string) http.HandlerFunc {
 			return
 		}
 		name := asePoolName(r, collection)
-		pool, found := webEnvironmentPools.Get(asePoolID(row.ID, collection, name))
+		pool, found := webEnvironmentPools.Get(armChildID(row.ID, collection, name))
 		if !found {
 			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The Resource 'Microsoft.Web/hostingEnvironments/%s/%s/%s' was not found.", row.Name, collection, name)
@@ -1168,7 +1161,7 @@ func asePoolWrite(collection string, merge bool) http.HandlerFunc {
 			return
 		}
 		name := asePoolName(r, collection)
-		id := asePoolID(row.ID, collection, name)
+		id := armChildID(row.ID, collection, name)
 		var req WebWorkerPoolResource
 		if err := sim.ReadJSON(r, &req); err != nil {
 			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
@@ -1252,7 +1245,7 @@ func asePoolSKUs(collection string) http.HandlerFunc {
 			return
 		}
 		name := asePoolName(r, collection)
-		pool, found := webEnvironmentPools.Get(asePoolID(row.ID, collection, name))
+		pool, found := webEnvironmentPools.Get(armChildID(row.ID, collection, name))
 		if !found {
 			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The Resource 'Microsoft.Web/hostingEnvironments/%s/%s/%s' was not found.", row.Name, collection, name)
@@ -1830,12 +1823,11 @@ func registerWebKubeEnvironments(srv *sim.Server) {
 	})
 
 	srv.HandleFunc("GET "+webProvider+"/kubeEnvironments", func(w http.ResponseWriter, r *http.Request) {
-		prefix := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Web/kubeEnvironments/",
-			sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"))
+		prefix := armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Web", "kubeEnvironments") + "/"
 		writeKubeCollection(w, r, prefix)
 	})
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/providers/Microsoft.Web/kubeEnvironments", func(w http.ResponseWriter, r *http.Request) {
-		writeKubeCollection(w, r, "/subscriptions/"+sim.PathParam(r, "subscriptionId")+"/")
+		writeKubeCollection(w, r, armSubscriptionID(sim.PathParam(r, "subscriptionId"))+"/")
 	})
 }
 

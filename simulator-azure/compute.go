@@ -281,7 +281,7 @@ func registerPublicIPAddresses(srv *sim.Server) {
 			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
-		id := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/publicIPAddresses/%s", sub, rg, name)
+		id := armResourceID(sub, rg, "Microsoft.Network", "publicIPAddresses", name)
 		pip := PublicIPAddress{
 			ID:       id,
 			Name:     name,
@@ -331,8 +331,7 @@ func registerPublicIPAddresses(srv *sim.Server) {
 	})
 
 	srv.HandleFunc("GET "+armBase+"/publicIPAddresses/{publicIPName}", func(w http.ResponseWriter, r *http.Request) {
-		id := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/publicIPAddresses/%s",
-			sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "publicIPName"))
+		id := armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Network", "publicIPAddresses", sim.PathParam(r, "publicIPName"))
 		pip, ok := azurePublicIPs.Get(id)
 		if !ok {
 			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "The Resource %q was not found.", id)
@@ -342,8 +341,7 @@ func registerPublicIPAddresses(srv *sim.Server) {
 	})
 
 	srv.HandleFunc("GET "+armBase+"/publicIPAddresses", func(w http.ResponseWriter, r *http.Request) {
-		prefix := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/publicIPAddresses/",
-			sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"))
+		prefix := armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Network", "publicIPAddresses") + "/"
 		items := azurePublicIPs.Filter(func(p PublicIPAddress) bool { return strings.HasPrefix(p.ID, prefix) })
 		if items == nil {
 			items = []PublicIPAddress{}
@@ -352,8 +350,7 @@ func registerPublicIPAddresses(srv *sim.Server) {
 	})
 
 	srv.HandleFunc("DELETE "+armBase+"/publicIPAddresses/{publicIPName}", func(w http.ResponseWriter, r *http.Request) {
-		id := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/publicIPAddresses/%s",
-			sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "publicIPName"))
+		id := armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Network", "publicIPAddresses", sim.PathParam(r, "publicIPName"))
 		if pip, ok := azurePublicIPs.Get(id); ok {
 			ipam.ReleasePublicIPv4(net.ParseIP(pip.Properties.PublicIPAddress))
 		}
@@ -422,8 +419,7 @@ func registerPublicIPPrefixes(srv *sim.Server) {
 	})
 
 	srv.HandleFunc("GET "+armBase+"/publicIPPrefixes", func(w http.ResponseWriter, r *http.Request) {
-		prefixPath := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/publicIPPrefixes/",
-			sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"))
+		prefixPath := armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Network", "publicIPPrefixes") + "/"
 		items := azurePublicIPPrefixes.Filter(func(p PublicIPPrefix) bool { return strings.HasPrefix(p.ID, prefixPath) })
 		if items == nil {
 			items = []PublicIPPrefix{}
@@ -439,7 +435,7 @@ func registerPublicIPPrefixes(srv *sim.Server) {
 }
 
 func azurePublicIPPrefixID(sub, rg, name string) string {
-	return fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/publicIPPrefixes/%s", sub, rg, name)
+	return armResourceID(sub, rg, "Microsoft.Network", "publicIPPrefixes", name)
 }
 
 func azurePublicIPPrefixCIDR(prefixLength int32, index int) string {
@@ -505,8 +501,7 @@ func registerLoadBalancers(srv *sim.Server) {
 	})
 
 	srv.HandleFunc("GET "+armBase+"/loadBalancers", func(w http.ResponseWriter, r *http.Request) {
-		prefix := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/loadBalancers/",
-			sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"))
+		prefix := armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Network", "loadBalancers") + "/"
 		items := azureLBs.Filter(func(lb LoadBalancer) bool { return strings.HasPrefix(lb.ID, prefix) })
 		if items == nil {
 			items = []LoadBalancer{}
@@ -590,7 +585,7 @@ func registerLoadBalancerChild(srv *sim.Server, collection, paramName, resourceT
 }
 
 func azureLoadBalancerID(sub, rg, name string) string {
-	return fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/loadBalancers/%s", sub, rg, name)
+	return armResourceID(sub, rg, "Microsoft.Network", "loadBalancers", name)
 }
 
 func normalizeLoadBalancerChildren(lbID, collection, resourceType string, children []LoadBalancerChild) []LoadBalancerChild {
@@ -1083,7 +1078,7 @@ func registerNetworkInterfaces(srv *sim.Server) {
 			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
-		id := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/networkInterfaces/%s", sub, rg, name)
+		id := armResourceID(sub, rg, "Microsoft.Network", "networkInterfaces", name)
 		nic := NetworkInterface{
 			ID:         id,
 			Name:       name,
@@ -1140,8 +1135,7 @@ func registerNetworkInterfaces(srv *sim.Server) {
 	})
 
 	srv.HandleFunc("GET "+armBase+"/networkInterfaces/{networkInterfaceName}", func(w http.ResponseWriter, r *http.Request) {
-		id := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/networkInterfaces/%s",
-			sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "networkInterfaceName"))
+		id := armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Network", "networkInterfaces", sim.PathParam(r, "networkInterfaceName"))
 		nic, ok := azureNICs.Get(id)
 		if !ok {
 			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "The Resource %q was not found.", id)
@@ -1151,8 +1145,7 @@ func registerNetworkInterfaces(srv *sim.Server) {
 	})
 
 	srv.HandleFunc("GET "+armBase+"/networkInterfaces", func(w http.ResponseWriter, r *http.Request) {
-		prefix := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/networkInterfaces/",
-			sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"))
+		prefix := armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Network", "networkInterfaces") + "/"
 		items := azureNICs.Filter(func(n NetworkInterface) bool { return strings.HasPrefix(n.ID, prefix) })
 		if items == nil {
 			items = []NetworkInterface{}
@@ -1161,8 +1154,7 @@ func registerNetworkInterfaces(srv *sim.Server) {
 	})
 
 	srv.HandleFunc("DELETE "+armBase+"/networkInterfaces/{networkInterfaceName}", func(w http.ResponseWriter, r *http.Request) {
-		id := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/networkInterfaces/%s",
-			sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "networkInterfaceName"))
+		id := armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Network", "networkInterfaces", sim.PathParam(r, "networkInterfaceName"))
 		if nic, ok := azureNICs.Get(id); ok {
 			azureReleaseNICAddresses(nic)
 		}
@@ -1194,7 +1186,7 @@ func registerVirtualMachines(srv *sim.Server) {
 			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
-		id := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Compute/virtualMachines/%s", sub, rg, name)
+		id := armResourceID(sub, rg, "Microsoft.Compute", "virtualMachines", name)
 		vm := VirtualMachine{
 			ID:         id,
 			Name:       name,
@@ -1294,8 +1286,7 @@ func registerVirtualMachines(srv *sim.Server) {
 	// update all send — leave the machine's hardware, storage, OS, and network
 	// profiles alone.
 	srv.HandleFunc("PATCH "+armBase+"/virtualMachines/{vmName}", func(w http.ResponseWriter, r *http.Request) {
-		id := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Compute/virtualMachines/%s",
-			sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "vmName"))
+		id := armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Compute", "virtualMachines", sim.PathParam(r, "vmName"))
 		var patch struct {
 			Tags       map[string]string `json:"tags"`
 			Identity   *SiteIdentity     `json:"identity"`
@@ -1352,8 +1343,7 @@ func registerVirtualMachines(srv *sim.Server) {
 	})
 
 	srv.HandleFunc("GET "+armBase+"/virtualMachines/{vmName}", func(w http.ResponseWriter, r *http.Request) {
-		id := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Compute/virtualMachines/%s",
-			sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "vmName"))
+		id := armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Compute", "virtualMachines", sim.PathParam(r, "vmName"))
 		vm, ok := azureVMs.Get(id)
 		if !ok {
 			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "The Resource %q was not found.", id)
@@ -1366,8 +1356,7 @@ func registerVirtualMachines(srv *sim.Server) {
 	})
 
 	srv.HandleFunc("GET "+armBase+"/virtualMachines/{vmName}/instanceView", func(w http.ResponseWriter, r *http.Request) {
-		id := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Compute/virtualMachines/%s",
-			sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "vmName"))
+		id := armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Compute", "virtualMachines", sim.PathParam(r, "vmName"))
 		vm, ok := azureVMs.Get(id)
 		if !ok {
 			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "The Resource %q was not found.", id)
@@ -1377,8 +1366,7 @@ func registerVirtualMachines(srv *sim.Server) {
 	})
 
 	srv.HandleFunc("GET "+armBase+"/virtualMachines", func(w http.ResponseWriter, r *http.Request) {
-		prefix := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Compute/virtualMachines/",
-			sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"))
+		prefix := armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Compute", "virtualMachines") + "/"
 		items := azureVMs.Filter(func(vm VirtualMachine) bool { return strings.HasPrefix(vm.ID, prefix) })
 		if items == nil {
 			items = []VirtualMachine{}
@@ -1396,7 +1384,7 @@ func registerVirtualMachines(srv *sim.Server) {
 	// continuation token address the same machine on every page request.
 	// `statusOnly=true` asks for the instance view rather than the model view.
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/providers/Microsoft.Compute/virtualMachines", func(w http.ResponseWriter, r *http.Request) {
-		prefix := fmt.Sprintf("/subscriptions/%s/", sim.PathParam(r, "subscriptionId"))
+		prefix := armSubscriptionID(sim.PathParam(r, "subscriptionId")) + "/"
 		all := azureVMs.Filter(func(vm VirtualMachine) bool { return strings.HasPrefix(vm.ID, prefix) })
 		statusOnly := strings.EqualFold(r.URL.Query().Get("statusOnly"), "true")
 		for i := range all {
@@ -1416,8 +1404,7 @@ func registerVirtualMachines(srv *sim.Server) {
 	})
 
 	srv.HandleFunc("DELETE "+armBase+"/virtualMachines/{vmName}", func(w http.ResponseWriter, r *http.Request) {
-		id := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Compute/virtualMachines/%s",
-			sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "vmName"))
+		id := armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Compute", "virtualMachines", sim.PathParam(r, "vmName"))
 		vm, ok := azureVMs.Get(id)
 		if !ok {
 			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "The Resource %q was not found.", id)

@@ -172,8 +172,7 @@ func registerWebSlotCRUD(srv *sim.Server) {
 
 	// GET /slots — list a site's deployment slots.
 	srv.HandleFunc("GET "+base+"/slots", func(w http.ResponseWriter, r *http.Request) {
-		siteID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Web/sites/%s",
-			sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "siteName"))
+		siteID := armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Web", "sites", sim.PathParam(r, "siteName"))
 		if _, ok := azfSites.Get(siteID); !ok {
 			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The Resource 'Microsoft.Web/sites/%s' was not found.", sim.PathParam(r, "siteName"))
@@ -196,8 +195,7 @@ func registerWebSlotCRUD(srv *sim.Server) {
 	// PUT /slots/{slot} — create or update a slot. The parent production site
 	// must exist (real Azure requires it).
 	srv.HandleFunc("PUT "+base+"/slots/{slot}", func(w http.ResponseWriter, r *http.Request) {
-		siteID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Web/sites/%s",
-			sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "siteName"))
+		siteID := armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Web", "sites", sim.PathParam(r, "siteName"))
 		parent, ok := azfSites.Get(siteID)
 		if !ok {
 			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
@@ -339,13 +337,12 @@ func registerWebSlotCRUD(srv *sim.Server) {
 
 func registerAppServicePlanMore(srv *sim.Server) {
 	planID := func(r *http.Request) string {
-		return fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Web/serverfarms/%s",
-			sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "planName"))
+		return armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Web", "serverfarms", sim.PathParam(r, "planName"))
 	}
 
 	// GET serverfarms (list by subscription).
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/providers/Microsoft.Web/serverfarms", func(w http.ResponseWriter, r *http.Request) {
-		prefix := "/subscriptions/" + sim.PathParam(r, "subscriptionId") + "/"
+		prefix := armSubscriptionID(sim.PathParam(r, "subscriptionId")) + "/"
 		out := azureAppServicePlans.Filter(func(p AppServicePlan) bool { return strings.HasPrefix(p.ID, prefix) })
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"value": out})
 	})
@@ -353,8 +350,7 @@ func registerAppServicePlanMore(srv *sim.Server) {
 	// GET serverfarms (list by resource group) — lowercase spelling the
 	// SDK's ListByResourceGroup pager sends.
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Web/serverfarms", func(w http.ResponseWriter, r *http.Request) {
-		prefix := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Web/serverfarms/",
-			sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"))
+		prefix := armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Web", "serverfarms") + "/"
 		out := azureAppServicePlans.Filter(func(p AppServicePlan) bool { return strings.HasPrefix(p.ID, prefix) })
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"value": out})
 	})
@@ -432,7 +428,7 @@ func registerAppServicePlanMore(srv *sim.Server) {
 func registerWebGlobal(srv *sim.Server) {
 	// GET sites (list by subscription).
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/providers/Microsoft.Web/sites", func(w http.ResponseWriter, r *http.Request) {
-		prefix := "/subscriptions/" + sim.PathParam(r, "subscriptionId") + "/"
+		prefix := armSubscriptionID(sim.PathParam(r, "subscriptionId")) + "/"
 		out := azfSites.Filter(func(s Site) bool { return strings.HasPrefix(s.ID, prefix) })
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"value": out})
 	})
@@ -453,7 +449,7 @@ func registerWebGlobal(srv *sim.Server) {
 	// resources it holds, so they are reported both in full and in the
 	// name-and-location form.
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/providers/Microsoft.Web/deploymentLocations", func(w http.ResponseWriter, r *http.Request) {
-		prefix := "/subscriptions/" + sim.PathParam(r, "subscriptionId") + "/"
+		prefix := armSubscriptionID(sim.PathParam(r, "subscriptionId")) + "/"
 		environments := webHostingEnvironments.Filter(func(a AppServiceEnvironmentResource) bool {
 			return strings.HasPrefix(strings.ToLower(a.ID), strings.ToLower(prefix))
 		})

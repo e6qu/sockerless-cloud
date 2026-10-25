@@ -56,8 +56,7 @@ type ManagedHSMProperties struct {
 var managedHSMs sim.Store[ManagedHSM]
 
 func managedHSMID(sub, rg, name string) string {
-	return fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.KeyVault/managedHSMs/%s",
-		sub, rg, name)
+	return armResourceID(sub, rg, "Microsoft.KeyVault", "managedHSMs", name)
 }
 
 func registerKeyVaultManagedHSM(srv *sim.Server) {
@@ -181,7 +180,7 @@ func registerKeyVaultManagedHSM(srv *sim.Server) {
 	// Azure answers and what a client enumerating the provider's resources
 	// needs in order to tell "none" from "no such route".
 	list := func(w http.ResponseWriter, r *http.Request) {
-		prefix := fmt.Sprintf("/subscriptions/%s/", sim.PathParam(r, "subscriptionId"))
+		prefix := armSubscriptionID(sim.PathParam(r, "subscriptionId")) + "/"
 		if rg := sim.PathParam(r, "resourceGroupName"); rg != "" {
 			prefix = managedHSMID(sim.PathParam(r, "subscriptionId"), rg, "")
 		}

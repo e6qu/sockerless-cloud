@@ -598,7 +598,7 @@ func deletedSiteWire(row WebDeletedSiteRow) map[string]any {
 		props["geoRegionName"] = row.GeoRegionName
 	}
 	out := map[string]any{
-		"id":         fmt.Sprintf("/subscriptions/%s/providers/Microsoft.Web/deletedSites/%d", row.Subscription, row.DeletedSiteID),
+		"id":         armSubscriptionResourceID(row.Subscription, "Microsoft.Web", "deletedSites", strconv.Itoa(int(row.DeletedSiteID))),
 		"name":       strconv.Itoa(int(row.DeletedSiteID)),
 		"type":       "Microsoft.Web/deletedSites",
 		"properties": props,

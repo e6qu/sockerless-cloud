@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -17,7 +16,7 @@ func registerStorageAccountKeysAndList(srv *sim.Server, armBase string, storageA
 		rg := sim.PathParam(r, "resourceGroupName")
 		name := sim.PathParam(r, "accountName")
 
-		acctID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Storage/storageAccounts/%s", sub, rg, name)
+		acctID := armResourceID(sub, rg, "Microsoft.Storage", "storageAccounts", name)
 		if _, ok := storageAccounts.Get(acctID); !ok {
 			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The Resource 'Microsoft.Storage/storageAccounts/%s' under resource group '%s' was not found.", name, rg)
@@ -57,7 +56,7 @@ func registerStorageAccountCRUD(srv *sim.Server, armBase string, storageAccounts
 			return
 		}
 
-		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Storage/storageAccounts/%s", sub, rg, name)
+		resourceID := armResourceID(sub, rg, "Microsoft.Storage", "storageAccounts", name)
 
 		kind := req.Kind
 		if kind == "" {
@@ -124,7 +123,7 @@ func registerStorageAccountCRUD(srv *sim.Server, armBase string, storageAccounts
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
 		name := sim.PathParam(r, "accountName")
-		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Storage/storageAccounts/%s", sub, rg, name)
+		resourceID := armResourceID(sub, rg, "Microsoft.Storage", "storageAccounts", name)
 
 		var req struct {
 			Sku        *StorageSku        `json:"sku,omitempty"`
@@ -208,7 +207,7 @@ func registerStorageAccountCRUD(srv *sim.Server, armBase string, storageAccounts
 		rg := sim.PathParam(r, "resourceGroupName")
 		name := sim.PathParam(r, "accountName")
 
-		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Storage/storageAccounts/%s", sub, rg, name)
+		resourceID := armResourceID(sub, rg, "Microsoft.Storage", "storageAccounts", name)
 
 		acct, ok := storageAccounts.Get(resourceID)
 		if !ok {
@@ -226,7 +225,7 @@ func registerStorageAccountCRUD(srv *sim.Server, armBase string, storageAccounts
 		rg := sim.PathParam(r, "resourceGroupName")
 		name := sim.PathParam(r, "accountName")
 
-		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Storage/storageAccounts/%s", sub, rg, name)
+		resourceID := armResourceID(sub, rg, "Microsoft.Storage", "storageAccounts", name)
 
 		if storageAccounts.Delete(resourceID) {
 			storageDropAccountKeyGens(resourceID)

@@ -326,7 +326,7 @@ func handleAPIMListNamedValues(w http.ResponseWriter, r *http.Request) {
 }
 
 func apimServiceID(sub, rg, name string) string {
-	return fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.ApiManagement/service/%s", sub, rg, name)
+	return armResourceID(sub, rg, "Microsoft.ApiManagement", "service", name)
 }
 
 func handleAPIMCreateService(w http.ResponseWriter, r *http.Request) {
@@ -451,7 +451,7 @@ func handleAPIMGetDeletedService(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
-		"id":       fmt.Sprintf("/subscriptions/%s/providers/Microsoft.ApiManagement/locations/%s/deletedServices/%s", sub, location, name),
+		"id":       armSubscriptionResourceID(sub, "Microsoft.ApiManagement", "locations", location, "deletedServices", name),
 		"name":     name,
 		"location": location,
 		"type":     "Microsoft.ApiManagement/deletedservices",
@@ -472,8 +472,7 @@ func handleAPIMPurgeDeletedService(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleAPIMListServicesByRG(w http.ResponseWriter, r *http.Request) {
-	prefix := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.ApiManagement/service/",
-		sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"))
+	prefix := armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.ApiManagement", "service") + "/"
 	var all []APIMService
 	for _, s := range apimServices.List() {
 		if strings.HasPrefix(s.ID, prefix) {

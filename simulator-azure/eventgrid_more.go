@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"maps"
 	"net/http"
 	"strings"
@@ -305,9 +304,9 @@ func eventGridListSubsFiltered(w http.ResponseWriter, keep func(EventGridEventSu
 }
 
 func eventGridSubInScope(es EventGridEventSubscription, sub, rg string) bool {
-	prefix := "/subscriptions/" + sub + "/"
+	prefix := armSubscriptionID(sub) + "/"
 	if rg != "" {
-		prefix = "/subscriptions/" + sub + "/resourceGroups/" + rg + "/"
+		prefix = armResourceGroupID(sub, rg) + "/"
 	}
 	return strings.HasPrefix(strings.ToLower(es.ID), strings.ToLower(prefix))
 }
@@ -346,9 +345,7 @@ func handleEventGridListSubsForTopicType(w http.ResponseWriter, r *http.Request)
 }
 
 func handleEventGridListSubsByResource(w http.ResponseWriter, r *http.Request) {
-	resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/%s/%s/%s",
-		sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"),
-		sim.PathParam(r, "providerNamespace"), sim.PathParam(r, "resourceTypeName"), sim.PathParam(r, "resourceName"))
+	resourceID := armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "providerNamespace"), sim.PathParam(r, "resourceTypeName"), sim.PathParam(r, "resourceName"))
 	eventGridListSubsFiltered(w, func(es EventGridEventSubscription) bool {
 		if topic, _ := es.Properties["topic"].(string); strings.EqualFold(topic, resourceID) {
 			return true
@@ -406,7 +403,7 @@ func eventGridParentExists(r *http.Request) (string, bool) {
 	rg := sim.PathParam(r, "resourceGroupName")
 	parentType := sim.PathParam(r, "parentType")
 	parentName := sim.PathParam(r, "parentName")
-	id := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.EventGrid/%s/%s", sub, rg, parentType, parentName)
+	id := armResourceID(sub, rg, "Microsoft.EventGrid", parentType, parentName)
 	switch strings.ToLower(parentType) {
 	case "topics":
 		_, ok := eventGridTopics.Get(id)
@@ -476,9 +473,7 @@ func handleEventGridGetPrivateLinkResource(w http.ResponseWriter, r *http.Reques
 }
 
 func eventGridPrivateEndpointConnectionID(r *http.Request) (parentID, id string) {
-	parentID = fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.EventGrid/%s/%s",
-		sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"),
-		sim.PathParam(r, "parentType"), sim.PathParam(r, "parentName"))
+	parentID = armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.EventGrid", sim.PathParam(r, "parentType"), sim.PathParam(r, "parentName"))
 	return parentID, parentID + "/privateEndpointConnections/" + sim.PathParam(r, "privateEndpointConnectionName")
 }
 

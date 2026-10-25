@@ -207,7 +207,7 @@ func provisionPrivateEndpoint(ctx context.Context, pe *PrivateEndpoint, previous
 			if conn.Name == "" {
 				conn.Name = pe.Name
 			}
-			conn.ID = azureNetworkChildID(pe.ID, "privateLinkServiceConnections", conn.Name)
+			conn.ID = armChildID(pe.ID, "privateLinkServiceConnections", conn.Name)
 			conn.Type = "Microsoft.Network/privateEndpoints/privateLinkServiceConnections"
 			conn.Etag = azureNetworkEtag()
 			conn.Properties.ProvisioningState = "Succeeded"
@@ -576,7 +576,7 @@ func privateLinkTargetFor(resourceID string) (azurePrivateLinkTarget, bool) {
 // privateEndpointConnectionID is the ARM id of the connection on the target
 // resource. Azure names it after the private endpoint that opened it.
 func privateEndpointConnectionID(conn PrivateLinkServiceConnection, endpointName string) string {
-	return conn.Properties.PrivateLinkServiceID + "/privateEndpointConnections/" + endpointName
+	return armChildID(conn.Properties.PrivateLinkServiceID, "privateEndpointConnections", endpointName)
 }
 
 // openPrivateEndpointConnection writes the connection into the target's own
@@ -711,9 +711,8 @@ func registerAvailablePrivateEndpointTypes(srv *sim.Server) {
 		for _, target := range azurePrivateLinkTargets {
 			resourceName := target.armType
 			out = append(out, map[string]any{
-				"name": resourceName,
-				"id": fmt.Sprintf("/subscriptions/%s/providers/Microsoft.Network/availablePrivateEndpointTypes/%s",
-					sub, resourceName),
+				"name":         resourceName,
+				"id":           armSubscriptionResourceID(sub, "Microsoft.Network", "availablePrivateEndpointTypes", resourceName),
 				"type":         "Microsoft.Network/availablePrivateEndpointTypes",
 				"resourceName": resourceName,
 				"displayName":  resourceName,

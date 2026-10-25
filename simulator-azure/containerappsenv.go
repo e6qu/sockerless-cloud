@@ -232,8 +232,7 @@ func registerContainerAppEnvironment(srv *sim.Server) {
 			return
 		}
 
-		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.App/managedEnvironments/%s",
-			sub, rg, envName)
+		resourceID := armResourceID(sub, rg, "Microsoft.App", "managedEnvironments", envName)
 
 		// An environment on a virtual network's infrastructure subnet joins
 		// the engine network of the prefix that subnet lies in; any other
@@ -288,8 +287,7 @@ func registerContainerAppEnvironment(srv *sim.Server) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
 		envName := sim.PathParam(r, "envName")
-		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.App/managedEnvironments/%s",
-			sub, rg, envName)
+		resourceID := armResourceID(sub, rg, "Microsoft.App", "managedEnvironments", envName)
 
 		env, ok := environments.Get(resourceID)
 		if !ok {
@@ -307,8 +305,7 @@ func registerContainerAppEnvironment(srv *sim.Server) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
 		envName := sim.PathParam(r, "envName")
-		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.App/managedEnvironments/%s",
-			sub, rg, envName)
+		resourceID := armResourceID(sub, rg, "Microsoft.App", "managedEnvironments", envName)
 
 		env, ok := environments.Get(resourceID)
 		if !ok {
@@ -349,8 +346,7 @@ func registerContainerAppEnvironment(srv *sim.Server) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
 		envName := sim.PathParam(r, "envName")
-		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.App/managedEnvironments/%s",
-			sub, rg, envName)
+		resourceID := armResourceID(sub, rg, "Microsoft.App", "managedEnvironments", envName)
 		env, ok := environments.Get(resourceID)
 		if !ok {
 			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
@@ -384,8 +380,7 @@ func registerContainerAppEnvironment(srv *sim.Server) {
 	srv.HandleFunc("GET "+armBase+"/managedEnvironments", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
-		prefix := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.App/managedEnvironments/",
-			sub, rg)
+		prefix := armResourceID(sub, rg, "Microsoft.App", "managedEnvironments") + "/"
 		filtered := environments.Filter(func(e ContainerAppEnvironment) bool {
 			return strings.HasPrefix(e.ID, prefix)
 		})
@@ -399,7 +394,7 @@ func registerContainerAppEnvironment(srv *sim.Server) {
 	// GET - List managed environments by subscription.
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/providers/Microsoft.App/managedEnvironments", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
-		prefix := fmt.Sprintf("/subscriptions/%s/", sub)
+		prefix := armSubscriptionID(sub) + "/"
 		filtered := environments.Filter(func(e ContainerAppEnvironment) bool {
 			return strings.HasPrefix(e.ID, prefix) && strings.Contains(e.ID, "/providers/Microsoft.App/managedEnvironments/")
 		})
@@ -417,8 +412,7 @@ func registerContainerAppEnvironment(srv *sim.Server) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
 		envName := sim.PathParam(r, "envName")
-		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.App/managedEnvironments/%s",
-			sub, rg, envName)
+		resourceID := armResourceID(sub, rg, "Microsoft.App", "managedEnvironments", envName)
 		env, ok := environments.Get(resourceID)
 		if !ok {
 			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
@@ -445,8 +439,7 @@ func registerContainerAppEnvironment(srv *sim.Server) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
 		envName := sim.PathParam(r, "envName")
-		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.App/managedEnvironments/%s",
-			sub, rg, envName)
+		resourceID := armResourceID(sub, rg, "Microsoft.App", "managedEnvironments", envName)
 		if _, ok := environments.Get(resourceID); !ok {
 			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"Managed environment '%s' not found.", envName)
@@ -479,8 +472,7 @@ func registerContainerAppEnvironment(srv *sim.Server) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
 		envName := sim.PathParam(r, "envName")
-		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.App/managedEnvironments/%s",
-			sub, rg, envName)
+		resourceID := armResourceID(sub, rg, "Microsoft.App", "managedEnvironments", envName)
 		env, ok := environments.Get(resourceID)
 		if !ok {
 			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
@@ -549,8 +541,7 @@ func registerContainerAppEnvironmentStorages(srv *sim.Server, envs sim.Store[Con
 		envName := sim.PathParam(r, "envName")
 		storageName := sim.PathParam(r, "storageName")
 
-		envID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.App/managedEnvironments/%s",
-			sub, rg, envName)
+		envID := armResourceID(sub, rg, "Microsoft.App", "managedEnvironments", envName)
 		if _, ok := envs.Get(envID); !ok {
 			AzureError(w, "ParentResourceNotFound", "Managed environment not found: "+envID, http.StatusNotFound)
 			return
@@ -577,8 +568,7 @@ func registerContainerAppEnvironmentStorages(srv *sim.Server, envs sim.Store[Con
 		rg := sim.PathParam(r, "resourceGroupName")
 		envName := sim.PathParam(r, "envName")
 		storageName := sim.PathParam(r, "storageName")
-		id := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.App/managedEnvironments/%s/storages/%s",
-			sub, rg, envName, storageName)
+		id := armResourceID(sub, rg, "Microsoft.App", "managedEnvironments", envName, "storages", storageName)
 		storage, ok := acaEnvStorages.Get(id)
 		if !ok {
 			AzureError(w, "ResourceNotFound", "Storage not found: "+id, http.StatusNotFound)
@@ -592,8 +582,7 @@ func registerContainerAppEnvironmentStorages(srv *sim.Server, envs sim.Store[Con
 		rg := sim.PathParam(r, "resourceGroupName")
 		envName := sim.PathParam(r, "envName")
 		storageName := sim.PathParam(r, "storageName")
-		id := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.App/managedEnvironments/%s/storages/%s",
-			sub, rg, envName, storageName)
+		id := armResourceID(sub, rg, "Microsoft.App", "managedEnvironments", envName, "storages", storageName)
 		acaEnvStorages.Delete(id)
 		w.WriteHeader(http.StatusNoContent)
 	})
@@ -602,8 +591,7 @@ func registerContainerAppEnvironmentStorages(srv *sim.Server, envs sim.Store[Con
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
 		envName := sim.PathParam(r, "envName")
-		prefix := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.App/managedEnvironments/%s/storages/",
-			sub, rg, envName)
+		prefix := armResourceID(sub, rg, "Microsoft.App", "managedEnvironments", envName, "storages") + "/"
 		filtered := acaEnvStorages.Filter(func(s ManagedEnvironmentStorage) bool {
 			return strings.HasPrefix(s.ID, prefix)
 		})
@@ -640,8 +628,7 @@ func registerContainerAppEnvironmentCertificates(srv *sim.Server, envs sim.Store
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
 		envName := sim.PathParam(r, "envName")
-		envID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.App/managedEnvironments/%s",
-			sub, rg, envName)
+		envID := armResourceID(sub, rg, "Microsoft.App", "managedEnvironments", envName)
 		if _, ok := envs.Get(envID); !ok {
 			AzureError(w, "ParentResourceNotFound", "Managed environment not found: "+envID, http.StatusNotFound)
 			return "", false

@@ -194,7 +194,7 @@ func handleSubscriptionAcceptOwnership(w http.ResponseWriter, r *http.Request) {
 	})
 	azureSubscriptionOperations.Put(opID, SubscriptionOperationRecord{
 		ID:               opID,
-		SubscriptionLink: "/subscriptions/" + sub,
+		SubscriptionLink: armSubscriptionID(sub),
 	})
 
 	w.Header().Set("Location", subscriptionOperationURL(r, opID))

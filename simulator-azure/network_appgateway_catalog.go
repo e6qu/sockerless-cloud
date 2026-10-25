@@ -194,10 +194,10 @@ func registerApplicationGatewayCatalogs(srv *sim.Server) {
 		sub := sim.PathParam(r, "subscriptionId")
 		policies := make([]SubResource, 0, len(applicationGatewaySslPredefinedPolicies))
 		for _, policy := range applicationGatewaySslPredefinedPolicies {
-			policies = append(policies, SubResource{ID: applicationGatewayPredefinedPolicyID(sub, policy.name)})
+			policies = append(policies, SubResource{ID: armChildID(armSubscriptionResourceID(sub, "Microsoft.Network", "applicationGatewayAvailableSslOptions", "default"), "predefinedPolicies", policy.name)})
 		}
 		sim.WriteJSON(w, http.StatusOK, map[string]any{
-			"id":   applicationGatewaySslOptionsID(sub),
+			"id":   armSubscriptionResourceID(sub, "Microsoft.Network", "applicationGatewayAvailableSslOptions", "default"),
 			"name": "default",
 			"type": "Microsoft.Network/applicationGatewayAvailableSslOptions",
 			"properties": map[string]any{
@@ -231,17 +231,9 @@ func registerApplicationGatewayCatalogs(srv *sim.Server) {
 	})
 }
 
-func applicationGatewaySslOptionsID(subscription string) string {
-	return "/subscriptions/" + subscription + "/providers/Microsoft.Network/applicationGatewayAvailableSslOptions/default"
-}
-
-func applicationGatewayPredefinedPolicyID(subscription, name string) string {
-	return applicationGatewaySslOptionsID(subscription) + "/predefinedPolicies/" + name
-}
-
 func applicationGatewayPredefinedPolicyBody(subscription string, policy applicationGatewaySslPredefinedPolicy) map[string]any {
 	return map[string]any{
-		"id":   applicationGatewayPredefinedPolicyID(subscription, policy.name),
+		"id":   armChildID(armSubscriptionResourceID(subscription, "Microsoft.Network", "applicationGatewayAvailableSslOptions", "default"), "predefinedPolicies", policy.name),
 		"name": policy.name,
 		"properties": map[string]any{
 			"cipherSuites":       policy.cipherSuites,

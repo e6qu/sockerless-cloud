@@ -459,7 +459,7 @@ func roleAssignmentJSON(ra RoleAssignment) map[string]any {
 // roleDefinitions response shape.
 func roleDefinitionJSON(sub string, d builtinRoleDef) map[string]any {
 	return map[string]any{
-		"id":   fmt.Sprintf("/subscriptions/%s/providers/Microsoft.Authorization/roleDefinitions/%s", sub, d.ID),
+		"id":   armSubscriptionResourceID(sub, "Microsoft.Authorization", "roleDefinitions", d.ID),
 		"name": d.ID,
 		"type": "Microsoft.Authorization/roleDefinitions",
 		"properties": map[string]any{
@@ -530,10 +530,10 @@ func registerAuthorization(srv *sim.Server) {
 	// (a fixed suffix after an arbitrary-length scope prefix). Both entry points
 	// share the same do* handler logic.
 	subRAItem := func(w http.ResponseWriter, r *http.Request) {
-		rbacDispatchRoleAssignmentItem(w, r, "/subscriptions/"+sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "roleAssignmentName"))
+		rbacDispatchRoleAssignmentItem(w, r, armSubscriptionID(sim.PathParam(r, "subscriptionId")), sim.PathParam(r, "roleAssignmentName"))
 	}
 	rgRAItem := func(w http.ResponseWriter, r *http.Request) {
-		scope := "/subscriptions/" + sim.PathParam(r, "subscriptionId") + "/resourceGroups/" + sim.PathParam(r, "resourceGroupName")
+		scope := armResourceGroupID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"))
 		rbacDispatchRoleAssignmentItem(w, r, scope, sim.PathParam(r, "roleAssignmentName"))
 	}
 	const subRA = "/subscriptions/{subscriptionId}/providers/Microsoft.Authorization/roleAssignments"
@@ -542,13 +542,13 @@ func registerAuthorization(srv *sim.Server) {
 	srv.HandleFunc("GET "+subRA+"/{roleAssignmentName}", subRAItem)
 	srv.HandleFunc("DELETE "+subRA+"/{roleAssignmentName}", subRAItem)
 	srv.HandleFunc("GET "+subRA, func(w http.ResponseWriter, r *http.Request) {
-		doRoleAssignmentList(w, r, "/subscriptions/"+sim.PathParam(r, "subscriptionId"))
+		doRoleAssignmentList(w, r, armSubscriptionID(sim.PathParam(r, "subscriptionId")))
 	})
 	srv.HandleFunc("PUT "+rgRA+"/{roleAssignmentName}", rgRAItem)
 	srv.HandleFunc("GET "+rgRA+"/{roleAssignmentName}", rgRAItem)
 	srv.HandleFunc("DELETE "+rgRA+"/{roleAssignmentName}", rgRAItem)
 	srv.HandleFunc("GET "+rgRA, func(w http.ResponseWriter, r *http.Request) {
-		scope := "/subscriptions/" + sim.PathParam(r, "subscriptionId") + "/resourceGroups/" + sim.PathParam(r, "resourceGroupName")
+		scope := armResourceGroupID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"))
 		doRoleAssignmentList(w, r, scope)
 	})
 
@@ -563,17 +563,14 @@ func registerAuthorization(srv *sim.Server) {
 	// stores the RBAC routes above maintain.
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Authorization/permissions",
 		func(w http.ResponseWriter, r *http.Request) {
-			scope := "/subscriptions/" + sim.PathParam(r, "subscriptionId") + "/resourceGroups/" + sim.PathParam(r, "resourceGroupName")
+			scope := armResourceGroupID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"))
 			handlePermissionsList(w, r, scope)
 		})
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/{resourceProviderNamespace}/{parentResourcePath}/{resourceType}/{resourceName}/providers/Microsoft.Authorization/permissions",
 		func(w http.ResponseWriter, r *http.Request) {
-			scope := "/subscriptions/" + sim.PathParam(r, "subscriptionId") +
-				"/resourceGroups/" + sim.PathParam(r, "resourceGroupName") +
-				"/providers/" + sim.PathParam(r, "resourceProviderNamespace") +
-				"/" + sim.PathParam(r, "parentResourcePath") +
-				"/" + sim.PathParam(r, "resourceType") +
-				"/" + sim.PathParam(r, "resourceName")
+			scope := armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"),
+				sim.PathParam(r, "resourceProviderNamespace"), sim.PathParam(r, "parentResourcePath"),
+				sim.PathParam(r, "resourceType"), sim.PathParam(r, "resourceName"))
 			handlePermissionsList(w, r, scope)
 		})
 
@@ -852,7 +849,7 @@ func handleRoleDefinitionPut(w http.ResponseWriter, r *http.Request) {
 	if t, _ := props["type"].(string); t == "" {
 		props["type"] = "CustomRole"
 	}
-	id := fmt.Sprintf("/subscriptions/%s/providers/Microsoft.Authorization/roleDefinitions/%s", sub, roleDefID)
+	id := armSubscriptionResourceID(sub, "Microsoft.Authorization", "roleDefinitions", roleDefID)
 	response := map[string]any{
 		"id":         id,
 		"name":       roleDefID,

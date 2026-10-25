@@ -17,14 +17,14 @@ The extractor reads the route out of a single string literal, so a registration 
 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
-| `DELETE /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}` | ✓ `simulator-azure/resourcegroups.go:118::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /subscriptions/{subscriptionId}/operationresults/{operationId}` | ✓ `simulator-azure/resourcegroups.go:121::handleSubscriptionOperationResult` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/resources` | ✓ `simulator-azure/resourcegroups.go:126::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /subscriptions/{subscriptionId}/resources` | ✓ `simulator-azure/resourcegroups.go:138::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `HEAD /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}` | ✓ `simulator-azure/resourcegroups.go:143::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `PUT /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}` | ✓ `simulator-azure/resourcegroups.go:41::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}` | ✓ `simulator-azure/resourcegroups.go:81::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /subscriptions/{subscriptionId}/resourceGroups` | ✓ `simulator-azure/resourcegroups.go:96::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `DELETE /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}` | ✓ `simulator-azure/resourcegroups.go:117::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /subscriptions/{subscriptionId}/operationresults/{operationId}` | ✓ `simulator-azure/resourcegroups.go:120::handleSubscriptionOperationResult` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/resources` | ✓ `simulator-azure/resourcegroups.go:125::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /subscriptions/{subscriptionId}/resources` | ✓ `simulator-azure/resourcegroups.go:137::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `HEAD /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}` | ✓ `simulator-azure/resourcegroups.go:142::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `PUT /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}` | ✓ `simulator-azure/resourcegroups.go:40::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}` | ✓ `simulator-azure/resourcegroups.go:80::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /subscriptions/{subscriptionId}/resourceGroups` | ✓ `simulator-azure/resourcegroups.go:95::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 
 ## Coverage status
 

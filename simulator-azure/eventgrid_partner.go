@@ -74,22 +74,19 @@ func registerEventGridPartner(srv *sim.Server) {
 }
 
 func eventGridPartnerRegistrationID(r *http.Request) string {
-	return fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.EventGrid/partnerRegistrations/%s",
-		sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "partnerRegistrationName"))
+	return armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.EventGrid", "partnerRegistrations", sim.PathParam(r, "partnerRegistrationName"))
 }
 
 func eventGridPartnerNamespaceID(r *http.Request) string {
-	return fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.EventGrid/partnerNamespaces/%s",
-		sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "partnerNamespaceName"))
+	return armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.EventGrid", "partnerNamespaces", sim.PathParam(r, "partnerNamespaceName"))
 }
 
 func eventGridChannelID(r *http.Request) string {
-	return eventGridPartnerNamespaceID(r) + "/channels/" + sim.PathParam(r, "channelName")
+	return armChildID(eventGridPartnerNamespaceID(r), "channels", sim.PathParam(r, "channelName"))
 }
 
 func eventGridPartnerConfigurationID(r *http.Request) string {
-	return fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.EventGrid/partnerConfigurations/default",
-		sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"))
+	return armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.EventGrid", "partnerConfigurations", "default")
 }
 
 func handleEventGridPutPartnerRegistration(w http.ResponseWriter, r *http.Request) {
@@ -103,7 +100,7 @@ func handleEventGridPutPartnerRegistration(w http.ResponseWriter, r *http.Reques
 }
 
 func handleEventGridGetPartnerRegistration(w http.ResponseWriter, r *http.Request) {
-	eventGridGetARMResource(w, eventGridPartnerRegistrations, eventGridPartnerRegistrationID(r), "partner registration")
+	armGet(w, eventGridResources(eventGridPartnerRegistrations, "partner registration"), eventGridPartnerRegistrationID(r))
 }
 
 func handleEventGridUpdatePartnerRegistration(w http.ResponseWriter, r *http.Request) {
@@ -111,16 +108,15 @@ func handleEventGridUpdatePartnerRegistration(w http.ResponseWriter, r *http.Req
 }
 
 func handleEventGridDeletePartnerRegistration(w http.ResponseWriter, r *http.Request) {
-	eventGridDeleteARMResource(w, eventGridPartnerRegistrations, eventGridPartnerRegistrationID(r), "partner registration")
+	armDelete(w, r, eventGridResources(eventGridPartnerRegistrations, "partner registration"), eventGridPartnerRegistrationID(r), armDeletion[EventGridTopic]{status: http.StatusOK})
 }
 
 func handleEventGridListPartnerRegistrationsByRG(w http.ResponseWriter, r *http.Request) {
-	eventGridListARMResources(w, eventGridPartnerRegistrations, fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.EventGrid/partnerRegistrations/",
-		sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName")))
+	armList(w, eventGridResources(eventGridPartnerRegistrations, ""), armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.EventGrid", "partnerRegistrations")+"/")
 }
 
 func handleEventGridListPartnerRegistrationsBySub(w http.ResponseWriter, r *http.Request) {
-	eventGridListARMResources(w, eventGridPartnerRegistrations, "/subscriptions/"+sim.PathParam(r, "subscriptionId")+"/resourceGroups/")
+	armList(w, eventGridResources(eventGridPartnerRegistrations, ""), armSubscriptionID(sim.PathParam(r, "subscriptionId"))+"/resourceGroups/")
 }
 
 func handleEventGridPutPartnerNamespace(w http.ResponseWriter, r *http.Request) {
@@ -134,7 +130,7 @@ func handleEventGridPutPartnerNamespace(w http.ResponseWriter, r *http.Request) 
 }
 
 func handleEventGridGetPartnerNamespace(w http.ResponseWriter, r *http.Request) {
-	eventGridGetARMResource(w, eventGridPartnerNamespaces, eventGridPartnerNamespaceID(r), "partner namespace")
+	armGet(w, eventGridResources(eventGridPartnerNamespaces, "partner namespace"), eventGridPartnerNamespaceID(r))
 }
 
 func handleEventGridUpdatePartnerNamespace(w http.ResponseWriter, r *http.Request) {
@@ -157,12 +153,11 @@ func handleEventGridDeletePartnerNamespace(w http.ResponseWriter, r *http.Reques
 }
 
 func handleEventGridListPartnerNamespacesByRG(w http.ResponseWriter, r *http.Request) {
-	eventGridListARMResources(w, eventGridPartnerNamespaces, fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.EventGrid/partnerNamespaces/",
-		sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName")))
+	armList(w, eventGridResources(eventGridPartnerNamespaces, ""), armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.EventGrid", "partnerNamespaces")+"/")
 }
 
 func handleEventGridListPartnerNamespacesBySub(w http.ResponseWriter, r *http.Request) {
-	eventGridListARMResources(w, eventGridPartnerNamespaces, "/subscriptions/"+sim.PathParam(r, "subscriptionId")+"/resourceGroups/")
+	armList(w, eventGridResources(eventGridPartnerNamespaces, ""), armSubscriptionID(sim.PathParam(r, "subscriptionId"))+"/resourceGroups/")
 }
 
 func handleEventGridListPartnerNamespaceKeys(w http.ResponseWriter, r *http.Request) {
@@ -194,7 +189,7 @@ func handleEventGridPutChannel(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleEventGridGetChannel(w http.ResponseWriter, r *http.Request) {
-	eventGridGetARMResource(w, eventGridPartnerChannels, eventGridChannelID(r), "channel")
+	armGet(w, eventGridResources(eventGridPartnerChannels, "channel"), eventGridChannelID(r))
 }
 
 func handleEventGridUpdateChannel(w http.ResponseWriter, r *http.Request) {
@@ -202,11 +197,11 @@ func handleEventGridUpdateChannel(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleEventGridDeleteChannel(w http.ResponseWriter, r *http.Request) {
-	eventGridDeleteARMResource(w, eventGridPartnerChannels, eventGridChannelID(r), "channel")
+	armDelete(w, r, eventGridResources(eventGridPartnerChannels, "channel"), eventGridChannelID(r), armDeletion[EventGridTopic]{status: http.StatusOK})
 }
 
 func handleEventGridListChannels(w http.ResponseWriter, r *http.Request) {
-	eventGridListARMResources(w, eventGridPartnerChannels, eventGridPartnerNamespaceID(r)+"/channels/")
+	armList(w, eventGridResources(eventGridPartnerChannels, ""), eventGridPartnerNamespaceID(r)+"/channels/")
 }
 
 func handleEventGridGetChannelFullURL(w http.ResponseWriter, r *http.Request) {
@@ -230,7 +225,7 @@ func handleEventGridPutPartnerConfiguration(w http.ResponseWriter, r *http.Reque
 }
 
 func handleEventGridGetPartnerConfiguration(w http.ResponseWriter, r *http.Request) {
-	eventGridGetARMResource(w, eventGridPartnerConfigurations, eventGridPartnerConfigurationID(r), "partner configuration")
+	armGet(w, eventGridResources(eventGridPartnerConfigurations, "partner configuration"), eventGridPartnerConfigurationID(r))
 }
 
 func handleEventGridUpdatePartnerConfiguration(w http.ResponseWriter, r *http.Request) {
@@ -238,16 +233,15 @@ func handleEventGridUpdatePartnerConfiguration(w http.ResponseWriter, r *http.Re
 }
 
 func handleEventGridDeletePartnerConfiguration(w http.ResponseWriter, r *http.Request) {
-	eventGridDeleteARMResource(w, eventGridPartnerConfigurations, eventGridPartnerConfigurationID(r), "partner configuration")
+	armDelete(w, r, eventGridResources(eventGridPartnerConfigurations, "partner configuration"), eventGridPartnerConfigurationID(r), armDeletion[EventGridTopic]{status: http.StatusOK})
 }
 
 func handleEventGridListPartnerConfigurationsByRG(w http.ResponseWriter, r *http.Request) {
-	eventGridListARMResources(w, eventGridPartnerConfigurations, fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.EventGrid/partnerConfigurations/",
-		sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName")))
+	armList(w, eventGridResources(eventGridPartnerConfigurations, ""), armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.EventGrid", "partnerConfigurations")+"/")
 }
 
 func handleEventGridListPartnerConfigurationsBySub(w http.ResponseWriter, r *http.Request) {
-	eventGridListARMResources(w, eventGridPartnerConfigurations, "/subscriptions/"+sim.PathParam(r, "subscriptionId")+"/resourceGroups/")
+	armList(w, eventGridResources(eventGridPartnerConfigurations, ""), armSubscriptionID(sim.PathParam(r, "subscriptionId"))+"/resourceGroups/")
 }
 
 // eventGridPartnerAuthorization returns the mutable partnerAuthorization
@@ -340,12 +334,4 @@ func handleEventGridGetVerifiedPartner(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "verified partner %q not found", name)
-}
-
-func eventGridDeleteARMResource(w http.ResponseWriter, store sim.Store[EventGridTopic], id, label string) {
-	if !store.Delete(id) {
-		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "%s %q not found", label, id)
-		return
-	}
-	w.WriteHeader(http.StatusOK)
 }

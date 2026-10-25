@@ -131,7 +131,7 @@ func pgServerAction(finalState string) http.HandlerFunc {
 
 func handlePGListServersBySub(w http.ResponseWriter, r *http.Request) {
 	sub := sim.PathParam(r, "subscriptionId")
-	prefix := fmt.Sprintf("/subscriptions/%s/resourceGroups/", sub)
+	prefix := armSubscriptionID(sub) + "/resourceGroups/"
 	out := pgServers.Filter(func(s PGFlexibleServer) bool {
 		return strings.HasPrefix(s.ID, prefix)
 	})
@@ -271,7 +271,7 @@ func handlePGPatchConfiguration(w http.ResponseWriter, r *http.Request) {
 }
 
 func pgAdminID(serverID, objectID string) string {
-	return serverID + "/administrators/" + objectID
+	return armChildID(serverID, "administrators", objectID)
 }
 
 func handlePGListAdministrators(w http.ResponseWriter, r *http.Request) {
@@ -338,7 +338,7 @@ func handlePGDeleteAdministrator(w http.ResponseWriter, r *http.Request) {
 }
 
 func pgBackupID(serverID, backupName string) string {
-	return serverID + "/backups/" + backupName
+	return armChildID(serverID, "backups", backupName)
 }
 
 func handlePGListBackups(w http.ResponseWriter, r *http.Request) {
@@ -452,7 +452,7 @@ func handlePGListReplicas(w http.ResponseWriter, r *http.Request) {
 }
 
 func pgVirtualEndpointID(serverID, name string) string {
-	return serverID + "/virtualendpoints/" + name
+	return armChildID(serverID, "virtualendpoints", name)
 }
 
 func handlePGListVirtualEndpoints(w http.ResponseWriter, r *http.Request) {

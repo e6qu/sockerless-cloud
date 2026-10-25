@@ -99,7 +99,7 @@ func azureSameRegion(a, b string) bool {
 }
 
 func azureNATGatewaysIn(subscription, region string) []string {
-	prefix := strings.ToLower("/subscriptions/" + subscription + "/")
+	prefix := strings.ToLower(armSubscriptionID(subscription) + "/")
 	var ids []string
 	for _, gw := range azureNatGateways.Filter(func(gw NatGateway) bool {
 		return strings.HasPrefix(strings.ToLower(gw.ID), prefix) && azureSameRegion(gw.Location, region)
@@ -154,7 +154,7 @@ func registerMonitorMetrics(srv *sim.Server) {
 			AzureErrorf(w, "BadRequest", http.StatusBadRequest, "The query parameter 'region' is required.")
 			return
 		}
-		scope := "/subscriptions/" + sim.PathParam(r, "subscriptionId")
+		scope := armSubscriptionID(sim.PathParam(r, "subscriptionId"))
 		namespaces := azureMetricNamespaces
 		if name := q.Get("metricnamespace"); name != "" {
 			ns, ok := azureMetricNamespaceNamed(name)
@@ -194,7 +194,7 @@ func registerMonitorMetrics(srv *sim.Server) {
 			return
 		}
 		subscription := sim.PathParam(r, "subscriptionId")
-		azureWriteMetrics(w, query, "/subscriptions/"+subscription, region, ns, ns.Resources(subscription, region), true)
+		azureWriteMetrics(w, query, armSubscriptionID(subscription), region, ns, ns.Resources(subscription, region), true)
 	}
 	srv.HandleFunc("GET "+subBase+"/metrics", func(w http.ResponseWriter, r *http.Request) {
 		subscriptionMetrics(w, r, r.URL.Query())
@@ -241,8 +241,7 @@ var azureMetricsBodyParameters = map[string]string{
 // azureMetricResource is the resource the metrics read names, which has to
 // exist as Azure Monitor answers ResourceNotFound otherwise.
 func azureMetricResource(w http.ResponseWriter, r *http.Request, collection string) (string, bool) {
-	resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/%s/%s",
-		sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), collection, sim.PathParam(r, "name"))
+	resourceID := armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Network", collection, sim.PathParam(r, "name"))
 	if _, ok := azureNatGateways.Get(resourceID); !ok {
 		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "The Resource '%s' was not found.", resourceID)
 		return "", false

@@ -113,7 +113,7 @@ func registerNetworkProfiles(srv *sim.Server) {
 				if cfg.Name == "" {
 					cfg.Name = fmt.Sprintf("cnic%d", i+1)
 				}
-				cfg.ID = azureNetworkChildID(np.ID, "containerNetworkInterfaceConfigurations", cfg.Name)
+				cfg.ID = armChildID(np.ID, "containerNetworkInterfaceConfigurations", cfg.Name)
 				cfg.Type = "Microsoft.Network/networkProfiles/containerNetworkInterfaceConfigurations"
 				cfg.Etag = azureNetworkEtag()
 				cfg.Properties.ProvisioningState = "Succeeded"
@@ -122,7 +122,7 @@ func registerNetworkProfiles(srv *sim.Server) {
 					if ipcfg.Name == "" {
 						ipcfg.Name = fmt.Sprintf("ipconfig%d", j+1)
 					}
-					ipcfg.ID = azureNetworkChildID(cfg.ID, "ipConfigurations", ipcfg.Name)
+					ipcfg.ID = armChildID(cfg.ID, "ipConfigurations", ipcfg.Name)
 					ipcfg.Type = "Microsoft.Network/networkProfiles/containerNetworkInterfaceConfigurations/ipConfigurations"
 					ipcfg.Etag = azureNetworkEtag()
 					ipcfg.Properties.ProvisioningState = "Succeeded"

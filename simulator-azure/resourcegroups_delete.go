@@ -37,7 +37,7 @@ var (
 func handleResourceGroupDelete(srv *sim.Server, w http.ResponseWriter, r *http.Request) {
 	sub := sim.PathParam(r, "subscriptionId")
 	rgName := sim.PathParam(r, "resourceGroupName")
-	groupID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s", sub, rgName)
+	groupID := armResourceGroupID(sub, rgName)
 	apiVersion := r.URL.Query().Get("api-version")
 
 	azureResourceGroupDeletesMu.Lock()

@@ -3,9 +3,7 @@ package main
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net/http"
-	"strings"
 
 	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/ipam"
@@ -81,16 +79,20 @@ type azureNetworkResourceSpec[T any] struct {
 }
 
 func (s azureNetworkResourceSpec[T]) resourceID(r *http.Request) string {
-	return fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/%s/%s",
-		sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"),
-		s.collection, sim.PathParam(r, s.nameParam))
+	return armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Network", s.collection, sim.PathParam(r, s.nameParam))
 }
 
-func (s azureNetworkResourceSpec[T]) projected(res T) T {
-	if s.project != nil {
-		s.project(&res)
+// resources is the spec's store as the shared ARM operations read it, with
+// the not-found error naming the request's resource and resource group.
+func (s azureNetworkResourceSpec[T]) resources(r *http.Request) armResources[T] {
+	return armResources[T]{
+		store:   s.store,
+		id:      func(res *T) string { return s.header(res).ID },
+		project: s.project,
+		notFound: func(w http.ResponseWriter, _ string) {
+			azureNetworkResourceNotFound(w, s.resourceType, sim.PathParam(r, s.nameParam), sim.PathParam(r, "resourceGroupName"))
+		},
 	}
-	return res
 }
 
 // registerAzureNetworkResource mounts the six shared operations.
@@ -137,36 +139,23 @@ func registerAzureNetworkResource[T any](srv *sim.Server, s azureNetworkResource
 		// with the provisioned resource once it reaches a terminal state; a
 		// terminal 200 carrying the resource completes the SDK's long-running
 		// operation on the first response.
-		sim.WriteJSON(w, http.StatusOK, s.projected(req))
+		sim.WriteJSON(w, http.StatusOK, s.resources(r).projected(req))
 	})
 
 	srv.HandleFunc("GET "+armBase+"/"+s.collection+"/{"+s.nameParam+"}", func(w http.ResponseWriter, r *http.Request) {
-		res, ok := s.store.Get(s.resourceID(r))
-		if !ok {
-			azureNetworkResourceNotFound(w, s.resourceType, sim.PathParam(r, s.nameParam), sim.PathParam(r, "resourceGroupName"))
-			return
-		}
-		sim.WriteJSON(w, http.StatusOK, s.projected(res))
+		armGet(w, s.resources(r), s.resourceID(r))
 	})
 
 	srv.HandleFunc("DELETE "+armBase+"/"+s.collection+"/{"+s.nameParam+"}", func(w http.ResponseWriter, r *http.Request) {
-		id := s.resourceID(r)
-		res, ok := s.store.Get(id)
-		if !ok {
-			// ARM reports a delete of an absent resource as a no-content
-			// success, so a repeated delete is idempotent.
-			w.WriteHeader(http.StatusNoContent)
-			return
-		}
-		s.store.Delete(id)
-		if s.afterDelete != nil {
-			s.afterDelete(r.Context(), id, res)
-		}
 		status := s.deleteStatus
 		if status == 0 {
 			status = http.StatusOK
 		}
-		w.WriteHeader(status)
+		// ARM reports a delete of an absent resource as a no-content success,
+		// so a repeated delete is idempotent.
+		armDelete(w, r, s.resources(r), s.resourceID(r), armDeletion[T]{
+			status: status, absentStatus: http.StatusNoContent, after: s.afterDelete,
+		})
 	})
 
 	if !s.noUpdateTags {
@@ -178,32 +167,19 @@ func registerAzureNetworkResource[T any](srv *sim.Server, s azureNetworkResource
 				return
 			}
 			res, _ := s.store.Get(id)
-			sim.WriteJSON(w, http.StatusOK, s.projected(res))
+			sim.WriteJSON(w, http.StatusOK, s.resources(r).projected(res))
 		})
 	}
 
 	srv.HandleFunc("GET "+armBase+"/"+s.collection, func(w http.ResponseWriter, r *http.Request) {
-		prefix := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/%s/",
-			sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), s.collection)
-		azureWriteList(w, s.listWithPrefix(prefix))
+		prefix := armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Network", s.collection) + "/"
+		armList(w, s.resources(r), prefix)
 	})
 
 	srv.HandleFunc("GET "+subBase+"/"+s.subCollection, func(w http.ResponseWriter, r *http.Request) {
-		prefix := "/subscriptions/" + sim.PathParam(r, "subscriptionId") + "/"
-		azureWriteList(w, s.listWithPrefix(prefix))
+		prefix := armSubscriptionID(sim.PathParam(r, "subscriptionId")) + "/"
+		armList(w, s.resources(r), prefix)
 	})
-}
-
-func (s azureNetworkResourceSpec[T]) listWithPrefix(prefix string) []T {
-	items := s.store.Filter(func(res T) bool {
-		return strings.HasPrefix(s.header(&res).ID, prefix)
-	})
-	for i := range items {
-		if s.project != nil {
-			s.project(&items[i])
-		}
-	}
-	return items
 }
 
 // azureNetworkResourceNotFound writes the ARM error the Microsoft.Network
@@ -218,11 +194,6 @@ func azureNetworkResourceNotFound(w http.ResponseWriter, resourceType, name, rg 
 // for change detection.
 func azureNetworkEtag() string {
 	return `W/"` + sim.NewUUID() + `"`
-}
-
-// azureNetworkChildID composes the ARM id of a child resource collection member.
-func azureNetworkChildID(parentID, collection, name string) string {
-	return parentID + "/" + collection + "/" + name
 }
 
 // azureWriteProvisioningError answers a create whose provisioning failed: with

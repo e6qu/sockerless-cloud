@@ -24,7 +24,7 @@ func registerFileSharesARM(srv *sim.Server, armBase string, storageAccounts sim.
 		}
 
 		// Verify storage account exists
-		acctID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Storage/storageAccounts/%s", sub, rg, account)
+		acctID := armResourceID(sub, rg, "Microsoft.Storage", "storageAccounts", account)
 		if _, ok := storageAccounts.Get(acctID); !ok {
 			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The Resource 'Microsoft.Storage/storageAccounts/%s' under resource group '%s' was not found.", account, rg)
@@ -96,8 +96,7 @@ func registerFileSharesARM(srv *sim.Server, armBase string, storageAccounts sim.
 		account := sim.PathParam(r, "accountName")
 		shareName := sim.PathParam(r, "shareName")
 
-		shareID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Storage/storageAccounts/%s/fileServices/default/shares/%s",
-			sub, rg, account, shareName)
+		shareID := armResourceID(sub, rg, "Microsoft.Storage", "storageAccounts", account, "fileServices", "default", "shares", shareName)
 
 		share, ok := fileShares.Get(shareID)
 		if !ok {
@@ -116,8 +115,7 @@ func registerFileSharesARM(srv *sim.Server, armBase string, storageAccounts sim.
 		account := sim.PathParam(r, "accountName")
 		shareName := sim.PathParam(r, "shareName")
 
-		shareID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Storage/storageAccounts/%s/fileServices/default/shares/%s",
-			sub, rg, account, shareName)
+		shareID := armResourceID(sub, rg, "Microsoft.Storage", "storageAccounts", account, "fileServices", "default", "shares", shareName)
 
 		if fileShares.Delete(shareID) {
 			if err := deleteFileShareDataPlaneProjection(account, shareName); err != nil {
@@ -137,8 +135,7 @@ func registerFileSharesARM(srv *sim.Server, armBase string, storageAccounts sim.
 		rg := sim.PathParam(r, "resourceGroupName")
 		account := sim.PathParam(r, "accountName")
 
-		prefix := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Storage/storageAccounts/%s/fileServices/default/shares/",
-			sub, rg, account)
+		prefix := armResourceID(sub, rg, "Microsoft.Storage", "storageAccounts", account, "fileServices", "default", "shares") + "/"
 
 		filtered := fileShares.Filter(func(s FileShare) bool {
 			return strings.HasPrefix(s.ID, prefix)

@@ -44,18 +44,13 @@ type storageARMChild struct {
 // azureStoragePECs holds the private endpoint connections on storage accounts.
 var azureStoragePECs sim.Store[storageARMChild]
 
-func storageAcctResourceID(sub, rg, account string) string {
-	return fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Storage/storageAccounts/%s",
-		sub, rg, account)
-}
-
 // requireStorageAccount resolves the account scope from the request path and
 // 404s (the real ARM shape) when the account does not exist.
 func requireStorageAccount(w http.ResponseWriter, r *http.Request) (acctID, account string, ok bool) {
 	sub := sim.PathParam(r, "subscriptionId")
 	rg := sim.PathParam(r, "resourceGroupName")
 	account = sim.PathParam(r, "accountName")
-	acctID = storageAcctResourceID(sub, rg, account)
+	acctID = armResourceID(sub, rg, "Microsoft.Storage", "storageAccounts", account)
 	if azStorageAccounts == nil {
 		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 			"The Resource 'Microsoft.Storage/storageAccounts/%s' was not found.", account)
@@ -302,10 +297,6 @@ func moveStorageAccountARM(oldID, newID string, childStores ...sim.Store[storage
 	pinAzureKeySlots(oldID, newID, azureKeyMaterial64, "key1", "key2")
 }
 
-func storageChildID(acctID, collection, name string) string {
-	return acctID + "/" + collection + "/" + name
-}
-
 func storageChildPut(store sim.Store[storageARMChild], collection, typeStr, nameParam string, finalize func(map[string]any)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		acctID, _, ok := requireStorageAccount(w, r)
@@ -321,7 +312,7 @@ func storageChildPut(store sim.Store[storageARMChild], collection, typeStr, name
 		if finalize != nil {
 			finalize(props)
 		}
-		id := storageChildID(acctID, collection, name)
+		id := armChildID(acctID, collection, name)
 		child := storageARMChild{ID: id, Name: name, Type: typeStr, Properties: props}
 		store.Put(id, child)
 		sim.WriteJSON(w, http.StatusOK, child)
@@ -335,7 +326,7 @@ func storageChildGet(store sim.Store[storageARMChild], collection, nameParam str
 			return
 		}
 		name := sim.PathParam(r, nameParam)
-		child, found := store.Get(storageChildID(acctID, collection, name))
+		child, found := store.Get(armChildID(acctID, collection, name))
 		if !found {
 			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "The resource %q was not found.", name)
 			return
@@ -351,7 +342,7 @@ func storageChildDelete(store sim.Store[storageARMChild], collection, nameParam 
 			return
 		}
 		name := sim.PathParam(r, nameParam)
-		if store.Delete(storageChildID(acctID, collection, name)) {
+		if store.Delete(armChildID(acctID, collection, name)) {
 			w.WriteHeader(http.StatusOK)
 			return
 		}
@@ -389,7 +380,7 @@ func storageEncryptionScopePut(store sim.Store[storageARMChild], finalize func(m
 			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
-		id := storageChildID(acctID, "encryptionScopes", name)
+		id := armChildID(acctID, "encryptionScopes", name)
 		creationTime := storageNow()
 		if existing, found := store.Get(id); found {
 			if ct, ok := existing.Properties["creationTime"].(string); ok {
@@ -524,7 +515,7 @@ func handleStorageDeletedAccountGet(w http.ResponseWriter, r *http.Request) {
 func handleStorageAccountsListByRG(w http.ResponseWriter, r *http.Request) {
 	sub := sim.PathParam(r, "subscriptionId")
 	rg := sim.PathParam(r, "resourceGroupName")
-	prefix := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Storage/storageAccounts/", sub, rg)
+	prefix := armResourceID(sub, rg, "Microsoft.Storage", "storageAccounts") + "/"
 	var value []StorageAccount
 	if azStorageAccounts != nil {
 		value = azStorageAccounts.Filter(func(a StorageAccount) bool { return strings.HasPrefix(a.ID, prefix) })
@@ -694,10 +685,6 @@ func storageServiceSetHandler(service, typeStr string, store sim.Store[map[strin
 	}
 }
 
-func storageContainerID(acctID, name string) string {
-	return acctID + "/blobServices/default/containers/" + name
-}
-
 func requireBlobContainer(w http.ResponseWriter, r *http.Request) (BlobContainer, bool) {
 	acctID, _, ok := requireStorageAccount(w, r)
 	if !ok {
@@ -708,7 +695,7 @@ func requireBlobContainer(w http.ResponseWriter, r *http.Request) (BlobContainer
 		AzureErrorf(w, "ContainerNotFound", http.StatusNotFound, "The specified container %q was not found.", name)
 		return BlobContainer{}, false
 	}
-	c, found := azBlobContainers.Get(storageContainerID(acctID, name))
+	c, found := azBlobContainers.Get(armChildID(acctID, "blobServices", "default", "containers", name))
 	if !found {
 		AzureErrorf(w, "ContainerNotFound", http.StatusNotFound, "The specified container %q was not found.", name)
 		return BlobContainer{}, false
@@ -1027,7 +1014,7 @@ func handleStorageFileShareLease(w http.ResponseWriter, r *http.Request) {
 }
 
 func storageQueueID(acctID, name string) string {
-	return acctID + "/queueServices/default/queues/" + name
+	return armChildID(acctID, "queueServices", "default", "queues", name)
 }
 
 func storageQueuePut(store sim.Store[storageARMChild]) http.HandlerFunc {

@@ -3,7 +3,6 @@ package main
 import (
 	"crypto/rand"
 	"encoding/base64"
-	"fmt"
 	"net/http"
 
 	"github.com/e6qu/sockerless-cloud/sim"
@@ -64,9 +63,7 @@ func monitorRequireWorkspace(w http.ResponseWriter, r *http.Request) (string, bo
 	sub := sim.PathParam(r, "subscriptionId")
 	rg := sim.PathParam(r, "resourceGroupName")
 	name := sim.PathParam(r, "workspaceName")
-	resourceID := fmt.Sprintf(
-		"/subscriptions/%s/resourceGroups/%s/providers/Microsoft.OperationalInsights/workspaces/%s",
-		sub, rg, name)
+	resourceID := armResourceID(sub, rg, "Microsoft.OperationalInsights", "workspaces", name)
 	if monitorWorkspaces == nil {
 		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 			"The Resource 'Microsoft.OperationalInsights/workspaces/%s' under resource group '%s' was not found.",

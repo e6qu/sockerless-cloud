@@ -248,7 +248,7 @@ func registerContainerApps(srv *sim.Server) {
 			return
 		}
 
-		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.App/jobs/%s", sub, rg, name)
+		resourceID := armResourceID(sub, rg, "Microsoft.App", "jobs", name)
 
 		existing, exists := jobs.Get(resourceID)
 		if exists && existing.Properties.ProvisioningState == "Deleting" {
@@ -326,7 +326,7 @@ func registerContainerApps(srv *sim.Server) {
 		rg := sim.PathParam(r, "resourceGroupName")
 		name := sim.PathParam(r, "jobName")
 
-		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.App/jobs/%s", sub, rg, name)
+		resourceID := armResourceID(sub, rg, "Microsoft.App", "jobs", name)
 
 		job, ok := jobs.Get(resourceID)
 		if !ok {
@@ -342,7 +342,7 @@ func registerContainerApps(srv *sim.Server) {
 	srv.HandleFunc("GET "+basePath+"/jobs", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
-		prefix := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.App/jobs/", sub, rg)
+		prefix := armResourceID(sub, rg, "Microsoft.App", "jobs") + "/"
 
 		filtered := jobs.Filter(func(j ContainerAppJob) bool {
 			return strings.HasPrefix(j.ID, prefix)
@@ -356,7 +356,7 @@ func registerContainerApps(srv *sim.Server) {
 	// GET - List jobs by subscription.
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/providers/Microsoft.App/jobs", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
-		prefix := fmt.Sprintf("/subscriptions/%s/", sub)
+		prefix := armSubscriptionID(sub) + "/"
 		filtered := jobs.Filter(func(j ContainerAppJob) bool {
 			return strings.HasPrefix(j.ID, prefix) && strings.Contains(j.ID, "/providers/Microsoft.App/jobs/")
 		})
@@ -372,7 +372,7 @@ func registerContainerApps(srv *sim.Server) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
 		name := sim.PathParam(r, "jobName")
-		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.App/jobs/%s", sub, rg, name)
+		resourceID := armResourceID(sub, rg, "Microsoft.App", "jobs", name)
 		job, ok := jobs.Get(resourceID)
 		if !ok {
 			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
@@ -432,7 +432,7 @@ func registerContainerApps(srv *sim.Server) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
 		name := sim.PathParam(r, "jobName")
-		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.App/jobs/%s", sub, rg, name)
+		resourceID := armResourceID(sub, rg, "Microsoft.App", "jobs", name)
 		job, ok := jobs.Get(resourceID)
 		if !ok {
 			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
@@ -457,7 +457,7 @@ func registerContainerApps(srv *sim.Server) {
 		rg := sim.PathParam(r, "resourceGroupName")
 		name := sim.PathParam(r, "jobName")
 
-		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.App/jobs/%s", sub, rg, name)
+		resourceID := armResourceID(sub, rg, "Microsoft.App", "jobs", name)
 
 		job, ok := jobs.Get(resourceID)
 		if !ok {
@@ -488,7 +488,7 @@ func registerContainerApps(srv *sim.Server) {
 		rg := sim.PathParam(r, "resourceGroupName")
 		name := sim.PathParam(r, "jobName")
 
-		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.App/jobs/%s", sub, rg, name)
+		resourceID := armResourceID(sub, rg, "Microsoft.App", "jobs", name)
 
 		job, ok := jobs.Get(resourceID)
 		if !ok {
@@ -539,7 +539,7 @@ func registerContainerApps(srv *sim.Server) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
 		name := sim.PathParam(r, "jobName")
-		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.App/jobs/%s", sub, rg, name)
+		resourceID := armResourceID(sub, rg, "Microsoft.App", "jobs", name)
 		job, ok := jobs.Get(resourceID)
 		if !ok {
 			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
@@ -566,7 +566,7 @@ func registerContainerApps(srv *sim.Server) {
 		rg := sim.PathParam(r, "resourceGroupName")
 		name := sim.PathParam(r, "jobName")
 
-		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.App/jobs/%s", sub, rg, name)
+		resourceID := armResourceID(sub, rg, "Microsoft.App", "jobs", name)
 
 		_, ok := jobs.Get(resourceID)
 		if !ok {
@@ -591,8 +591,7 @@ func registerContainerApps(srv *sim.Server) {
 		jobName := sim.PathParam(r, "jobName")
 		execName := sim.PathParam(r, "execName")
 
-		execID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.App/jobs/%s/executions/%s",
-			sub, rg, jobName, execName)
+		execID := armResourceID(sub, rg, "Microsoft.App", "jobs", jobName, "executions", execName)
 
 		exec, ok := executions.Get(execID)
 		if !ok {
@@ -611,10 +610,9 @@ func registerContainerApps(srv *sim.Server) {
 		jobName := sim.PathParam(r, "jobName")
 		execName := sim.PathParam(r, "execName")
 
-		execID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.App/jobs/%s/executions/%s",
-			sub, rg, jobName, execName)
+		execID := armResourceID(sub, rg, "Microsoft.App", "jobs", jobName, "executions", execName)
 
-		job, _ := jobs.Get(fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.App/jobs/%s", sub, rg, jobName))
+		job, _ := jobs.Get(armResourceID(sub, rg, "Microsoft.App", "jobs", jobName))
 		ok := stopACAJobExecution(job, execID)
 		if !ok {
 			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
@@ -673,8 +671,7 @@ func handleACAJobExec(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	execID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.App/jobs/%s/executions/%s",
-		sub, rg, jobName, execName)
+	execID := armResourceID(sub, rg, "Microsoft.App", "jobs", jobName, "executions", execName)
 	var handle placement.Handle
 	if v, ok := acaJobRuns.Load(execID); ok {
 		if run, ok := v.(*acaJobRun); ok {

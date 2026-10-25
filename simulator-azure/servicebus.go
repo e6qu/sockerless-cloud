@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"net/http"
 	"strings"
 
@@ -263,11 +262,11 @@ func registerServiceBus(srv *sim.Server) {
 }
 
 func sbNamespaceID(sub, rg, name string) string {
-	return fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.ServiceBus/namespaces/%s", sub, rg, name)
+	return armResourceID(sub, rg, "Microsoft.ServiceBus", "namespaces", name)
 }
 
 func sbNetworkRuleSetID(sub, rg, name string) string {
-	return sbNamespaceID(sub, rg, name) + "/networkRuleSets/default"
+	return armChildID(sbNamespaceID(sub, rg, name), "networkRuleSets", "default")
 }
 
 func handleSBCreateNamespace(w http.ResponseWriter, r *http.Request) {
@@ -424,7 +423,7 @@ func handleSBUpdateNamespace(w http.ResponseWriter, r *http.Request) {
 // handleSBListNamespacesBySub lists every namespace in the subscription
 // (the subscription-scoped list, no resource group filter).
 func handleSBListNamespacesBySub(w http.ResponseWriter, r *http.Request) {
-	prefix := fmt.Sprintf("/subscriptions/%s/", sim.PathParam(r, "subscriptionId"))
+	prefix := armSubscriptionID(sim.PathParam(r, "subscriptionId")) + "/"
 	all := sbNamespaces.List()
 	out := make([]SBNamespace, 0, len(all))
 	for _, n := range all {
@@ -436,8 +435,7 @@ func handleSBListNamespacesBySub(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleSBListNamespacesByRG(w http.ResponseWriter, r *http.Request) {
-	prefix := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.ServiceBus/namespaces/",
-		sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"))
+	prefix := armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.ServiceBus", "namespaces") + "/"
 	all := sbNamespaces.List()
 	out := make([]SBNamespace, 0, len(all))
 	for _, n := range all {
@@ -512,11 +510,11 @@ func handleSBListNamespaceNetworkRuleSets(w http.ResponseWriter, r *http.Request
 }
 
 func sbDisasterRecoveryID(sub, rg, name, alias string) string {
-	return sbNamespaceID(sub, rg, name) + "/disasterRecoveryConfigs/" + alias
+	return armChildID(sbNamespaceID(sub, rg, name), "disasterRecoveryConfigs", alias)
 }
 
 func sbMigrationConfigID(sub, rg, name, config string) string {
-	return sbNamespaceID(sub, rg, name) + "/migrationConfigurations/" + config
+	return armChildID(sbNamespaceID(sub, rg, name), "migrationConfigurations", config)
 }
 
 func handleSBListDisasterRecoveryConfigs(w http.ResponseWriter, r *http.Request) {
@@ -771,7 +769,7 @@ func handleSBRevertMigration(w http.ResponseWriter, r *http.Request) {
 // sbPrivateEndpointConnectionID returns the resource ID of a private
 // endpoint connection on a namespace.
 func sbPrivateEndpointConnectionID(sub, rg, name, pec string) string {
-	return sbNamespaceID(sub, rg, name) + "/privateEndpointConnections/" + pec
+	return armChildID(sbNamespaceID(sub, rg, name), "privateEndpointConnections", pec)
 }
 
 func handleSBListPrivateEndpointConnections(w http.ResponseWriter, r *http.Request) {

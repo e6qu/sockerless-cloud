@@ -460,7 +460,7 @@ func handleAPIMListRestOperations(w http.ResponseWriter, r *http.Request) {
 
 func handleAPIMListServicesBySub(w http.ResponseWriter, r *http.Request) {
 	sub := sim.PathParam(r, "subscriptionId")
-	prefix := "/subscriptions/" + sub + "/"
+	prefix := armSubscriptionID(sub) + "/"
 	var all []APIMService
 	for _, s := range apimServices.List() {
 		if strings.HasPrefix(s.ID, prefix) && strings.Contains(s.ID, "/providers/Microsoft.ApiManagement/service/") {
@@ -475,14 +475,14 @@ func handleAPIMListServicesBySub(w http.ResponseWriter, r *http.Request) {
 
 func handleAPIMListDeletedServices(w http.ResponseWriter, r *http.Request) {
 	sub := sim.PathParam(r, "subscriptionId")
-	prefix := "/subscriptions/" + sub + "/"
+	prefix := armSubscriptionID(sub) + "/"
 	out := []map[string]any{}
 	for _, svc := range apimDeleted.List() {
 		if !strings.HasPrefix(svc.ID, prefix) {
 			continue
 		}
 		out = append(out, map[string]any{
-			"id":       fmt.Sprintf("/subscriptions/%s/providers/Microsoft.ApiManagement/locations/%s/deletedServices/%s", sub, svc.Location, svc.Name),
+			"id":       armSubscriptionResourceID(sub, "Microsoft.ApiManagement", "locations", svc.Location, "deletedServices", svc.Name),
 			"name":     svc.Name,
 			"type":     "Microsoft.ApiManagement/deletedservices",
 			"location": svc.Location,

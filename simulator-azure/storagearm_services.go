@@ -16,7 +16,7 @@ func registerStorageServiceProperties(srv *sim.Server, armBase string, storageAc
 			rg := sim.PathParam(r, "resourceGroupName")
 			name := sim.PathParam(r, "accountName")
 
-			acctID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Storage/storageAccounts/%s", sub, rg, name)
+			acctID := armResourceID(sub, rg, "Microsoft.Storage", "storageAccounts", name)
 			if _, ok := storageAccounts.Get(acctID); !ok {
 				AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 					"The Resource 'Microsoft.Storage/storageAccounts/%s' under resource group '%s' was not found.", name, rg)
@@ -45,7 +45,7 @@ func registerStorageServiceProperties(srv *sim.Server, armBase string, storageAc
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
 		account := sim.PathParam(r, "accountName")
-		acctID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Storage/storageAccounts/%s", sub, rg, account)
+		acctID := armResourceID(sub, rg, "Microsoft.Storage", "storageAccounts", account)
 		if _, ok := storageAccounts.Get(acctID); !ok {
 			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The Resource 'Microsoft.Storage/storageAccounts/%s' under resource group '%s' was not found.", account, rg)
@@ -74,7 +74,7 @@ func registerStorageServiceProperties(srv *sim.Server, armBase string, storageAc
 		sub := sim.PathParam(r, "subscriptionId")
 		rg = sim.PathParam(r, "resourceGroupName")
 		account = sim.PathParam(r, "accountName")
-		acctID = fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Storage/storageAccounts/%s", sub, rg, account)
+		acctID = armResourceID(sub, rg, "Microsoft.Storage", "storageAccounts", account)
 		return acctID, acctID + "/blobServices/default", account, rg
 	}
 	srv.HandleFunc("PUT "+blobServicePath, func(w http.ResponseWriter, r *http.Request) {

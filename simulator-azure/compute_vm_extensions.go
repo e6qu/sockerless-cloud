@@ -202,7 +202,7 @@ func azureWriteVMExtensionError(w http.ResponseWriter, name string, err error) {
 }
 
 func azureVMExtensionID(r *http.Request) string {
-	return azureVMResourceID(r) + "/extensions/" + sim.PathParam(r, "vmExtensionName")
+	return armChildID(azureVMResourceID(r), "extensions", sim.PathParam(r, "vmExtensionName"))
 }
 
 // azureVMExtensionResponse strips the members Azure never returns. Protected

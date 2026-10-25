@@ -48,8 +48,6 @@ var acaRevisions sim.Store[acaRevision]
 // Azure Container Apps stamps on an app that sets none.
 const acaDefaultMaxInactiveRevisions = 100
 
-func acaRevisionID(appID, name string) string { return appID + "/revisions/" + name }
-
 // acaRevisionsByApp indexes revisions by the app they belong to; ingress reads
 // it on every request an app's FQDN receives.
 var acaRevisionsByApp sim.GenerationIndex[acaRevision]
@@ -69,7 +67,7 @@ func acaAppRevisions(appID string) []acaRevision {
 }
 
 func acaAppRevision(appID, name string) (acaRevision, bool) {
-	return acaRevisions.Get(acaRevisionID(appID, name))
+	return acaRevisions.Get(armChildID(appID, "revisions", name))
 }
 
 func acaSingleRevisionMode(app ContainerApp) bool {
@@ -216,7 +214,7 @@ func acaReconcileRevisions(app *ContainerApp, appFqdn string) (*acaRevision, err
 		return nil, &acaRevisionRequestError{err}
 	}
 	rev := acaRevision{
-		ID:                acaRevisionID(app.ID, name),
+		ID:                armChildID(app.ID, "revisions", name),
 		AppID:             app.ID,
 		Name:              name,
 		Sequence:          seq,

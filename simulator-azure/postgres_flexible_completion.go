@@ -208,7 +208,7 @@ func handlePGQuotaUsages(w http.ResponseWriter, r *http.Request) {
 	sub := sim.PathParam(r, "subscriptionId")
 	usage := func(name string, current, limit float64) map[string]any {
 		return map[string]any{
-			"id":           "/subscriptions/" + sub + "/providers/Microsoft.DBforPostgreSQL/locations/" + loc + "/resourceType/flexibleServers/usages/" + name,
+			"id":           armSubscriptionResourceID(sub, "Microsoft.DBforPostgreSQL", "locations", loc, "resourceType", "flexibleServers", "usages", name),
 			"name":         map[string]any{"value": name, "localizedValue": name},
 			"currentValue": current,
 			"limit":        limit,
@@ -248,10 +248,6 @@ type pgLtrBackupRequest struct {
 	} `json:"targetDetails"`
 }
 
-func pgLtrBackupID(serverID, backupName string) string {
-	return serverID + "/ltrBackupOperations/" + backupName
-}
-
 func handlePGLtrBackupList(w http.ResponseWriter, r *http.Request) {
 	id, ok := pgRequireServer(w, r)
 	if !ok {
@@ -271,7 +267,7 @@ func handlePGLtrBackupGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	backupName := sim.PathParam(r, "backupName")
-	b, found := pgLtrBackups.Get(pgLtrBackupID(id, backupName))
+	b, found := pgLtrBackups.Get(armChildID(id, "ltrBackupOperations", backupName))
 	if !found {
 		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 			"long-term-retention backup %q not found on server", backupName)
@@ -305,7 +301,7 @@ func handlePGStartLtrBackup(w http.ResponseWriter, r *http.Request) {
 	}
 	backupName := req.BackupSettings.BackupName
 	b := PGLtrBackup{
-		ID:   pgLtrBackupID(id, backupName),
+		ID:   armChildID(id, "ltrBackupOperations", backupName),
 		Name: backupName,
 		Type: "Microsoft.DBforPostgreSQL/flexibleServers/ltrBackupOperations",
 		Properties: map[string]any{
@@ -390,7 +386,7 @@ func handlePGLtrPreBackup(w http.ResponseWriter, r *http.Request) {
 }
 
 func pgThreatProtectionID(serverID, name string) string {
-	return serverID + "/advancedThreatProtectionSettings/" + name
+	return armChildID(serverID, "advancedThreatProtectionSettings", name)
 }
 
 func pgThreatProtectionDefault(serverID, name string) PGThreatProtection {
@@ -492,7 +488,7 @@ func handlePGTuningRecommendations(w http.ResponseWriter, r *http.Request) {
 }
 
 func pgMigrationID(serverID, name string) string {
-	return serverID + "/migrations/" + name
+	return armChildID(serverID, "migrations", name)
 }
 
 func handlePGMigrationCreate(w http.ResponseWriter, r *http.Request) {
@@ -624,7 +620,7 @@ func handlePGCheckMigrationNameAvailability(w http.ResponseWriter, r *http.Reque
 }
 
 func pgPrivateEndpointConnectionID(serverID, name string) string {
-	return serverID + "/privateEndpointConnections/" + name
+	return armChildID(serverID, "privateEndpointConnections", name)
 }
 
 func handlePGPrivateEndpointConnectionList(w http.ResponseWriter, r *http.Request) {

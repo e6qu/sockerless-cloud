@@ -77,12 +77,11 @@ func registerWebResourceHealth(srv *sim.Server, both func(string, string, http.H
 	// site, so neither listing walks the slot store: the document declares
 	// both as listings of sites.
 	srv.HandleFunc("GET "+webProvider+"/resourceHealthMetadata", func(w http.ResponseWriter, r *http.Request) {
-		prefix := "/subscriptions/" + sim.PathParam(r, "subscriptionId") +
-			"/resourceGroups/" + sim.PathParam(r, "resourceGroupName") + "/providers/Microsoft.Web/sites/"
+		prefix := armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Web", "sites") + "/"
 		sim.WriteJSON(w, http.StatusOK, webResourceHealthCollection(webSitesUnder(prefix)))
 	})
 	srv.HandleFunc("GET "+webSubscriptionProvider+"/resourceHealthMetadata", func(w http.ResponseWriter, r *http.Request) {
-		prefix := "/subscriptions/" + sim.PathParam(r, "subscriptionId") + "/resourceGroups/"
+		prefix := armSubscriptionID(sim.PathParam(r, "subscriptionId")) + "/resourceGroups/"
 		sim.WriteJSON(w, http.StatusOK, webResourceHealthCollection(webSitesUnder(prefix)))
 	})
 }

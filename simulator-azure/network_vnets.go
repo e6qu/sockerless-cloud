@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"net/http"
 	"strings"
 
@@ -20,8 +19,7 @@ func registerVirtualNetworks(srv *sim.Server, armBase string, vnets sim.Store[Vi
 			return
 		}
 
-		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/virtualNetworks/%s",
-			sub, rg, vnetName)
+		resourceID := armResourceID(sub, rg, "Microsoft.Network", "virtualNetworks", vnetName)
 
 		privateEndpointVNetPolicies := req.Properties.PrivateEndpointVNetPolicies
 		if privateEndpointVNetPolicies == "" {
@@ -77,8 +75,7 @@ func registerVirtualNetworks(srv *sim.Server, armBase string, vnets sim.Store[Vi
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
 		vnetName := sim.PathParam(r, "vnetName")
-		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/virtualNetworks/%s",
-			sub, rg, vnetName)
+		resourceID := armResourceID(sub, rg, "Microsoft.Network", "virtualNetworks", vnetName)
 
 		vnet, ok := vnets.Get(resourceID)
 		if !ok {
@@ -101,8 +98,7 @@ func registerVirtualNetworks(srv *sim.Server, armBase string, vnets sim.Store[Vi
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
 		vnetName := sim.PathParam(r, "vnetName")
-		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/virtualNetworks/%s",
-			sub, rg, vnetName)
+		resourceID := armResourceID(sub, rg, "Microsoft.Network", "virtualNetworks", vnetName)
 
 		// The engine refuses to remove a network a container is still
 		// attached to, which is Azure's own refusal of a network still in use.
@@ -134,13 +130,11 @@ func registerVirtualNetworks(srv *sim.Server, armBase string, vnets sim.Store[Vi
 			return
 		}
 
-		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/virtualNetworks/%s/subnets/%s",
-			sub, rg, vnetName, subnetName)
+		resourceID := armResourceID(sub, rg, "Microsoft.Network", "virtualNetworks", vnetName, "subnets", subnetName)
 
 		// A subnet is a child of its virtual network: Azure rejects the write
 		// with the parent's ResourceNotFound.
-		vnetID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/virtualNetworks/%s",
-			sub, rg, vnetName)
+		vnetID := armResourceID(sub, rg, "Microsoft.Network", "virtualNetworks", vnetName)
 		if _, ok := vnets.Get(vnetID); !ok {
 			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The Resource 'Microsoft.Network/virtualNetworks/%s' under resource group '%s' was not found.", vnetName, rg)
@@ -163,8 +157,7 @@ func registerVirtualNetworks(srv *sim.Server, armBase string, vnets sim.Store[Vi
 		rg := sim.PathParam(r, "resourceGroupName")
 		vnetName := sim.PathParam(r, "vnetName")
 		subnetName := sim.PathParam(r, "subnetName")
-		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/virtualNetworks/%s/subnets/%s",
-			sub, rg, vnetName, subnetName)
+		resourceID := armResourceID(sub, rg, "Microsoft.Network", "virtualNetworks", vnetName, "subnets", subnetName)
 
 		sn, ok := subnets.Get(resourceID)
 		if !ok {
@@ -180,8 +173,7 @@ func registerVirtualNetworks(srv *sim.Server, armBase string, vnets sim.Store[Vi
 		rg := sim.PathParam(r, "resourceGroupName")
 		vnetName := sim.PathParam(r, "vnetName")
 		subnetName := sim.PathParam(r, "subnetName")
-		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/virtualNetworks/%s/subnets/%s",
-			sub, rg, vnetName, subnetName)
+		resourceID := armResourceID(sub, rg, "Microsoft.Network", "virtualNetworks", vnetName, "subnets", subnetName)
 
 		subnets.Delete(resourceID)
 		azureForgetSubnetLedger(resourceID)

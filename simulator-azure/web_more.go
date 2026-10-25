@@ -253,8 +253,7 @@ func webCleanupSiteResources(resID string) {
 // webResourceID builds the canonical resource ID for the addressed site or
 // slot (the /slots/{slot} segment is appended when present).
 func webResourceID(r *http.Request) string {
-	id := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Web/sites/%s",
-		sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "siteName"))
+	id := armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Web", "sites", sim.PathParam(r, "siteName"))
 	if slot := sim.PathParam(r, "slot"); slot != "" {
 		id += "/slots/" + slot
 	}
@@ -900,7 +899,7 @@ type WebBasicPublishingPolicy struct {
 var webBasicPublishingPolicies sim.Store[WebBasicPublishingPolicy]
 
 func webBasicPublishingPolicyID(resID, name string) string {
-	return resID + "/basicPublishingCredentialsPolicies/" + name
+	return armChildID(resID, "basicPublishingCredentialsPolicies", name)
 }
 
 // webBasicPublishingAllowed reports whether the site's policy for the

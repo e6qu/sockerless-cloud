@@ -89,9 +89,7 @@ func webCloneabilityTier(r *http.Request, site Site) string {
 		return tier
 	}
 	if sim.PathParam(r, "slot") != "" {
-		production := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Web/sites/%s",
-			sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"),
-			sim.PathParam(r, "siteName"))
+		production := armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Web", "sites", sim.PathParam(r, "siteName"))
 		if parent, ok := azfSites.Get(production); ok {
 			if tier := webPlanSKUFor(parent.Properties.ServerFarmID); tier != "" {
 				return tier

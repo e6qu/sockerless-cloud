@@ -335,7 +335,7 @@ func handleACRScheduleRun(w http.ResponseWriter, r *http.Request) {
 	runID := "cb" + sim.NewUUID()[:8]
 	now := acrNow()
 	run := acrRun{
-		ID:   fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.ContainerRegistry/registries/%s/runs/%s", sub, rg, registry, runID),
+		ID:   armResourceID(sub, rg, "Microsoft.ContainerRegistry", "registries", registry, "runs", runID),
 		Name: runID,
 		Type: "Microsoft.ContainerRegistry/registries/runs",
 		Properties: acrRunProperties{

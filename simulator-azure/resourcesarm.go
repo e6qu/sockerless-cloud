@@ -228,7 +228,7 @@ func azureProviderObject(sub, ns string) map[string]any {
 	id := "/providers/" + ns
 	state := "Registered"
 	if sub != "" {
-		id = fmt.Sprintf("/subscriptions/%s/providers/%s", sub, ns)
+		id = armSubscriptionResourceID(sub, ns)
 		// Registration is per subscription, so only a subscription-scoped read
 		// can report one as unregistered. The tenant listing has no
 		// subscription to be registered against.
@@ -324,7 +324,7 @@ func handleProviderUnregister(w http.ResponseWriter, r *http.Request) {
 func handleResourceGroupUpdate(w http.ResponseWriter, r *http.Request) {
 	sub := sim.PathParam(r, "subscriptionId")
 	rgName := sim.PathParam(r, "resourceGroupName")
-	id := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s", sub, rgName)
+	id := armResourceGroupID(sub, rgName)
 	rg, ok := azureResourceGroups.Get(id)
 	if !ok {
 		AzureErrorf(w, "ResourceGroupNotFound", http.StatusNotFound, "Resource group %q could not be found.", rgName)
@@ -348,7 +348,7 @@ func handleResourceGroupUpdate(w http.ResponseWriter, r *http.Request) {
 func handleResourceGroupExportTemplate(w http.ResponseWriter, r *http.Request) {
 	sub := sim.PathParam(r, "subscriptionId")
 	rgName := sim.PathParam(r, "resourceGroupName")
-	id := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s", sub, rgName)
+	id := armResourceGroupID(sub, rgName)
 	if _, ok := azureResourceGroups.Get(id); !ok {
 		AzureErrorf(w, "ResourceGroupNotFound", http.StatusNotFound, "Resource group %q could not be found.", rgName)
 		return
@@ -446,7 +446,7 @@ func moveAzureResources(sub, targetResourceGroup string, resources []string, val
 	if targetRG == "" {
 		return &AsyncOperationError{Code: "InvalidRequestContent", Message: "The 'targetResourceGroup' member is required."}
 	}
-	if _, ok := azureResourceGroups.Get(fmt.Sprintf("/subscriptions/%s/resourceGroups/%s", sub, targetRG)); !ok {
+	if _, ok := azureResourceGroups.Get(armResourceGroupID(sub, targetRG)); !ok {
 		return &AsyncOperationError{Code: "ResourceGroupNotFound",
 			Message: fmt.Sprintf("Resource group '%s' could not be found.", targetRG)}
 	}
@@ -584,7 +584,7 @@ func predefinedTagKey(sub, tagName string) string {
 }
 
 func predefinedTagID(sub, tagName string) string {
-	return fmt.Sprintf("/subscriptions/%s/tagNames/%s", sub, tagName)
+	return armChildID(armSubscriptionID(sub), "tagNames", tagName)
 }
 
 func tagDetailsObject(sub string, t PredefinedTag) map[string]any {
@@ -610,7 +610,7 @@ func tagValueObject(sub, tagName, value string) map[string]any {
 
 func handleTagNamesList(w http.ResponseWriter, r *http.Request) {
 	sub := sim.PathParam(r, "subscriptionId")
-	idPrefix := fmt.Sprintf("/subscriptions/%s/tagNames/", sub)
+	idPrefix := armChildID(armSubscriptionID(sub), "tagNames") + "/"
 	tags := predefinedTags.Filter(func(t PredefinedTag) bool {
 		return strings.HasPrefix(t.ID, idPrefix)
 	})

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"io"
 	"net/http"
 	"sort"
@@ -33,7 +32,7 @@ func registerStorageTablesARM(srv *sim.Server, armBase string, storageAccounts s
 		rg := sim.PathParam(r, "resourceGroupName")
 		account := sim.PathParam(r, "accountName")
 		table := sim.PathParam(r, "tableName")
-		acctID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Storage/storageAccounts/%s", sub, rg, account)
+		acctID := armResourceID(sub, rg, "Microsoft.Storage", "storageAccounts", account)
 		if _, ok := storageAccounts.Get(acctID); !ok {
 			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The Resource 'Microsoft.Storage/storageAccounts/%s' under resource group '%s' was not found.", account, rg)
@@ -92,8 +91,7 @@ func registerStorageTablesARM(srv *sim.Server, armBase string, storageAccounts s
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
 		account := sim.PathParam(r, "accountName")
-		prefix := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Storage/storageAccounts/%s/tableServices/default/tables/",
-			sub, rg, account)
+		prefix := armResourceID(sub, rg, "Microsoft.Storage", "storageAccounts", account, "tableServices", "default", "tables") + "/"
 		all := storageTables.Filter(func(t StorageTable) bool {
 			return strings.HasPrefix(t.ID, prefix)
 		})
@@ -120,8 +118,7 @@ type StorageTableProperties struct {
 }
 
 func storageTableResourceID(sub, rg, account, table string) string {
-	return fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Storage/storageAccounts/%s/tableServices/default/tables/%s",
-		sub, rg, account, table)
+	return armResourceID(sub, rg, "Microsoft.Storage", "storageAccounts", account, "tableServices", "default", "tables", table)
 }
 
 func storageTableResourceIDForAccount(account, table string) (string, bool) {

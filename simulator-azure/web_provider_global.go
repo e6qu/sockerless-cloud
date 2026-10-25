@@ -141,8 +141,7 @@ func registerWebProviderGlobal(srv *sim.Server, site func(string, string, http.H
 		}
 		subnetID := req.Properties.SubnetResourceID
 		if subnetID == "" {
-			subnetID = fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/virtualNetworks/%s/subnets/%s",
-				sub, req.Properties.VnetResourceGroup, req.Properties.VnetName, req.Properties.VnetSubnetName)
+			subnetID = armResourceID(sub, req.Properties.VnetResourceGroup, "Microsoft.Network", "virtualNetworks", req.Properties.VnetName, "subnets", req.Properties.VnetSubnetName)
 		}
 		var failedTests []map[string]any
 		if _, ok := azureSubnets.Get(subnetID); !ok {

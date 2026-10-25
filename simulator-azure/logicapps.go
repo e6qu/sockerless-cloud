@@ -82,11 +82,11 @@ func logicAccessEndpoint(r *http.Request, identifier string) string {
 }
 
 func logicWorkflowID(sub, rg, name string) string {
-	return fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Logic/workflows/%s", sub, rg, name)
+	return armResourceID(sub, rg, "Microsoft.Logic", "workflows", name)
 }
 
 func logicWorkflowRunID(sub, rg, workflow, run string) string {
-	return logicWorkflowID(sub, rg, workflow) + "/runs/" + run
+	return armChildID(logicWorkflowID(sub, rg, workflow), "runs", run)
 }
 
 func handleLogicWorkflowPut(w http.ResponseWriter, r *http.Request) {
@@ -234,13 +234,13 @@ func handleLogicWorkflowDelete(w http.ResponseWriter, r *http.Request) {
 func handleLogicWorkflowListByRG(w http.ResponseWriter, r *http.Request) {
 	sub := sim.PathParam(r, "subscriptionId")
 	rg := sim.PathParam(r, "resourceGroupName")
-	prefix := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Logic/workflows/", sub, rg)
+	prefix := armResourceID(sub, rg, "Microsoft.Logic", "workflows") + "/"
 	writeLogicWorkflowList(w, prefix)
 }
 
 func handleLogicWorkflowListBySubscription(w http.ResponseWriter, r *http.Request) {
 	sub := sim.PathParam(r, "subscriptionId")
-	prefix := fmt.Sprintf("/subscriptions/%s/resourceGroups/", sub)
+	prefix := armSubscriptionID(sub) + "/resourceGroups/"
 	writeLogicWorkflowList(w, prefix)
 }
 

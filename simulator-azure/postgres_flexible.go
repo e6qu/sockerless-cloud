@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"log"
 	"net/http"
 	"strings"
@@ -159,7 +158,7 @@ func handlePGUpdateConfiguration(w http.ResponseWriter, r *http.Request) {
 }
 
 func pgServerID(sub, rg, name string) string {
-	return fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.DBforPostgreSQL/flexibleServers/%s", sub, rg, name)
+	return armResourceID(sub, rg, "Microsoft.DBforPostgreSQL", "flexibleServers", name)
 }
 
 func handlePGCreateServer(w http.ResponseWriter, r *http.Request) {
@@ -467,7 +466,7 @@ func handlePGDeleteServer(w http.ResponseWriter, r *http.Request) {
 func handlePGListServersByRG(w http.ResponseWriter, r *http.Request) {
 	sub := sim.PathParam(r, "subscriptionId")
 	rg := sim.PathParam(r, "resourceGroupName")
-	prefix := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.DBforPostgreSQL/flexibleServers/", sub, rg)
+	prefix := armResourceID(sub, rg, "Microsoft.DBforPostgreSQL", "flexibleServers") + "/"
 	var out []PGFlexibleServer
 	for _, s := range pgServers.List() {
 		if strings.HasPrefix(s.ID, prefix) {

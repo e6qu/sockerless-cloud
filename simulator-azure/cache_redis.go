@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"net/http"
 	"strings"
 
@@ -126,14 +125,14 @@ func registerCacheRedis(srv *sim.Server) {
 }
 
 func redisCacheID(sub, rg, name string) string {
-	return fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Cache/Redis/%s", sub, rg, name)
+	return armResourceID(sub, rg, "Microsoft.Cache", "Redis", name)
 }
 
 // redisFirewallRuleID is the firewall rule's ARM resource ID, which is also
 // the key its store uses — the same shape as every other Redis child store, so
 // a cross-resource-group move re-keys them all the same way.
 func redisFirewallRuleID(sub, rg, cache, rule string) string {
-	return redisCacheID(sub, rg, cache) + "/firewallRules/" + rule
+	return armChildID(redisCacheID(sub, rg, cache), "firewallRules", rule)
 }
 
 func handleRedisCacheCreateFirewallRule(w http.ResponseWriter, r *http.Request) {
@@ -242,7 +241,7 @@ func handleRedisCacheCreate(w http.ResponseWriter, r *http.Request) {
 		AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
 		return
 	}
-	id := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Cache/Redis/%s", sub, rg, name)
+	id := armResourceID(sub, rg, "Microsoft.Cache", "Redis", name)
 	cache := RedisCache{
 		ID:       id,
 		Name:     name,
@@ -318,7 +317,7 @@ func handleRedisCacheGet(w http.ResponseWriter, r *http.Request) {
 	sub := sim.PathParam(r, "subscriptionId")
 	rg := sim.PathParam(r, "resourceGroupName")
 	name := sim.PathParam(r, "name")
-	id := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Cache/Redis/%s", sub, rg, name)
+	id := armResourceID(sub, rg, "Microsoft.Cache", "Redis", name)
 	cache, ok := redisCaches.Get(id)
 	if !ok {
 		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
@@ -332,7 +331,7 @@ func handleRedisCacheDelete(w http.ResponseWriter, r *http.Request) {
 	sub := sim.PathParam(r, "subscriptionId")
 	rg := sim.PathParam(r, "resourceGroupName")
 	name := sim.PathParam(r, "name")
-	id := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Cache/Redis/%s", sub, rg, name)
+	id := armResourceID(sub, rg, "Microsoft.Cache", "Redis", name)
 	if !redisCaches.Delete(id) {
 		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 			"The Resource 'Microsoft.Cache/Redis/%s' under resource group '%s' was not found.", name, rg)
@@ -345,7 +344,7 @@ func handleRedisCacheDelete(w http.ResponseWriter, r *http.Request) {
 func handleRedisCacheListByRG(w http.ResponseWriter, r *http.Request) {
 	sub := sim.PathParam(r, "subscriptionId")
 	rg := sim.PathParam(r, "resourceGroupName")
-	prefix := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Cache/Redis/", sub, rg)
+	prefix := armResourceID(sub, rg, "Microsoft.Cache", "Redis") + "/"
 	var out []RedisCache
 	for _, c := range redisCaches.List() {
 		if strings.HasPrefix(c.ID, prefix) {
@@ -360,7 +359,7 @@ func handleRedisCacheListByRG(w http.ResponseWriter, r *http.Request) {
 
 func handleRedisCacheListBySubscription(w http.ResponseWriter, r *http.Request) {
 	sub := sim.PathParam(r, "subscriptionId")
-	prefix := fmt.Sprintf("/subscriptions/%s/", sub)
+	prefix := armSubscriptionID(sub) + "/"
 	var out []RedisCache
 	for _, c := range redisCaches.List() {
 		if strings.HasPrefix(c.ID, prefix) {
@@ -551,7 +550,7 @@ func handleRedisCheckNameAvailability(w http.ResponseWriter, r *http.Request) {
 		AzureError(w, "BadRequest", "name is required", http.StatusBadRequest)
 		return
 	}
-	prefix := fmt.Sprintf("/subscriptions/%s/", sub)
+	prefix := armSubscriptionID(sub) + "/"
 	for _, c := range redisCaches.List() {
 		if strings.HasPrefix(c.ID, prefix) && strings.EqualFold(c.Name, req.Name) {
 			AzureErrorf(w, "NameNotAvailable", http.StatusConflict,

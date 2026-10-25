@@ -43,7 +43,7 @@ func registerPublicDNSMore(srv *sim.Server, zones sim.Store[PublicDnsZone], reco
 	// subscription-wide list path lowercase ("dnszones"), unlike the
 	// resource-group list ("dnsZones"); match it exactly so the mux routes it.
 	srv.HandleFunc("GET "+subBase+"/dnszones", func(w http.ResponseWriter, r *http.Request) {
-		prefix := fmt.Sprintf("/subscriptions/%s/", sim.PathParam(r, "subscriptionId"))
+		prefix := armSubscriptionID(sim.PathParam(r, "subscriptionId")) + "/"
 		filtered := zones.Filter(func(z PublicDnsZone) bool { return strings.HasPrefix(z.ID, prefix) })
 		sort.Slice(filtered, func(i, j int) bool { return filtered[i].ID < filtered[j].ID })
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"value": filtered})
@@ -172,13 +172,12 @@ func registerPrivateDNSMore(srv *sim.Server, zones sim.Store[PrivateDnsZone], re
 	const subBase = "/subscriptions/{subscriptionId}/providers/Microsoft.Network"
 
 	privateZoneID := func(r *http.Request) string {
-		return fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/privateDnsZones/%s",
-			sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "zoneName"))
+		return armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Network", "privateDnsZones", sim.PathParam(r, "zoneName"))
 	}
 
 	// PrivateZones_List — every private DNS zone in the subscription.
 	srv.HandleFunc("GET "+subBase+"/privateDnsZones", func(w http.ResponseWriter, r *http.Request) {
-		prefix := fmt.Sprintf("/subscriptions/%s/", sim.PathParam(r, "subscriptionId"))
+		prefix := armSubscriptionID(sim.PathParam(r, "subscriptionId")) + "/"
 		all := zones.Filter(func(z PrivateDnsZone) bool { return strings.HasPrefix(z.ID, prefix) })
 		page, next, pageOK := armPage(w, r, all, func(z PrivateDnsZone) string { return azureNameIDKey(z.Name, z.ID) })
 		if !pageOK {

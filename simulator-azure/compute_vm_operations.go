@@ -20,8 +20,7 @@ import (
 // azureVMResourceID renders the ARM id for the virtual machine a request
 // addresses.
 func azureVMResourceID(r *http.Request) string {
-	return fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Compute/virtualMachines/%s",
-		sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "vmName"))
+	return armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Compute", "virtualMachines", sim.PathParam(r, "vmName"))
 }
 
 // azureLookupVM resolves the addressed machine, writing ARM's not-found error
@@ -61,7 +60,7 @@ func registerVirtualMachineStateOperations(srv *sim.Server, armBase string) {
 	// the subscription's resource groups, paged the way ARM pages.
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/providers/Microsoft.Compute/locations/{location}/virtualMachines",
 		func(w http.ResponseWriter, r *http.Request) {
-			prefix := fmt.Sprintf("/subscriptions/%s/", sim.PathParam(r, "subscriptionId"))
+			prefix := armSubscriptionID(sim.PathParam(r, "subscriptionId")) + "/"
 			location := sim.PathParam(r, "location")
 			all := azureVMs.Filter(func(vm VirtualMachine) bool {
 				return strings.HasPrefix(vm.ID, prefix) && strings.EqualFold(vm.Location, location)
