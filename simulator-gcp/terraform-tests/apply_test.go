@@ -252,6 +252,8 @@ func TestTerraformApplyDestroy(t *testing.T) {
 	bucketURL := outputs.must(t, "storage_bucket_url")
 	require.True(t, strings.HasPrefix(bucketURL, "gs://tf-test-bucket-"),
 		"GCS bucket url must be a gs:// URL; got %s", bucketURL)
+	require.Equal(t, "STANDARD", outputs.must(t, "storage_object_storage_class"),
+		"an object written without a storage class takes its bucket's default")
 
 	logSinkID := outputs.must(t, "logging_project_sink_id")
 	require.Contains(t, logSinkID, "projects/test-project/sinks/tf-log-sink",

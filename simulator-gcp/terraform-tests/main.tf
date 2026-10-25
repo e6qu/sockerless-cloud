@@ -1282,6 +1282,10 @@ output "storage_bucket_url" {
   value = google_storage_bucket.tf_bucket.url
 }
 
+output "storage_object_storage_class" {
+  value = google_storage_bucket_object.tf_artifact.storage_class
+}
+
 output "logging_project_sink_id" {
   value = google_logging_project_sink.tf_log_sink.id
 }

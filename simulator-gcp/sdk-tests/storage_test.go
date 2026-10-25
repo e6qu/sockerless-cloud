@@ -40,6 +40,21 @@ func TestGCS_CreateBucket(t *testing.T) {
 	attrs, err := client.Bucket(bucketSdkTestBucket).Attrs(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, bucketSdkTestBucket, attrs.Name)
+	assert.Equal(t, "US", attrs.Location)
+	assert.Equal(t, "multi-region", attrs.LocationType)
+
+	regional := uniqueName("sdk-test-regional")
+	require.NoError(t, client.Bucket(regional).Create(ctx, "test-project", &storage.BucketAttrs{Location: "us-central1"}))
+	attrs, err = client.Bucket(regional).Attrs(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, "US-CENTRAL1", attrs.Location)
+	assert.Equal(t, "region", attrs.LocationType)
+
+	dual := uniqueName("sdk-test-dual")
+	require.NoError(t, client.Bucket(dual).Create(ctx, "test-project", &storage.BucketAttrs{Location: "nam4"}))
+	attrs, err = client.Bucket(dual).Attrs(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, "dual-region", attrs.LocationType)
 }
 
 func TestGCS_UploadAndDownload(t *testing.T) {
@@ -48,7 +63,7 @@ func TestGCS_UploadAndDownload(t *testing.T) {
 	client := storageClient(t)
 	defer client.Close()
 
-	err := client.Bucket(bucketUploadBucket).Create(ctx, "test-project", nil)
+	err := client.Bucket(bucketUploadBucket).Create(ctx, "test-project", &storage.BucketAttrs{StorageClass: "NEARLINE"})
 	require.NoError(t, err)
 
 	// Upload
@@ -56,6 +71,7 @@ func TestGCS_UploadAndDownload(t *testing.T) {
 	_, err = w.Write([]byte("hello world"))
 	require.NoError(t, err)
 	require.NoError(t, w.Close())
+	assert.Equal(t, "NEARLINE", w.Attrs().StorageClass, "an object takes the bucket's default storage class")
 
 	// Download
 	r, err := client.Bucket(bucketUploadBucket).Object("hello.txt").NewReader(ctx)

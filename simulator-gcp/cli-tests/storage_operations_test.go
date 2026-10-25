@@ -73,6 +73,9 @@ func TestGCSCLI_BucketRelocateAndOperations(t *testing.T) {
 		_ = gcloudCLI("storage", "buckets", "delete", "gs://"+bucket).Run()
 	})
 
+	assert.Equal(t, "multi-region", strings.TrimSpace(runCLI(t, gcloudCLI("storage", "buckets", "describe",
+		"gs://"+bucket, "--format=value(location_type)"))), "us is a multi-region location")
+
 	// A bucket that has started no long-running work has no operations.
 	empty := runCLI(t, gcloudCLI("storage", "operations", "list",
 		"projects/_/buckets/"+bucket, "--format=value(name)"))
@@ -88,6 +91,8 @@ func TestGCSCLI_BucketRelocateAndOperations(t *testing.T) {
 		"--format=value(location)"))
 	assert.Equal(t, "US-EAST1", strings.TrimSpace(location),
 		"the relocation moved the bucket it reported moving")
+	assert.Equal(t, "region", strings.TrimSpace(runCLI(t, gcloudCLI("storage", "buckets", "describe",
+		"gs://"+bucket, "--format=value(location_type)"))), "the relocation moved the bucket into a region")
 
 	described := runCLI(t, gcloudCLI("storage", "operations", "describe", name,
 		"--format=value(name,done)"))

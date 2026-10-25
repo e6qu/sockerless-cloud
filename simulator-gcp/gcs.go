@@ -266,6 +266,8 @@ func gcsLocationType(location string) string {
 	switch strings.ToUpper(location) {
 	case "US", "EU", "ASIA":
 		return "multi-region"
+	case "ASIA1", "EUR4", "EUR5", "EUR7", "EUR8", "NAM4":
+		return "dual-region"
 	}
 	if strings.Contains(location, "+") {
 		return "dual-region"
@@ -371,6 +373,12 @@ func persistGCSObject(objects sim.PrefixStore[GCSObject], bucketName, objectName
 		obj.Metadata = cloneStringMap(attrs.Metadata)
 	}
 	obj.metadataCloned = true
+	// An object written without a storage class takes the bucket's default.
+	if obj.StorageClass == "" {
+		if bucket, ok := gcsBuckets.Get(bucketName); ok {
+			obj.StorageClass, _ = bucket.Data["storageClass"].(string)
+		}
+	}
 	objects.Put(bucketName+"/"+objectName, obj)
 	if existed {
 		bucket, _ := gcsBuckets.Get(bucketName)
@@ -756,11 +764,12 @@ func registerGCS(srv *sim.Server) {
 		data["updated"] = now
 		// GCS normalizes bucket locations to upper-case on read; echo that or
 		// terraform-provider-google replaces the bucket (location is ForceNew).
+		location := "US"
 		if loc, ok := data["location"].(string); ok && loc != "" {
-			data["location"] = strings.ToUpper(loc)
-		} else {
-			data["location"] = "US"
+			location = strings.ToUpper(loc)
 		}
+		data["location"] = location
+		data["locationType"] = gcsLocationType(location)
 		if data["storageClass"] == nil {
 			data["storageClass"] = "STANDARD"
 		}
@@ -2804,6 +2813,7 @@ func registerGCSBucketLifecycle(srv *sim.Server, buckets sim.Store[Bucket], obje
 			// GCS normalizes a bucket's location to upper case, the same way
 			// the create path does.
 			bucket.Data["location"] = strings.ToUpper(destination)
+			bucket.Data["locationType"] = gcsLocationType(destination)
 			if request.DestinationCustomPlacementConfig != nil {
 				bucket.Data["customPlacementConfig"] = map[string]any{
 					"dataLocations": request.DestinationCustomPlacementConfig.DataLocations,
