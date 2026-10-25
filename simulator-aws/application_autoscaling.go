@@ -113,7 +113,7 @@ var (
 	appScalingActivities sim.Store[AppScalingActivity]
 )
 
-func registerApplicationAutoScaling(r *AWSRouter, srv *sim.Server, startBackgroundEvaluator bool) {
+func registerApplicationAutoScaling(r *AWSRouter, srv *sim.Server) {
 	appScalableTargets = sim.MakeStore[AppScalableTarget](srv.DB(), "app_scalable_targets")
 	appScalingPolicies = sim.MakeStore[AppScalingPolicy](srv.DB(), "app_scaling_policies")
 	appScheduledActions = sim.MakeStore[AppScheduledAction](srv.DB(), "app_scheduled_actions")
@@ -135,12 +135,6 @@ func registerApplicationAutoScaling(r *AWSRouter, srv *sim.Server, startBackgrou
 	r.Register("AnyScaleFrontendService.GetPredictiveScalingForecast", handleAppASGetPredictiveScalingForecast)
 
 	startAppScheduledActions(srv)
-	if startBackgroundEvaluator {
-		// Evaluate target-tracking policies and adjust capacity on a short
-		// cadence so a policy is observable inside a test. Idempotent across
-		// re-registrations in one process.
-		startAppScalingEvalLoop(srv)
-	}
 }
 
 // appScalableTargetKey is the storage key for the identity triple.

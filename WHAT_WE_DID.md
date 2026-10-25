@@ -993,6 +993,12 @@ fails once the row closes or the operation is served.
   start after every slice is registered and the role-session stores open
   first of all: a mapping restored from an earlier process once polled
   through a role-credential store that did not exist yet and panicked.
+- **Amazon CloudWatch.** `registerCloudWatchMetrics` makes CloudWatch's
+  stores after the Amazon ECS, Elastic Load Balancing and Application Auto
+  Scaling slices, so their metric publishers and the target-tracking
+  evaluator start after every slice is registered: the ELB publisher's first
+  flush, due at the next minute, once raced the store's creation in a
+  simulator built just before the minute turned.
 - **Amazon SNS.** A new topic carries the owner-only `__default_policy_ID`
   policy, and a topic's `DisplayName` defaults to empty, not to its name.
 - **Google Cloud hosts.** Eventarc and Cloud Build both publish
