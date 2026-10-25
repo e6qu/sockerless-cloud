@@ -970,7 +970,11 @@ fails once the row closes or the operation is served.
   an archived guide lives on, because its default branch deletes its pages).
 - **AWS Lambda.** The CLI tests create functions with the architecture of the
   images `TestMain` builds, which match the host's. A reserved runtime
-  variable in a function configuration is refused with Lambda's own message.
+  variable in a function configuration is refused with Lambda's own message. A background
+  worker starts the moment it is registered, so the event source pollers
+  start after every slice is registered and the role-session stores open
+  first of all: a mapping restored from an earlier process once polled
+  through a role-credential store that did not exist yet and panicked.
 - **Amazon SNS.** A new topic carries the owner-only `__default_policy_ID`
   policy, and a topic's `DisplayName` defaults to empty, not to its name.
 - **Google Cloud hosts.** Eventarc and Cloud Build both publish

@@ -341,7 +341,7 @@ func lambdaInvocationHasQualifier(identifier, queryQualifier string) bool {
 	return strings.Contains(identifier, ":")
 }
 
-func registerLambda(srv *sim.Server, startBackgroundPollers bool) {
+func registerLambda(srv *sim.Server) {
 	// Invoke is a CloudTrail DATA event (excluded from LookupEvents); the
 	// function-management ops are management events.
 	cloudTrailDeclareDataEvents("lambda.amazonaws.com", "Invoke")
@@ -363,10 +363,6 @@ func registerLambda(srv *sim.Server, startBackgroundPollers bool) {
 	})
 	lambdaESMShards = sim.MakeStore[lambdaESMShardState](srv.DB(), "lambda_event_source_mapping_shards")
 	lambdaESMTags = sim.MakeStore[map[string]string](srv.DB(), "lambda_event_source_mapping_tags")
-	if startBackgroundPollers {
-		startLambdaEventSourcePollers(srv)
-		startLambdaStreamEventSourcePollers(srv)
-	}
 
 	mux := srv
 

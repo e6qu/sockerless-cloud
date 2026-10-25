@@ -108,6 +108,10 @@ func buildSimulatorWithOptions(cfg sim.Config, options simulatorBuildOptions) (*
 	// durable store is opened, so the shared IAM resource-policy store must
 	// exist before any service slice performs recovery.
 	registerIAMResourcePolicies(srv)
+	// The sessions services hold of the roles they act as are read by every
+	// slice that recovers work or polls on a role's behalf, so their stores
+	// exist before any of them starts.
+	registerRoleCredentials(srv)
 	registerECS(awsRouter, srv)
 	registerECR(awsRouter, srv)
 	registerCloudWatchLogs(awsRouter, srv)
@@ -230,7 +234,7 @@ func buildSimulatorWithOptions(cfg sim.Config, options simulatorBuildOptions) (*
 
 	// REST-based services register directly on the server mux
 	registerEFS(srv)
-	registerLambda(srv, options.startBackgroundEvaluators)
+	registerLambda(srv)
 	registerS3(srv)
 	registerS3ObjectLambda(srv)
 	registerS3Express(srv)
@@ -272,6 +276,12 @@ func buildSimulatorWithOptions(cfg sim.Config, options simulatorBuildOptions) (*
 		// Provisioned environments start only once the containers an earlier
 		// process left are gone, or the sweep would take them too.
 		startLambdaEnvironmentReconciler(srv)
+		// An event source mapping's poller calls Amazon SQS or Amazon Kinesis
+		// under the function's execution role, so it starts once every slice
+		// is registered: a mapping restored from an earlier process polls at
+		// once.
+		startLambdaEventSourcePollers(srv)
+		startLambdaStreamEventSourcePollers(srv)
 		recoverStepFunctionsExecutions()
 		recoverLambdaDurableExecutions()
 		if err := recoverAmplifyComputeInstances(); err != nil {

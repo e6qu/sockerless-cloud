@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -57,6 +58,31 @@ func persistentSimulatorPorts(t *testing.T) (int, int) {
 
 func startPersistentSimulator(t *testing.T, stateDir string, tcpPort, udpPort int, runtimeName string) *exec.Cmd {
 	t.Helper()
+	return startPersistentSimulatorWritingTo(t, stateDir, tcpPort, udpPort, runtimeName, os.Stderr)
+}
+
+// simulatorOutput keeps what a simulator writes to standard error and copies
+// it on to the test's own.
+type simulatorOutput struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (o *simulatorOutput) Write(p []byte) (int, error) {
+	o.mu.Lock()
+	o.buf.Write(p)
+	o.mu.Unlock()
+	return os.Stderr.Write(p)
+}
+
+func (o *simulatorOutput) String() string {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return o.buf.String()
+}
+
+func startPersistentSimulatorWritingTo(t *testing.T, stateDir string, tcpPort, udpPort int, runtimeName string, out io.Writer) *exec.Cmd {
+	t.Helper()
 	cmd := exec.Command(binaryPath)
 	cmd.Env = append(os.Environ(),
 		"SIM_AWS_PORT="+strconv.Itoa(tcpPort),
@@ -67,7 +93,7 @@ func startPersistentSimulator(t *testing.T, stateDir string, tcpPort, udpPort in
 		"SIM_LOG_LEVEL=warn",
 	)
 	cmd.Stdout = os.Stdout
-	require.NoError(t, simready.Start(cmd, os.Stderr))
+	require.NoError(t, simready.Start(cmd, out))
 	return cmd
 }
 
@@ -500,7 +526,11 @@ func TestAWSServiceStateSurvivesSimulatorRestart_SDK(t *testing.T) {
 	require.NotEmpty(t, certBeforeRestart)
 
 	require.NoError(t, shutdownSimulator(cmd), "persistent simulator must exit cleanly before SQLite is reopened")
-	cmd = startPersistentSimulator(t, stateDir, tcpPort, udpPort, "process")
+	// The restored state includes an enabled Amazon SQS event source mapping,
+	// whose poller starts with the simulator; whatever it calls must already
+	// be registered when it does.
+	restarted := &simulatorOutput{}
+	cmd = startPersistentSimulatorWritingTo(t, stateDir, tcpPort, udpPort, "process", restarted)
 
 	amplifyAPI = amplify.NewFromConfig(cfg, func(o *amplify.Options) { o.BaseEndpoint = aws.String(endpoint) })
 	wafAPI = wafv2.NewFromConfig(cfg, func(o *wafv2.Options) { o.BaseEndpoint = aws.String(endpoint) })
@@ -780,6 +810,9 @@ func TestAWSServiceStateSurvivesSimulatorRestart_SDK(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, persistedPrimary.ReplicationStatus, 1)
 	assert.Equal(t, secretsmanagertypes.StatusTypeInSync, persistedPrimary.ReplicationStatus[0].Status)
+
+	assert.NotContains(t, restarted.String(), "worker panicked",
+		"no background work of the restarted simulator may run before what it calls is registered")
 }
 
 func TestAmplifyBuildResumesAfterSimulatorRestart_SDK(t *testing.T) {
