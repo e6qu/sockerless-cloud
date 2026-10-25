@@ -769,7 +769,11 @@ queueing services share into `sim`:
   startup checks; a replica set keeps a count running, restarts or replaces
   with back-off, and adopts after a restart. Cloud Run worker pools and service
   revisions and Container Apps revisions run on it; a Container Apps replica
-  restarts in place keeping its name and address.
+  restarts in place keeping its name and address. A replica still starting
+  counts toward the set's count: `Scale` and `Raise` once counted only the
+  replicas the set held, so a Cloud Run service whose minimum and then manual
+  instance count changed while its first instances passed their startup
+  probes started extra instances and stopped them as surplus.
 - **`sim/revisions`.** A template's identity by content and the choice of a
   revision by traffic weight, for Cloud Run (both surfaces, which once minted a
   revision on every write) and Container Apps.
