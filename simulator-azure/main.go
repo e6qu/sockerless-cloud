@@ -128,6 +128,8 @@ func buildSimulatorWithUI(cfg sim.Config, includeUI bool) (*sim.Server, error) {
 	}
 	azureServer = srv
 
+	// The Activity Log records the operations that pass every check below.
+	srv.WrapHandler(AzureActivityLogMiddleware)
 	// ARM refuses a request beneath a missing or deleting resource group only
 	// after it has authenticated the request and checked its api-version.
 	srv.WrapHandler(AzureResourceGroupScopeMiddleware)
@@ -166,6 +168,7 @@ func buildSimulatorWithUI(cfg sim.Config, includeUI bool) (*sim.Server, error) {
 	// Monitor must be registered before Container Apps and Functions to
 	// initialize the monitorLogs store their log injection uses.
 	registerAzureMonitor(srv)
+	registerActivityLog(srv)
 	registerContainerApps(srv)
 	registerContainerAppsApps(srv)
 	registerContainerAppsIngress(srv)

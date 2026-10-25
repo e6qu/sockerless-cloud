@@ -61,6 +61,7 @@ Re-run `bash scripts/seed-surface-tables.sh` after adding new `HandleFunc` regis
 - [`azure-acr`](azure-acr.md)
 - [`azure-acr_dataplane_properties`](azure-acr_dataplane_properties.md)
 - [`azure-acr_tasks`](azure-acr_tasks.md)
+- [`azure-activitylog`](azure-activitylog.md)
 - [`azure-apim`](azure-apim.md)
 - [`azure-appserviceplan`](azure-appserviceplan.md)
 - [`azure-azure_dns`](azure-azure_dns.md)

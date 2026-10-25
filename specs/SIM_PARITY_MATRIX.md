@@ -145,6 +145,7 @@ lives.
 | `azure-acr` | [`azure-acr`](SIM_SURFACE_TABLES/azure-acr.md) | [`azure-acr`](SIM_TEST_COVERAGE_MATRIX.md) |
 | `azure-acr_dataplane_properties` | [`azure-acr_dataplane_properties`](SIM_SURFACE_TABLES/azure-acr_dataplane_properties.md) | [`azure-acr_dataplane_properties`](SIM_TEST_COVERAGE_MATRIX.md) |
 | `azure-acr_tasks` | [`azure-acr_tasks`](SIM_SURFACE_TABLES/azure-acr_tasks.md) | [`azure-acr_tasks`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `azure-activitylog` | [`azure-activitylog`](SIM_SURFACE_TABLES/azure-activitylog.md) | [`azure-activitylog`](SIM_TEST_COVERAGE_MATRIX.md) |
 | `azure-apim` | [`azure-apim`](SIM_SURFACE_TABLES/azure-apim.md) | [`azure-apim`](SIM_TEST_COVERAGE_MATRIX.md) |
 | `azure-appserviceplan` | [`azure-appserviceplan`](SIM_SURFACE_TABLES/azure-appserviceplan.md) | [`azure-appserviceplan`](SIM_TEST_COVERAGE_MATRIX.md) |
 | `azure-azure_dns` | [`azure-azure_dns`](SIM_SURFACE_TABLES/azure-azure_dns.md) | [`azure-azure_dns`](SIM_TEST_COVERAGE_MATRIX.md) |
