@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { Icon } from "./icons.js";
 import { searchCatalog } from "./catalog.js";
@@ -20,7 +20,8 @@ export function ConsoleSearch() {
   const results = useMemo(() => searchCatalog(query).slice(0, RESULT_LIMIT), [query]);
   useDismiss(wrapper, open, () => setOpen(false));
 
-  useEffect(() => {
+  // Listen before the search box paints, so a "/" pressed once it shows is never lost.
+  useLayoutEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
       if (event.key !== "/" || event.metaKey || event.ctrlKey || event.altKey) return;
       const target = event.target as HTMLElement | null;

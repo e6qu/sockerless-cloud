@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "@sockerless/ui-core/hooks";
@@ -125,7 +125,8 @@ function UnifiedSearch() {
   const [value, setValue] = useState("");
   const ref = useRef<AutosuggestProps.Ref>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
+  // Listen before the search box paints, so Alt+S pressed once it shows is never lost.
+  useLayoutEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
       if (!event.altKey || event.code !== "KeyS") return;
       if (wrapperRef.current?.closest('[aria-hidden="true"]')) return;

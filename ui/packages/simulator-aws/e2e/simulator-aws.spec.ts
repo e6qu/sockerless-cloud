@@ -183,8 +183,9 @@ test.describe("Console shell", () => {
 test.describe("Unified search", () => {
   test("finds a service feature and opens it", async ({ page }) => {
     await page.goto("/ui/");
-    await page.keyboard.press("Alt+s");
     const search = page.getByRole("combobox", { name: "Search" });
+    await expect(search).toBeVisible();
+    await page.keyboard.press("Alt+s");
     await expect(search).toBeFocused();
     await search.fill("key pairs");
     await page.getByRole("option", { name: /Key Pairs/ }).click();
