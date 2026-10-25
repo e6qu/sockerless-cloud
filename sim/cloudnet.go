@@ -329,19 +329,23 @@ func addressRangeInUseError(err error) bool {
 }
 
 // reclaimOrphanedRange removes simulator networks overlapping the range that
-// no container is attached to and that a dead simulator run created, and
-// reports whether it removed any.
+// a dead simulator run created and that only that run's containers are
+// attached to, together with those containers, and reports whether it removed
+// any.
 //
 // All the conditions are load-bearing. The simulator label keeps the sweep
 // inside networks this project made. The overlap keeps it to what blocks the
-// caller. No attached containers means nothing is using it. A different run
-// id means the process that made it is not this one, and only that process
-// being gone makes the network an orphan: another live simulator on the same
-// host has idle networks between two of its workloads too, and they are its.
-// So the owner recorded on the network is checked — same hostname, hence the
-// same pid namespace, and a pid no process holds — and a network whose owner
-// cannot be checked (another hostname, or a network an older release created
-// without an owner) is left where it is.
+// caller. Attached containers that a dead run left — the network's own
+// sidecar, a workload its reaper never collected — use it no more than an
+// empty network; any other attached container means something still does. A
+// different run id means the process that made it is not this one, and only
+// that process being gone makes the network an orphan: another live simulator
+// on the same host has idle networks between two of its workloads too, and
+// they are its. So the owner recorded on the network and on each attached
+// container is checked — same hostname, hence the same pid namespace, and a
+// pid no process holds — and one whose owner cannot be checked (another
+// hostname, or one an older release created without an owner) is left where
+// it is.
 func reclaimOrphanedRange(ctx context.Context, cli *client.Client, cidr netip.Prefix) bool {
 	nets, err := cli.NetworkList(ctx, client.NetworkListOptions{
 		Filters: client.Filters{}.Add("label", "sockerless-sim=true"),
@@ -355,7 +359,7 @@ func reclaimOrphanedRange(ctx context.Context, cli *client.Client, cidr netip.Pr
 			continue
 		}
 		details, err := cli.NetworkInspect(ctx, n.ID, client.NetworkInspectOptions{})
-		if err != nil || len(details.Network.Containers) > 0 {
+		if err != nil {
 			continue
 		}
 		overlaps := false
@@ -365,7 +369,7 @@ func reclaimOrphanedRange(ctx context.Context, cli *client.Client, cidr netip.Pr
 				break
 			}
 		}
-		if !overlaps {
+		if !overlaps || !removeOrphanedAttachments(ctx, cli, details.Network.Containers) {
 			continue
 		}
 		if _, err := cli.NetworkRemove(ctx, n.ID, client.NetworkRemoveOptions{}); err == nil {
@@ -373,6 +377,28 @@ func reclaimOrphanedRange(ctx context.Context, cli *client.Client, cidr netip.Pr
 		}
 	}
 	return reclaimed
+}
+
+// removeOrphanedAttachments removes the containers attached to a network,
+// keyed by container ID, when every one is a simulator container whose
+// owner is dead, and reports whether the network is left with none.
+func removeOrphanedAttachments[T any](ctx context.Context, cli *client.Client, attached map[string]T) bool {
+	for id := range attached {
+		inspect, err := cli.ContainerInspect(ctx, id, client.ContainerInspectOptions{})
+		if err != nil || inspect.Container.Config == nil {
+			return false
+		}
+		labels := inspect.Container.Config.Labels
+		if labels["sockerless-sim"] != "true" || labels["sockerless-sim-run"] == simulatorRunID || !ownerIsDead(labels) {
+			return false
+		}
+	}
+	for id := range attached {
+		if _, err := cli.ContainerRemove(ctx, id, client.ContainerRemoveOptions{Force: true, RemoveVolumes: true}); err != nil && !cerrdefs.IsNotFound(err) {
+			return false
+		}
+	}
+	return true
 }
 
 // ownerIsDead reports whether the process recorded on a simulator resource's
