@@ -344,7 +344,7 @@ func handleCTTaskAction(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, ctView(task, req.ResponseView))
 }
 
-// handleCTBuffer serves both spellings of tasks.buffer.
+// handleCTBuffer serves tasks.buffer.
 func handleCTBuffer(w http.ResponseWriter, r *http.Request) {
 	GCPErrorf(w, http.StatusNotImplemented, "UNIMPLEMENTED", "%s", ctBufferUnservedWhy)
 }

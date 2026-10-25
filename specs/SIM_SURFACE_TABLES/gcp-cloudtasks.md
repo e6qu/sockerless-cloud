@@ -27,12 +27,11 @@ The extractor reads the route out of a single string literal, so a registration 
 | `GET /v2/projects/{project}/locations/{location}/queues/{queue}/tasks` | ✓ `simulator-gcp/cloudtasks.go:214::handleCTListTasks` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `POST /v2/projects/{project}/locations/{location}/queues/{queue}/tasks:batchCreate` | ✓ `simulator-gcp/cloudtasks.go:215::handleCTBatchCreate` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `POST /v2/projects/{project}/locations/{location}/queues/{queue}/tasks:batchDelete` | ✓ `simulator-gcp/cloudtasks.go:216::handleCTBatchDelete` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /v2/projects/{project}/locations/{location}/queues/{queue}/tasks:buffer` | 501 `simulator-gcp/cloudtasks.go:217::handleCTBuffer` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /v2/projects/{project}/locations/{location}/queues/{queue}/tasks/{task}` | ✓ `simulator-gcp/cloudtasks.go:218::handleCTGetTask` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `DELETE /v2/projects/{project}/locations/{location}/queues/{queue}/tasks/{task}` | ✓ `simulator-gcp/cloudtasks.go:219::handleCTDeleteTask` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /v2/projects/{project}/locations/{location}/queues/{queue}/tasks/{taskAction}` | ✓ `simulator-gcp/cloudtasks.go:220::handleCTTaskAction` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /v2/projects/{project}/locations/{location}/cmekConfig` | 501 `simulator-gcp/cloudtasks.go:225::cmek` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `PATCH /v2/projects/{project}/locations/{location}/cmekConfig` | 501 `simulator-gcp/cloudtasks.go:226::cmek` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v2/projects/{project}/locations/{location}/queues/{queue}/tasks/{task}` | ✓ `simulator-gcp/cloudtasks.go:217::handleCTGetTask` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `DELETE /v2/projects/{project}/locations/{location}/queues/{queue}/tasks/{task}` | ✓ `simulator-gcp/cloudtasks.go:218::handleCTDeleteTask` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v2/projects/{project}/locations/{location}/queues/{queue}/tasks/{taskAction}` | ✓ `simulator-gcp/cloudtasks.go:219::handleCTTaskAction` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v2/projects/{project}/locations/{location}/cmekConfig` | 501 `simulator-gcp/cloudtasks.go:224::cmek` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `PATCH /v2/projects/{project}/locations/{location}/cmekConfig` | 501 `simulator-gcp/cloudtasks.go:225::cmek` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 
 ## Coverage status
 

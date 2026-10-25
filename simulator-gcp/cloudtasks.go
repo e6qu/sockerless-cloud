@@ -214,7 +214,6 @@ func registerCloudTasks(srv *sim.Server) {
 	srv.HandleFunc("GET /v2/projects/{project}/locations/{location}/queues/{queue}/tasks", handleCTListTasks)
 	srv.HandleFunc("POST /v2/projects/{project}/locations/{location}/queues/{queue}/tasks:batchCreate", handleCTBatchCreate)
 	srv.HandleFunc("POST /v2/projects/{project}/locations/{location}/queues/{queue}/tasks:batchDelete", handleCTBatchDelete)
-	srv.HandleFunc("POST /v2/projects/{project}/locations/{location}/queues/{queue}/tasks:buffer", handleCTBuffer)
 	srv.HandleFunc("GET /v2/projects/{project}/locations/{location}/queues/{queue}/tasks/{task}", handleCTGetTask)
 	srv.HandleFunc("DELETE /v2/projects/{project}/locations/{location}/queues/{queue}/tasks/{task}", handleCTDeleteTask)
 	srv.HandleFunc("POST /v2/projects/{project}/locations/{location}/queues/{queue}/tasks/{taskAction}", handleCTTaskAction)

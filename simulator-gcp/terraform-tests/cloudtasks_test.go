@@ -16,7 +16,7 @@ func TestTerraformCloudTasksQueues(t *testing.T) {
 	outputs := applyFixture(t, "cloud-tasks")
 	require.Equal(t, "projects/test-project/locations/us-central1/queues/tf-tasks-orders", outputs.must(t, "orders_id"))
 	require.Equal(t, "RUNNING", outputs.must(t, "orders_state"))
-	require.Equal(t, "5", outputs.must(t, "orders_burst"))
+	require.EqualValues(t, 5, outputs.mustValue(t, "orders_burst"))
 	require.Equal(t, "PAUSED", outputs.must(t, "routed_state"))
 	requireNoDrift(t, "cloud-tasks")
 
