@@ -705,7 +705,9 @@ func TestAWSServiceStateSurvivesSimulatorRestart_SDK(t *testing.T) {
 		FunctionName: aws.String(functionName), Qualifier: aws.String(versionNumber),
 	})
 	require.NoError(t, err)
-	assert.EqualValues(t, 2, aws.ToInt32(persistedConcurrency.AllocatedProvisionedConcurrentExecutions))
+	// The configuration persists; its environments are the new process's to
+	// allocate, and this function's image runs nowhere.
+	assert.EqualValues(t, 2, aws.ToInt32(persistedConcurrency.RequestedProvisionedConcurrentExecutions))
 	persistedCodeSigning, err := lambdaAPI.GetFunctionCodeSigningConfig(testCtx, &lambda.GetFunctionCodeSigningConfigInput{
 		FunctionName: aws.String(functionName),
 	})

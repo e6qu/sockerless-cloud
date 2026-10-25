@@ -3,6 +3,7 @@ package main
 import (
 	"archive/zip"
 	"bytes"
+	"context"
 	cryptorand "crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
@@ -12,15 +13,11 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/listq"
 )
-
-// lambdaProcessHandles tracks running Lambda containers for cancellation.
-var lambdaProcessHandles sync.Map // map[requestID]placement.Handle
 
 // Lambda types
 
@@ -359,6 +356,11 @@ func registerLambda(srv *sim.Server, startBackgroundPollers bool) {
 	lambdaLayers = sim.MakeStore[[]LambdaLayerVersion](srv.DB(), "lambda_layers")
 	lambdaESMLogger = srv.Logger()
 	lambdaBackgroundServer = srv
+	lambdaEnvironments.reset()
+	srv.StartBackground("AWS Lambda execution environment shutdown", func(ctx context.Context) {
+		<-ctx.Done()
+		lambdaEnvironments.retireAll()
+	})
 	if startBackgroundPollers {
 		startLambdaEventSourcePollers(srv)
 	}
@@ -861,6 +863,8 @@ func handleLambdaDeleteFunction(w http.ResponseWriter, r *http.Request) {
 				"Function version not found: %s:%s", lambdaArn(name), qualifier)
 			return
 		}
+		lambdaPCs.Delete(name + ":" + qualifier)
+		lambdaEnvironments.reconcile(name)
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
@@ -890,6 +894,7 @@ func handleLambdaDeleteFunction(w http.ResponseWriter, r *http.Request) {
 			lambdaPCs.Delete(name + ":" + config.Qualifier)
 		}
 	}
+	lambdaEnvironments.reconcile(name)
 	for _, config := range lambdaRTMs.List() {
 		if config.FunctionName == name {
 			lambdaRTMs.Delete(name + ":" + config.Qualifier)
@@ -1167,9 +1172,9 @@ func handleLambdaInvoke(w http.ResponseWriter, r *http.Request) {
 		} else {
 			sim.DeclareWait(r.Context(), lambdaInvokeWaitLimit(fn))
 			var serviceErr *lambdaServiceError
-			responseBody, unhandled, _, serviceErr = invokeLambdaViaRuntimeAPI(sim.LifetimeContext(r.Context()), fn, payload)
+			responseBody, unhandled, serviceErr = invokeLambdaViaRuntimeAPI(sim.LifetimeContext(r.Context()), fn, payload)
 			if serviceErr != nil {
-				AWSError(w, serviceErr.Code, serviceErr.Message, http.StatusBadGateway)
+				lambdaWriteServiceError(w, serviceErr)
 				return
 			}
 		}

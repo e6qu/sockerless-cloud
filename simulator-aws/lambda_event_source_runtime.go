@@ -6,9 +6,9 @@ import (
 	"encoding/json"
 	"strconv"
 	"strings"
-	"sync"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/funcrt"
 	"github.com/e6qu/sockerless-cloud/sim/msgq"
 	"github.com/e6qu/sockerless-cloud/sim/signals"
 	"github.com/rs/zerolog"
@@ -16,8 +16,6 @@ import (
 
 var (
 	lambdaESMLogger zerolog.Logger
-	lambdaESMRunMu  sync.Mutex
-	lambdaESMActive = map[string]bool{}
 	// lambdaESMChanges announces a mapping's UUID on every write of it, and
 	// lambdaFunctionChanges a function's name.
 	lambdaESMChanges      = signals.New[string]()
@@ -30,75 +28,42 @@ func lambdaESMPollsSQS(mapping LambdaEventSourceMapping) bool {
 
 // startLambdaEventSourcePollers runs a poller for each enabled Amazon SQS
 // event source mapping, starting one whenever a mapping is created, enabled or
-// updated.
+// updated. A poller long-polls its queue batch after batch while its mapping
+// stays enabled; a batch that fails for a reason no message can clear — the
+// function, the queue or the execution role refusing the poller — waits for
+// the mapping, the function, the queue or IAM to change before the next.
 func startLambdaEventSourcePollers(srv *sim.Server) {
-	srv.StartBackground("Lambda event source poller", func(ctx context.Context) {
-		for {
-			changed := lambdaESMChanges.Any()
+	funcrt.StartPollers(srv, "Lambda event source poller", funcrt.Source[string]{
+		Keys: func() []string {
+			var keys []string
 			for _, mapping := range lambdaESMs.List() {
-				if lambdaESMPollsSQS(mapping) && lambdaBeginESMRun(mapping.UUID) {
-					uuid := mapping.UUID
-					srv.StartBackground("Lambda event source mapping", func(ctx context.Context) {
-						lambdaRunSQSMapping(ctx, uuid)
-					})
+				if lambdaESMPollsSQS(mapping) {
+					keys = append(keys, mapping.UUID)
 				}
 			}
-			select {
-			case <-ctx.Done():
-				return
-			case <-changed:
+			return keys
+		},
+		KeysChanged: func() []<-chan struct{} { return []<-chan struct{}{lambdaESMChanges.Any()} },
+		Wake: func(uuid string) []<-chan struct{} {
+			wake := []<-chan struct{}{lambdaESMChanges.Changed(uuid), iamChanges.Any()}
+			if mapping, ok := lambdaESMs.Get(uuid); ok {
+				wake = append(wake,
+					lambdaFunctionChanges.Changed(snsTopicNameFromARN(mapping.FunctionArn)),
+					sqsQueueChanges.Changed(sqsNameFromARN(mapping.EventSourceArn)))
 			}
-		}
+			return wake
+		},
+		Poll: func(ctx context.Context, uuid string) funcrt.Outcome {
+			mapping, ok := lambdaESMs.Get(uuid)
+			if !ok || !lambdaESMPollsSQS(mapping) {
+				return funcrt.Inactive
+			}
+			if lambdaPollSQSMapping(ctx, mapping) {
+				return funcrt.Polled
+			}
+			return funcrt.Blocked
+		},
 	})
-}
-
-// lambdaRunSQSMapping polls a mapping's queue batch after batch while the
-// mapping stays enabled. A batch that fails for a reason no message can
-// clear — the function, the queue or the execution role refusing the
-// poller — waits for the mapping, the function, the queue or IAM to change
-// before the next.
-func lambdaRunSQSMapping(ctx context.Context, uuid string) {
-	defer func() {
-		lambdaFinishESMRun(uuid)
-		// A mapping enabled again while this run was ending needs another.
-		lambdaESMChanges.Announce(uuid)
-	}()
-	for ctx.Err() == nil {
-		mappingChanged := lambdaESMChanges.Changed(uuid)
-		iamChanged := iamChanges.Any()
-		mapping, ok := lambdaESMs.Get(uuid)
-		if !ok || !lambdaESMPollsSQS(mapping) {
-			return
-		}
-		functionChanged := lambdaFunctionChanges.Changed(snsTopicNameFromARN(mapping.FunctionArn))
-		queueChanged := sqsQueueChanges.Changed(sqsNameFromARN(mapping.EventSourceArn))
-		if lambdaPollSQSMapping(ctx, mapping) {
-			continue
-		}
-		select {
-		case <-ctx.Done():
-		case <-mappingChanged:
-		case <-functionChanged:
-		case <-queueChanged:
-		case <-iamChanged:
-		}
-	}
-}
-
-func lambdaBeginESMRun(uuid string) bool {
-	lambdaESMRunMu.Lock()
-	defer lambdaESMRunMu.Unlock()
-	if lambdaESMActive[uuid] {
-		return false
-	}
-	lambdaESMActive[uuid] = true
-	return true
-}
-
-func lambdaFinishESMRun(uuid string) {
-	lambdaESMRunMu.Lock()
-	delete(lambdaESMActive, uuid)
-	lambdaESMRunMu.Unlock()
 }
 
 // sqsReceivedMessage is a message as Amazon SQS's ReceiveMessage returns it.
@@ -207,7 +172,7 @@ func lambdaPollSQSMapping(ctx context.Context, mapping LambdaEventSourceMapping)
 		lambdaSetESMProcessingResult(mapping.UUID, "PROBLEM: failed to serialize Amazon SQS event")
 		return false
 	}
-	response, unhandled, _, _ := invokeLambdaViaRuntimeAPI(ctx, function, payload)
+	response, unhandled, _ := invokeLambdaViaRuntimeAPI(ctx, function, payload)
 	if ctx.Err() != nil {
 		return true
 	}

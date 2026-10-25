@@ -755,7 +755,7 @@ func s3ObjectLambdaGetObject(w http.ResponseWriter, r *http.Request, olap S3Obje
 	invokeErr := make(chan error, 1)
 	lifetime := sim.LifetimeContext(r.Context())
 	go func() {
-		out, unhandled, _, _ := invokeLambdaViaRuntimeAPI(lifetime, fn, payload)
+		out, unhandled, _ := invokeLambdaViaRuntimeAPI(lifetime, fn, payload)
 		if unhandled {
 			invokeErr <- fmt.Errorf("the transformation function failed: %s", strings.TrimSpace(string(out)))
 			return

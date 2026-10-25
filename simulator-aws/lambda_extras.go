@@ -608,9 +608,37 @@ func handleLambdaPutFunctionConcurrency(w http.ResponseWriter, r *http.Request) 
 			"ReservedConcurrentExecutions is required", http.StatusBadRequest)
 		return
 	}
-	lambdaConcurrency.Put(name, *req.ReservedConcurrentExecutions)
+	reserved := *req.ReservedConcurrentExecutions
+	if reserved < 0 {
+		AWSError(w, "InvalidParameterValueException",
+			"1 validation error detected: Value at 'reservedConcurrentExecutions' failed to satisfy constraint: Member must have value greater than or equal to 0",
+			http.StatusBadRequest)
+		return
+	}
+	current, _ := lambdaConcurrency.Get(name)
+	if lambdaUnreservedConcurrency()+current-reserved < lambdaMinimumUnreservedConcurrency {
+		AWSErrorf(w, "InvalidParameterValueException", http.StatusBadRequest,
+			"Specified ReservedConcurrentExecutions for function decreases account's UnreservedConcurrentExecution below its minimum value of [%d].",
+			lambdaMinimumUnreservedConcurrency)
+		return
+	}
+	// "It's possible to allocate both reserved concurrency and provisioned
+	// concurrency for the same function. In such cases, the provisioned
+	// concurrency cannot exceed the reserved concurrency."
+	provisioned := 0
+	for _, n := range lambdaProvisionedTargets(name) {
+		provisioned += n
+	}
+	if reserved < provisioned {
+		AWSErrorf(w, "InvalidParameterValueException", http.StatusBadRequest,
+			"Specified ReservedConcurrentExecutions for function is less than the %d units of provisioned concurrency configured on its versions and aliases.",
+			provisioned)
+		return
+	}
+	lambdaConcurrency.Put(name, reserved)
+	lambdaEnvironments.reconcile(name)
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
-		"ReservedConcurrentExecutions": *req.ReservedConcurrentExecutions,
+		"ReservedConcurrentExecutions": reserved,
 	})
 }
 
@@ -638,6 +666,7 @@ func handleLambdaDeleteFunctionConcurrency(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	lambdaConcurrency.Delete(name)
+	lambdaEnvironments.reconcile(name)
 	w.WriteHeader(http.StatusNoContent)
 }
 

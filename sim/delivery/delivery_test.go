@@ -284,3 +284,42 @@ func TestSubmitAttemptedMakesTheFirstAttemptBeforeReturning(t *testing.T) {
 		t.Fatal("the retry never ran")
 	}
 }
+
+func TestDeferredAttemptsDoNotCountAgainstMaxAttempts(t *testing.T) {
+	srv := newServer(t)
+	done := make(chan finished, 1)
+	var attempts atomic.Int32
+	store := sim.NewStateStore[Item[payload]]()
+	d := New(srv, "test deliveries", store, Handler[payload]{
+		Policy: func(payload) Policy { return Policy{MaxAttempts: 1} },
+		Attempt: func(_ context.Context, item *Item[payload]) Outcome {
+			if attempts.Add(1) <= 3 {
+				return Deferred(errors.New("throttled"), time.Millisecond)
+			}
+			return Delivered()
+		},
+		Finish: func(item Item[payload], reason Reason) { done <- finished{item, reason} },
+	})
+	d.Submit("one", payload{Body: "hello"})
+	f := waitFinished(t, done)
+	if f.reason != Succeeded || f.item.Attempts != 1 || attempts.Load() != 4 {
+		t.Fatalf("finished %s after %d counted attempts and %d made, want Succeeded after 1 counted of 4", f.reason, f.item.Attempts, attempts.Load())
+	}
+}
+
+func TestDeferredDeliveryEndsWhenItsAgeRunsOut(t *testing.T) {
+	srv := newServer(t)
+	done := make(chan finished, 1)
+	store := sim.NewStateStore[Item[payload]]()
+	d := New(srv, "test deliveries", store, Handler[payload]{
+		Policy: func(payload) Policy { return Policy{MaxAttempts: 3, MaxAge: time.Minute} },
+		Attempt: func(context.Context, *Item[payload]) Outcome {
+			return Deferred(errors.New("throttled"), 2*time.Minute)
+		},
+		Finish: func(item Item[payload], reason Reason) { done <- finished{item, reason} },
+	})
+	d.Submit("one", payload{Body: "hello"})
+	if f := waitFinished(t, done); f.reason != AgeExceeded {
+		t.Fatalf("a delivery deferred past its age finished %s", f.reason)
+	}
+}

@@ -1,6 +1,8 @@
 // lambda-runtime-handler is a minimal test handler for the AWS Lambda
-// Runtime API. Polls /next, echoes the payload back via /response, or
-// emits /error when the payload contains `"cause":"error"`.
+// Runtime API. It polls /next in a loop, as every runtime's bootstrap does,
+// echoes each payload back via /response, or emits /error when the payload
+// contains `"cause":"error"`. A count it keeps in a global variable lasts as
+// long as its execution environment, which `"action":"count"` reports.
 //
 // Implements the real AWS Lambda Runtime API contract
 // (docs.aws.amazon.com/lambda/latest/dg/runtimes-api.html), so it
@@ -26,18 +28,23 @@ func main() {
 	}
 
 	base := "http://" + api
-
-	// Single-pass handler (one invocation per container in the
-	// simulator today). Real Lambda's bootstrap loops indefinitely;
-	// this testdata fixture is single-shot so the sim's ECS-style
-	// "start a container per invocation" wiring works against it.
 	fmt.Fprintf(os.Stderr, "lambda-runtime-handler: polling %s/2018-06-01/runtime/invocation/next\n", base)
-
 	client := &http.Client{Timeout: 0}
+	for {
+		serve(client, base)
+	}
+}
+
+// invocations counts the invocations this execution environment served.
+var invocations int
+
+func serve(client *http.Client, base string) {
 	resp, err := client.Get(base + "/2018-06-01/runtime/invocation/next")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "GET /next: %v\n", err)
-		postInitError(base, err.Error())
+		if invocations == 0 {
+			postInitError(base, err.Error())
+		}
 		os.Exit(1)
 	}
 	defer resp.Body.Close()
@@ -61,8 +68,31 @@ func main() {
 	// If payload contains `"cause":"error"`, report as error. Other
 	// keywords trigger test-specific branches: "sleep" delays, "echo"
 	// round-trips.
+	invocations++
 	payloadStr := string(payload)
 	switch {
+	case strings.Contains(payloadStr, `"action":"count"`):
+		postResponse(base, requestID, []byte(fmt.Sprintf(`{"invocations":%d,"initializationType":%q}`,
+			invocations, os.Getenv("AWS_LAMBDA_INITIALIZATION_TYPE"))))
+	case strings.Contains(payloadStr, `"action":"hold"`):
+		// Hold the invocation until the URL answers, which the caller
+		// controls, then report the count.
+		var request struct {
+			URL string `json:"url"`
+		}
+		if err := json.Unmarshal(payload, &request); err != nil || request.URL == "" {
+			postError(base, requestID, []byte(`{"errorMessage":"hold requires a valid url","errorType":"HandlerError"}`))
+			break
+		}
+		held, err := client.Get(request.URL)
+		if err != nil {
+			errorPayload, _ := json.Marshal(map[string]string{"errorMessage": err.Error(), "errorType": "HandlerError"})
+			postError(base, requestID, errorPayload)
+			break
+		}
+		_, _ = io.Copy(io.Discard, held.Body)
+		held.Body.Close()
+		postResponse(base, requestID, []byte(fmt.Sprintf(`{"invocations":%d}`, invocations)))
 	case strings.Contains(payloadStr, `"action":"http-get"`):
 		var request struct {
 			URL string `json:"url"`

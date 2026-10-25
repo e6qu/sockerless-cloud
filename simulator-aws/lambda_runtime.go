@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -23,58 +22,87 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/workloadhost"
 )
 
-// lambdaInvocation represents a single pending Lambda invocation served
-// over the Runtime API. Matches the real Lambda contract: a unique
-// request ID, the payload the handler polls via /next, a deadline, and
-// channels for the handler's /response or /error reply.
+// lambdaInvocation is one invocation handed to an execution environment's
+// runtime over the Runtime API: a request ID, the payload the runtime reads
+// from Next, and the reply it posts to the invocation's response or error
+// path.
 type lambdaInvocation struct {
 	RequestID   string
 	FunctionArn string
 	Payload     []byte
 	// TimeoutSec is the function's configured Timeout. It bounds the Invoke
 	// phase — "The function's timeout setting limits the duration of the
-	// entire Invoke phase" — so the deadline the Runtime API reports is
-	// computed when the invocation is handed to the runtime, not when the
-	// execution environment was created.
+	// entire Invoke phase" — so the deadline the Runtime API reports counts
+	// from when the runtime receives the invocation.
 	TimeoutSec int
 	TraceID    string
 
-	// Single-slot queue: /next reads once; /response or /error writes once.
-	delivered bool
-	mu        sync.Mutex
-
-	// initialized is closed when the runtime asks for its first invocation.
-	// That request is what ends the Init phase — "The Init phase ends when the
-	// runtime and all extensions signal that they are ready by sending a Next
-	// API request" — and therefore what starts the invocation timer.
-	initialized chan struct{}
-
-	done     chan struct{} // closed when response or error received
+	// done closes once the runtime posted a response or an error.
+	done     chan struct{}
+	doneOnce sync.Once
 	response []byte
-	errorObj []byte // JSON error payload when /error was called
+	errorObj []byte
+	// ended closes when the runtime asks for its next invocation, which is
+	// what ends this one's Invoke phase: "The invoke phase ends after the
+	// runtime and all extensions signal that they are done by sending a Next
+	// API request."
+	ended     chan struct{}
+	endedOnce sync.Once
 }
 
-// runtimeAPISidecar is a per-invocation HTTP server that implements the
-// AWS Lambda Runtime API for one container. Matches real Lambda where
-// each running function container has its own dedicated Runtime API on
-// 127.0.0.1:9001; in the simulator it runs on the host and the
-// container reaches it through the runtime's workload callback address.
+func newLambdaInvocation(fn LambdaFunction, payload []byte) *lambdaInvocation {
+	return &lambdaInvocation{
+		RequestID:   sim.NewUUID(),
+		FunctionArn: fn.FunctionArn,
+		Payload:     payload,
+		TimeoutSec:  lambdaTimeoutSeconds(fn),
+		TraceID:     sim.NewUUID(),
+		done:        make(chan struct{}),
+		ended:       make(chan struct{}),
+	}
+}
+
+func (inv *lambdaInvocation) reply(response, errorObj []byte) {
+	inv.doneOnce.Do(func() {
+		inv.response, inv.errorObj = response, errorObj
+		close(inv.done)
+	})
+}
+
+// runtimeAPISidecar implements the AWS Lambda Runtime API for one execution
+// environment, for as long as the environment lives. Real Lambda gives each
+// execution environment its own Runtime API at 127.0.0.1:9001; here it runs
+// on the host and the container reaches it through the workload callback
+// address.
 type runtimeAPISidecar struct {
-	inv      *lambdaInvocation
 	listener net.Listener
 	server   *http.Server
 	addr     string // host:port address the container sees
+
+	// ready closes on the runtime's first Next request, which ends the Init
+	// phase: "The Init phase ends when the runtime and all extensions signal
+	// that they are ready by sending a Next API request."
+	ready     chan struct{}
+	readyOnce sync.Once
+	// initFailed closes once the runtime reported an initialisation error.
+	initFailed     chan struct{}
+	initFailedOnce sync.Once
+	initError      []byte
+	// pending hands the next invocation to the runtime's Next request.
+	pending chan *lambdaInvocation
+	closed  chan struct{}
+
+	mu      sync.Mutex
+	current *lambdaInvocation
 }
 
-// startRuntimeAPISidecar binds a free port on all interfaces, mounts
-// the Runtime API routes, and starts serving in a background
-// goroutine. Must bind to 0.0.0.0 (not 127.0.0.1) because the
-// function container reaches back via the container runtime's bridge gateway
-// on Linux, which is a different interface than loopback. Other platforms use
-// their standard host callback name. Returns the sidecar so the caller can
-// pass its address into the container and shut the sidecar down after the
-// invocation completes.
-func startRuntimeAPISidecar(inv *lambdaInvocation) (*runtimeAPISidecar, error) {
+// startRuntimeAPISidecar binds a free port on all interfaces, mounts the
+// Runtime API routes, and starts serving in a background goroutine. Must bind
+// to 0.0.0.0 (not 127.0.0.1) because the function container reaches back via
+// the container runtime's bridge gateway on Linux, which is a different
+// interface than loopback. Other platforms use their standard host callback
+// name.
+func startRuntimeAPISidecar() (*runtimeAPISidecar, error) {
 	ln, err := net.Listen("tcp4", "0.0.0.0:0")
 	if err != nil {
 		return nil, fmt.Errorf("runtime API listen: %w", err)
@@ -89,83 +117,86 @@ func startRuntimeAPISidecar(inv *lambdaInvocation) (*runtimeAPISidecar, error) {
 		_ = ln.Close()
 		return nil, fmt.Errorf("runtime API listen: unexpected address type %T", ln.Addr())
 	}
-	port := addr.Port
 
 	mux := http.NewServeMux()
 	s := &runtimeAPISidecar{
-		inv:      inv,
-		listener: ln,
-		addr:     net.JoinHostPort(host, fmt.Sprintf("%d", port)),
+		listener:   ln,
+		addr:       net.JoinHostPort(host, fmt.Sprintf("%d", addr.Port)),
+		ready:      make(chan struct{}),
+		initFailed: make(chan struct{}),
+		pending:    make(chan *lambdaInvocation, 1),
+		closed:     make(chan struct{}),
 	}
-
-	// GET /2018-06-01/runtime/invocation/next
 	mux.HandleFunc("GET /2018-06-01/runtime/invocation/next", s.handleNext)
-	// POST /2018-06-01/runtime/invocation/{id}/response
 	mux.HandleFunc("POST /2018-06-01/runtime/invocation/{id}/response", s.handleResponse)
-	// POST /2018-06-01/runtime/invocation/{id}/error
 	mux.HandleFunc("POST /2018-06-01/runtime/invocation/{id}/error", s.handleInvocationError)
-	// POST /2018-06-01/runtime/init/error
 	mux.HandleFunc("POST /2018-06-01/runtime/init/error", s.handleInitError)
 
 	s.server = &http.Server{
 		Handler:      mux,
-		ReadTimeout:  0, // /next is long-poll; no timeout
+		ReadTimeout:  0, // Next is a long poll
 		WriteTimeout: 0,
 	}
-
 	bg.JoinedGo(func() {
 		_ = s.server.Serve(ln)
 	})
-
 	return s, nil
 }
 
-// Shutdown closes the sidecar listener after the invocation completes.
+// Shutdown closes the sidecar once its environment is gone.
 func (s *runtimeAPISidecar) Shutdown() {
+	close(s.closed)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	_ = s.server.Shutdown(ctx)
 }
 
-// ContainerAddr returns the address the container should use to reach
-// this sidecar (via the Docker host-gateway alias).
+// ContainerAddr returns the address the container uses to reach this
+// sidecar.
 func (s *runtimeAPISidecar) ContainerAddr() string {
 	return s.addr
 }
 
-// handleNext serves GET /2018-06-01/runtime/invocation/next. Blocks
-// until the invocation payload is ready (with this design it's already
-// queued when the container starts, so it returns immediately the first
-// time and hangs on subsequent calls until the server is shut down).
+// dispatch queues inv for the runtime's next Next request.
+func (s *runtimeAPISidecar) dispatch(inv *lambdaInvocation) {
+	s.pending <- inv
+}
+
+// handleNext serves GET /2018-06-01/runtime/invocation/next: it ends the
+// invocation the runtime was working on, then blocks until the environment
+// is handed its next one.
 func (s *runtimeAPISidecar) handleNext(w http.ResponseWriter, r *http.Request) {
-	s.inv.mu.Lock()
-	if s.inv.delivered {
-		s.inv.mu.Unlock()
-		// Hold the connection open until the sidecar shuts down — real
-		// Lambda blocks /next until the next invocation arrives. Our
-		// per-invocation sidecar only serves one, so further polls wait
-		// for shutdown.
-		<-r.Context().Done()
+	s.mu.Lock()
+	previous := s.current
+	s.current = nil
+	s.mu.Unlock()
+	if previous != nil {
+		previous.endedOnce.Do(func() { close(previous.ended) })
+	}
+	s.readyOnce.Do(func() { close(s.ready) })
+
+	var inv *lambdaInvocation
+	select {
+	case inv = <-s.pending:
+	case <-r.Context().Done():
+		return
+	case <-s.closed:
 		return
 	}
-	s.inv.delivered = true
-	s.inv.mu.Unlock()
+	s.mu.Lock()
+	s.current = inv
+	s.mu.Unlock()
 
-	// This request is the runtime signalling that it is initialised: the Init
-	// phase ends here and the Invoke phase — the one the function's timeout
-	// bounds — begins, so the deadline is measured from now.
-	deadline := time.Now().Add(time.Duration(s.inv.TimeoutSec) * time.Second)
-	close(s.inv.initialized)
-
-	w.Header().Set("Lambda-Runtime-Aws-Request-Id", s.inv.RequestID)
-	w.Header().Set("Lambda-Runtime-Invoked-Function-Arn", s.inv.FunctionArn)
+	deadline := time.Now().Add(time.Duration(inv.TimeoutSec) * time.Second)
+	w.Header().Set("Lambda-Runtime-Aws-Request-Id", inv.RequestID)
+	w.Header().Set("Lambda-Runtime-Invoked-Function-Arn", inv.FunctionArn)
 	w.Header().Set("Lambda-Runtime-Deadline-Ms", fmt.Sprintf("%d", deadline.UnixMilli()))
-	if s.inv.TraceID != "" {
-		w.Header().Set("Lambda-Runtime-Trace-Id", s.inv.TraceID)
+	if inv.TraceID != "" {
+		w.Header().Set("Lambda-Runtime-Trace-Id", inv.TraceID)
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(s.inv.Payload)
+	_, _ = w.Write(inv.Payload)
 }
 
 // lambdaRuntimeAPIError writes the Runtime API's ErrorResponse, the
@@ -177,10 +208,20 @@ func lambdaRuntimeAPIError(w http.ResponseWriter, status int, errorType, message
 	_ = json.NewEncoder(w).Encode(map[string]string{"errorMessage": message, "errorType": errorType})
 }
 
+// invocationFor is the invocation the runtime holds under id.
+func (s *runtimeAPISidecar) invocationFor(id string) (*lambdaInvocation, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.current == nil || s.current.RequestID != id {
+		return nil, false
+	}
+	return s.current, true
+}
+
 // handleResponse serves POST /2018-06-01/runtime/invocation/{id}/response.
 func (s *runtimeAPISidecar) handleResponse(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	if id != s.inv.RequestID {
+	inv, ok := s.invocationFor(r.PathValue("id"))
+	if !ok {
 		lambdaRuntimeAPIError(w, http.StatusBadRequest, "InvalidRequestID", "Invalid request ID")
 		return
 	}
@@ -189,13 +230,7 @@ func (s *runtimeAPISidecar) handleResponse(w http.ResponseWriter, r *http.Reques
 		lambdaRuntimeAPIError(w, http.StatusBadRequest, "TruncatedHTTPRequest", "HTTP request detected as truncated")
 		return
 	}
-	s.inv.response = body
-	select {
-	case <-s.inv.done:
-		// Already signaled (e.g. duplicate response); ignore.
-	default:
-		close(s.inv.done)
-	}
+	inv.reply(body, nil)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
 	_, _ = w.Write([]byte(`{"status":"OK"}`))
@@ -203,8 +238,8 @@ func (s *runtimeAPISidecar) handleResponse(w http.ResponseWriter, r *http.Reques
 
 // handleInvocationError serves POST /2018-06-01/runtime/invocation/{id}/error.
 func (s *runtimeAPISidecar) handleInvocationError(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	if id != s.inv.RequestID {
+	inv, ok := s.invocationFor(r.PathValue("id"))
+	if !ok {
 		lambdaRuntimeAPIError(w, http.StatusBadRequest, "InvalidRequestID", "Invalid request ID")
 		return
 	}
@@ -213,12 +248,7 @@ func (s *runtimeAPISidecar) handleInvocationError(w http.ResponseWriter, r *http
 		lambdaRuntimeAPIError(w, http.StatusBadRequest, "TruncatedHTTPRequest", "HTTP request detected as truncated")
 		return
 	}
-	s.inv.errorObj = body
-	select {
-	case <-s.inv.done:
-	default:
-		close(s.inv.done)
-	}
+	inv.reply(nil, body)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
 	_, _ = w.Write([]byte(`{"status":"OK"}`))
@@ -231,12 +261,10 @@ func (s *runtimeAPISidecar) handleInitError(w http.ResponseWriter, r *http.Reque
 		lambdaRuntimeAPIError(w, http.StatusBadRequest, "TruncatedHTTPRequest", "HTTP request detected as truncated")
 		return
 	}
-	s.inv.errorObj = body
-	select {
-	case <-s.inv.done:
-	default:
-		close(s.inv.done)
-	}
+	s.initFailedOnce.Do(func() {
+		s.initError = body
+		close(s.initFailed)
+	})
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
 	_, _ = w.Write([]byte(`{"status":"OK"}`))
@@ -249,8 +277,8 @@ var (
 
 type lambdaInvocationNetwork struct {
 	network string
-	// eniAddress is the invocation's elastic network interface IPv4 address,
-	// which the execution environment takes on the VPC's network.
+	// eniAddress is the execution environment's elastic network interface
+	// IPv4 address, which it takes on the VPC's network.
 	eniAddress     string
 	dns            []string
 	runtimeAPIAddr string
@@ -450,399 +478,22 @@ func createLambdaMountRoot(pattern, description string) (string, error) {
 // layers may unzip to, the CodeSizeUnzipped account limit.
 const lambdaUnzippedCodeLimit = 262144000
 
-// invokeLambdaViaRuntimeAPI launches the function container with
-// AWS_LAMBDA_RUNTIME_API pointing at a per-invocation sidecar, feeds
-// the payload via /next, and returns whatever the handler posts back
-// to /response (or /error → X-Amz-Function-Error: Unhandled).
-//
-// Returns: responseBody, unhandledError (true if /error was posted),
-// exitCode from the container. Unhandled errors come back as proper
-// Lambda error JSON even when the container itself exits 0.
-//
-// Once ctx is done the invocation stops its execution environment and returns
-// at once, unhandled: a simulator shutting down does not wait out a function's
-// timeout, and the caller that owns ctx decides what an interrupted invocation
-// means — a retry the next process makes, or a message that becomes visible
-// again.
-func invokeLambdaViaRuntimeAPI(ctx context.Context, fn LambdaFunction, payload []byte) ([]byte, bool, int, *lambdaServiceError) {
-	var (
-		runtimeImage string
-		taskRoot     string
-		layerRoot    string
-	)
-	if fn.Code == nil {
-		return lambdaErrorPayload("Function has no deployment package"), true, 1, nil
-	}
-	if fn.Code.ImageUri == "" {
-		var err error
-		runtimeImage, err = lambdaRuntimeImage(fn.Runtime)
-		if err != nil {
-			return lambdaErrorPayload(err.Error()), true, 1, nil
-		}
-		taskRoot, err = materializeLambdaDeploymentPackage(fn)
-		if err != nil {
-			return lambdaErrorPayload(err.Error()), true, 1, nil
-		}
-		defer os.RemoveAll(taskRoot)
-		layerRoot, err = materializeLambdaLayers(fn.Layers)
-		if err != nil {
-			return lambdaErrorPayload(err.Error()), true, 1, nil
-		}
-		if layerRoot != "" {
-			defer os.RemoveAll(layerRoot)
-		}
-	}
-
-	// Build invocation + sidecar.
-	requestID := sim.NewUUID()
-	timeoutSec := lambdaTimeoutSeconds(fn)
-	inv := &lambdaInvocation{
-		RequestID:   requestID,
-		FunctionArn: fn.FunctionArn,
-		Payload:     payload,
-		TimeoutSec:  timeoutSec,
-		TraceID:     sim.NewUUID(),
-		initialized: make(chan struct{}),
-		done:        make(chan struct{}),
-	}
-
-	sidecar, err := startRuntimeAPISidecar(inv)
-	if err != nil {
-		errBody := lambdaErrorPayload(fmt.Sprintf("Runtime API sidecar start failed: %v", err))
-		return errBody, true, 1, nil
-	}
-	defer sidecar.Shutdown()
-
-	// CloudWatch log group + stream + START log entry.
-	logGroup, logStream, logKey, _ := injectLambdaInvokeLogs(fn.FunctionName, requestID)
-
-	// Image functions honor their image configuration. ZIP functions run in
-	// AWS's published managed-runtime base image with the extracted archive at
-	// /var/task, which is the filesystem and Runtime API contract Lambda uses.
-	var entrypoint, args []string
-	var binds []string
-	workingDir := ""
-	image := fn.Code.ImageUri
-	if image == "" {
-		image = runtimeImage
-		args = []string{fn.Handler}
-		binds = []string{taskRoot + ":/var/task:ro,z"}
-		if layerRoot != "" {
-			binds = append(binds, layerRoot+":/opt:ro,z")
-		}
-		workingDir = "/var/task"
-	} else if fn.ImageConfig != nil {
-		entrypoint = fn.ImageConfig.EntryPoint
-		args = fn.ImageConfig.Command
-		workingDir = fn.ImageConfig.WorkingDirectory
-	}
-	cmdEnv := map[string]string{
-		"AWS_LAMBDA_RUNTIME_API":          sidecar.ContainerAddr(),
-		"AWS_LAMBDA_FUNCTION_NAME":        fn.FunctionName,
-		"AWS_LAMBDA_FUNCTION_VERSION":     fn.Version,
-		"AWS_LAMBDA_FUNCTION_MEMORY_SIZE": fmt.Sprintf("%d", fn.MemorySize),
-		"AWS_REGION":                      awsRegion(),
-		"AWS_DEFAULT_REGION":              awsRegion(),
-		"AWS_LAMBDA_LOG_GROUP_NAME":       logGroup,
-		"AWS_LAMBDA_LOG_STREAM_NAME":      logStream,
-		"_HANDLER":                        fn.Handler,
-		"AWS_LAMBDA_INITIALIZATION_TYPE":  "on-demand",
-	}
-	// A function that calls an AWS service uses the SDK, which resolves the
-	// service endpoint from AWS_ENDPOINT_URL when one is configured. In real
-	// Lambda that variable is unset and the SDK resolves to the real regional
-	// host; here the services live in this simulator, so the container is given
-	// the address it can reach the simulator on. The function's own environment
-	// still wins, so a function configured for a specific endpoint keeps it.
-	endpoint, err := workloadhost.CallbackAddr(simCallbackListenAddr)
-	if err != nil {
-		return lambdaErrorPayload(fmt.Sprintf("resolve the simulator endpoint: %v", err)), true, 1, nil
-	}
-	cmdEnv["AWS_ENDPOINT_URL"] = "http://" + endpoint
-	if fn.Environment != nil {
-		for k, v := range fn.Environment.Variables {
-			cmdEnv[k] = v
-		}
-	}
-	// The function runs under its execution role, whose session Lambda hands
-	// it in the environment.
-	for k, v := range roleEnvironmentCredentials(roleHolder("lambda", fn.FunctionName), fn.Role, fn.FunctionName) {
-		cmdEnv[k] = v
-	}
-
-	sink := &lambdaLogSink{logGroup: logGroup, logStream: logStream}
-	var stderr bytes.Buffer
-	collectSink := sim.FuncSink(func(line sim.LogLine) {
-		sink.WriteLog(line)
-		if line.Stream == "stderr" {
-			stderr.WriteString(line.Text)
-			stderr.WriteByte('\n')
-		}
-	})
-	platform, err := lambdaDockerPlatform(fn.Architectures)
-	if err != nil {
-		return lambdaErrorPayload(err.Error()), true, 1, nil
-	}
-	invocationNetwork, err := prepareLambdaInvocationNetwork(fn, sidecar)
-	if err != nil {
-		endMs := time.Now().UnixMilli()
-		appendLambdaLog(logKey, endMs, fmt.Sprintf("ERROR RequestId: %s VPC attachment failed: %v", requestID, err))
-		appendLambdaLog(logKey, endMs+1, fmt.Sprintf("END RequestId: %s", requestID))
-		// AWS Lambda reports a VPC it could not set the function up in as an
-		// EC2 client exception of its own, not as the function's error.
-		return lambdaErrorPayload(fmt.Sprintf("VPC attachment failed: %v", err)), true, 1, &lambdaServiceError{
-			Code:    "EC2UnexpectedException",
-			Message: fmt.Sprintf("AWS Lambda received an unexpected Amazon EC2 client exception while setting up for the Lambda function. %v", err),
-		}
-	}
-	defer invocationNetwork.cleanup()
-	cmdEnv["AWS_LAMBDA_RUNTIME_API"] = invocationNetwork.runtimeAPIAddr
-
-	// environmentAttempt counts the execution environments this invocation has
-	// created: the first, and the one a retried Init phase replaces it with.
-	environmentAttempt := 0
-	backend, err := awsPlacement.For(placement.Service{Name: "lambda"})
-	if err != nil {
-		return lambdaErrorPayload(err.Error()), true, 1, nil
-	}
-	startExecutionEnvironment := func() (placement.Handle, error) {
-		environmentAttempt++
-		registryAuth, err := ecrWorkloadRegistryAuth(ecrWorkloadImage(image))
-		if err != nil {
-			return nil, err
-		}
-		return backend.Place(ctx, sim.ContainerConfig{
-			Image:        ecrWorkloadImage(image),
-			RegistryAuth: registryAuth,
-			Architecture: platform,
-			Command:      entrypoint,
-			Args:         args,
-			Env:          cmdEnv,
-			// Timeout is enforced by the sidecar (waiting for /response or
-			// error with a deadline); the container itself is given a
-			// generous wall-clock budget so slow handlers still surface a
-			// proper Lambda timeout instead of a container-level kill. The
-			// budget spans both lifecycle phases the sidecar bounds — the Init
-			// phase's own limit and the Invoke phase's function timeout — since
-			// the two run in the same container.
-			Timeout: lambdaInitPhaseLimit + time.Duration(timeoutSec+5)*time.Second,
-			// Each execution environment is its own sandbox, so a retried Init
-			// phase gets its own container rather than the name the cancelled
-			// one still holds until the engine finishes removing it.
-			Name:        fmt.Sprintf("sockerless-sim-aws-lambda-%s-%d", requestID[:12], environmentAttempt),
-			Labels:      map[string]string{"sockerless-sim-lambda": requestID},
-			ExtraHosts:  invocationNetwork.extraHosts,
-			Network:     invocationNetwork.network,
-			IPv4Address: invocationNetwork.eniAddress,
-			DNS:         invocationNetwork.dns,
-			Sandbox:     SandboxLambda,
-			Binds:       binds,
-			WorkingDir:  workingDir,
-			MemoryBytes: int64(fn.MemorySize) * 1024 * 1024,
-			// The REPORT entry closing this invocation states the memory the
-			// execution environment reached, which is a measurement of the
-			// environment the invocation actually ran in.
-			TrackMemoryPeak: true,
-		}, collectSink)
-	}
-
-	// The Init phase begins once the execution environment exists. Creating and
-	// starting the container is the sandbox provisioning Lambda performs before
-	// INIT_START, so it is outside the Init phase's limit exactly as it is
-	// outside the function's timeout.
-	handle, err := startExecutionEnvironment()
-	initStart := time.Now()
-	if err != nil {
-		endMs := time.Now().UnixMilli()
-		appendLambdaLog(logKey, endMs, fmt.Sprintf("ERROR RequestId: %s Container start failed: %v", requestID, err))
-		appendLambdaLog(logKey, endMs+1, fmt.Sprintf("END RequestId: %s", requestID))
-		return lambdaErrorPayload(fmt.Sprintf("Container start failed: %v", err)), true, 1, nil
-	}
-	lambdaProcessHandles.Store(requestID, handle)
-	defer lambdaProcessHandles.Delete(requestID)
-
-	// Race: handler posts /response|/error, or container exits without
-	// posting, or deadline expires.
-	var (
-		result    []byte
-		unhandled bool
-		exitCode  int
-	)
-	waitForContainer := make(chan int, 1)
-	watchContainer := func(h placement.Handle) {
-		bg.JoinedGo(func() {
-			res := h.Wait()
-			waitForContainer <- res.ExitCode
-		})
-	}
-	watchContainer(handle)
-	interrupted := func() ([]byte, bool, int, *lambdaServiceError) {
-		handle.Cancel()
-		<-waitForContainer
-		appendLambdaLog(logKey, time.Now().UnixMilli(), fmt.Sprintf("END RequestId: %s", requestID))
-		return lambdaErrorPayload("Invocation interrupted: the simulator is shutting down"), true, -1, nil
-	}
-
-	// Init phase. Bootstrapping the runtime and running the function's static
-	// code happen here, outside the function timeout: Lambda bounds the Init
-	// phase by its own limit and starts the Invoke phase — the one the timeout
-	// setting limits — only when the runtime asks for its first invocation.
-	initTimer := time.NewTimer(lambdaInitPhaseLimit)
-	defer initTimer.Stop()
-	var (
-		initDuration time.Duration
-		initRetried  bool
-		initFailed   bool
-	)
-initPhase:
-	for {
-		select {
-		case <-ctx.Done():
-			return interrupted()
-		case <-inv.initialized:
-			initDuration = time.Since(initStart)
-			break initPhase
-		case <-inv.done:
-			initDuration = time.Since(initStart)
-			// A runtime can only reply once it has been handed an invocation,
-			// so a reply that arrives with the readiness signal already raised
-			// is an ordinary fast handler whose two events this select saw at
-			// once — the Init phase did end, and the Invoke phase below takes
-			// the reply immediately.
-			if lambdaSignalRaised(inv.initialized) {
-				break initPhase
-			}
-			// Otherwise the runtime reported an initialisation failure to
-			// /runtime/init/error rather than asking for work. There is no
-			// Invoke phase to bound; the error it posted is the result.
-			result = inv.errorObj
-			if len(result) == 0 {
-				result = lambdaErrorPayload("Runtime failed to initialize")
-			}
-			unhandled = true
-			initFailed = true
-			select {
-			case exitCode = <-waitForContainer:
-			case <-time.After(3 * time.Second):
-				handle.Cancel()
-				exitCode = <-waitForContainer
-			}
-			break initPhase
-		case exitCode = <-waitForContainer:
-			// The runtime died before signalling readiness, so there is no
-			// Invoke phase to bound: the invocation ends here.
-			initDuration = time.Since(initStart)
-			result = lambdaErrorPayload(fmt.Sprintf("Runtime exited without providing a reason (exit %d): %s", exitCode, strings.TrimSpace(stderr.String())))
-			unhandled = true
-			initFailed = true
-			break initPhase
-		case <-initTimer.C:
-			// "The Init phase is limited to 10 seconds. If all three tasks do
-			// not complete within 10 seconds, Lambda retries the Init phase at
-			// the time of the first function invocation with the configured
-			// function timeout." The retry re-creates the execution
-			// environment, and the configured timeout now bounds the retried
-			// initialisation together with the invocation that follows it.
-			initDuration = time.Since(initStart)
-			appendLambdaLog(logKey, time.Now().UnixMilli(), fmt.Sprintf(
-				"INIT_REPORT Init Duration: %.2f ms Phase: init Status: timeout",
-				float64(initDuration.Microseconds())/1000.0))
-			handle.Cancel()
-			<-waitForContainer
-			initRetried = true
-			handle, err = startExecutionEnvironment()
-			if err != nil {
-				endMs := time.Now().UnixMilli()
-				appendLambdaLog(logKey, endMs, fmt.Sprintf("ERROR RequestId: %s Container start failed: %v", requestID, err))
-				appendLambdaLog(logKey, endMs+1, fmt.Sprintf("END RequestId: %s", requestID))
-				return lambdaErrorPayload(fmt.Sprintf("Container start failed: %v", err)), true, 1, nil
-			}
-			lambdaProcessHandles.Store(requestID, handle)
-			watchContainer(handle)
-			break initPhase
-		}
-	}
-
-	if initRetried {
-		// The retried Init phase runs inside the configured function timeout,
-		// so the timer below covers initialisation and invocation both, and the
-		// duration it produces carries the retried init the way a suppressed
-		// init's REPORT does — with no separate Init Duration beside it.
-		initDuration = 0
-	}
-	invokeStart := time.Now()
-	invokeDuration := time.Duration(0)
-
-	// Invoke phase. "The function's timeout setting limits the duration of the
-	// entire Invoke phase", which begins with the Next request the Init phase
-	// ended on — so the timer starts now, not when the container did.
-	if !initFailed {
-		timer := time.NewTimer(time.Duration(timeoutSec) * time.Second)
-		defer timer.Stop()
-
-		select {
-		case <-ctx.Done():
-			return interrupted()
-		case <-inv.done:
-			// The Invoke phase ends when the runtime signals it is done, which
-			// is this reply — not when the container it runs in finally exits.
-			invokeDuration = time.Since(invokeStart)
-			if inv.errorObj != nil {
-				result = inv.errorObj
-				unhandled = true
-			} else {
-				result = inv.response
-				if len(result) == 0 {
-					result = []byte("{}")
-				}
-			}
-			// Let the container exit on its own so logs drain fully; fall
-			// back to cancelling after a short grace window if the handler
-			// hangs after posting /response.
-			select {
-			case exitCode = <-waitForContainer:
-			case <-time.After(3 * time.Second):
-				handle.Cancel()
-				exitCode = <-waitForContainer
-			}
-		case exitCode = <-waitForContainer:
-			// Container exited without calling /response — runtime error.
-			invokeDuration = time.Since(invokeStart)
-			result = lambdaErrorPayload(fmt.Sprintf("Runtime exited without providing a reason (exit %d): %s", exitCode, strings.TrimSpace(stderr.String())))
-			unhandled = true
-		case <-timer.C:
-			// Deadline expired.
-			invokeDuration = time.Since(invokeStart)
-			handle.Cancel()
-			<-waitForContainer
-			result = lambdaErrorPayload(fmt.Sprintf("Task timed out after %d.00 seconds", timeoutSec))
-			unhandled = true
-			exitCode = 1
-		}
-	}
-
-	// Inject END + REPORT log entries.
-	endMs := time.Now().UnixMilli()
-	appendLambdaLog(logKey, endMs, fmt.Sprintf("END RequestId: %s", requestID))
-	appendLambdaLog(logKey, endMs+1, lambdaReportLine(requestID, invokeDuration, initDuration,
-		fn.MemorySize, lambdaEnvironmentMemoryPeak(handle)))
-	if unhandled {
-		appendLambdaLog(logKey, endMs+2, fmt.Sprintf("ERROR RequestId: %s %s", requestID, strings.TrimSpace(string(result))))
-	}
-
-	return result, unhandled, exitCode, nil
-}
-
-// lambdaInitPhaseLimit is how long Lambda gives the Init phase before it gives
-// up on it: "The Init phase is limited to 10 seconds. If all three tasks do not
-// complete within 10 seconds, Lambda retries the Init phase at the time of the
-// first function invocation with the configured function timeout."
-// (AWS Lambda Developer Guide, "Understanding the Lambda execution environment
-// lifecycle" § Init phase.) It is not the function's timeout, which limits the
-// Invoke phase alone, and it is the on-demand concurrency limit — provisioned
-// concurrency, SnapStart and Managed Instances are exempt from it, and this
-// simulator initialises on demand.
+// lambdaInitPhaseLimit is how long Lambda gives an on-demand Init phase before
+// it gives up on it: "The Init phase is limited to 10 seconds. If all three
+// tasks do not complete within 10 seconds, Lambda retries the Init phase at
+// the time of the first function invocation with the configured function
+// timeout." (lambda-runtime-environment.md.gz, § Init phase.) It is not the
+// function's timeout, which limits the Invoke phase alone.
 const lambdaInitPhaseLimit = 10 * time.Second
+
+// lambdaProvisionedInitLimit is how long a provisioned environment's Init
+// phase may run: "For provisioned concurrency, SnapStart, and Managed
+// Instances functions, your initialization code can run for up to 15
+// minutes. The time limit is 130 seconds or the configured function timeout
+// (maximum 900 seconds), whichever is higher."
+func lambdaProvisionedInitLimit(fn LambdaFunction) time.Duration {
+	return max(130*time.Second, time.Duration(lambdaTimeoutSeconds(fn))*time.Second)
+}
 
 // lambdaTimeoutSeconds is the function's configured timeout, or Lambda's
 // default of three seconds.
@@ -858,17 +509,6 @@ func lambdaTimeoutSeconds(fn LambdaFunction) int {
 // phase.
 func lambdaInvokeWaitLimit(fn LambdaFunction) time.Duration {
 	return lambdaInitPhaseLimit + time.Duration(lambdaTimeoutSeconds(fn))*time.Second
-}
-
-// lambdaSignalRaised reports whether a lifecycle signal channel has been closed
-// already, without waiting for one that has not.
-func lambdaSignalRaised(signal <-chan struct{}) bool {
-	select {
-	case <-signal:
-		return true
-	default:
-		return false
-	}
 }
 
 // lambdaReportLine renders the REPORT entry that closes an invocation.
@@ -919,13 +559,13 @@ func lambdaMemoryMegabytes(bytes uint64) uint64 {
 	return (bytes + megabyte - 1) / megabyte
 }
 
-// injectLambdaInvokeLogs sets up the CloudWatch log group + stream and
-// writes the START entry for one invocation. Returns the metadata the
-// caller needs to append subsequent entries.
-func injectLambdaInvokeLogs(functionName, requestID string) (logGroup, logStream, logKey string, startMs int64) {
-	logGroup = fmt.Sprintf("/aws/lambda/%s", functionName)
+// createLambdaLogStream creates the function's log group if it has none and
+// a log stream for one execution environment, named as Lambda names it: the
+// date, the version in brackets, and an identifier of the environment.
+func createLambdaLogStream(fn LambdaFunction) (logGroup, logStream, logKey string) {
+	logGroup = fmt.Sprintf("/aws/lambda/%s", fn.FunctionName)
 	now := time.Now()
-	startMs = now.UnixMilli()
+	startMs := now.UnixMilli()
 
 	if _, exists := cwLogGroups.Get(logGroup); !exists {
 		cwLogGroups.Put(logGroup, CWLogGroup{
@@ -935,11 +575,15 @@ func injectLambdaInvokeLogs(functionName, requestID string) (logGroup, logStream
 		})
 	}
 
-	hexBytes := make([]byte, 8)
+	hexBytes := make([]byte, 16)
 	if _, err := rand.Read(hexBytes); err != nil {
-		hexBytes = []byte{0, 0, 0, 0, 0, 0, 0, 0}
+		hexBytes = make([]byte, 16)
 	}
-	logStream = fmt.Sprintf("%s/[$LATEST]%s", now.Format("2006/01/02"), hex.EncodeToString(hexBytes))
+	version := fn.Version
+	if version == "" {
+		version = "$LATEST"
+	}
+	logStream = fmt.Sprintf("%s/[%s]%s", now.Format("2006/01/02"), version, hex.EncodeToString(hexBytes))
 	logKey = cwEventsKey(logGroup, logStream)
 
 	cwLogStreams.Put(logKey, CWLogStream{
@@ -952,11 +596,7 @@ func injectLambdaInvokeLogs(functionName, requestID string) (logGroup, logStream
 		Arn:                 cwLogStreamArn(logGroup, logStream),
 		UploadSequenceToken: "1",
 	})
-	start := []CWLogEvent{
-		{Timestamp: startMs, Message: fmt.Sprintf("START RequestId: %s Version: $LATEST", requestID), IngestionTime: startMs},
-	}
-	cwAppendLogEvents(logKey, start, nil)
-	return
+	return logGroup, logStream, logKey
 }
 
 // appendLambdaLog adds one event to a stream.
@@ -964,14 +604,35 @@ func appendLambdaLog(logKey string, ts int64, msg string) {
 	cwAppendLogEvents(logKey, []CWLogEvent{{Timestamp: ts, Message: msg, IngestionTime: ts}}, nil)
 }
 
-// lambdaErrorPayload renders a Lambda-style error JSON body.
 // lambdaServiceError is an invocation failure AWS Lambda reports as a service
-// exception, with HTTP status 502, rather than as the function's own error.
+// exception of its own, rather than as the function's error.
 type lambdaServiceError struct {
+	Status  int
 	Code    string
 	Message string
+	// Reason and Type are the throttle's TooManyRequestsException members.
+	Reason string
+	Type   string
 }
 
+// lambdaWriteServiceError answers a request with the service exception.
+func lambdaWriteServiceError(w http.ResponseWriter, e *lambdaServiceError) {
+	if e.Reason == "" {
+		AWSError(w, e.Code, e.Message, e.Status)
+		return
+	}
+	body := map[string]string{"__type": e.Code, "message": e.Message, "Message": e.Message}
+	if model, ok := awsErrorModelOf(w); ok {
+		body = awsErrorBody(model, e.Code, e.Message)
+	}
+	body["Reason"] = e.Reason
+	body["Type"] = e.Type
+	w.Header().Set("Content-Type", "application/x-amz-json-1.1")
+	w.WriteHeader(e.Status)
+	_ = json.NewEncoder(w).Encode(body)
+}
+
+// lambdaErrorPayload renders a Lambda-style error JSON body.
 func lambdaErrorPayload(msg string) []byte {
 	body, _ := json.Marshal(map[string]string{
 		"errorMessage": msg,

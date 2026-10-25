@@ -192,9 +192,13 @@ func (lambdaFunctionURLInvoker) serve(w http.ResponseWriter, r *http.Request, na
 		return
 	}
 	sim.DeclareWait(r.Context(), lambdaInvokeWaitLimit(fn))
-	result, unhandled, _, _ := invokeLambdaViaRuntimeAPI(sim.LifetimeContext(r.Context()), fn, payload)
+	result, unhandled, serviceErr := invokeLambdaViaRuntimeAPI(sim.LifetimeContext(r.Context()), fn, payload)
 	if cors != nil {
 		cors.decorate(w, r)
+	}
+	if serviceErr != nil && serviceErr.Status == http.StatusTooManyRequests {
+		lambdaFunctionURLError(w, http.StatusTooManyRequests, serviceErr.Code, serviceErr.Message)
+		return
 	}
 	if unhandled {
 		lambdaFunctionURLError(w, http.StatusBadGateway, "", "Internal Server Error")

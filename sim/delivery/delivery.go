@@ -26,11 +26,19 @@ type Outcome struct {
 	Status int
 	// Response is the body the receiver answered with, up to a mebibyte.
 	Response []byte
+	// Defer, when positive, retries the delivery after that wait without
+	// counting the attempt against MaxAttempts: a cloud that retries a
+	// throttled delivery until its age runs out, apart from the retries its
+	// policy grants for failures.
+	Defer time.Duration
 }
 
-func Delivered() Outcome                   { return Outcome{} }
-func Retryable(err error) Outcome          { return Outcome{Err: err, Retry: true} }
-func Permanent(err error) Outcome          { return Outcome{Err: err} }
+func Delivered() Outcome          { return Outcome{} }
+func Retryable(err error) Outcome { return Outcome{Err: err, Retry: true} }
+func Permanent(err error) Outcome { return Outcome{Err: err} }
+func Deferred(err error, wait time.Duration) Outcome {
+	return Outcome{Err: err, Retry: true, Defer: max(wait, time.Nanosecond)}
+}
 func (o Outcome) OK() bool                 { return o.Err == nil }
 func (o Outcome) WithStatus(s int) Outcome { o.Status = s; return o }
 func errorText(err error) string {
@@ -212,6 +220,20 @@ func (d *Dispatcher[T]) run(id string) {
 	item.LastError = errorText(outcome.Err)
 	item.LastStatus = outcome.Status
 	item.LastResponse = string(outcome.Response)
+	if outcome.Defer > 0 && !outcome.OK() {
+		item.Attempts--
+		if policy.MaxAge > 0 && d.now().Add(outcome.Defer).Sub(item.EnqueuedAt) > policy.MaxAge {
+			d.finish(item, AgeExceeded)
+			return
+		}
+		item.NextAttemptAt = d.now().UTC().Add(outcome.Defer)
+		if _, still := d.store.Get(id); !still {
+			return
+		}
+		d.store.Put(id, item)
+		d.schedule(id, item.NextAttemptAt)
+		return
+	}
 	switch {
 	case outcome.OK():
 		d.finish(item, Succeeded)

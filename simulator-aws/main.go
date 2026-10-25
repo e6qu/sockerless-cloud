@@ -269,6 +269,9 @@ func buildSimulatorWithOptions(cfg sim.Config, options simulatorBuildOptions) (*
 		if err := recoverLambdaInvocations(); err != nil {
 			return nil, nil, nil, fmt.Errorf("restore AWS Lambda invocations: %w", err)
 		}
+		// Provisioned environments start only once the containers an earlier
+		// process left are gone, or the sweep would take them too.
+		startLambdaEnvironmentReconciler(srv)
 		recoverStepFunctionsExecutions()
 		recoverLambdaDurableExecutions()
 		if err := recoverAmplifyComputeInstances(); err != nil {

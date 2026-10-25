@@ -27,6 +27,18 @@ type LambdaAsyncInvocation struct {
 	Unhandled     bool
 	Configured    bool
 	Destination   *lambdaDestinationConfig
+	// Throttles counts the attempts the function's concurrency refused.
+	Throttles int
+}
+
+// lambdaAsyncThrottleBackoff is the wait before retrying an event after its
+// nth throttle: one second, doubling, at most five minutes.
+func lambdaAsyncThrottleBackoff(n int) time.Duration {
+	wait := time.Second
+	for i := 1; i < n && wait < 5*time.Minute; i++ {
+		wait *= 2
+	}
+	return min(wait, 5*time.Minute)
 }
 
 var lambdaAsyncInvocations *delivery.Dispatcher[LambdaAsyncInvocation]
@@ -47,7 +59,18 @@ func registerLambdaAsyncInvocations(srv *sim.Server) {
 			}
 		},
 		Attempt: func(ctx context.Context, item *delivery.Item[LambdaAsyncInvocation]) delivery.Outcome {
-			response, unhandled, _, _ := invokeLambdaViaRuntimeAPI(ctx, item.Payload.Function, item.Payload.Payload)
+			response, unhandled, serviceErr := invokeLambdaViaRuntimeAPI(ctx, item.Payload.Function, item.Payload.Payload)
+			if serviceErr != nil && serviceErr.Status == http.StatusTooManyRequests {
+				// "For throttling errors (429) and system errors (500-series),
+				// Lambda returns the event to the queue and attempts to run the
+				// function again for up to 6 hours by default. The retry
+				// interval increases exponentially from 1 second after the
+				// first attempt to a maximum of 5 minutes."
+				// (invocation-async-error-handling.md.gz.) A throttle is not a
+				// function error, so it spends none of MaximumRetryAttempts.
+				item.Payload.Throttles++
+				return delivery.Deferred(errors.New(serviceErr.Message), lambdaAsyncThrottleBackoff(item.Payload.Throttles))
+			}
 			item.Payload.Response = append([]byte(nil), response...)
 			item.Payload.Unhandled = unhandled
 			if unhandled {

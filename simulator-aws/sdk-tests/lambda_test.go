@@ -539,7 +539,9 @@ func TestLambda_RuntimeAPILogsToCloudWatch(t *testing.T) {
 	cw.DeleteLogGroup(ctx, &cloudwatchlogs.DeleteLogGroupInput{LogGroupName: aws.String(logGroupName)})
 }
 
-func TestLambda_MultipleInvokesCreateMultipleStreams(t *testing.T) {
+// Sequential invocations run in one execution environment, which writes one
+// log stream: Lambda names the stream for the environment, not the request.
+func TestLambda_SequentialInvokesShareTheEnvironmentsStream(t *testing.T) {
 	t.Parallel()
 	lc := lambdaClient()
 	cw := cwLogsClient()
@@ -564,12 +566,11 @@ func TestLambda_MultipleInvokesCreateMultipleStreams(t *testing.T) {
 	_, err = lc.Invoke(ctx, &lambda.InvokeInput{FunctionName: aws.String(fnName)})
 	require.NoError(t, err)
 
-	// Should have 2 streams (each invoke creates a new one)
 	streams, err := cw.DescribeLogStreams(ctx, &cloudwatchlogs.DescribeLogStreamsInput{
 		LogGroupName: aws.String(logGroupName),
 	})
 	require.NoError(t, err)
-	assert.GreaterOrEqual(t, len(streams.LogStreams), 2, "expected at least 2 log streams")
+	assert.Len(t, streams.LogStreams, 1, "the second invocation reuses the first one's execution environment and its stream")
 
 	// With Descending=true + Limit=1, we should get only the most recent stream
 	latest, err := cw.DescribeLogStreams(ctx, &cloudwatchlogs.DescribeLogStreamsInput{
