@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"net/http"
-	"sort"
 	"strings"
 
 	"github.com/e6qu/sockerless-cloud/sim"
@@ -100,11 +99,20 @@ func registerResourceGroups(srv *sim.Server) {
 		all := resourceGroups.Filter(func(rg ResourceGroup) bool {
 			return strings.HasPrefix(rg.ID, prefix)
 		})
-		if all == nil {
-			all = []ResourceGroup{}
+		// ResourceGroups_List pages by $top and continues at the nextLink it
+		// returns, as Resources_List does.
+		page, next, ok := armPage(w, r, all, func(rg ResourceGroup) string { return strings.ToLower(rg.ID) })
+		if !ok {
+			return
 		}
-		sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
-		sim.WriteJSON(w, http.StatusOK, map[string]any{"value": all})
+		if page == nil {
+			page = []ResourceGroup{}
+		}
+		body := map[string]any{"value": page}
+		if next != "" {
+			body["nextLink"] = armNextLink(r, next)
+		}
+		sim.WriteJSON(w, http.StatusOK, body)
 	})
 
 	srv.HandleFunc("DELETE /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}", func(w http.ResponseWriter, r *http.Request) {

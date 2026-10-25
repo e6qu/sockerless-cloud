@@ -104,11 +104,7 @@ func azureNameIDKey(name, id string) string {
 func armNextLink(r *http.Request, skipToken string) string {
 	q := r.URL.Query()
 	q.Set("$skiptoken", skipToken)
-	scheme := "http"
-	if r.TLS != nil {
-		scheme = "https"
-	}
-	return fmt.Sprintf("%s://%s%s?%s", scheme, r.Host, r.URL.Path, q.Encode())
+	return fmt.Sprintf("%s://%s%s?%s", azureRequestScheme(r), r.Host, r.URL.Path, q.Encode())
 }
 
 // acrCatalogPage reads n and last from r (Docker Registry v2 pagination).
