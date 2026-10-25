@@ -20,6 +20,17 @@ function unique(prefix: string): string {
 const TABSTER_DUMMY = "i[data-tabster-dummy]";
 
 async function expectNoAxeViolations(page: Page) {
+  // Fluent UI runs its open and close motion on the Web Animations API, which
+  // the injected transition-disabling style does not reach; audit once every
+  // finite animation has finished (a spinner's loop never does).
+  await page.evaluate(() =>
+    Promise.all(
+      document
+        .getAnimations()
+        .filter((animation) => animation.effect?.getComputedTiming().endTime !== Infinity)
+        .map((animation) => animation.finished.catch(() => undefined)),
+    ),
+  );
   const results = await new AxeBuilder({ page }).exclude(TABSTER_DUMMY).analyze();
   expect(results.violations, JSON.stringify(results.violations, null, 2)).toEqual([]);
 }

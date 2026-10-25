@@ -232,9 +232,21 @@ function AccountCard() {
   );
 }
 
-function HeaderButton({ label, icon, onClick, badge }: { label: string; icon: "notifications" | "settings" | "help"; onClick: () => void; badge?: number }) {
+function HeaderButton({
+  label,
+  icon,
+  onClick,
+  badge,
+  mountNode,
+}: {
+  label: string;
+  icon: "notifications" | "settings" | "help";
+  onClick: () => void;
+  badge?: number;
+  mountNode: HTMLElement | null;
+}) {
   return (
-    <Tooltip content={label} relationship="label">
+    <Tooltip content={label} relationship="label" mountNode={mountNode}>
       <button type="button" className="az-header-button" onClick={onClick} data-testid={`header-${icon}`}>
         <AzureIcon name={icon} size={18} />
         {badge ? <CounterBadge count={badge} size="small" className="az-header-badge" aria-hidden /> : null}
@@ -292,6 +304,9 @@ function PortalMenu({ open, onClose }: { open: boolean; onClose: () => void }) {
 function PortalFrame({ children, theme, onTheme }: { children: ReactNode; theme: "light" | "dark"; onTheme: (theme: "light" | "dark") => void }) {
   const [pane, setPane] = useState<Pane>(null);
   const [menu, setMenu] = useState(false);
+  // Header tooltips render inside the banner landmark, beside the buttons they
+  // name, rather than in a portal at the end of the body.
+  const [header, setHeader] = useState<HTMLElement | null>(null);
   const { notifications, markRead } = useNotifications();
   const unread = notifications.filter((entry) => entry.unread).length;
   const { pathname } = useLocation();
@@ -306,8 +321,8 @@ function PortalFrame({ children, theme, onTheme }: { children: ReactNode; theme:
       <a href="#main-content" className="sl-skip-link">
         Skip to main content
       </a>
-      <header className="az-header">
-        <Tooltip content="Show portal menu" relationship="label">
+      <header className="az-header" ref={setHeader}>
+        <Tooltip content="Show portal menu" relationship="label" mountNode={header}>
           <button type="button" className="az-header-button" onClick={() => setMenu(true)} aria-expanded={menu}>
             <AzureIcon name="menu" size={18} />
           </button>
@@ -317,9 +332,9 @@ function PortalFrame({ children, theme, onTheme }: { children: ReactNode; theme:
         </RouterLink>
         <GlobalSearch />
         <div className="az-header-controls">
-          <HeaderButton label="Notifications" icon="notifications" onClick={() => openPane("notifications")} badge={unread} />
-          <HeaderButton label="Settings" icon="settings" onClick={() => openPane("settings")} />
-          <HeaderButton label="Help + support" icon="help" onClick={() => openPane("help")} />
+          <HeaderButton label="Notifications" icon="notifications" onClick={() => openPane("notifications")} badge={unread} mountNode={header} />
+          <HeaderButton label="Settings" icon="settings" onClick={() => openPane("settings")} mountNode={header} />
+          <HeaderButton label="Help + support" icon="help" onClick={() => openPane("help")} mountNode={header} />
           <AccountCard />
         </div>
       </header>
