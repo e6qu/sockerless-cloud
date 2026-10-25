@@ -408,11 +408,11 @@ func kuduContainerLogs(w http.ResponseWriter, r *http.Request, site *Site, zippe
 // container's processes, GET /api/processes/{id} reads one, DELETE kills it,
 // and GET /api/processes/{id}/dump reads its memory image, raw or zipped.
 func serveKuduProcesses(w http.ResponseWriter, r *http.Request, site *Site, rest string) {
-	containerID, running := webSiteInstanceContainer(*site)
+	instance, running := webSiteInstanceContainer(*site)
 	var procs []webProcess
 	if running {
 		var err error
-		if procs, err = webProcessTable(containerID); err != nil {
+		if procs, err = webProcessTable(instance.ID()); err != nil {
 			kuduWebAPIError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
@@ -452,7 +452,7 @@ func serveKuduProcesses(w http.ResponseWriter, r *http.Request, site *Site, rest
 		case http.MethodGet:
 			sim.WriteJSON(w, http.StatusOK, kuduProcessInfo(base, *proc, procs, readAt))
 		case http.MethodDelete, http.MethodPost:
-			if err := webKillContainerProcess(containerID, pid); err != nil {
+			if err := webKillContainerProcess(instance, pid); err != nil {
 				kuduWebAPIError(w, http.StatusInternalServerError, err.Error())
 				return
 			}
@@ -469,7 +469,7 @@ func serveKuduProcesses(w http.ResponseWriter, r *http.Request, site *Site, rest
 			kuduWebAPIError(w, http.StatusBadRequest, fmt.Sprintf("Dump format '%s' is not supported.", format))
 			return
 		}
-		core, err := webReadProcess(r.Context(), containerID, pid, "core")
+		core, err := webReadProcess(r.Context(), instance.ID(), pid, "core")
 		if err != nil {
 			kuduWebAPIError(w, http.StatusInternalServerError, err.Error())
 			return

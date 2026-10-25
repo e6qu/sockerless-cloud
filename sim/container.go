@@ -1049,22 +1049,6 @@ func StopAndRemoveContainer(containerID string, grace time.Duration) {
 	}
 }
 
-// ContainerRunning reports whether the container with the given id exists and
-// is currently running, which is how a slice that keeps a long-lived workload
-// decides whether it is already up before routing an invoke to it.
-func ContainerRunning(id string) bool {
-	if dockerClient == nil || id == "" {
-		return false
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	insp, err := dockerClient.ContainerInspect(ctx, id, client.ContainerInspectOptions{})
-	if err != nil || insp.Container.State == nil {
-		return false
-	}
-	return insp.Container.State.Running
-}
-
 // PullImage makes the simulator runtime's bounded, stream-aware pull path
 // available to cloud-product translators that must inspect an image before
 // they can construct its container configuration.

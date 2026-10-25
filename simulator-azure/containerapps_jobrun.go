@@ -139,7 +139,7 @@ func acaStartJobExecution(executions sim.Store[JobExecution], job ContainerAppJo
 		record.Tasks[i] = acaReplicaTask{Index: i, Status: jobrun.Pending.String()}
 	}
 	acaRuns.Put(execID, record)
-	run := &acaJobRun{record: record, live: map[int]*acaGroup{}}
+	run := &acaJobRun{record: record, live: map[int]*workload.Group{}}
 	run.register(jobrun.Start(record.spec(), run.hooks()))
 	return exec
 }
@@ -151,7 +151,7 @@ type acaJobRun struct {
 	adopted   map[[2]int]bool
 
 	mu   sync.Mutex
-	live map[int]*acaGroup
+	live map[int]*workload.Group
 	done bool
 	run  *jobrun.Execution
 }
@@ -212,7 +212,7 @@ func (r *acaJobRun) start(ctx context.Context, t jobrun.Task) (jobrun.Workload, 
 	return r.track(t.Index, group), nil
 }
 
-func (r *acaJobRun) track(index int, group *acaGroup) jobrun.Workload {
+func (r *acaJobRun) track(index int, group *workload.Group) jobrun.Workload {
 	r.mu.Lock()
 	r.live[index] = group
 	r.mu.Unlock()
@@ -241,7 +241,7 @@ func (r *acaJobRun) mainContainer() placement.Handle {
 type acaReplicaWorkload struct {
 	run   *acaJobRun
 	index int
-	group *acaGroup
+	group *workload.Group
 }
 
 func (w *acaReplicaWorkload) Wait() jobrun.Exit {
@@ -373,7 +373,7 @@ func resumeACAJobExecutions(ctx context.Context) {
 				}
 			}
 		}
-		run := &acaJobRun{record: record, live: map[int]*acaGroup{}, adoptable: found[exec.ID], adopted: map[[2]int]bool{}}
+		run := &acaJobRun{record: record, live: map[int]*workload.Group{}, adoptable: found[exec.ID], adopted: map[[2]int]bool{}}
 		run.register(jobrun.Resume(record.spec(), run.hooks(), tasks))
 		for key := range run.adopted {
 			for _, c := range run.adoptable[key] {
@@ -488,7 +488,7 @@ func (r *acaJobRun) adopt(t jobrun.Task) (jobrun.Workload, error) {
 	}
 	azureReleaseOnExit(handles[0].Exited(), release)
 	r.adopted[key] = true
-	return r.track(t.Index, &acaGroup{Main: handles[0], Sidecars: handles[1:]}), nil
+	return r.track(t.Index, &workload.Group{Main: handles[0], Sidecars: handles[1:]}), nil
 }
 
 // acaJobReplicaContainerName names the main container of one attempt of one
@@ -500,7 +500,7 @@ func acaJobReplicaContainerName(execName string, index, attempt int) string {
 // startACAJobContainers starts one attempt of one replica of an execution:
 // the template's first container owns the network namespace, the others
 // join it.
-func startACAJobContainers(ctx context.Context, execID, execName string, index, attempt int, job ContainerAppJob, tmpl *JobTemplate, network azureWorkloadNetwork, subnetID string, netAliases []string, sink sim.LogSink) (*acaGroup, error) {
+func startACAJobContainers(ctx context.Context, execID, execName string, index, attempt int, job ContainerAppJob, tmpl *JobTemplate, network azureWorkloadNetwork, subnetID string, netAliases []string, sink sim.LogSink) (*workload.Group, error) {
 	envID := job.Properties.EnvironmentID
 	volByName := make(map[string]JobVolume, len(tmpl.Volumes))
 	for _, v := range tmpl.Volumes {

@@ -65,7 +65,7 @@ func TestContainerBackendKeepsRestartsAndRemovesAWorkload(t *testing.T) {
 	if err := backend.Remove(t.Context(), id); err != nil {
 		t.Fatal(err)
 	}
-	if sim.ContainerRunning(id) {
+	if containerRunning(t, id) {
 		t.Fatal("the workload still runs after Remove")
 	}
 	if err := backend.Remove(t.Context(), id); err != nil {
@@ -214,7 +214,7 @@ func TestContainerBackendPlacesAWorkloadBehindALoopbackForwarder(t *testing.T) {
 	if strings.TrimSpace(out) != "from-upstream" {
 		t.Fatalf("the workload read %q through its loopback", out)
 	}
-	if sim.ContainerRunning(forwarderID) {
+	if containerRunning(t, forwarderID) {
 		t.Fatal("the forwarder outlived the workload")
 	}
 
@@ -269,7 +269,7 @@ func TestContainerBackendPlacesAWorkloadBehindALoopbackForwarder(t *testing.T) {
 	if result := member.Wait(); result.ExitCode != 0 {
 		t.Fatalf("the member's read of the shared loopback exited %d", result.ExitCode)
 	}
-	if !sim.ContainerRunning(forwarderID) {
+	if !containerRunning(t, forwarderID) {
 		t.Fatal("the member's exit took the workload's forwarder")
 	}
 
@@ -279,7 +279,18 @@ func TestContainerBackendPlacesAWorkloadBehindALoopbackForwarder(t *testing.T) {
 	}
 	adopted.Cancel()
 	<-adopted.Exited()
-	if sim.ContainerRunning(forwarderID) {
+	if containerRunning(t, forwarderID) {
 		t.Fatal("the forwarder outlived the adopted workload")
 	}
+}
+
+// containerRunning reports whether the engine holds the container and has it
+// running.
+func containerRunning(t *testing.T, id string) bool {
+	t.Helper()
+	insp, err := sim.DockerClient().ContainerInspect(t.Context(), id, client.ContainerInspectOptions{})
+	if err != nil || insp.Container.State == nil {
+		return false
+	}
+	return insp.Container.State.Running
 }
