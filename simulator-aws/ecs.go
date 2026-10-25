@@ -2177,6 +2177,14 @@ func ecsTaskDefinitionForARN(arn string) (ECSTaskDefinition, bool) {
 
 func ecsResumePendingTask(ctx context.Context, task ECSTask, definition ECSTaskDefinition) {
 	taskID := task.TaskID()
+	lifecycleLock := ecsTaskLifecycleLock(taskID)
+	if !lifecycleLock.LockContext(ctx) {
+		return
+	}
+	defer lifecycleLock.Unlock()
+	if current, exists := ecsTasks.Get(taskID); !exists || current.DesiredStatus == ECSTaskStatusStopped {
+		return
+	}
 	ecsTasks.Update(taskID, func(current *ECSTask) {
 		current.LastStatus = ECSTaskStatusPending
 		for index := range current.Containers {
