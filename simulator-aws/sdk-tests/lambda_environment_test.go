@@ -114,7 +114,7 @@ func (g *invocationGate) awaitArrival(t *testing.T) {
 func TestLambda_ExecutionEnvironmentIsReused(t *testing.T) {
 	t.Parallel()
 	lc := lambdaClient()
-	const name = "env-reuse-fn"
+	name := uniqueName("env-reuse-fn")
 	createCountingFunction(t, lc, name, false)
 
 	for want := 1; want <= 3; want++ {
