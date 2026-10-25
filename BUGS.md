@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 213.
+Open: 214.
 
 Resolved bugs are not kept here. Their fixes live in git history (`git log`
 over this file and the fixing commits), and the lasting rules they produced
@@ -10,6 +10,7 @@ live in `WHAT_WE_DID.md`.
 
 | ID | Sev | Area | Symptom and cause | Fix shape — what closes it |
 |----|-----|------|-------------------|----------------------------|
+| 3731 | P3 | A memory peak on a cgroup v2 host misses a spike between two readings | On cgroup v2 the Docker Engine API serves only `memory.current` (`max_usage` is unset and `memory.peak` is not served), so `ContainerHandle.MemoryPeakBytes` is the highest of its 50 ms readings and the reading at the call. Memory a workload allocates and frees between two readings, such as an AWS Lambda invocation that frees a buffer before it returns, is missing from Max Memory Used, which AWS reports as the execution environment's true peak. | Read the cgroup's own `memory.peak` (kernel 5.19 and later) through an engine-neutral path that serves every image, such as the network sidecar joining the container's cgroup namespace. |
 | 3730 | P3 | The dependency-quarantine hook downloads a Go toolchain on every run | The `latest-deps-quarantine` pre-commit hook (`scripts/test-latest-deps-quarantine.sh`) builds its fixtures in a fresh temporary `GOPATH` and `GOMODCACHE`, so each run downloads and unpacks a Go toolchain (about 250 MB): every commit pays for it, and on a nearly full disk the hook fails the commit with ENOSPC. | Reuse the toolchain from the host's module cache, or build fixtures that need no toolchain download, keeping the hook's negative controls. |
 | 3713 | P3 | Cloud Scheduler keeps its own enum reader | Cloud Scheduler reads a job's enum fields as names or numbers through its own `csEnum` and `csResolveEnums` (`cloudscheduler.go`), beside the shared `protoEnum[T]` reader Cloud Tasks and the other Google Cloud services use, so a fix to one reader misses the other. | Move `CSJob.State` and `CSHTTP.HTTPMethod` onto `protoEnum` tables (number 0 reads as unset) and delete `csEnum` and `csResolveEnums`. |
 | 3712 | P3 | Cloud Tasks details no vendored source states | Inferred rather than sourced: the `maxBurstSize` rule (`max(1, min(100, ceil(rate)))`, fitted to "at least the rate" and the documented 100 at 500/s), the generated task id (19 decimal digits), the `X-CloudTasks-TaskETA` format (seconds with six decimals), the omitted `X-CloudTasks-TaskRetryReason` (its values are unpublished), the response statuses recorded for a timeout (DEADLINE_EXCEEDED) and an unreachable target (UNAVAILABLE), the defaults filled into a task-level `retryConfig`, the error texts, the batch operation name (`projects/P/locations/L/operations/{requestId}`) and batches finishing before they answer, a BASIC view keeping an HTTP task's body (the reference names only the App Engine body), and backoff durations kept untruncated although the reference says they truncate to seconds while its own default is 0.100s. | Capture each from Cloud Tasks and match it. |

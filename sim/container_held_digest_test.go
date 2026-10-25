@@ -36,7 +36,7 @@ func TestADigestPinnedImageAnArchiveRestoredNeedsNoRegistry(t *testing.T) {
 	if err := pullImage(ctx, cli, pinned, "linux/"+runtime.GOARCH, ""); err != nil {
 		t.Fatalf("the restored image did not hold the pinned reference: %v", err)
 	}
-	id, err := createAndStartContainer(ctx, cli, ContainerConfig{
+	id, _, err := createAndStartContainer(ctx, cli, ContainerConfig{
 		Name:         "sockerless-sim-held-digest-" + strings.ToLower(time.Now().Format("150405.000000000")[7:]),
 		Image:        pinned,
 		Architecture: "linux/" + runtime.GOARCH,

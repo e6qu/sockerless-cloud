@@ -49,7 +49,7 @@ func TestCreateReclaimsANameADeadSimulatorLeft(t *testing.T) {
 		_, _ = cli.ContainerRemove(context.Background(), name, client.ContainerRemoveOptions{Force: true})
 	})
 
-	id, err := createAndStartContainer(ctx, cli, ContainerConfig{
+	id, _, err := createAndStartContainer(ctx, cli, ContainerConfig{
 		Name:         name,
 		Image:        containerReaperTestImage,
 		Architecture: "linux/" + runtime.GOARCH,
@@ -62,7 +62,7 @@ func TestCreateReclaimsANameADeadSimulatorLeft(t *testing.T) {
 		t.Fatal("the create returned the container the dead simulator left")
 	}
 
-	_, err = createAndStartContainer(ctx, cli, ContainerConfig{
+	_, _, err = createAndStartContainer(ctx, cli, ContainerConfig{
 		Name:         name,
 		Image:        containerReaperTestImage,
 		Architecture: "linux/" + runtime.GOARCH,

@@ -198,6 +198,9 @@ type ContainerHandle struct {
 	result ProcessResult
 	cli    *client.Client
 	memory *memoryPeakObserver
+	// startedAt is the moment the engine was asked to start the container,
+	// which its process can only follow.
+	startedAt time.Time
 }
 
 // Wait blocks until the container exits, and returns how it exited to every
@@ -277,16 +280,23 @@ func PublishedHostPort(ctx context.Context, containerID string, containerPort in
 }
 
 // MemoryPeakBytes reports the highest memory usage the container engine
-// accounted to this container while it ran. It is zero when the engine reported
-// none — a container started without ContainerConfig.TrackMemoryPeak, or one
-// the engine stopped accounting for before the first sample — and a caller that
-// reports the figure must then report nothing rather than a substitute.
+// accounted to this container up to now. A container still running is read
+// once more before the figure is returned, so whatever it holds at the moment
+// of the call counts. It is zero when the engine reported none — a container
+// started without ContainerConfig.TrackMemoryPeak, or one the engine stopped
+// accounting for before any reading — and a caller that reports the figure
+// must then report nothing rather than a substitute.
 func (h *ContainerHandle) MemoryPeakBytes() uint64 {
 	if h.memory == nil {
 		return 0
 	}
-	return h.memory.peakBytes()
+	return h.memory.read()
 }
+
+// StartedAt is the moment the engine was asked to start the container: its
+// process starts after it. An adopted container reports the start the engine
+// recorded, and none when the engine no longer held it.
+func (h *ContainerHandle) StartedAt() time.Time { return h.startedAt }
 
 // dockerClient is the shared Docker client. Initialized once at startup.
 var (
@@ -442,20 +452,20 @@ func StartContainerSyncContext(ctx context.Context, cfg ContainerConfig, sink Lo
 		return nil, err
 	}
 
-	containerID, err := createAndStartContainer(ctx, cli, cfg)
+	containerID, startedAt, err := createAndStartContainer(ctx, cli, cfg)
 	if err != nil {
 		return nil, err
 	}
 
 	lifetime, cancel := context.WithCancel(context.Background())
-	handle := &ContainerHandle{ContainerID: containerID, cancel: cancel, exited: make(chan struct{}), cli: cli}
+	handle := &ContainerHandle{ContainerID: containerID, cancel: cancel, exited: make(chan struct{}), cli: cli, startedAt: startedAt}
 
 	managedContainers.Store(containerID, true)
 
 	var memory *memoryPeakObserver
 	if cfg.TrackMemoryPeak {
-		memory = newMemoryPeakObserver()
-		go memory.observe(lifetime, cli, containerID)
+		memory = newMemoryPeakObserver(cli, containerID)
+		go memory.observe(lifetime)
 	}
 	handle.memory = memory
 
@@ -604,8 +614,12 @@ func AdoptContainer(containerID string, cfg ContainerConfig, sink LogSink) (*Con
 	if err := thawAbandonedFreeze(containerID); err != nil {
 		return nil, err
 	}
+	startedAt, err := containerStartedAt(containerID)
+	if err != nil {
+		return nil, err
+	}
 	ctx, cancel := context.WithCancel(context.Background())
-	handle := &ContainerHandle{ContainerID: containerID, cancel: cancel, exited: make(chan struct{}), cli: dockerClient}
+	handle := &ContainerHandle{ContainerID: containerID, cancel: cancel, exited: make(chan struct{}), cli: dockerClient, startedAt: startedAt}
 	managedContainers.Store(containerID, true)
 	go func() {
 		result := waitAndCaptureLogs(ctx, dockerClient, containerID, cfg, sink)
@@ -619,6 +633,29 @@ func AdoptContainer(containerID string, cfg ContainerConfig, sink LogSink) (*Con
 		close(handle.exited)
 	}()
 	return handle, nil
+}
+
+// containerStartedAt is when the engine last started the container, as its
+// state records it; a container the engine no longer holds has no start to
+// report, and the handle adopting it reports its end at once.
+func containerStartedAt(containerID string) (time.Time, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	inspected, err := dockerClient.ContainerInspect(ctx, containerID, client.ContainerInspectOptions{})
+	if containerNotFoundError(err) {
+		return time.Time{}, nil
+	}
+	if err != nil {
+		return time.Time{}, fmt.Errorf("inspect container %s: %w", containerID, err)
+	}
+	if inspected.Container.State == nil {
+		return time.Time{}, fmt.Errorf("container %s reports no state", containerID)
+	}
+	startedAt, err := time.Parse(time.RFC3339Nano, inspected.Container.State.StartedAt)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("container %s start time %q: %w", containerID, inspected.Container.State.StartedAt, err)
+	}
+	return startedAt, nil
 }
 
 // CommitContainer captures a kept container's filesystem as an image under
@@ -1073,7 +1110,7 @@ func isTransientRegistryErr(err error) bool {
 		strings.Contains(msg, "service unavailable")
 }
 
-func createAndStartContainer(ctx context.Context, cli *client.Client, cfg ContainerConfig) (string, error) {
+func createAndStartContainer(ctx context.Context, cli *client.Client, cfg ContainerConfig) (string, time.Time, error) {
 	// Pull image
 	pullPolicy := os.Getenv("SIM_PULL_POLICY")
 	if pullPolicy == "" {
@@ -1087,7 +1124,7 @@ func createAndStartContainer(ctx context.Context, cli *client.Client, cfg Contai
 	// wrong binary — a Go program crashes at once under emulation.
 	if pullPolicy != "never" {
 		if err := pullImage(ctx, cli, cfg.Image, cfg.Architecture, cfg.RegistryAuth); err != nil {
-			return "", err
+			return "", time.Time{}, err
 		}
 	}
 
@@ -1140,7 +1177,7 @@ func createAndStartContainer(ctx context.Context, cli *client.Client, cfg Contai
 	for _, resolver := range cfg.DNS {
 		addr, err := netip.ParseAddr(resolver)
 		if err != nil {
-			return "", fmt.Errorf("dns resolver %q: %w", resolver, err)
+			return "", time.Time{}, fmt.Errorf("dns resolver %q: %w", resolver, err)
 		}
 		hostCfg.DNS = append(hostCfg.DNS, addr)
 	}
@@ -1166,7 +1203,7 @@ func createAndStartContainer(ctx context.Context, cli *client.Client, cfg Contai
 	for _, containerPort := range cfg.PublishPorts {
 		port, err := network.ParsePort(strconv.Itoa(containerPort) + "/tcp")
 		if err != nil {
-			return "", fmt.Errorf("publish port %d: %w", containerPort, err)
+			return "", time.Time{}, fmt.Errorf("publish port %d: %w", containerPort, err)
 		}
 		containerCfg.ExposedPorts[port] = struct{}{}
 		if hostCfg.PortBindings == nil {
@@ -1179,7 +1216,7 @@ func createAndStartContainer(ctx context.Context, cli *client.Client, cfg Contai
 	// means no enforcement; non-empty must apply cleanly so caller errors
 	// fail loudly.
 	if err := cfg.Sandbox.Apply(hostCfg, containerCfg); err != nil {
-		return "", fmt.Errorf("sandbox enforce: %w", err)
+		return "", time.Time{}, fmt.Errorf("sandbox enforce: %w", err)
 	}
 
 	var networkCfg *network.NetworkingConfig
@@ -1188,14 +1225,14 @@ func createAndStartContainer(ctx context.Context, cli *client.Client, cfg Contai
 		if cfg.IPv4Address != "" {
 			addr, err := netip.ParseAddr(cfg.IPv4Address)
 			if err != nil || !addr.Is4() {
-				return "", fmt.Errorf("container network address %q is not an IPv4 address", cfg.IPv4Address)
+				return "", time.Time{}, fmt.Errorf("container network address %q is not an IPv4 address", cfg.IPv4Address)
 			}
 			endpoint.IPAMConfig = &network.EndpointIPAMConfig{IPv4Address: addr}
 		}
 		if cfg.MACAddress != "" {
 			mac, err := net.ParseMAC(cfg.MACAddress)
 			if err != nil {
-				return "", fmt.Errorf("container MAC address %q: %w", cfg.MACAddress, err)
+				return "", time.Time{}, fmt.Errorf("container MAC address %q: %w", cfg.MACAddress, err)
 			}
 			endpoint.MacAddress = network.HardwareAddr(mac)
 		}
@@ -1205,11 +1242,11 @@ func createAndStartContainer(ctx context.Context, cli *client.Client, cfg Contai
 	}
 
 	if err := ensureBindVolumes(ctx, cli, cfg.Binds); err != nil {
-		return "", err
+		return "", time.Time{}, err
 	}
 	platform, err := parsePlatform(cfg.Architecture)
 	if err != nil {
-		return "", err
+		return "", time.Time{}, err
 	}
 	create := client.ContainerCreateOptions{
 		Config:           containerCfg,
@@ -1228,22 +1265,23 @@ func createAndStartContainer(ctx context.Context, cli *client.Client, cfg Contai
 		if cfg.Name != "" && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
 			removeCreated(ctx, cli, cfg.Name)
 		}
-		return "", fmt.Errorf("container create: %w", err)
+		return "", time.Time{}, fmt.Errorf("container create: %w", err)
 	}
 	if err := seedContainer(ctx, cli, resp.ID, cfg.Seed); err != nil {
 		removeCreated(ctx, cli, resp.ID)
-		return "", err
+		return "", time.Time{}, err
 	}
 
+	startedAt := time.Now()
 	if _, err := cli.ContainerStart(ctx, resp.ID, client.ContainerStartOptions{}); err != nil {
 		removeCreated(ctx, cli, resp.ID)
 		if hint := MissingNetfilterTableHint(err); hint != "" {
-			return "", fmt.Errorf("container start: %w (%s)", err, hint)
+			return "", time.Time{}, fmt.Errorf("container start: %w (%s)", err, hint)
 		}
-		return "", fmt.Errorf("container start: %w", err)
+		return "", time.Time{}, fmt.Errorf("container start: %w", err)
 	}
 
-	return resp.ID, nil
+	return resp.ID, startedAt, nil
 }
 
 // reclaimOrphanedName removes the container holding name when a simulator

@@ -360,6 +360,18 @@ it. A container create whose name a dead simulator's container holds removes
 that container and retries, since a run that died before cleanup leaves
 names no live simulator drives.
 
+A product that reports what a workload consumed reads the engine's memory
+accounting, whose content depends on the host's cgroup version: on cgroup v1
+it carries the kernel's high-water mark (`max_usage`), on cgroup v2 only the
+current usage, since the Engine API leaves `max_usage` unset there and serves
+no `memory.peak`. The observer keeps the highest of its 50 ms one-shot readings
+and reads once more when the figure is asked for; an AWS Lambda REPORT that
+read only the polls lost Max Memory Used, or reported an early moment's usage,
+whenever the invocation ended before a poll landed after it. A handle's
+`StartedAt` is the instant the backend was asked to start the process, which
+the process can only follow: a duration counted from `Place`'s return is
+negative for a process that answers before that call returns.
+
 A read of a workload's process that the host refuses goes through a platform
 helper: the sidecar program joins the container's pid namespace with the one
 permission `/proc/<pid>/mem` needs (`sidecar.ReadProcess`). Its proof dumps a

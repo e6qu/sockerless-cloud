@@ -169,11 +169,12 @@ func (b *MicroVMBackend) Place(ctx context.Context, w Workload, sink sim.LogSink
 		_ = agent.Delete(context.WithoutCancel(ctx), id)
 		return fail(err)
 	}
+	startedAt := time.Now()
 	if _, err := agent.Start(ctx, id); err != nil {
 		_ = agent.Delete(context.WithoutCancel(ctx), id)
 		return fail(err)
 	}
-	return newMicroVMHandle(agent, id, w.IPv4Address, sink, w.CancelGracePeriod, w.KeepOnExit, b.sharesCleanup(id, w.KeepOnExit)), nil
+	return newMicroVMHandle(agent, id, w.IPv4Address, startedAt, sink, w.CancelGracePeriod, w.KeepOnExit, b.sharesCleanup(id, w.KeepOnExit)), nil
 }
 
 // sharesCleanup ends a workload's share container with the workload: once
@@ -237,10 +238,11 @@ func (b *MicroVMBackend) PlaceMember(ctx context.Context, owner string, w Worklo
 	if err := b.uploadRootFS(ctx, cli, name, image.id, w, func(archive io.Reader) error { return agent.UploadMemberRootFS(ctx, owner, name, archive) }); err != nil {
 		return fail(err)
 	}
+	startedAt := time.Now()
 	if _, err := agent.StartMember(ctx, owner, name); err != nil {
 		return fail(err)
 	}
-	return newMemberHandle(agent, owner, name, guest.Address, sink, w.CancelGracePeriod, b.sharesCleanup(id, false)), nil
+	return newMemberHandle(agent, owner, name, guest.Address, startedAt, sink, w.CancelGracePeriod, b.sharesCleanup(id, false)), nil
 }
 
 // imageDetails is the process an image declares, under the workload's own
@@ -307,11 +309,12 @@ func seedFiles(w Workload) []nodeagent.SeedFile {
 // Restart boots a kept guest again on its root filesystem.
 func (b *MicroVMBackend) Restart(ctx context.Context, id string, w Workload, sink sim.LogSink) (Handle, error) {
 	agent := b.agent.Client()
+	startedAt := time.Now()
 	state, err := agent.Start(ctx, id)
 	if err != nil {
 		return nil, err
 	}
-	return newMicroVMHandle(agent, id, state.Address, sink, w.CancelGracePeriod, w.KeepOnExit, b.sharesCleanup(id, w.KeepOnExit)), nil
+	return newMicroVMHandle(agent, id, state.Address, startedAt, sink, w.CancelGracePeriod, w.KeepOnExit, b.sharesCleanup(id, w.KeepOnExit)), nil
 }
 
 // Remove discards a kept guest, with the share container of its volumes.
@@ -408,11 +411,11 @@ func (b *MicroVMBackend) Adopt(ctx context.Context, id string, w Workload, sink 
 		return nil, err
 	}
 	if !isMember {
-		return newMicroVMHandle(agent, id, state.Address, sink, w.CancelGracePeriod, w.KeepOnExit, b.sharesCleanup(id, w.KeepOnExit)), nil
+		return newMicroVMHandle(agent, id, state.Address, state.StartedAt, sink, w.CancelGracePeriod, w.KeepOnExit, b.sharesCleanup(id, w.KeepOnExit)), nil
 	}
 	for _, m := range state.Members {
 		if m.Name == member {
-			return newMemberHandle(agent, owner, member, state.Address, sink, w.CancelGracePeriod, b.sharesCleanup(id, false)), nil
+			return newMemberHandle(agent, owner, member, state.Address, m.StartedAt, sink, w.CancelGracePeriod, b.sharesCleanup(id, false)), nil
 		}
 	}
 	return nil, fmt.Errorf("guest %s has no member %s: %w", owner, member, nodeagent.ErrNotFound)
@@ -514,21 +517,22 @@ func networkPrefix(ctx context.Context, cli *client.Client, network string) (net
 }
 
 type microVMHandle struct {
-	agent   *nodeagent.Client
-	id      string
-	address string
-	grace   time.Duration
-	keep    bool
-	exited  chan struct{}
-	result  sim.ProcessResult
-	once    sync.Once
+	agent     *nodeagent.Client
+	id        string
+	address   string
+	startedAt time.Time
+	grace     time.Duration
+	keep      bool
+	exited    chan struct{}
+	result    sim.ProcessResult
+	once      sync.Once
 }
 
 // newMicroVMHandle follows the guest's first process; cleanup, when given,
 // runs once it has exited and before Exited closes, so what the process
 // used is gone when Wait returns.
-func newMicroVMHandle(agent *nodeagent.Client, id, address string, sink sim.LogSink, grace time.Duration, keep bool, cleanup func()) *microVMHandle {
-	h := &microVMHandle{agent: agent, id: id, address: address, grace: grace, keep: keep, exited: make(chan struct{})}
+func newMicroVMHandle(agent *nodeagent.Client, id, address string, startedAt time.Time, sink sim.LogSink, grace time.Duration, keep bool, cleanup func()) *microVMHandle {
+	h := &microVMHandle{agent: agent, id: id, address: address, startedAt: startedAt, grace: grace, keep: keep, exited: make(chan struct{})}
 	started := time.Now()
 	go func() {
 		ctx := context.Background()
@@ -568,6 +572,7 @@ func newMicroVMHandle(agent *nodeagent.Client, id, address string, sink sim.LogS
 func (h *microVMHandle) ID() string              { return h.id }
 func (h *microVMHandle) Kind() Kind              { return MicroVM }
 func (h *microVMHandle) Exited() <-chan struct{} { return h.exited }
+func (h *microVMHandle) StartedAt() time.Time    { return h.startedAt }
 
 func (h *microVMHandle) Wait() sim.ProcessResult {
 	<-h.exited
@@ -603,18 +608,19 @@ func (h *microVMHandle) Address(context.Context) (string, error) { return h.addr
 // memberHandle is a member of a guest: a process tree the guest runs from
 // the member's own root filesystem, on the guest's network.
 type memberHandle struct {
-	agent   *nodeagent.Client
-	owner   string
-	name    string
-	address string
-	grace   time.Duration
-	exited  chan struct{}
-	once    sync.Once
-	result  sim.ProcessResult
+	agent     *nodeagent.Client
+	owner     string
+	name      string
+	address   string
+	startedAt time.Time
+	grace     time.Duration
+	exited    chan struct{}
+	once      sync.Once
+	result    sim.ProcessResult
 }
 
-func newMemberHandle(agent *nodeagent.Client, owner, name, address string, sink sim.LogSink, grace time.Duration, cleanup func()) *memberHandle {
-	h := &memberHandle{agent: agent, owner: owner, name: name, address: address, grace: grace, exited: make(chan struct{})}
+func newMemberHandle(agent *nodeagent.Client, owner, name, address string, startedAt time.Time, sink sim.LogSink, grace time.Duration, cleanup func()) *memberHandle {
+	h := &memberHandle{agent: agent, owner: owner, name: name, address: address, startedAt: startedAt, grace: grace, exited: make(chan struct{})}
 	started := time.Now()
 	go func() {
 		ctx := context.Background()
@@ -647,6 +653,7 @@ func newMemberHandle(agent *nodeagent.Client, owner, name, address string, sink 
 func (h *memberHandle) ID() string              { return h.owner + "/" + h.name }
 func (h *memberHandle) Kind() Kind              { return MicroVM }
 func (h *memberHandle) Exited() <-chan struct{} { return h.exited }
+func (h *memberHandle) StartedAt() time.Time    { return h.startedAt }
 
 func (h *memberHandle) Wait() sim.ProcessResult {
 	<-h.exited
