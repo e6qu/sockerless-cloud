@@ -823,7 +823,10 @@ queueing services share into `sim`:
   under the library's loop.
 - **`sim/funcrt`.** An AWS Lambda execution environment keeps its container,
   Runtime API listener, address and log stream for its life, so a handler's
-  globals persist and sequential invocations share a stream. A unit returns
+  globals persist and sequential invocations share a stream. Its Init phase
+  runs from the container's `StartedAt` to the runtime's first Next request,
+  and the REPORT's Max Memory Used is the environment's peak read when the
+  invocation ends. A unit returns
   to a concurrency limit only once its environment is idle again, so the next
   invocation reuses it instead of starting another. AWS documents no idle
   timeout, so an environment retires on an update, a delete, an alias change

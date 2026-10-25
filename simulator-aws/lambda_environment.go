@@ -42,10 +42,12 @@ type lambdaEnvironment struct {
 	mu      sync.Mutex
 	handle  placement.Handle
 	attempt int
-	// placedAt is when the current container started, which begins its Init
-	// phase.
-	placedAt time.Time
-	stderr   bytes.Buffer
+	// startedAt is when the backend started the current container's process,
+	// which begins its Init phase. It is the backend's instant, not the
+	// return of Place: a runtime that bootstraps at once asks for its first
+	// invocation before Place returns.
+	startedAt time.Time
+	stderr    bytes.Buffer
 	// initialised reports that the runtime has asked for its first
 	// invocation, ending the Init phase.
 	initialised bool
@@ -242,7 +244,7 @@ func (e *lambdaEnvironment) place(ctx context.Context) error {
 	}
 	e.mu.Lock()
 	e.handle = handle
-	e.placedAt = time.Now()
+	e.startedAt = handle.StartedAt()
 	e.mu.Unlock()
 	return nil
 }
@@ -252,7 +254,7 @@ func (e *lambdaEnvironment) place(ctx context.Context) error {
 func (e *lambdaEnvironment) initDuration() time.Duration {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	return e.api.readyAt.Sub(e.placedAt)
+	return e.api.readyAt.Sub(e.startedAt)
 }
 
 func (e *lambdaEnvironment) currentHandle() placement.Handle {
@@ -316,7 +318,7 @@ func (e *lambdaEnvironment) resetStderr() {
 // emit INIT_REPORT."
 func (e *lambdaEnvironment) provisionInit(ctx context.Context) error {
 	e.mu.Lock()
-	start := e.placedAt
+	start := e.startedAt
 	e.mu.Unlock()
 	limit := time.NewTimer(lambdaProvisionedInitLimit(e.fn) - time.Since(start))
 	defer limit.Stop()
@@ -364,7 +366,7 @@ const (
 // the Invoke phase only when the runtime asks for its first invocation.
 func (e *lambdaEnvironment) initPhase(ctx context.Context) (lambdaInitOutcome, time.Duration, []byte) {
 	e.mu.Lock()
-	start := e.placedAt
+	start := e.startedAt
 	e.mu.Unlock()
 	timer := time.NewTimer(lambdaInitPhaseLimit - time.Since(start))
 	defer timer.Stop()
