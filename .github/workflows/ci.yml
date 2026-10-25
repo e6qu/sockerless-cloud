@@ -2061,3 +2061,6 @@ jobs:
           bash scripts/test-workflow-concurrency.sh
           bash scripts/check-workflow-concurrency.sh
         timeout-minutes: 5
+      - name: The testing contract tells a moved registration from a new one
+        run: bash scripts/test-check-simulator-tests.sh
+        timeout-minutes: 5

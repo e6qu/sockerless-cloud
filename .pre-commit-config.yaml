@@ -69,7 +69,7 @@ repos:
 
       - id: simulator-testing-contract
         name: Simulator testing contract (SDK + CLI + terraform per change)
-        entry: bash scripts/check-simulator-tests.sh
+        entry: bash -c 'scripts/test-check-simulator-tests.sh >/dev/null && scripts/check-simulator-tests.sh'
         language: system
         pass_filenames: false
         always_run: true
