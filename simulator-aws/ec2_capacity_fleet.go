@@ -1,8 +1,10 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"net/http"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -933,12 +935,7 @@ func handleDeleteFleets(w http.ResponseWriter, r *http.Request) {
 		newState := "deleted-running"
 		if terminate {
 			newState = "deleted-terminating"
-			for _, iid := range f.InstanceIds {
-				if inst, ok := ec2Instances.Get(iid); ok {
-					inst.State = "shutting-down"
-					ec2Instances.Put(iid, inst)
-				}
-			}
+			ec2TerminateFleetInstances(r.Context(), f.InstanceIds)
 		}
 		f.FleetState = newState
 		ec2Fleets.Put(id, f)
@@ -1275,12 +1272,7 @@ func handleCancelSpotFleetRequests(w http.ResponseWriter, r *http.Request) {
 		newState := "cancelled_running"
 		if terminate {
 			newState = "cancelled_terminating"
-			for _, iid := range sfr.InstanceIds {
-				if inst, ok := ec2Instances.Get(iid); ok {
-					inst.State = "shutting-down"
-					ec2Instances.Put(iid, inst)
-				}
-			}
+			ec2TerminateFleetInstances(r.Context(), sfr.InstanceIds)
 		}
 		sfr.SpotFleetRequestState = newState
 		ec2SpotFleetRequests.Put(id, sfr)
@@ -1603,4 +1595,18 @@ func ec2LTMarketType(lt EC2LaunchTemplateData) string {
 		return ""
 	}
 	return lt.InstanceMarketOptions.MarketType
+}
+
+// ec2TerminateFleetInstances terminates the instances a deleted fleet launched,
+// as TerminateInstances does.
+func ec2TerminateFleetInstances(ctx context.Context, instanceIDs []string) {
+	for _, id := range instanceIDs {
+		inst, ok := ec2Instances.Get(id)
+		if !ok || inst.State == "terminated" || inst.State == "shutting-down" {
+			continue
+		}
+		if err := ec2HaltInstance(ctx, id, "terminated"); err != nil {
+			fmt.Fprintf(os.Stderr, "[sim-ec2] terminate fleet instance %s: %v\n", id, err)
+		}
+	}
 }
