@@ -720,10 +720,11 @@ one mutex, and a barrier makes each JSON API request wait for the events
 queued before it. Files open with `RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS`
 (BUG-3084 holds the rest).
 
-Put Block List stores the blob's Content-MD5 only from `x-ms-blob-content-md5`
-and clears it otherwise, and its response `Content-MD5` covers the block list,
-as the Blob Storage specification states; storing the assembled blob's MD5 made
-azurerm's `content_md5` drift on every plan.
+Put Block List and Set Blob Properties store the blob's Content-MD5 only from
+`x-ms-blob-content-md5` and clear it otherwise, and Put Block List's response
+`Content-MD5` covers the block list, as the Blob Storage specification states.
+azurerm uploads a blob and then sets its properties without the header, so a
+Content-MD5 that survived either step drifted its `content_md5` on every plan.
 
 A Cloud Storage bucket reports its `locationType` (multi-region,
 dual-region including the predefined pairs, or region), which a relocation

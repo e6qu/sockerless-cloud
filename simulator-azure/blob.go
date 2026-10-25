@@ -1346,9 +1346,7 @@ func applyBlobHTTPHeaders(b *BlobObject, r *http.Request) {
 	b.ContentLanguage = r.Header.Get("x-ms-blob-content-language")
 	b.ContentDisposition = r.Header.Get("x-ms-blob-content-disposition")
 	b.CacheControl = r.Header.Get("x-ms-blob-cache-control")
-	if md5 := r.Header.Get("x-ms-blob-content-md5"); md5 != "" {
-		b.ContentMD5 = md5
-	}
+	b.ContentMD5 = r.Header.Get("x-ms-blob-content-md5")
 }
 
 func handleCopyBlob(w http.ResponseWriter, r *http.Request, account, container, blob string) {
