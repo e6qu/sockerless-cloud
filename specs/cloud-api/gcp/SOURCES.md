@@ -9,7 +9,6 @@ matching `scripts/fetch-*-spec.sh` script, which rewrites this table.
 | `secretmanager-v1.discovery.json.gz` | `secretmanager.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20260925` | 2026-10-07T14:37:45Z |
 | `cloudbuild-v1.discovery.json.gz` | `cloudbuild.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261010` | 2026-10-19T13:08:07Z |
 | `eventarc-v1.discovery.json.gz` | `eventarc.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261014` | 2026-10-19T13:08:08Z |
-| `firestore-v1.discovery.json.gz` | `firestore.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261013` | 2026-10-19T13:08:08Z |
 | `spanner-v1.discovery.json.gz` | `spanner.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261006` | 2026-10-19T13:08:08Z |
 | `vpcaccess-v1.discovery.json.gz` | `vpcaccess.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261011` | 2026-10-19T13:08:08Z |
 | `cloudbilling-v1.discovery.json.gz` | `cloudbilling.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261016` | 2026-10-20T11:36:49Z |
@@ -94,3 +93,4 @@ matching `scripts/fetch-*-spec.sh` script, which rewrites this table.
 | `tasks-creating-http-target-tasks.md.gz` | `docs.cloud.google.com` | `tasks/docs/creating-http-target-tasks` | CC-BY-4.0 | `modified2026-10-22` | 2026-10-25T03:34:55Z |
 | `tasks-configuring-queues.md.gz` | `docs.cloud.google.com` | `tasks/docs/configuring-queues` | CC-BY-4.0 | `modified2026-10-22` | 2026-10-25T03:34:56Z |
 | `tasks-quotas.md.gz` | `docs.cloud.google.com` | `tasks/docs/quotas` | CC-BY-4.0 | `modified2026-10-22` | 2026-10-25T03:34:57Z |
+| `firestore-v1.discovery.json.gz` | `firestore.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261021` | 2026-10-25T11:16:38Z |
