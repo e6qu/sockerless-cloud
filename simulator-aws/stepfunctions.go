@@ -1145,62 +1145,12 @@ func sfnRunDefDepthRuntime(ctx context.Context, def sfnDefinition, input string,
 			return "", "FAILED", &sfnExecutionError{Name: "States.Runtime", Cause: fmt.Sprintf("state %q does not exist", current)}
 		}
 		sfnAppendHistory(executionARN, state.Type+"StateEntered", sfnStateHistoryDetails(current, data, "input"))
-		context := map[string]any{
-			"Execution": map[string]any{
-				"Id":        executionARN,
-				"Input":     executionInput,
-				"StartTime": executionStart,
-			},
-			"State": map[string]any{
-				"Name":        current,
-				"EnteredTime": time.Now().UTC().Format(time.RFC3339Nano),
-				"RetryCount":  0,
-			},
-		}
-		var taskToken string
-		if state.Type == "Task" && strings.HasSuffix(state.Resource, ".waitForTaskToken") {
-			taskToken = uuid.NewString()
-			context["Task"] = map[string]any{"Token": taskToken}
-			sfnActivityTasks.Put(taskToken, SFNActivityTask{
-				TaskToken: taskToken,
-				Status:    "RUNNING",
-			})
+		context, queryLanguage, effectiveInput, taskToken, enterErr := sfnEnterState(def, state, current, data, executionInput, executionStart, executionARN, depth, variables)
+		if taskToken != "" {
 			defer sfnActivityTasks.Delete(taskToken)
 		}
-		queryLanguage := state.QueryLanguage
-		if queryLanguage == "" {
-			queryLanguage = def.QueryLanguage
-		}
-		if queryLanguage == "" {
-			queryLanguage = "JSONPath"
-		}
-		effectiveInput := data
-		if queryLanguage == "JSONata" {
-			if state.Arguments != nil {
-				effectiveInput, err = sfnResolveJSONataValue(state.Arguments, data, nil, nil, context, variables)
-			}
-		} else {
-			effectiveInput, err = sfnApplyInputPath(data, context, state.InputPath)
-			if err == nil && state.Parameters != nil {
-				effectiveInput, err = sfnResolvePayload(state.Parameters, effectiveInput, context)
-			}
-		}
-		if err != nil {
-			return "", "FAILED", &sfnExecutionError{Name: "States.QueryEvaluationError", Cause: err.Error()}
-		}
-		if depth == 0 && executionARN != "" {
-			if encodedInput, encodeErr := sfnEncodeJSON(data); encodeErr == nil {
-				sfnExecutions.Update(executionARN, func(execution *SFNExecution) {
-					if execution.RedriveState != current || execution.RedriveInput != encodedInput || execution.CheckpointEnteredDate == 0 {
-						execution.CheckpointEnteredDate = sfnEpochNow()
-					}
-					if execution.RedriveState != current {
-						execution.TaskCheckpoint = nil
-					}
-					execution.RedriveState = current
-					execution.RedriveInput = encodedInput
-				})
-			}
+		if enterErr != nil {
+			return "", "FAILED", enterErr
 		}
 
 		var (
@@ -1432,6 +1382,70 @@ func sfnRunDefDepthRuntime(ctx context.Context, def sfnDefinition, input string,
 		}
 		current = transition
 	}
+}
+
+// sfnEnterState builds the context object of the state an execution enters,
+// resolves the state's query language and its effective input, issues the task
+// token a .waitForTaskToken task hands out, and records the redrive checkpoint
+// of a top-level execution.
+func sfnEnterState(def sfnDefinition, state sfnState, current string, data, executionInput any, executionStart, executionARN string, depth int, variables map[string]any) (context map[string]any, queryLanguage string, effectiveInput any, taskToken string, execErr *sfnExecutionError) {
+	var err error
+	context = map[string]any{
+		"Execution": map[string]any{
+			"Id":        executionARN,
+			"Input":     executionInput,
+			"StartTime": executionStart,
+		},
+		"State": map[string]any{
+			"Name":        current,
+			"EnteredTime": time.Now().UTC().Format(time.RFC3339Nano),
+			"RetryCount":  0,
+		},
+	}
+	if state.Type == "Task" && strings.HasSuffix(state.Resource, ".waitForTaskToken") {
+		taskToken = uuid.NewString()
+		context["Task"] = map[string]any{"Token": taskToken}
+		sfnActivityTasks.Put(taskToken, SFNActivityTask{
+			TaskToken: taskToken,
+			Status:    "RUNNING",
+		})
+	}
+	queryLanguage = state.QueryLanguage
+	if queryLanguage == "" {
+		queryLanguage = def.QueryLanguage
+	}
+	if queryLanguage == "" {
+		queryLanguage = "JSONPath"
+	}
+	effectiveInput = data
+	if queryLanguage == "JSONata" {
+		if state.Arguments != nil {
+			effectiveInput, err = sfnResolveJSONataValue(state.Arguments, data, nil, nil, context, variables)
+		}
+	} else {
+		effectiveInput, err = sfnApplyInputPath(data, context, state.InputPath)
+		if err == nil && state.Parameters != nil {
+			effectiveInput, err = sfnResolvePayload(state.Parameters, effectiveInput, context)
+		}
+	}
+	if err != nil {
+		return context, queryLanguage, nil, taskToken, &sfnExecutionError{Name: "States.QueryEvaluationError", Cause: err.Error()}
+	}
+	if depth == 0 && executionARN != "" {
+		if encodedInput, encodeErr := sfnEncodeJSON(data); encodeErr == nil {
+			sfnExecutions.Update(executionARN, func(execution *SFNExecution) {
+				if execution.RedriveState != current || execution.RedriveInput != encodedInput || execution.CheckpointEnteredDate == 0 {
+					execution.CheckpointEnteredDate = sfnEpochNow()
+				}
+				if execution.RedriveState != current {
+					execution.TaskCheckpoint = nil
+				}
+				execution.RedriveState = current
+				execution.RedriveInput = encodedInput
+			})
+		}
+	}
+	return context, queryLanguage, effectiveInput, taskToken, nil
 }
 
 func sfnLambdaNameFromResource(resource string) (string, bool) {
