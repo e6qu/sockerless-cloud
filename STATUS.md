@@ -26,6 +26,9 @@ The state of the sockerless-cloud repository. `PLAN.md` holds the roadmap,
 - **Consoles.** `ui/` (Bun and Turborepo) builds `ui/packages/simulator-*`
   and `core`. A console reads only real cloud APIs and federates operator
   credentials through its cloud's own federation primitive.
+- **Docs.** `docs/so-you-want-to-build-a-cloud.md` explains what a cloud is
+  made of: the core services in build order, the `sim` library behind each,
+  and what is still missing.
 - **Specifications.** `specs/cloud-api/{aws,gcp,azure}` vendors the Smithy
   models, Discovery documents, Swagger documents, the AWS Service Reference
   and dated documentation pages, each row of a `SOURCES.md` pinned and
@@ -279,5 +282,6 @@ with consoles embedded (linux and darwin, amd64 and arm64), the console
 bundles and the per-architecture images composed into an unsuffixed OCI index,
 then reconciles them (`scripts/verify-release-complete.sh`). Release images
 are immortal; the per-commit image stream is pruned. Go consumers pin the
-release commit. The latest release is v2.4.0; releases are blocked by
-BUG-3465 until its owner actions are done (`PLAN.md` M1).
+release commit. The latest release is v3.0.0, which lacks its darwin binaries
+and AWS images (`PLAN.md` M1); release-please runs with the Actions token
+until the owner installs a GitHub App for it (BUG-3465).

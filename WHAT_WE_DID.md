@@ -1065,7 +1065,13 @@ Release pull requests run no CI and the owner merges them. release-please tags
 the release pull request's merge commit; the Actions token cannot create a
 ref at a commit whose workflow files differ from the branch heads, so a
 workflow-changing merge landing before the release run stranded 2.4.1
-(BUG-3465). Publishes are keyed per commit and never cancelled; retention
+(BUG-3465). A merged release pull request left labelled `autorelease: pending`
+holds release-please on it for every later run; removing the label freed it,
+and release-please computed v3.0.0 from main's own history although the v2.4.0
+tag's commit is not on main. The release builds for darwin and from the
+Dockerfiles, which no pull request job did, so `check-installable-build.sh`
+builds all four release platforms and checks each Dockerfile's workspace.
+Publishes are keyed per commit and never cancelled; retention
 spares anything under two hours old, because a publish between its two
 per-architecture pushes looks abandoned. `actions/setup-go` went because the
 runner fetched it once per job from codeload with no retry; a local action

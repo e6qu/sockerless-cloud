@@ -2,14 +2,19 @@
 
 ## Next
 
-- **M1 of `PLAN.md`: the owner's release actions** (BUG-3465). Once this pull
-  request merges, the owner removes `autorelease: pending` from the stale
-  2.4.1 release pull request (#284) and confirms the next push to `main`
-  opens a fresh release pull request whose release run creates its tag,
-  GitHub Release and artifacts with `scripts/verify-release-complete.sh`
-  passing; then creates a GitHub App with contents, pull-requests and
-  workflows permissions, installs it on the repository, and runs
-  release-please with its installation token.
+- **M1 of `PLAN.md`: a complete 3.x release, then the App token**
+  (BUG-3465). Merge the release pull request release-please opens after this
+  pull request and confirm its run attaches darwin binaries and the AWS images,
+  with `scripts/verify-release-complete.sh` passing; then the owner creates a
+  GitHub App with contents, pull-requests and workflows permissions, stores
+  its ID and private key as Actions secrets, and release-please runs with its
+  installation token.
+- **The "build your own cloud" write-up.** `docs/so-you-want-to-build-a-cloud.md`
+  lines up the core services, the `sim` library map and the gaps; turn it into
+  a presentation, and keep its gap list in step with `PLAN.md` M3.
+- **Core-service gaps.** A managed cache engine for Amazon ElastiCache and
+  Azure Cache for Redis (BUG-3732, PLAN M3 item 15), Azure Managed Disks,
+  Cloud Monitoring (BUG-3522) and Filestore.
 - **M4: the remaining cleanups.** The AWS ARN builder and parser and the
   tag-set helpers; placement for the sites BUG-3609 names; clearing the 39
   clone groups `dupl` finds at 120 tokens, then lowering
