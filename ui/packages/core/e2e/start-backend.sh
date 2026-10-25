@@ -15,7 +15,9 @@
 #   SIMULATOR_NAME         — simulator binary name
 #   SIMULATOR_PORT         — simulator HTTP port
 #   SIMULATOR_GRPC_PORT    — simulator Cloud Logging gRPC port (GCP only)
-#   SIMULATOR_SETUP        — real cloud resources to provision for this backend
+#   SIMULATOR_SETUP        — real cloud resources to provision for this backend;
+#                            KEY=VALUE lines the case writes to
+#                            SIMULATOR_SETUP_OUTPUT configure the server
 #   SERVER_HELPER_PACKAGE  — repository-relative module containing a required helper
 #   SERVER_HELPER_COMMAND  — Go package to build inside SERVER_HELPER_PACKAGE
 #   SERVER_HELPER_NAME     — helper binary name
@@ -108,9 +110,18 @@ if [[ -n "${SIMULATOR_PACKAGE:-}" ]]; then
   wait_for_url "$simulator_url/health" "$SIMULATOR_NAME" "$simulator_pid"
 
   if [[ -n "${SIMULATOR_SETUP:-}" ]]; then
+    setup_output="$(mktemp "${TMPDIR:-/tmp}/sockerless-setup.XXXXXX")"
     SIMULATOR_URL="$simulator_url" \
       SIMULATOR_SETUP="$SIMULATOR_SETUP" \
+      SIMULATOR_SETUP_OUTPUT="$setup_output" \
       bash "$repo_root/ui/packages/core/e2e/setup-cloud.sh"
+    # A setup case writes the coordinates the cloud assigned while
+    # provisioning (an identity's client ID) as KEY=VALUE lines; the server
+    # under test is configured with them, as an operator configures it.
+    while IFS='=' read -r name value; do
+      [[ -n "$name" ]] && export "$name=$value"
+    done <"$setup_output"
+    rm -f "$setup_output"
   fi
 fi
 

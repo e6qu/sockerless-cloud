@@ -15,8 +15,7 @@ import {
   Text,
 } from "@fluentui/react-components";
 import { AzureIcon } from "../portal/icons.js";
-import { AzureWarningMessage, AzureErrorMessage } from "../portal/AzurePortal.js";
-import { AzureTableEmptyRow } from "../portal/AzureTable.js";
+import { ErrorBar, InfoBar } from "../portal/AzurePortal.js";
 import type { ClientSecretMetadata, MintedClientSecret } from "../api.js";
 
 const useStyles = makeStyles({
@@ -144,15 +143,13 @@ export function CertificatesAndSecrets({ credentials, minted, busy, onCreate, on
       ) : null}
 
       {minted ? (
-        <AzureWarningMessage testid="entra-secret-notice">
+        <InfoBar intent="warning" testid="entra-secret-notice">
           Remember to copy the new client secret value. You won&rsquo;t be able to retrieve it after you leave this
           blade.
-        </AzureWarningMessage>
+        </InfoBar>
       ) : null}
       {copyError ? (
-        <AzureErrorMessage>
-          <strong>Could not copy the secret to the clipboard.</strong> {copyError}
-        </AzureErrorMessage>
+        <ErrorBar title="Could not copy the secret to the clipboard.">{copyError}</ErrorBar>
       ) : null}
 
       <Table aria-label="Certificates & secrets" size="small" data-testid="entra-secrets-table">
@@ -162,12 +159,14 @@ export function CertificatesAndSecrets({ credentials, minted, busy, onCreate, on
             <TableHeaderCell>Expires</TableHeaderCell>
             <TableHeaderCell>Value</TableHeaderCell>
             <TableHeaderCell>Secret ID</TableHeaderCell>
-            <TableHeaderCell aria-label="Actions" />
+            <TableHeaderCell><span className="sr-only">Actions</span></TableHeaderCell>
           </TableRow>
         </TableHeader>
         <TableBody>
           {credentials.length === 0 ? (
-            <AzureTableEmptyRow colSpan={5} title="No client secrets have been created for this application." />
+            <TableRow>
+              <TableCell colSpan={5}>No client secrets have been created for this application.</TableCell>
+            </TableRow>
           ) : (
             credentials.map((credential) => {
               const isMinted = minted !== null && credential.keyId === minted.keyId;

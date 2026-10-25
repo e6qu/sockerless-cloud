@@ -1,36 +1,36 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { AzureStatus } from "../portal/AzurePortal.js";
+import { StatusBadge, statusKind } from "../portal/AzurePortal.js";
 
-describe("AzureStatus", () => {
+describe("StatusBadge", () => {
   // A substring test reports success for failure states: "unavailable"
-  // contains "available", and "inactive" contains "active". A tick beside a
-  // failed resource stops an operator looking any further.
+  // contains "available", and "inactive" contains "active".
   it.each([
-    ["Unavailable", "az-status-error"],
-    ["Inactive", "az-status-error"],
-    ["Failed", "az-status-error"],
-    ["Available", "az-status-success"],
-    ["Running", "az-status-success"],
-    ["Provisioning", "az-status-warning"],
+    ["Unavailable", "error"],
+    ["Inactive", "error"],
+    ["Failed", "error"],
+    ["Deallocated", "error"],
+    ["Available", "success"],
+    ["Running", "success"],
+    ["Succeeded", "success"],
+    ["Provisioning", "warning"],
+    ["Accepted", "warning"],
+    ["Unknown", "inactive"],
   ])("reports %s as %s", (status, expected) => {
-    const { container } = render(<AzureStatus status={status} />);
-    expect(container.querySelector(`.${expected}`)).not.toBeNull();
+    expect(statusKind(status)).toBe(expected);
+    const { container } = render(<StatusBadge status={status} />);
+    expect(container.querySelector(`.az-status-${expected}`)).not.toBeNull();
   });
 
-  it("lets a caller that knows the meaning state it rather than inferring from wording", () => {
-    const { container } = render(<AzureStatus status="Simulator subscription" kind="error" />);
+  it("takes the caller's meaning over the wording", () => {
+    const { container } = render(<StatusBadge status="Simulator subscription" kind="error" />);
     expect(container.querySelector(".az-status-error")).not.toBeNull();
   });
 
-  it("carries a shape so the meaning does not rest on colour alone", () => {
-    const { container } = render(<AzureStatus status="Available" />);
-    // A distinct icon per state — a screen reader ignores it (aria-hidden) and
-    // reads the word, while a sighted user reads the shape.
-    const success = container.querySelector("svg[aria-hidden] path");
+  it("draws a different shape per state, so meaning does not rest on colour", () => {
+    const success = render(<StatusBadge status="Available" />).container.querySelector("svg[aria-hidden] path");
+    const error = render(<StatusBadge status="Unavailable" />).container.querySelector("svg[aria-hidden] path");
     expect(success).not.toBeNull();
-    // The success and error shapes differ, so state is legible without colour.
-    const error = render(<AzureStatus status="Unavailable" />).container.querySelector("svg[aria-hidden] path");
     expect(success?.getAttribute("d")).not.toBe(error?.getAttribute("d"));
   });
 });

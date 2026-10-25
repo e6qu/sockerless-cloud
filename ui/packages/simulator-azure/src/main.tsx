@@ -2,25 +2,15 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { Navigate, Route } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { AzureApp } from "./portal/index.js";
-import { OverviewPage } from "./pages/OverviewPage.js";
-import { SubscriptionsPage } from "./pages/SubscriptionsPage.js";
-import { SubscriptionDetailPage } from "./pages/SubscriptionDetailPage.js";
-import { ContainerAppsPage } from "./pages/ContainerAppsPage.js";
-import { ContainerAppDetailPage } from "./pages/ContainerAppDetailPage.js";
-import { AzureFunctionsPage } from "./pages/AzureFunctionsPage.js";
-import { FunctionAppDetailPage } from "./pages/FunctionAppDetailPage.js";
-import { ACRRegistriesPage } from "./pages/ACRRegistriesPage.js";
-import { ACRRegistryDetailPage } from "./pages/ACRRegistryDetailPage.js";
-import { StorageAccountsPage } from "./pages/StorageAccountsPage.js";
-import { StorageAccountDetailPage } from "./pages/StorageAccountDetailPage.js";
-import { MonitorPage } from "./pages/MonitorPage.js";
-import { AppRegistrationsPage } from "./pages/AppRegistrationsPage.js";
-import { AppRegistrationDetailPage } from "./pages/AppRegistrationDetailPage.js";
-import { NotSupportedPage } from "./pages/NotSupportedPage.js";
-import { ServiceListPage } from "./pages/ServiceListPage.js";
-import { ServiceDetailPage } from "./pages/ServiceDetailPage.js";
-import { SERVICE_BLADES } from "./services.js";
+import { AzureApp } from "./portal/AzureApp.js";
+import { HomePage } from "./pages/HomePage.js";
+import { AllServicesPage } from "./pages/AllServicesPage.js";
+import { AllResourcesPage, ResourceGroupsPage, ServiceBrowsePage, SubscriptionsPage } from "./pages/BrowsePages.js";
+import { ResourcePage } from "./pages/resource/ResourcePage.js";
+import { CreateWizardPage } from "./pages/create/CreateWizard.js";
+import { CreateResourcePage, DeploymentPage } from "./pages/create/CreatePages.js";
+import { AppRegistrationPage, AppRegistrationsPage, EntraGroupsPage, EntraOverviewPage, EntraUsersPage } from "./pages/EntraPages.js";
+import { MonitorActivityLogPage, MonitorLogsPage, MonitorOverviewPage } from "./pages/MonitorPages.js";
 import "./index.css";
 
 const queryClient = new QueryClient({
@@ -36,39 +26,29 @@ createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
       <AzureApp>
-        <Route path="/ui/" element={<OverviewPage />} />
-        <Route path="/ui/subscriptions" element={<SubscriptionsPage />} />
-        <Route path="/ui/subscriptions/:subscriptionId" element={<SubscriptionDetailPage />} />
-        <Route path="/ui/container-apps" element={<ContainerAppsPage />} />
-        <Route path="/ui/container-apps/:name" element={<ContainerAppDetailPage />} />
-        <Route path="/ui/functions" element={<AzureFunctionsPage />} />
-        <Route path="/ui/functions/:name" element={<FunctionAppDetailPage />} />
-        <Route path="/ui/acr" element={<ACRRegistriesPage />} />
-        <Route path="/ui/acr/:name" element={<ACRRegistryDetailPage />} />
-        <Route path="/ui/storage" element={<StorageAccountsPage />} />
-        <Route path="/ui/storage/:name" element={<StorageAccountDetailPage />} />
-        <Route path="/ui/monitor" element={<MonitorPage />} />
+        <Route path="/ui/" element={<Navigate to="/ui/home" replace />} />
+        <Route path="/ui/home" element={<HomePage />} />
+        <Route path="/ui/allservices" element={<AllServicesPage />} />
+        <Route path="/ui/browse/all" element={<AllResourcesPage />} />
+        <Route path="/ui/browse/resourcegroups" element={<ResourceGroupsPage />} />
+        <Route path="/ui/browse/subscriptions" element={<SubscriptionsPage />} />
+        <Route path="/ui/browse/:namespace/:type" element={<ServiceBrowsePage />} />
+        <Route path="/ui/browse/:namespace/:type/kind/:kind" element={<ServiceBrowsePage />} />
+        <Route path="/ui/resource/*" element={<ResourcePage />} />
+        <Route path="/ui/create" element={<CreateResourcePage />} />
+        <Route path="/ui/create/:namespace/:type" element={<CreateWizardPage />} />
+        <Route path="/ui/create/:namespace/:type/kind/:kind" element={<CreateWizardPage />} />
+        <Route path="/ui/deployment/:name" element={<DeploymentPage />} />
+        <Route path="/ui/entra" element={<EntraOverviewPage />} />
+        <Route path="/ui/entra/users" element={<EntraUsersPage />} />
+        <Route path="/ui/entra/groups" element={<EntraGroupsPage />} />
         <Route path="/ui/entra/app-registrations" element={<AppRegistrationsPage />} />
-        <Route path="/ui/entra/app-registrations/:objectId" element={<AppRegistrationDetailPage />} />
-        {/* Every descriptor-driven service blade: a list on the provider's
-            real subscription-wide ARM List, and a resource pane on its real
-            Get plus the sub-resource Lists and action POSTs ARM nests under
-            it. The route slug and everything each blade reads come from the
-            service's own descriptor (services.ts). */}
-        {SERVICE_BLADES.map((blade) => (
-          <Route key={blade.slug} path={`/ui/${blade.slug}`} element={<ServiceListPage blade={blade} />} />
-        ))}
-        {SERVICE_BLADES.map((blade) => (
-          <Route
-            key={`${blade.slug}-detail`}
-            path={`/ui/${blade.slug}/:name`}
-            element={<ServiceDetailPage blade={blade} />}
-          />
-        ))}
-        <Route path="/ui/not-supported/:slug" element={<NotSupportedPage />} />
-        {/* Any other path lands on the overview rather than an empty shell:
-            a mistyped or stale deep link must never render a blank console. */}
-        <Route path="*" element={<Navigate to="/ui/" replace />} />
+        <Route path="/ui/entra/app-registrations/:objectId" element={<AppRegistrationPage />} />
+        <Route path="/ui/entra/app-registrations/:objectId/:section" element={<AppRegistrationPage />} />
+        <Route path="/ui/monitor" element={<MonitorOverviewPage />} />
+        <Route path="/ui/monitor/activitylog" element={<MonitorActivityLogPage />} />
+        <Route path="/ui/monitor/logs" element={<MonitorLogsPage />} />
+        <Route path="*" element={<Navigate to="/ui/home" replace />} />
       </AzureApp>
     </QueryClientProvider>
   </StrictMode>,

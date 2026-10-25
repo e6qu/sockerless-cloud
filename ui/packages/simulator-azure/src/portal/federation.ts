@@ -124,14 +124,6 @@ function baseFor(config: PortalConfig, scope: CloudScope): string {
   return config.cloudApiEndpoint ?? "";
 }
 
-// directoryTenantId is the Microsoft Entra tenant the portal federates into —
-// the value `az login --service-principal --tenant …` takes. Null when the
-// portal runs without federation configured.
-export async function directoryTenantId(): Promise<string | null> {
-  const config = await portalConfig();
-  return config.federationTenant ?? null;
-}
-
 // authorizedFetch reaches a real Azure path at the configured cloud coordinate
 // for the given scope, attaching a scope-specific federated credential when the
 // portal is configured to federate (see resolveFederation).
@@ -151,28 +143,4 @@ export async function authorizedFetch(path: string, scope: CloudScope = "arm", i
   // the console's own same-origin endpoints (config, the federation broker)
   // carry the session cookie.
   return fetch(`${baseFor(config, scope)}${path}`, { ...init, headers, credentials: "omit" });
-}
-
-// authorizedJSON reads a real Azure API path as JSON, raising the API's own
-// error rather than masking it.
-export async function authorizedJSON<T>(path: string, scope: CloudScope = "arm"): Promise<T> {
-  const response = await authorizedFetch(path, scope);
-  if (!response.ok) {
-    throw new Error(`${path} returned HTTP ${response.status}`);
-  }
-  return (await response.json()) as T;
-}
-
-// authorizedJSONPost posts a JSON body to a real Azure API path — the shape
-// Log Analytics' query endpoint and other POST reads take.
-export async function authorizedJSONPost<T>(path: string, requestBody: unknown, scope: CloudScope = "arm"): Promise<T> {
-  const response = await authorizedFetch(path, scope, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(requestBody),
-  });
-  if (!response.ok) {
-    throw new Error(`${path} returned HTTP ${response.status}`);
-  }
-  return (await response.json()) as T;
 }
