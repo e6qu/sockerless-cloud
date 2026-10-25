@@ -916,7 +916,9 @@ func reportExit(member string, code int, message string, lines int) {
 // (panic=1) to the same end.
 func powerOff(code int) {
 	unix.Sync()
-	time.Sleep(100 * time.Millisecond)
+	// Drain the serial console, which carries the exit line when the vsock
+	// report found no listener, before the reset discards its queue.
+	_ = unix.IoctlSetInt(int(os.Stdout.Fd()), unix.TCSBRK, 1)
 	_ = unix.Reboot(unix.LINUX_REBOOT_CMD_RESTART)
 	os.Exit(code)
 }

@@ -710,28 +710,27 @@ func WaitContainerRemoved(containerID string, timeout time.Duration) error {
 	if err := RequireContainerRuntime("waiting for a container to be removed"); err != nil {
 		return err
 	}
-	deadline := time.Now().Add(timeout)
-	for {
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		_, err := dockerClient.ContainerInspect(ctx, containerID, client.ContainerInspectOptions{})
-		cancel()
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	removed := dockerClient.ContainerWait(ctx, containerID, client.ContainerWaitOptions{Condition: container.WaitConditionRemoved})
+	select {
+	case <-removed.Result:
+		return nil
+	case err := <-removed.Error:
 		if containerNotFoundError(err) {
 			return nil
 		}
-		if err != nil {
-			return fmt.Errorf("inspect container %s while waiting for removal: %w", containerID, err)
+		if ctx.Err() == nil {
+			return fmt.Errorf("wait for container %s to be removed: %w", containerID, err)
 		}
-		if !time.Now().Before(deadline) {
-			removeCtx, removeCancel := context.WithTimeout(context.Background(), 10*time.Second)
-			_, removeErr := dockerClient.ContainerRemove(removeCtx, containerID, client.ContainerRemoveOptions{Force: true, RemoveVolumes: true})
-			removeCancel()
-			if removeErr == nil || containerNotFoundError(removeErr) {
-				return nil
-			}
-			return fmt.Errorf("container %s was not removed within %s and forced removal failed: %w", containerID, timeout, removeErr)
-		}
-		time.Sleep(50 * time.Millisecond)
 	}
+	removeCtx, removeCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer removeCancel()
+	_, removeErr := dockerClient.ContainerRemove(removeCtx, containerID, client.ContainerRemoveOptions{Force: true, RemoveVolumes: true})
+	if removeErr == nil || containerNotFoundError(removeErr) {
+		return nil
+	}
+	return fmt.Errorf("container %s was not removed within %s and forced removal failed: %w", containerID, timeout, removeErr)
 }
 
 // containerNotFoundError accepts Docker's typed 404 and Podman's
