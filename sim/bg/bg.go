@@ -35,7 +35,8 @@ var (
 	// arming spans a timer's or watch's admission and its entry in timers or
 	// watches, so a drain that starts ranging those maps has seen every piece
 	// of stoppable work it counted.
-	arming sync.RWMutex
+	arming   sync.RWMutex
+	awaiting sync.Mutex
 )
 
 func admit() bool {
@@ -210,9 +211,31 @@ func (w *Watch) detach() {
 	w.release()
 }
 
+// AwaitWithin drains as Await does and reports whether the drain finished
+// within d. Work still running at the deadline keeps running, and work
+// requested after it is still dropped: a shutdown that gives up waiting is
+// on its way out.
+func AwaitWithin(d time.Duration) bool {
+	done := make(chan struct{})
+	go func() {
+		Await()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return true
+	case <-time.After(d):
+		return false
+	}
+}
+
 // Await blocks until no counted work is left. It drains to quiescence rather
 // than waiting once, because work finishing inside one round can request more.
 func Await() {
+	// One drain at a time: a drain AwaitWithin gave up on still runs, and two
+	// waits over one WaitGroup are a misuse.
+	awaiting.Lock()
+	defer awaiting.Unlock()
 	arming.Lock()
 	draining.Store(true)
 	arming.Unlock()

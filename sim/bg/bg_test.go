@@ -223,3 +223,17 @@ func TestAwaitStopsATimerOrWatchArmedAsTheDrainBegins(t *testing.T) {
 		Await()
 	}
 }
+
+func TestAwaitWithinGivesUpOnWorkThatOutlivesTheWindow(t *testing.T) {
+	Await()
+	release := make(chan struct{})
+	Go(func() { <-release })
+	if AwaitWithin(50 * time.Millisecond) {
+		t.Fatal("AwaitWithin reported a drain while work was still running")
+	}
+	close(release)
+	Await()
+	if !AwaitWithin(5 * time.Second) {
+		t.Fatal("AwaitWithin gave up with no work left")
+	}
+}
