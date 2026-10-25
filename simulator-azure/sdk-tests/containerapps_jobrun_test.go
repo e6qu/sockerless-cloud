@@ -10,6 +10,7 @@ import (
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/appcontainers/armappcontainers/v3"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -24,7 +25,7 @@ type acaJobReplicas struct {
 // returns its name.
 func createACAReplicaJob(t *testing.T, client *armappcontainers.JobsClient, rg, envID string, replicas acaJobReplicas, script string) string {
 	t.Helper()
-	name := uniqueName("acarun")
+	name := uniquename.New("acarun")
 	poller, err := client.BeginCreateOrUpdate(ctx, rg, name, armappcontainers.Job{
 		Location: to.Ptr("eastus"),
 		Properties: &armappcontainers.JobProperties{
@@ -179,7 +180,7 @@ func TestSDK_ContainerAppsJobs_ExecutionsResumeAfterASimulatorRestart(t *testing
 	cmd := startPersistentAzureSimulatorOn(t, "docker", stateDir, port)
 	t.Cleanup(func() { _ = shutdownAzureSimulator(cmd) })
 
-	rg := uniqueName("sdk-aca-job-restart-rg")
+	rg := uniquename.New("sdk-aca-job-restart-rg")
 	bearer, err := fetchAccessTokenFrom(endpoint, "test-client-id", "test-client-secret", "https://management.azure.com/.default")
 	require.NoError(t, err)
 	resp := restartRawReq(t, "PUT", endpoint, "/subscriptions/"+subscriptionID+"/resourceGroups/"+rg+"?api-version=2023-07-01",
@@ -193,7 +194,7 @@ func TestSDK_ContainerAppsJobs_ExecutionsResumeAfterASimulatorRestart(t *testing
 	executions, err := armappcontainers.NewContainerAppsAPIClient(subscriptionID, &restartCredential{endpoint: endpoint}, opts)
 	require.NoError(t, err)
 	create := func() string {
-		name := uniqueName("acaresume")
+		name := uniquename.New("acaresume")
 		poller, err := client.BeginCreateOrUpdate(ctx, rg, name, armappcontainers.Job{
 			Location: to.Ptr("eastus"),
 			Properties: &armappcontainers.JobProperties{

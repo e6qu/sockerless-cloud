@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/googleapi"
@@ -18,7 +19,7 @@ import (
 func TestGCS_BucketCarriesDefaultPolicyFromCreation(t *testing.T) {
 	t.Parallel()
 	svc := storageService(t)
-	bucket := uniqueName("default-policy-bucket")
+	bucket := uniquename.New("default-policy-bucket")
 	requireProject(t, "default-policy-project")
 	_, err := svc.Buckets.Insert("default-policy-project", &storageapi.Bucket{Name: bucket}).Do()
 	require.NoError(t, err)

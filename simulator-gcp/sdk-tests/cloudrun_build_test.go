@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/option"
@@ -28,7 +29,7 @@ func runV2AdminService(t *testing.T) *run.Service {
 func TestCloudRun_SubmitBuild(t *testing.T) {
 	t.Parallel()
 	runSvc := runV2AdminService(t)
-	project := uniqueName("cr-build")
+	project := uniquename.New("cr-build")
 	parent := "projects/" + project + "/locations/us-central1"
 	bucket, object := "run-sources-"+project+"-us-central1", "services/source.zip"
 

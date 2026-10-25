@@ -12,6 +12,7 @@ import (
 	lambdatypes "github.com/aws/aws-sdk-go-v2/service/lambda/types"
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
 	sqstypes "github.com/aws/aws-sdk-go-v2/service/sqs/types"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -99,7 +100,7 @@ func TestLambda_AsyncDestinationNeedsTheRolesPermission_SDK(t *testing.T) {
 	t.Parallel()
 	lambdaAPI := lambdaClient()
 	sqsAPI := sqsClient()
-	functionName := uniqueName("async-destination-denied")
+	functionName := uniquename.New("async-destination-denied")
 
 	_, err := lambdaAPI.CreateFunction(ctx, &lambda.CreateFunctionInput{
 		FunctionName: aws.String(functionName),
@@ -114,7 +115,7 @@ func TestLambda_AsyncDestinationNeedsTheRolesPermission_SDK(t *testing.T) {
 		_, _ = lambdaAPI.DeleteFunction(ctx, &lambda.DeleteFunctionInput{FunctionName: aws.String(functionName)})
 	})
 
-	queue, err := sqsAPI.CreateQueue(ctx, &sqs.CreateQueueInput{QueueName: aws.String(uniqueName("lambda-destination-denied"))})
+	queue, err := sqsAPI.CreateQueue(ctx, &sqs.CreateQueueInput{QueueName: aws.String(uniquename.New("lambda-destination-denied"))})
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = sqsAPI.DeleteQueue(ctx, &sqs.DeleteQueueInput{QueueUrl: queue.QueueUrl}) })
 	attributes, err := sqsAPI.GetQueueAttributes(ctx, &sqs.GetQueueAttributesInput{

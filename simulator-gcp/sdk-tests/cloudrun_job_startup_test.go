@@ -6,6 +6,7 @@ import (
 
 	run "cloud.google.com/go/run/apiv2"
 	"cloud.google.com/go/run/apiv2/runpb"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
@@ -37,7 +38,7 @@ func createRunJob(t *testing.T, client *run.JobsClient, jobID string, template *
 func TestSDK_CloudRun_RunJob_DependsOnWaitsForStartupProbe(t *testing.T) {
 	t.Parallel()
 	jobs := newJobsClient(t)
-	name := createRunJob(t, jobs, uniqueName("sdk-job-depends"), &runpb.TaskTemplate{
+	name := createRunJob(t, jobs, uniquename.New("sdk-job-depends"), &runpb.TaskTemplate{
 		Containers: []*runpb.Container{
 			{
 				Name:      "main",
@@ -75,7 +76,7 @@ func TestSDK_CloudRun_RunJob_DependsOnWaitsForStartupProbe(t *testing.T) {
 func TestSDK_CloudRun_RunJob_StartupProbeFailureFailsTask(t *testing.T) {
 	t.Parallel()
 	jobs := newJobsClient(t)
-	name := createRunJob(t, jobs, uniqueName("sdk-job-probe-fail"), &runpb.TaskTemplate{
+	name := createRunJob(t, jobs, uniquename.New("sdk-job-probe-fail"), &runpb.TaskTemplate{
 		Containers: []*runpb.Container{{
 			Name:  "main",
 			Image: commandImageName,
@@ -126,7 +127,7 @@ func TestSDK_CloudRun_CreateJob_RefusesUnresolvableDependsOn(t *testing.T) {
 	} {
 		_, err := jobs.CreateJob(ctx, &runpb.CreateJobRequest{
 			Parent: crJobParent,
-			JobId:  uniqueName("sdk-job-bad-deps"),
+			JobId:  uniquename.New("sdk-job-bad-deps"),
 			Job: &runpb.Job{Template: &runpb.ExecutionTemplate{Template: &runpb.TaskTemplate{
 				Containers: containers,
 			}}},
@@ -142,7 +143,7 @@ func TestSDK_CloudRun_CreateJob_RefusesUnresolvableDependsOn(t *testing.T) {
 func TestSDK_CloudRun_DeleteJobStopsItsRunningExecution(t *testing.T) {
 	t.Parallel()
 	jobs := newJobsClient(t)
-	jobID := uniqueName("sdk-job-delete-running")
+	jobID := uniquename.New("sdk-job-delete-running")
 	const marker = "sdk-delete-running-marker"
 	createOp, err := jobs.CreateJob(ctx, &runpb.CreateJobRequest{
 		Parent: crJobParent,
@@ -177,7 +178,7 @@ func TestSDK_CloudRun_DeleteJobStopsItsRunningExecution(t *testing.T) {
 func TestSDK_CloudRun_CancelWhileItsContainersStart(t *testing.T) {
 	t.Parallel()
 	jobs := newJobsClient(t)
-	jobID := uniqueName("sdk-job-cancel-starting")
+	jobID := uniquename.New("sdk-job-cancel-starting")
 	const marker, mainRan = "sdk-cancel-starting-dependency", "sdk-cancel-starting-main"
 	name := createRunJob(t, jobs, jobID, &runpb.TaskTemplate{
 		Containers: []*runpb.Container{
@@ -242,7 +243,7 @@ func TestSDK_CloudRun_CancelWhileItsContainersStart(t *testing.T) {
 func TestSDK_CloudRun_CancelCompletedExecutionLeavesIt(t *testing.T) {
 	t.Parallel()
 	jobs := newJobsClient(t)
-	name := createRunJob(t, jobs, uniqueName("sdk-job-cancel-done"), &runpb.TaskTemplate{
+	name := createRunJob(t, jobs, uniquename.New("sdk-job-cancel-done"), &runpb.TaskTemplate{
 		Containers: []*runpb.Container{{Image: "mirror.gcr.io/library/alpine:latest"}},
 	})
 	runOp, err := jobs.RunJob(ctx, &runpb.RunJobRequest{Name: name})

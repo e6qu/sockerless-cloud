@@ -6,6 +6,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/elasticache"
 	ectypes "github.com/aws/aws-sdk-go-v2/service/elasticache/types"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -86,7 +87,7 @@ func TestElastiCache_ServerlessSnapshots(t *testing.T) {
 	c := ecClient()
 	ctx := t.Context()
 
-	cacheName := uniqueName("sl-snap-cache")
+	cacheName := uniquename.New("sl-snap-cache")
 	_, err := c.CreateServerlessCache(ctx, &elasticache.CreateServerlessCacheInput{
 		ServerlessCacheName: aws.String(cacheName),
 		Engine:              aws.String("valkey"),
@@ -99,7 +100,7 @@ func TestElastiCache_ServerlessSnapshots(t *testing.T) {
 		})
 	})
 
-	snapName := uniqueName("sl-snap-one")
+	snapName := uniquename.New("sl-snap-one")
 	snap, err := c.CreateServerlessCacheSnapshot(ctx, &elasticache.CreateServerlessCacheSnapshotInput{
 		ServerlessCacheSnapshotName: aws.String(snapName),
 		ServerlessCacheName:         aws.String(cacheName),
@@ -122,7 +123,7 @@ func TestElastiCache_ServerlessSnapshots(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, descS.ServerlessCacheSnapshots, 1)
 
-	copyName := uniqueName("sl-snap-copy")
+	copyName := uniquename.New("sl-snap-copy")
 	cp, err := c.CopyServerlessCacheSnapshot(ctx, &elasticache.CopyServerlessCacheSnapshotInput{
 		SourceServerlessCacheSnapshotName: aws.String(snapName),
 		TargetServerlessCacheSnapshotName: aws.String(copyName),
@@ -154,11 +155,11 @@ func TestElastiCache_ServerlessSnapshots(t *testing.T) {
 // delete.
 func TestElastiCache_GlobalReplicationGroup(t *testing.T) {
 	t.Parallel()
-	globalSuffix := uniqueName("myglobal")
+	globalSuffix := uniquename.New("myglobal")
 	c := ecClient()
 	ctx := t.Context()
 
-	primary := uniqueName("grg-primary")
+	primary := uniquename.New("grg-primary")
 	_, err := c.CreateReplicationGroup(ctx, &elasticache.CreateReplicationGroupInput{
 		ReplicationGroupId:          aws.String(primary),
 		ReplicationGroupDescription: aws.String("primary for global"),
@@ -317,7 +318,7 @@ func TestElastiCache_UpdateActions(t *testing.T) {
 	c := ecClient()
 	ctx := t.Context()
 
-	clusterID := uniqueName("ua-cluster")
+	clusterID := uniquename.New("ua-cluster")
 	_, err := c.CreateCacheCluster(ctx, &elasticache.CreateCacheClusterInput{
 		CacheClusterId: aws.String(clusterID),
 		Engine:         aws.String("redis"),
@@ -366,7 +367,7 @@ func TestElastiCache_ReplicaAndShardConfig(t *testing.T) {
 	c := ecClient()
 	ctx := t.Context()
 
-	rgID := uniqueName("rsc-group")
+	rgID := uniquename.New("rsc-group")
 	_, err := c.CreateReplicationGroup(ctx, &elasticache.CreateReplicationGroupInput{
 		ReplicationGroupId:          aws.String(rgID),
 		ReplicationGroupDescription: aws.String("replica/shard tests"),
@@ -443,7 +444,7 @@ func TestElastiCache_ReplicaAndShardConfig(t *testing.T) {
 // PurchaseReservedCacheNodesOffering.
 func TestElastiCache_NodeTypeModificationsAndReserved(t *testing.T) {
 	t.Parallel()
-	reservationID := uniqueName("my-reservation")
+	reservationID := uniquename.New("my-reservation")
 	c := ecClient()
 	ctx := t.Context()
 

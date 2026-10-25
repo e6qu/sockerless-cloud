@@ -11,6 +11,7 @@ import (
 
 	vkit "cloud.google.com/go/logging/apiv2"
 	"cloud.google.com/go/logging/apiv2/loggingpb"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
@@ -214,7 +215,7 @@ func TestCloudLogging_GRPC_ListMonitoredResourceDescriptors(t *testing.T) {
 func TestCloudLogging_GRPC_TailLogEntries(t *testing.T) {
 	t.Parallel()
 	c := newLoggingV2Client(t)
-	parent := "projects/" + uniqueName("logging-grpc-tail")
+	parent := "projects/" + uniquename.New("logging-grpc-tail")
 	logName := parent + "/logs/tailed"
 	other := parent + "/logs/not-tailed"
 

@@ -8,6 +8,7 @@ import (
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2"
 	elbv2types "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2/types"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -19,7 +20,7 @@ import (
 // destroy+create every plan. The image/type are also inherited from the template.
 func TestEC2_LaunchTemplateProvenanceTags(t *testing.T) {
 	t.Parallel()
-	ltName := uniqueName("readback-lt")
+	ltName := uniquename.New("readback-lt")
 	c := ec2Client()
 	lt, err := c.CreateLaunchTemplate(ctx, &ec2.CreateLaunchTemplateInput{
 		LaunchTemplateName: aws.String(ltName),
@@ -132,8 +133,8 @@ func TestEC2_SecurityGroupEgressIpv6Ranges(t *testing.T) {
 // SslPolicy reports it on DescribeListeners (else aws_lb_listener drifts).
 func TestELBv2_ListenerSslPolicy(t *testing.T) {
 	t.Parallel()
-	tgName := uniqueName("sslpolicy-tg")
-	lbName := uniqueName("sslpolicy-lb")
+	tgName := uniquename.New("sslpolicy-tg")
+	lbName := uniquename.New("sslpolicy-lb")
 	ec2c := ec2Client()
 	vpc, err := ec2c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.43.0.0/16")})
 	require.NoError(t, err)

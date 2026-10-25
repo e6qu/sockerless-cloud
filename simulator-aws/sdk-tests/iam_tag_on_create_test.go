@@ -19,6 +19,7 @@ import (
 	lambdatypes "github.com/aws/aws-sdk-go-v2/service/lambda/types"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	ststypes "github.com/aws/aws-sdk-go-v2/service/sts/types"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -43,13 +44,13 @@ func TestTagOnCreate_ECSCreateWithTagsNeedsTagResource(t *testing.T) {
 	restricted := ecs.NewFromConfig(cfg, func(o *ecs.Options) { o.BaseEndpoint = aws.String(baseURL) })
 
 	_, err := restricted.CreateCluster(ctx, &ecs.CreateClusterInput{
-		ClusterName: aws.String(uniqueName("toc-tagged")),
+		ClusterName: aws.String(uniquename.New("toc-tagged")),
 		Tags:        []ecstypes.Tag{{Key: aws.String("team"), Value: aws.String("blue")}},
 	})
 	require.Error(t, err, "a tagged create is also an ecs:TagResource, which the grant does not allow")
 	assert.Contains(t, err.Error(), "ecs:TagResource")
 
-	name := uniqueName("toc-untagged")
+	name := uniquename.New("toc-untagged")
 	_, err = restricted.CreateCluster(ctx, &ecs.CreateClusterInput{ClusterName: aws.String(name)})
 	require.NoError(t, err, "an untagged create tags nothing")
 	t.Cleanup(func() { _, _ = ecsClient().DeleteCluster(ctx, &ecs.DeleteClusterInput{Cluster: aws.String(name)}) })
@@ -65,7 +66,7 @@ func TestTagOnCreate_ECSCreateActionScopesTheTaggingGrant(t *testing.T) {
 	restricted := ecs.NewFromConfig(cfg, func(o *ecs.Options) { o.BaseEndpoint = aws.String(baseURL) })
 	tags := []ecstypes.Tag{{Key: aws.String("team"), Value: aws.String("blue")}}
 
-	name := uniqueName("toc-scoped")
+	name := uniquename.New("toc-scoped")
 	created, err := restricted.CreateCluster(ctx, &ecs.CreateClusterInput{ClusterName: aws.String(name), Tags: tags})
 	require.NoError(t, err, "the grant allows the tagging CreateCluster carries")
 	t.Cleanup(func() { _, _ = ecsClient().DeleteCluster(ctx, &ecs.DeleteClusterInput{Cluster: aws.String(name)}) })
@@ -81,7 +82,7 @@ func TestTagOnCreate_ECSCreateActionScopesTheTaggingGrant(t *testing.T) {
 	assert.Contains(t, err.Error(), "not authorized")
 
 	_, err = restricted.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{
-		Family: aws.String(uniqueName("toc-family")),
+		Family: aws.String(uniquename.New("toc-family")),
 		ContainerDefinitions: []ecstypes.ContainerDefinition{{
 			Name: aws.String("app"), Image: aws.String("mirror.gcr.io/library/busybox:latest"), Memory: aws.Int32(128)}},
 		Tags: tags,
@@ -122,13 +123,13 @@ func TestTagOnCreate_ELBCreateActionScopesTheTaggingGrant(t *testing.T) {
 		return out, err
 	}
 
-	_, err = create(denied, uniqueName("toc-tg-tagged"), true)
+	_, err = create(denied, uniquename.New("toc-tg-tagged"), true)
 	require.Error(t, err, "a tagged create is also an elasticloadbalancing:AddTags, which the grant does not allow")
 	assert.Contains(t, err.Error(), "elasticloadbalancing:AddTags")
-	_, err = create(denied, uniqueName("toc-tg-untagged"), false)
+	_, err = create(denied, uniquename.New("toc-tg-untagged"), false)
 	require.NoError(t, err, "an untagged create tags nothing")
 
-	created, err := create(scoped, uniqueName("toc-tg-scoped"), true)
+	created, err := create(scoped, uniquename.New("toc-tg-scoped"), true)
 	require.NoError(t, err, "the grant allows the tagging CreateTargetGroup carries")
 	_, err = scoped.AddTags(ctx, &elbv2.AddTagsInput{ResourceArns: []string{aws.ToString(created.TargetGroups[0].TargetGroupArn)},
 		Tags: []elbv2types.Tag{{Key: aws.String("owner"), Value: aws.String("ops")}}})
@@ -192,10 +193,10 @@ func TestTagOnCreate_CloudWatchAlarmWithTagsNeedsTagResource(t *testing.T) {
 		return err
 	}
 
-	err := put(uniqueName("toc-alarm-tagged"), []cwtypes.Tag{{Key: aws.String("team"), Value: aws.String("blue")}})
+	err := put(uniquename.New("toc-alarm-tagged"), []cwtypes.Tag{{Key: aws.String("team"), Value: aws.String("blue")}})
 	require.Error(t, err, "a tagged alarm is also a cloudwatch:TagResource, which the grant does not allow")
 	assert.Contains(t, err.Error(), "cloudwatch:TagResource")
-	require.NoError(t, put(uniqueName("toc-alarm-untagged"), nil), "an untagged alarm tags nothing")
+	require.NoError(t, put(uniquename.New("toc-alarm-untagged"), nil), "an untagged alarm tags nothing")
 }
 
 func TestTagOnCreate_LambdaFunctionWithTagsNeedsTagResource(t *testing.T) {
@@ -205,7 +206,7 @@ func TestTagOnCreate_LambdaFunctionWithTagsNeedsTagResource(t *testing.T) {
 		func(o *lambda.Options) { o.BaseEndpoint = aws.String(baseURL) })
 
 	_, err := restricted.CreateFunction(ctx, &lambda.CreateFunctionInput{
-		FunctionName: aws.String(uniqueName("toc-fn")),
+		FunctionName: aws.String(uniquename.New("toc-fn")),
 		Role:         aws.String(serviceRole(t, "lambda.amazonaws.com")),
 		Handler:      aws.String("index.handler"),
 		Runtime:      lambdatypes.RuntimeNodejs20x,
@@ -228,7 +229,7 @@ func TestTagOnCreate_AssumeRoleWithSessionTagsNeedsTagSession(t *testing.T) {
 	require.NoError(t, err)
 
 	role := func(actions string) string {
-		name := uniqueName("toc-role")
+		name := uniquename.New("toc-role")
 		created, err := admin.CreateRole(ctx, &iam.CreateRoleInput{RoleName: aws.String(name),
 			AssumeRolePolicyDocument: aws.String(`{"Version":"2012-10-17","Statement":[{"Effect":"Allow",` +
 				`"Principal":{"AWS":"` + aws.ToString(caller.Arn) + `"},"Action":` + actions + `}]}`)})
@@ -272,13 +273,13 @@ func TestTagOnCreate_ELBListenerAndRuleTaggingIsScopedToTheCreatedType(t *testin
 		t.Cleanup(func() { _, _ = ec2c.DeleteSubnet(ctx, &ec2.DeleteSubnetInput{SubnetId: subnet.Subnet.SubnetId}) })
 		subnets = append(subnets, aws.ToString(subnet.Subnet.SubnetId))
 	}
-	lb, err := elb.CreateLoadBalancer(ctx, &elbv2.CreateLoadBalancerInput{Name: aws.String(uniqueName("toc-lb")),
+	lb, err := elb.CreateLoadBalancer(ctx, &elbv2.CreateLoadBalancerInput{Name: aws.String(uniquename.New("toc-lb")),
 		Type: elbv2types.LoadBalancerTypeEnumApplication, Subnets: subnets})
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		_, _ = elb.DeleteLoadBalancer(ctx, &elbv2.DeleteLoadBalancerInput{LoadBalancerArn: lb.LoadBalancers[0].LoadBalancerArn})
 	})
-	tg, err := elb.CreateTargetGroup(ctx, &elbv2.CreateTargetGroupInput{Name: aws.String(uniqueName("toc-ltg")),
+	tg, err := elb.CreateTargetGroup(ctx, &elbv2.CreateTargetGroupInput{Name: aws.String(uniquename.New("toc-ltg")),
 		Protocol: elbv2types.ProtocolEnumHttp, Port: aws.Int32(80), VpcId: vpc.Vpc.VpcId, TargetType: elbv2types.TargetTypeEnumIp})
 	require.NoError(t, err)
 	t.Cleanup(func() {
@@ -333,7 +334,7 @@ func TestTagOnCreate_ELBListenerAndRuleTaggingIsScopedToTheCreatedType(t *testin
 func TestTagOnCreate_ECSRunTaskTaggingIsScopedToTheTask(t *testing.T) {
 	t.Parallel()
 	admin := ecsClient()
-	cluster, family := uniqueName("toc-run"), uniqueName("toc-run-task")
+	cluster, family := uniquename.New("toc-run"), uniquename.New("toc-run-task")
 	_, err := admin.CreateCluster(ctx, &ecs.CreateClusterInput{ClusterName: aws.String(cluster)})
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = admin.DeleteCluster(ctx, &ecs.DeleteClusterInput{Cluster: aws.String(cluster)}) })
@@ -376,7 +377,7 @@ func TestTagOnCreate_ECSRunTaskTaggingIsScopedToTheTask(t *testing.T) {
 // CreateFunction authorizes, and tags, the function its body names.
 func TestTagOnCreate_LambdaTaggingIsScopedToTheFunction(t *testing.T) {
 	t.Parallel()
-	name := uniqueName("toc-fn-scoped")
+	name := uniquename.New("toc-fn-scoped")
 	restricted := lambda.NewFromConfig(tagOnCreateConfig(t, "lambda-create-tag-function", `{"Version":"2012-10-17","Statement":[
 	  {"Effect":"Allow","Action":["lambda:CreateFunction","lambda:TagResource"],"Resource":"arn:aws:lambda:*:*:function:`+name+`"},
 	  {"Effect":"Allow","Action":"iam:PassRole","Resource":"*"}]}`),
@@ -404,7 +405,7 @@ func TestTagOnCreate_LambdaTaggingIsScopedToTheFunction(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "blue", tags.Tags["team"])
 
-	err = create(uniqueName("toc-fn-other"))
+	err = create(uniquename.New("toc-fn-other"))
 	require.Error(t, err, "the grant names another function")
 	assert.Contains(t, err.Error(), "lambda:CreateFunction")
 }
@@ -434,12 +435,12 @@ func TestTagOnCreate_CloudWatchAlarmTaggingIsScopedToTheAlarm(t *testing.T) {
 		return err
 	}
 
-	err := put(client("cw-alarm-tag-dashboard", "arn:aws:cloudwatch::*:dashboard/*"), uniqueName("toc-alarm-dash"))
+	err := put(client("cw-alarm-tag-dashboard", "arn:aws:cloudwatch::*:dashboard/*"), uniquename.New("toc-alarm-dash"))
 	require.Error(t, err, "the alarm is not a dashboard")
 	assert.Contains(t, err.Error(), "cloudwatch:TagResource")
 
 	alarms := client("cw-alarm-tag-alarm", "arn:aws:cloudwatch:*:*:alarm:*")
-	name := uniqueName("toc-alarm-scoped")
+	name := uniquename.New("toc-alarm-scoped")
 	require.NoError(t, put(alarms, name), "the grants name the alarm the put creates")
 	described, err := cloudwatchClient().DescribeAlarms(ctx, &cloudwatch.DescribeAlarmsInput{AlarmNames: []string{name}})
 	require.NoError(t, err)

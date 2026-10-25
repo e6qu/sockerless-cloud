@@ -14,6 +14,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/keyvault/armkeyvault"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/msi/armmsi"
 	"github.com/Azure/azure-sdk-for-go/sdk/security/keyvault/azsecrets"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -45,7 +46,7 @@ wait`
 // first version's URL and the identity.
 func acaIdentityVault(t *testing.T, rg, prefix string) (*armkeyvault.VaultsClient, string, string, string, armmsi.Identity) {
 	t.Helper()
-	vault := uniqueAlnumName(prefix)
+	vault := uniquename.Alnum(prefix)
 	vaults := createAuthTestVault(t, rg, vault, armkeyvault.VaultProperties{
 		AccessPolicies: []*armkeyvault.AccessPolicyEntry{{
 			TenantID:    to.Ptr(simTenantID),
@@ -61,7 +62,7 @@ func acaIdentityVault(t *testing.T, rg, prefix string) (*armkeyvault.VaultsClien
 
 	identities, err := armmsi.NewUserAssignedIdentitiesClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
-	name := uniqueName(prefix + "-uai")
+	name := uniquename.New(prefix + "-uai")
 	created, err := identities.CreateOrUpdate(ctx, rg, name, armmsi.Identity{Location: to.Ptr("eastus")}, nil)
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = identities.Delete(ctx, rg, name, nil) })
@@ -96,7 +97,7 @@ func TestSDK_ContainerAppsApps_ManagedIdentityAndKeyVaultSecrets(t *testing.T) {
 	client, err := armappcontainers.NewContainerAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	envID := "/subscriptions/" + subscriptionID + "/resourceGroups/" + rg + "/providers/Microsoft.App/managedEnvironments/sim-env"
-	name := uniqueName("sdk-aca-id")
+	name := uniquename.New("sdk-aca-id")
 
 	app := func(identity *armappcontainers.ManagedServiceIdentity, secrets []*armappcontainers.Secret, env []*armappcontainers.EnvironmentVar) armappcontainers.ContainerApp {
 		return armappcontainers.ContainerApp{
@@ -219,7 +220,7 @@ func TestSDK_ContainerAppsJobs_ManagedIdentityAndKeyVaultSecrets(t *testing.T) {
 	vaults, secretURL, _, vault, uai := acaIdentityVault(t, rg, "acajobid")
 	jobs, err := armappcontainers.NewJobsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
-	name := uniqueName("sdk-job-id")
+	name := uniquename.New("sdk-job-id")
 	job := armappcontainers.Job{
 		Location: to.Ptr("eastus"),
 		Identity: &armappcontainers.ManagedServiceIdentity{
@@ -328,7 +329,7 @@ func acaJobConsoleLines(t *testing.T, job, want string) []string {
 // response there rather than appending an error document to the body.
 func TestSDK_ContainerAppsApps_IngressAbortsAResponseItsReplicaCutsShort(t *testing.T) {
 	t.Parallel()
-	rg, name := "sdk-aca-ingress-abort-rg", uniqueName("ingressabort")
+	rg, name := "sdk-aca-ingress-abort-rg", uniquename.New("ingressabort")
 	ensureRG(t, rg)
 	client, err := armappcontainers.NewContainerAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)

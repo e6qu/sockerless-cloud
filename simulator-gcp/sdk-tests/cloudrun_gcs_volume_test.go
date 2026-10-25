@@ -9,6 +9,7 @@ import (
 
 	"cloud.google.com/go/run/apiv2/runpb"
 	"cloud.google.com/go/storage"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/iterator"
@@ -103,7 +104,7 @@ func TestSDK_CloudRun_JobWritesThroughCloudStorageVolumes(t *testing.T) {
 	t.Parallel()
 	client := storageClient(t)
 	defer client.Close()
-	bucketName := uniqueName("sdk-run-gcs-volume")
+	bucketName := uniquename.New("sdk-run-gcs-volume")
 	bucket := client.Bucket(bucketName)
 	require.NoError(t, bucket.Create(ctx, "test-project", nil))
 
@@ -111,7 +112,7 @@ func TestSDK_CloudRun_JobWritesThroughCloudStorageVolumes(t *testing.T) {
 	putVolumeObject(t, bucket, "rename-me.txt", "text/csv", "a,b\n")
 	putVolumeObject(t, bucket, "delete-me.txt", "text/plain", "doomed\n")
 
-	exec := runJobWithGCSVolumes(t, uniqueName("sdk-gcs-volume-job"),
+	exec := runJobWithGCSVolumes(t, uniquename.New("sdk-gcs-volume-job"),
 		[]*runpb.Volume{
 			cloudStorageVolume("bucket", bucketName, false),
 			cloudStorageVolume("results", bucketName, false, "only-dir=results"),
@@ -153,7 +154,7 @@ rm /mnt/bucket/delete-me.txt`)
 	// A generation written through the API reaches the mount the next
 	// execution reads, and that read does not write it back.
 	updated := putVolumeObject(t, bucket, "seed.txt", "text/plain", "from the API\n")
-	exec = runJobWithGCSVolumes(t, uniqueName("sdk-gcs-volume-read"),
+	exec = runJobWithGCSVolumes(t, uniquename.New("sdk-gcs-volume-read"),
 		[]*runpb.Volume{cloudStorageVolume("bucket", bucketName, false)},
 		[]*runpb.VolumeMount{{Name: "bucket", MountPath: "/mnt/bucket"}},
 		`set -e
@@ -171,12 +172,12 @@ func TestSDK_CloudRun_JobReadOnlyCloudStorageVolume(t *testing.T) {
 	t.Parallel()
 	client := storageClient(t)
 	defer client.Close()
-	bucketName := uniqueName("sdk-run-gcs-readonly")
+	bucketName := uniquename.New("sdk-run-gcs-readonly")
 	bucket := client.Bucket(bucketName)
 	require.NoError(t, bucket.Create(ctx, "test-project", nil))
 	seed := putVolumeObject(t, bucket, "seed.txt", "text/plain", "seed\n")
 
-	exec := runJobWithGCSVolumes(t, uniqueName("sdk-gcs-readonly-job"),
+	exec := runJobWithGCSVolumes(t, uniquename.New("sdk-gcs-readonly-job"),
 		[]*runpb.Volume{cloudStorageVolume("bucket", bucketName, true)},
 		[]*runpb.VolumeMount{{Name: "bucket", MountPath: "/mnt/bucket"}},
 		`test "$(cat /mnt/bucket/seed.txt)" = "seed" || exit 2

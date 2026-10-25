@@ -7,13 +7,14 @@ import (
 
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/dns/armdns"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armresources"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestPublicDNS_CreateZoneAndRecordSet(t *testing.T) {
 	t.Parallel()
-	zone := uniqueName("sdk-public") + ".example.com"
+	zone := uniquename.New("sdk-public") + ".example.com"
 	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = rgClient.CreateOrUpdate(ctx, "dns-public-rg", armresources.ResourceGroup{

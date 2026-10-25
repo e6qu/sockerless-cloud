@@ -11,6 +11,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/iam"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -30,7 +31,7 @@ func TestSQS_UntagQueueTagKeysScopeTheGrant(t *testing.T) {
 	t.Parallel()
 	admin := sqsClient()
 	created, err := admin.CreateQueue(ctx, &sqs.CreateQueueInput{
-		QueueName: aws.String(uniqueName("untag-keys")),
+		QueueName: aws.String(uniquename.New("untag-keys")),
 		Tags:      map[string]string{"team": "platform", "owner": "ops"},
 	})
 	require.NoError(t, err)
@@ -67,7 +68,7 @@ func TestECS_RegisterTaskDefinitionSizeScopesTheGrant(t *testing.T) {
 
 	register := func(cpu, memory string) error {
 		_, err := restricted.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{
-			Family: aws.String(uniqueName("sized")),
+			Family: aws.String(uniquename.New("sized")),
 			Cpu:    aws.String(cpu), Memory: aws.String(memory),
 			RequiresCompatibilities: []ecstypes.Compatibility{ecstypes.CompatibilityFargate},
 			NetworkMode:             ecstypes.NetworkModeAwsvpc,
@@ -94,13 +95,13 @@ func TestIAM_PermissionsBoundaryOfTheNamedRoleScopesTheGrant(t *testing.T) {
 	admin := iamClient()
 	trust := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"lambda.amazonaws.com"},"Action":"sts:AssumeRole"}]}`
 	boundary, err := admin.CreatePolicy(ctx, &iam.CreatePolicyInput{
-		PolicyName:     aws.String(uniqueName("boundary")),
+		PolicyName:     aws.String(uniquename.New("boundary")),
 		PolicyDocument: aws.String(`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"s3:GetObject","Resource":"*"}]}`),
 	})
 	require.NoError(t, err)
 	boundaryArn := aws.ToString(boundary.Policy.Arn)
 
-	bounded, unbounded := uniqueName("bounded"), uniqueName("unbounded")
+	bounded, unbounded := uniquename.New("bounded"), uniquename.New("unbounded")
 	_, err = admin.CreateRole(ctx, &iam.CreateRoleInput{RoleName: aws.String(bounded),
 		AssumeRolePolicyDocument: aws.String(trust), PermissionsBoundary: aws.String(boundaryArn)})
 	require.NoError(t, err)
@@ -132,7 +133,7 @@ func TestIAM_PermissionsBoundaryOfTheNamedRoleScopesTheGrant(t *testing.T) {
 func TestS3_ObjectTaggedOnPutScopesReads(t *testing.T) {
 	t.Parallel()
 	admin := s3Client()
-	bucket := strings.ToLower(uniqueName("tagged-on-put"))
+	bucket := strings.ToLower(uniquename.New("tagged-on-put"))
 	_, err := admin.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String(bucket)})
 	require.NoError(t, err)
 	for key, tagging := range map[string]string{"open": "visibility=public", "closed": "visibility=private"} {

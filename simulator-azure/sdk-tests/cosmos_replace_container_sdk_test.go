@@ -8,6 +8,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
 	"github.com/Azure/azure-sdk-for-go/sdk/data/azcosmos"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -17,7 +18,7 @@ import (
 // time to live on and off after creation, and cannot change its partition key.
 func TestCosmos_ReplaceContainer(t *testing.T) {
 	t.Parallel()
-	dataPlaneAccount := uniqueAlnumName("sdkdataplane")
+	dataPlaneAccount := uniquename.Alnum("sdkdataplane")
 	client := cosmosSimClient(t, dataPlaneAccount)
 	_, err := client.CreateDatabase(ctx, azcosmos.DatabaseProperties{ID: "replacedb"}, nil)
 	require.NoError(t, err)

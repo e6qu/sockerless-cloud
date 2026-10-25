@@ -8,6 +8,7 @@ import (
 
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/msi/armmsi"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armresources"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -164,7 +165,7 @@ func TestIdentity_CreateOrUpdateStatusCodes(t *testing.T) {
 	require.NoError(t, err)
 
 	url := baseURL + "/subscriptions/" + subscriptionID +
-		"/resourceGroups/id-status-rg/providers/Microsoft.ManagedIdentity/userAssignedIdentities/" + uniqueName("status-identity") + "?api-version=2023-01-31"
+		"/resourceGroups/id-status-rg/providers/Microsoft.ManagedIdentity/userAssignedIdentities/" + uniquename.New("status-identity") + "?api-version=2023-01-31"
 	put := func() int {
 		req, _ := http.NewRequestWithContext(ctx, "PUT", url, strings.NewReader(`{"location":"eastus"}`))
 		req.Header.Set("Content-Type", "application/json")

@@ -14,6 +14,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/aws/smithy-go"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/ssh"
@@ -151,7 +152,7 @@ func TestEC2_ModifyInstanceMetadataOptionsSDK(t *testing.T) {
 // instance_market_options + credit_specification round-trip.
 func TestEC2_LaunchTemplateMarketCreditSDK(t *testing.T) {
 	t.Parallel()
-	ltName := uniqueName("market-credit-lt")
+	ltName := uniquename.New("market-credit-lt")
 	c := ec2Client()
 	lt, err := c.CreateLaunchTemplate(ctx, &ec2.CreateLaunchTemplateInput{
 		LaunchTemplateName: aws.String(ltName),

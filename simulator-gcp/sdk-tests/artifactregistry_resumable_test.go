@@ -9,6 +9,7 @@ import (
 	artifactregistry "google.golang.org/api/artifactregistry/v1"
 	"google.golang.org/api/googleapi"
 
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -29,7 +30,7 @@ func arChunkedMedia() []byte {
 func TestArtifactRegistry_ResumableFileUpload(t *testing.T) {
 	t.Parallel()
 	svc := arAdminService(t)
-	repo := arCreateFormatRepository(t, svc, "projects/ar-resumable/locations/us-central1", uniqueName("files-repo"), "GENERIC")
+	repo := arCreateFormatRepository(t, svc, "projects/ar-resumable/locations/us-central1", uniquename.New("files-repo"), "GENERIC")
 	content := arChunkedMedia()
 
 	var progress []int64
@@ -57,7 +58,7 @@ func TestArtifactRegistry_ResumableFileUpload(t *testing.T) {
 func TestArtifactRegistry_ResumableGenericUpload(t *testing.T) {
 	t.Parallel()
 	svc := arAdminService(t)
-	repo := arCreateFormatRepository(t, svc, "projects/ar-resumable/locations/us-central1", uniqueName("generic-repo-19a5"), "GENERIC")
+	repo := arCreateFormatRepository(t, svc, "projects/ar-resumable/locations/us-central1", uniquename.New("generic-repo-19a5"), "GENERIC")
 	content := arChunkedMedia()
 
 	uploaded, err := svc.Projects.Locations.Repositories.GenericArtifacts.Upload(repo,
@@ -81,7 +82,7 @@ func TestArtifactRegistry_ResumableGenericUpload(t *testing.T) {
 func TestArtifactRegistry_DockerPushFilesAndRegistryURI(t *testing.T) {
 	t.Parallel()
 	svc := arAdminService(t)
-	project, repoID := "ar-push-files", uniqueName("docker-repo")
+	project, repoID := "ar-push-files", uniquename.New("docker-repo")
 	arCreateRepository(t, project, "us-central1", repoID)
 	repo := "projects/" + project + "/locations/us-central1/repositories/" + repoID
 	image := project + "/" + repoID + "/app"
@@ -120,7 +121,7 @@ func TestArtifactRegistry_DockerPushFilesAndRegistryURI(t *testing.T) {
 	got, err := svc.Projects.Locations.Repositories.Get(repo).Do()
 	require.NoError(t, err)
 	assert.Equal(t, "us-central1-docker.pkg.dev/"+project+"/"+repoID, got.RegistryUri)
-	mavenID := uniqueName("maven-repo")
+	mavenID := uniquename.New("maven-repo")
 	maven := arCreateFormatRepository(t, svc, "projects/"+project+"/locations/us-central1", mavenID, "MAVEN")
 	got, err = svc.Projects.Locations.Repositories.Get(maven).Do()
 	require.NoError(t, err)

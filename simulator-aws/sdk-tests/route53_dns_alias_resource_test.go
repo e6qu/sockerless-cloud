@@ -14,6 +14,7 @@ import (
 	elbtypes "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2/types"
 	"github.com/aws/aws-sdk-go-v2/service/route53"
 	r53types "github.com/aws/aws-sdk-go-v2/service/route53/types"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/net/dns/dnsmessage"
@@ -47,7 +48,7 @@ func TestRoute53DNSAliasToALoadBalancer(t *testing.T) {
 	})
 	require.NoError(t, err)
 	created, err := elb.CreateLoadBalancer(ctx, &elbv2.CreateLoadBalancerInput{
-		Name: aws.String(uniqueName("nlb-alias")), Type: elbtypes.LoadBalancerTypeEnumNetwork, Subnets: []string{aws.ToString(sn.Subnet.SubnetId)},
+		Name: aws.String(uniquename.New("nlb-alias")), Type: elbtypes.LoadBalancerTypeEnumNetwork, Subnets: []string{aws.ToString(sn.Subnet.SubnetId)},
 	})
 	require.NoError(t, err)
 	lb := created.LoadBalancers[0]
@@ -55,7 +56,7 @@ func TestRoute53DNSAliasToALoadBalancer(t *testing.T) {
 		_, _ = elb.DeleteLoadBalancer(context.Background(), &elbv2.DeleteLoadBalancerInput{LoadBalancerArn: lb.LoadBalancerArn})
 	})
 	tg, err := elb.CreateTargetGroup(ctx, &elbv2.CreateTargetGroupInput{
-		Name: aws.String(uniqueName("nlb-alias-tg")), Protocol: elbtypes.ProtocolEnumTcp, Port: aws.Int32(80),
+		Name: aws.String(uniquename.New("nlb-alias-tg")), Protocol: elbtypes.ProtocolEnumTcp, Port: aws.Int32(80),
 		VpcId: vpc.Vpc.VpcId, TargetType: elbtypes.TargetTypeEnumIp,
 	})
 	require.NoError(t, err)

@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -558,8 +559,8 @@ func TestLambda_DeleteFunction(t *testing.T) {
 // Lambda sends as the execution role, whose policy allows sqs:SendMessage.
 func TestLambda_AsyncDestinationDeliversAsTheRole_CLI(t *testing.T) {
 	t.Parallel()
-	fnName := cliUniqueName("cli-async-destination")
-	out := runCLI(t, awsCLI("sqs", "create-queue", "--queue-name", cliUniqueName("cli-lambda-destination")))
+	fnName := uniquename.New("cli-async-destination")
+	out := runCLI(t, awsCLI("sqs", "create-queue", "--queue-name", uniquename.New("cli-lambda-destination")))
 	var queue struct {
 		QueueUrl string `json:"QueueUrl"`
 	}

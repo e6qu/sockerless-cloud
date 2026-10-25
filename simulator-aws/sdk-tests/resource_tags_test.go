@@ -9,6 +9,7 @@ import (
 	ddbtypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/aws/aws-sdk-go-v2/service/ecr"
 	ecrtypes "github.com/aws/aws-sdk-go-v2/service/ecr/types"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -18,11 +19,11 @@ import (
 // and ECR. Dropping create-time tags makes every terraform plan re-add them.
 func TestResourceTags_CreateTimeRoundTrip(t *testing.T) {
 	t.Parallel()
-	repoName := uniqueName("tags-repo")
-	tableName := uniqueName("tags-tbl")
+	repoName := uniquename.New("tags-repo")
+	tableName := uniquename.New("tags-tbl")
 	t.Run("CloudWatchLogs", func(t *testing.T) {
 		c := cwLogsClient()
-		name := uniqueName("/tags/cwlogs-app")
+		name := uniquename.New("/tags/cwlogs-app")
 		_, err := c.CreateLogGroup(ctx, &cloudwatchlogs.CreateLogGroupInput{
 			LogGroupName: aws.String(name),
 			Tags:         map[string]string{"Name": "test", "env": "ci"},

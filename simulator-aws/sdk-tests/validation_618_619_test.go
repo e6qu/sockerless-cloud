@@ -8,6 +8,7 @@ import (
 	ecstypes "github.com/aws/aws-sdk-go-v2/service/ecs/types"
 	"github.com/aws/aws-sdk-go-v2/service/scheduler"
 	schedtypes "github.com/aws/aws-sdk-go-v2/service/scheduler/types"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -74,6 +75,6 @@ func TestScheduler_ExpressionValidation(t *testing.T) {
 	assert.Equal(t, "ValidationException", errCode(t, mk("probe-badexpr", "not-a-valid-expression")))
 	// Valid forms are accepted.
 	for _, expr := range []string{"rate(5 minutes)", "cron(0 12 * * ? *)", "at(2030-01-01T00:00:00)"} {
-		require.NoError(t, mk(uniqueName("probe-ok"), expr), "expr %q should be valid", expr)
+		require.NoError(t, mk(uniquename.New("probe-ok"), expr), "expr %q should be valid", expr)
 	}
 }

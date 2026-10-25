@@ -6,6 +6,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/glue"
 	gluetypes "github.com/aws/aws-sdk-go-v2/service/glue/types"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -17,8 +18,8 @@ import (
 func TestGlue_UnfilteredMetadata_SDK(t *testing.T) {
 	t.Parallel()
 	c := glueClient()
-	db := uniqueName("glue-unf-db")
-	tbl := uniqueName("glue-unf-tbl")
+	db := uniquename.New("glue-unf-db")
+	tbl := uniquename.New("glue-unf-tbl")
 
 	_, err := c.CreateDatabase(ctx, &glue.CreateDatabaseInput{
 		DatabaseInput: &gluetypes.DatabaseInput{Name: aws.String(db)},

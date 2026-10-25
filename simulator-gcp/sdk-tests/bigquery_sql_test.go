@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"cloud.google.com/go/bigquery"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/googleapi"
@@ -22,7 +23,7 @@ type bqSQLPerson struct {
 // ordering and limit against the rows the table holds.
 func TestBigQuery_QueryEvaluatesSQL(t *testing.T) {
 	t.Parallel()
-	project := uniqueName("bq-sql")
+	project := uniquename.New("bq-sql")
 	requireProject(t, project)
 	bq := bqClient(t, project)
 	ds := bq.Dataset("people_ds")
@@ -78,7 +79,7 @@ func TestBigQuery_QueryEvaluatesSQL(t *testing.T) {
 // adds to it, WRITE_TRUNCATE replaces it, and CREATE_NEVER needs it to exist.
 func TestBigQuery_QueryWritesItsDestinationTable(t *testing.T) {
 	t.Parallel()
-	project := uniqueName("bq-dest")
+	project := uniquename.New("bq-dest")
 	requireProject(t, project)
 	bq := bqClient(t, project)
 	ds := bq.Dataset("dest_ds")

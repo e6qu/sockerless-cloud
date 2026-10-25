@@ -11,6 +11,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
 	"github.com/aws/aws-sdk-go-v2/service/codebuild"
 	cbtypes "github.com/aws/aws-sdk-go-v2/service/codebuild/types"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -36,7 +37,7 @@ func cbCreateBuildspecProject(t *testing.T, c *codebuild.Client, name, buildspec
 func cbBatchRole(t *testing.T, extra ...string) string {
 	t.Helper()
 	actions := append([]string{"codebuild:StartBuild", "codebuild:StopBuild", "codebuild:RetryBuild"}, extra...)
-	return createServiceRole(t, uniqueName("cb-batch"), "codebuild.amazonaws.com", actions...)
+	return createServiceRole(t, uniquename.New("cb-batch"), "codebuild.amazonaws.com", actions...)
 }
 
 // cbCreateBatchProject creates a NO_SOURCE project whose buildspec carries a
@@ -97,7 +98,7 @@ func cbBuildLog(t *testing.T, build cbtypes.Build) string {
 func TestCodeBuild_BuildBatches_SDK(t *testing.T) {
 	t.Parallel()
 	c := codebuildClient()
-	proj := uniqueName("cb-sdk-batch")
+	proj := uniquename.New("cb-sdk-batch")
 	cbCreateBatchProject(t, c, proj, "version: 0.2\n"+
 		"batch:\n  build-list:\n"+
 		"    - identifier: first\n      env:\n        variables:\n          TASK: one\n"+
@@ -157,7 +158,7 @@ func TestCodeBuild_BuildBatches_SDK(t *testing.T) {
 func TestCodeBuild_BuildGraphOrdersBuilds_SDK(t *testing.T) {
 	t.Parallel()
 	c := codebuildClient()
-	proj := uniqueName("cb-sdk-graph")
+	proj := uniquename.New("cb-sdk-graph")
 	cbCreateBatchProject(t, c, proj, "version: 0.2\n"+
 		"batch:\n  fast-fail: true\n  build-graph:\n"+
 		"    - identifier: compile\n"+
@@ -185,7 +186,7 @@ func TestCodeBuild_BuildGraphOrdersBuilds_SDK(t *testing.T) {
 func TestCodeBuild_BuildBatchRestrictions_SDK(t *testing.T) {
 	t.Parallel()
 	c := codebuildClient()
-	proj := uniqueName("cb-sdk-restrict")
+	proj := uniquename.New("cb-sdk-restrict")
 	cbCreateBatchProject(t, c, proj, "version: 0.2\n"+
 		"batch:\n  build-matrix:\n    dynamic:\n      env:\n        variables:\n          N: [1, 2, 3, 4, 5]\n"+
 		"phases:\n  build:\n    commands:\n      - echo $N\n")
@@ -208,7 +209,7 @@ func TestCodeBuild_BuildBatchRestrictions_SDK(t *testing.T) {
 func TestCodeBuild_StartBuildOverrides_SDK(t *testing.T) {
 	t.Parallel()
 	c := codebuildClient()
-	proj := uniqueName("cb-sdk-override")
+	proj := uniquename.New("cb-sdk-override")
 	_, err := c.CreateProject(ctx, &codebuild.CreateProjectInput{
 		Name:        aws.String(proj),
 		Source:      &cbtypes.ProjectSource{Type: cbtypes.SourceTypeNoSource, Buildspec: aws.String("version: 0.2\nphases:\n  build:\n    commands:\n      - cat /etc/os-release\n")},
@@ -223,7 +224,7 @@ func TestCodeBuild_StartBuildOverrides_SDK(t *testing.T) {
 		ProjectName:              aws.String(proj),
 		ImageOverride:            aws.String("mirror.gcr.io/library/alpine:3.21"),
 		TimeoutInMinutesOverride: aws.Int32(15),
-		IdempotencyToken:         aws.String(uniqueName("token")),
+		IdempotencyToken:         aws.String(uniquename.New("token")),
 	}
 	first, err := c.StartBuild(ctx, input)
 	require.NoError(t, err)

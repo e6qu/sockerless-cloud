@@ -12,6 +12,7 @@ import (
 	batchtypes "github.com/aws/aws-sdk-go-v2/service/batch/types"
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
 	"github.com/aws/smithy-go"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -404,9 +405,9 @@ func TestBatch_SubmitJobRejectsOutOfRangeArrayAndRetryProperties_SDK(t *testing.
 func TestBatch_DependentJobWaitsPendingAndFailsWithItsDependency_SDK(t *testing.T) {
 	t.Parallel()
 	c := batchClient()
-	queue := createBatchQueue(t, c, uniqueName("batch-sdk-deps"), batchtypes.CEStateEnabled, 0)
+	queue := createBatchQueue(t, c, uniquename.New("batch-sdk-deps"), batchtypes.CEStateEnabled, 0)
 	definition := registerBatchJobDefinition(t, c, &batch.RegisterJobDefinitionInput{
-		JobDefinitionName:   aws.String(uniqueName("batch-sdk-deps")),
+		JobDefinitionName:   aws.String(uniquename.New("batch-sdk-deps")),
 		ContainerProperties: &batchtypes.ContainerProperties{Command: batchHoldCommand},
 	})
 
@@ -447,9 +448,9 @@ func TestBatch_DependentJobWaitsPendingAndFailsWithItsDependency_SDK(t *testing.
 func TestBatch_SequentialArrayRunsOneChildAfterAnother_SDK(t *testing.T) {
 	t.Parallel()
 	c := batchClient()
-	queue := createBatchQueue(t, c, uniqueName("batch-sdk-seq"), batchtypes.CEStateEnabled, 0)
+	queue := createBatchQueue(t, c, uniquename.New("batch-sdk-seq"), batchtypes.CEStateEnabled, 0)
 	definition := registerBatchJobDefinition(t, c, &batch.RegisterJobDefinitionInput{
-		JobDefinitionName:   aws.String(uniqueName("batch-sdk-seq")),
+		JobDefinitionName:   aws.String(uniquename.New("batch-sdk-seq")),
 		ContainerProperties: &batchtypes.ContainerProperties{Command: []string{"true"}},
 	})
 	submit, err := c.SubmitJob(ctx, &batch.SubmitJobInput{
@@ -484,14 +485,14 @@ func TestBatch_FairshareQueueRunsTheLeastUsedShareFirst_SDK(t *testing.T) {
 	t.Parallel()
 	c := batchClient()
 	policy, err := c.CreateSchedulingPolicy(ctx, &batch.CreateSchedulingPolicyInput{
-		Name:            aws.String(uniqueName("batch-sdk-fairshare")),
+		Name:            aws.String(uniquename.New("batch-sdk-fairshare")),
 		FairsharePolicy: &batchtypes.FairsharePolicy{ShareDecaySeconds: aws.Int32(3600)},
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = c.DeleteSchedulingPolicy(ctx, &batch.DeleteSchedulingPolicyInput{Arn: policy.Arn}) })
-	queue := createBatchQueueWithPolicy(t, c, uniqueName("batch-sdk-fairshare"), batchtypes.CEStateEnabled, 1, aws.ToString(policy.Arn))
+	queue := createBatchQueueWithPolicy(t, c, uniquename.New("batch-sdk-fairshare"), batchtypes.CEStateEnabled, 1, aws.ToString(policy.Arn))
 	definition := registerBatchJobDefinition(t, c, &batch.RegisterJobDefinitionInput{
-		JobDefinitionName:   aws.String(uniqueName("batch-sdk-fairshare")),
+		JobDefinitionName:   aws.String(uniquename.New("batch-sdk-fairshare")),
 		ContainerProperties: &batchtypes.ContainerProperties{Command: batchHoldCommand},
 	})
 	submit := func(name, share string) string {

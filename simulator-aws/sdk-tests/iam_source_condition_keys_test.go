@@ -24,6 +24,7 @@ import (
 	s3controltypes "github.com/aws/aws-sdk-go-v2/service/s3control/types"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/e6qu/sockerless-cloud/testutil/samlidp"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -54,8 +55,8 @@ func TestECS_DaemonTaskDefinitionSizeScopesTheGrant(t *testing.T) {
 		require.NoError(t, err)
 		return aws.ToString(out.DaemonTaskDefinitionArn)
 	}
-	small := register(uniqueName("daemon-small"), "256", "512")
-	large := register(uniqueName("daemon-large"), "1024", "2048")
+	small := register(uniquename.New("daemon-small"), "256", "512")
+	large := register(uniquename.New("daemon-large"), "1024", "2048")
 
 	akid, secret := restrictedCredential(t, "ecs-small-daemons",
 		`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"ecs:CreateDaemon","Resource":"*",
@@ -63,7 +64,7 @@ func TestECS_DaemonTaskDefinitionSizeScopesTheGrant(t *testing.T) {
 	restricted := ecs.NewFromConfig(keyConfig(akid, secret), func(o *ecs.Options) { o.BaseEndpoint = aws.String(baseURL) })
 	create := func(definition string) error {
 		_, err := restricted.CreateDaemon(ctx, &ecs.CreateDaemonInput{
-			DaemonName: aws.String(uniqueName("daemon")), DaemonTaskDefinitionArn: aws.String(definition),
+			DaemonName: aws.String(uniquename.New("daemon")), DaemonTaskDefinitionArn: aws.String(definition),
 			ClusterArn:           aws.String("daemon-size-absent-cluster"),
 			CapacityProviderArns: []string{"arn:aws:ecs:us-east-1:123456789012:capacity-provider/absent"},
 		})
@@ -80,7 +81,7 @@ func TestECS_DaemonTaskDefinitionSizeScopesTheGrant(t *testing.T) {
 func TestS3_DeleteObjectsVersionScopesEachEntry(t *testing.T) {
 	t.Parallel()
 	admin := s3Client()
-	bucket := uniqueName("delete-objects-versions")
+	bucket := uniquename.New("delete-objects-versions")
 	_, err := admin.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String(bucket)})
 	require.NoError(t, err)
 	const granted = "3HL4kqtJlcpXroDTDmJ.rmSpXd3dIbrHY"
@@ -114,7 +115,7 @@ func TestS3_DeleteObjectsVersionScopesEachEntry(t *testing.T) {
 func TestS3Control_GetAccessPointResourceTagScopesTheGrant(t *testing.T) {
 	t.Parallel()
 	admin := s3Client()
-	bucket := uniqueName("ap-tagged-bucket")
+	bucket := uniquename.New("ap-tagged-bucket")
 	_, err := admin.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String(bucket)})
 	require.NoError(t, err)
 	control := s3control.NewFromConfig(sdkConfig(),
@@ -128,7 +129,7 @@ func TestS3Control_GetAccessPointResourceTagScopesTheGrant(t *testing.T) {
 				AccountId: aws.String(s3ObjectLambdaAccount), Name: aws.String(name)})
 		})
 	}
-	data, other := uniqueName("ap-data"), uniqueName("ap-other")
+	data, other := uniquename.New("ap-data"), uniquename.New("ap-other")
 	create(data, []s3controltypes.Tag{{Key: aws.String("team"), Value: aws.String("data")}})
 	create(other, []s3controltypes.Tag{{Key: aws.String("team"), Value: aws.String("web")}})
 
@@ -156,7 +157,7 @@ func TestRDS_SourceConditionKeysScopeTheGrant(t *testing.T) {
 		return []rdstypes.Tag{{Key: aws.String("team"), Value: aws.String(team)}}
 	}
 	cluster := func(team string) string {
-		id := uniqueName("source-cluster")
+		id := uniquename.New("source-cluster")
 		out, err := admin.CreateDBCluster(ctx, &rds.CreateDBClusterInput{
 			DBClusterIdentifier: aws.String(id), Engine: aws.String("mysql"), DatabaseName: aws.String("orders"),
 			MasterUsername: aws.String("admin"), DBClusterInstanceClass: aws.String("db.m6gd.large"),
@@ -170,7 +171,7 @@ func TestRDS_SourceConditionKeysScopeTheGrant(t *testing.T) {
 		return aws.ToString(out.DBCluster.DBClusterArn)
 	}
 	dataCluster, webCluster := cluster("data"), cluster("web")
-	group := uniqueName("green-params")
+	group := uniquename.New("green-params")
 	_, err := admin.CreateDBClusterParameterGroup(ctx, &rds.CreateDBClusterParameterGroupInput{
 		DBClusterParameterGroupName: aws.String(group), DBParameterGroupFamily: aws.String("mysql8.0"),
 		Description: aws.String("green"), Tags: tags("data"),
@@ -194,7 +195,7 @@ func TestRDS_SourceConditionKeysScopeTheGrant(t *testing.T) {
 
 	blueGreen := func(source string) error {
 		_, err := restricted.CreateBlueGreenDeployment(ctx, &rds.CreateBlueGreenDeploymentInput{
-			BlueGreenDeploymentName: aws.String(uniqueName("bg")), Source: aws.String(source),
+			BlueGreenDeploymentName: aws.String(uniquename.New("bg")), Source: aws.String(source),
 			TargetDBClusterParameterGroupName: aws.String(group),
 		})
 		return err
@@ -207,14 +208,14 @@ func TestRDS_SourceConditionKeysScopeTheGrant(t *testing.T) {
 
 	restore := func(source string) error {
 		_, err := restricted.RestoreDBClusterToPointInTime(ctx, &rds.RestoreDBClusterToPointInTimeInput{
-			DBClusterIdentifier: aws.String(uniqueName("restored")), SourceDBClusterIdentifier: aws.String(source),
+			DBClusterIdentifier: aws.String(uniquename.New("restored")), SourceDBClusterIdentifier: aws.String(source),
 			UseLatestRestorableTime: aws.Bool(true),
 		})
 		return err
 	}
 	assert.False(t, notAuthorized(restore(dataCluster)), "the source's 100 GiB is within the grant")
 	big, err := admin.CreateDBCluster(ctx, &rds.CreateDBClusterInput{
-		DBClusterIdentifier: aws.String(uniqueName("big-cluster")), Engine: aws.String("mysql"),
+		DBClusterIdentifier: aws.String(uniquename.New("big-cluster")), Engine: aws.String("mysql"),
 		MasterUsername: aws.String("admin"), DBClusterInstanceClass: aws.String("db.m6gd.large"),
 		AllocatedStorage: aws.Int32(400),
 	})
@@ -226,7 +227,7 @@ func TestRDS_SourceConditionKeysScopeTheGrant(t *testing.T) {
 	assert.True(t, notAuthorized(restore(aws.ToString(big.DBCluster.DBClusterArn))),
 		"a source larger than the grant allows is refused")
 
-	instance := uniqueName("region-backups")
+	instance := uniquename.New("region-backups")
 	_, err = admin.CreateDBInstance(ctx, &rds.CreateDBInstanceInput{
 		DBInstanceIdentifier: aws.String(instance), Engine: aws.String("sqlserver-ex"),
 		DBInstanceClass: aws.String("db.t3.micro"), AllocatedStorage: aws.Int32(20),
@@ -242,7 +243,7 @@ func TestRDS_SourceConditionKeysScopeTheGrant(t *testing.T) {
 	assert.Equal(t, "region", aws.ToString(described.DBInstances[0].BackupTarget),
 		"an instance created without a BackupTarget keeps its backups in the Region")
 	_, err = restricted.CreateDBSnapshot(ctx, &rds.CreateDBSnapshotInput{
-		DBInstanceIdentifier: aws.String(instance), DBSnapshotIdentifier: aws.String(uniqueName("snap"))})
+		DBInstanceIdentifier: aws.String(instance), DBSnapshotIdentifier: aws.String(uniquename.New("snap"))})
 	assert.True(t, notAuthorized(err), "the instance's backups go to the Region, not to an Outpost")
 }
 
@@ -268,7 +269,7 @@ func TestOrganizations_PolicyTypeAndTransferTypeScopeTheGrant(t *testing.T) {
 	_, err = admin.InviteOrganizationToTransferResponsibility(ctx, &organizations.InviteOrganizationToTransferResponsibilityInput{
 		Type:           orgtypes.ResponsibilityTransferTypeBilling,
 		Target:         &orgtypes.HandshakeParty{Id: aws.String("210987654321"), Type: orgtypes.HandshakePartyTypeAccount},
-		SourceName:     aws.String(uniqueName("billing")),
+		SourceName:     aws.String(uniquename.New("billing")),
 		StartTimestamp: aws.Time(time.Now().Add(time.Hour)),
 	})
 	require.NoError(t, err)
@@ -287,7 +288,7 @@ func TestGlue_IntegrationResourceTagScopesTheGrant(t *testing.T) {
 	t.Parallel()
 	admin := glueClient()
 	create := func(team string) string {
-		name := uniqueName("integration")
+		name := uniquename.New("integration")
 		_, err := admin.CreateIntegration(ctx, &glue.CreateIntegrationInput{
 			IntegrationName: aws.String(name),
 			SourceArn:       aws.String("arn:aws:rds:us-east-1:123456789012:cluster:orders"),
@@ -357,7 +358,7 @@ func TestSTS_ChainedAssumeRoleCarriesTheSAMLSubject(t *testing.T) {
 	idp, err := samlidp.New("https://idp.chain.example.test/saml")
 	require.NoError(t, err)
 	admin := iamClient()
-	providerName := uniqueName("chain-idp")
+	providerName := uniquename.New("chain-idp")
 	provider, err := admin.CreateSAMLProvider(ctx, &iam.CreateSAMLProviderInput{
 		Name: aws.String(providerName), SAMLMetadataDocument: aws.String(idp.Metadata())})
 	require.NoError(t, err)
@@ -372,7 +373,7 @@ func TestSTS_ChainedAssumeRoleCarriesTheSAMLSubject(t *testing.T) {
 		t.Cleanup(func() { _, _ = admin.DeleteRole(ctx, &iam.DeleteRoleInput{RoleName: aws.String(name)}) })
 		return aws.ToString(role.Role.Arn)
 	}
-	federatedName, chainedName := uniqueName("federated"), uniqueName("chained")
+	federatedName, chainedName := uniquename.New("federated"), uniquename.New("chained")
 	federatedArn := createRole(federatedName, `{"Version":"2012-10-17","Statement":[{"Effect":"Allow",
 		"Principal":{"Federated":"`+providerArn+`"},"Action":"sts:AssumeRoleWithSAML"}]}`)
 	chainedArn := createRole(chainedName, `{"Version":"2012-10-17","Statement":[{"Effect":"Allow",

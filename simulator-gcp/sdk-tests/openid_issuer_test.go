@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/iam/v1"
 	iamcredentials "google.golang.org/api/iamcredentials/v1"
@@ -32,7 +33,7 @@ func getJSON(t *testing.T, url string, into any) {
 func TestOpenIDDiscoveryVerifiesIdentityTokens(t *testing.T) {
 	t.Parallel()
 	created, err := iamService(t).Projects.ServiceAccounts.Create("projects/test-project",
-		&iam.CreateServiceAccountRequest{AccountId: uniqueName("oidc-rp")}).Do()
+		&iam.CreateServiceAccountRequest{AccountId: uniquename.New("oidc-rp")}).Do()
 	require.NoError(t, err)
 	minted, err := iamCredentialsService(t).Projects.ServiceAccounts.GenerateIdToken(created.Name,
 		&iamcredentials.GenerateIdTokenRequest{Audience: "https://relying-party.example.com"}).Do()

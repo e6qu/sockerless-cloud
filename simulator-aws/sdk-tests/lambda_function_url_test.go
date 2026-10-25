@@ -14,6 +14,7 @@ import (
 	v4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
 	"github.com/aws/aws-sdk-go-v2/service/lambda"
 	lambdatypes "github.com/aws/aws-sdk-go-v2/service/lambda/types"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -51,7 +52,7 @@ func lambdaFunctionURLDo(t *testing.T, request *http.Request) (int, http.Header,
 func lambdaFunctionURLFunction(t *testing.T, authType lambdatypes.FunctionUrlAuthType, cors *lambdatypes.Cors) (string, string) {
 	t.Helper()
 	lc := lambdaClient()
-	name := uniqueName("url-fn")
+	name := uniquename.New("url-fn")
 	created, err := lc.CreateFunction(ctx, &lambda.CreateFunctionInput{
 		FunctionName:  aws.String(name),
 		Role:          aws.String(serviceRole(t, "lambda.amazonaws.com")),

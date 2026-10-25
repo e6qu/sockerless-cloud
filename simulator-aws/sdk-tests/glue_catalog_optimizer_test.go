@@ -6,6 +6,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/glue"
 	gluetypes "github.com/aws/aws-sdk-go-v2/service/glue/types"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -66,8 +67,8 @@ func TestGlue_Catalog_SDK(t *testing.T) {
 func TestGlue_TableOptimizer_SDK(t *testing.T) {
 	t.Parallel()
 	c := glueClient()
-	db := uniqueName("glue-sdk-opt-db")
-	tbl := uniqueName("glue-sdk-opt-tbl")
+	db := uniquename.New("glue-sdk-opt-db")
+	tbl := uniquename.New("glue-sdk-opt-tbl")
 
 	_, err := c.CreateDatabase(ctx, &glue.CreateDatabaseInput{
 		DatabaseInput: &gluetypes.DatabaseInput{Name: aws.String(db)},
@@ -171,7 +172,7 @@ func TestGlue_BatchGet_SDK(t *testing.T) {
 	c := glueClient()
 
 	// Crawler.
-	crawler := uniqueName("glue-sdk-batch-crawler")
+	crawler := uniquename.New("glue-sdk-batch-crawler")
 	_, err := c.CreateCrawler(ctx, &glue.CreateCrawlerInput{
 		Name:    aws.String(crawler),
 		Role:    aws.String(serviceRole(t, "glue.amazonaws.com")),
@@ -188,7 +189,7 @@ func TestGlue_BatchGet_SDK(t *testing.T) {
 	assert.Equal(t, []string{"no-such-crawler"}, gc.CrawlersNotFound)
 
 	// Job.
-	job := uniqueName("glue-sdk-batch-job")
+	job := uniquename.New("glue-sdk-batch-job")
 	_, err = c.CreateJob(ctx, &glue.CreateJobInput{
 		Name:    aws.String(job),
 		Role:    aws.String(serviceRole(t, "glue.amazonaws.com")),
@@ -203,7 +204,7 @@ func TestGlue_BatchGet_SDK(t *testing.T) {
 	assert.Equal(t, []string{"no-such-job"}, gj.JobsNotFound)
 
 	// Trigger.
-	trigger := uniqueName("glue-sdk-batch-trigger")
+	trigger := uniquename.New("glue-sdk-batch-trigger")
 	_, err = c.CreateTrigger(ctx, &glue.CreateTriggerInput{
 		Name: aws.String(trigger),
 		Type: gluetypes.TriggerTypeOnDemand,
@@ -222,7 +223,7 @@ func TestGlue_BatchGet_SDK(t *testing.T) {
 	assert.Equal(t, []string{"no-such-trigger"}, gt.TriggersNotFound)
 
 	// Workflow.
-	workflow := uniqueName("glue-sdk-batch-workflow")
+	workflow := uniquename.New("glue-sdk-batch-workflow")
 	_, err = c.CreateWorkflow(ctx, &glue.CreateWorkflowInput{Name: aws.String(workflow)})
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = c.DeleteWorkflow(ctx, &glue.DeleteWorkflowInput{Name: aws.String(workflow)}) })
@@ -242,7 +243,7 @@ func TestGlue_BatchGet_SDK(t *testing.T) {
 	assert.Equal(t, []string{"no-such-entity"}, gce.CustomEntityTypesNotFound)
 
 	// BatchDeleteConnection.
-	conn := uniqueName("glue-sdk-batch-conn")
+	conn := uniquename.New("glue-sdk-batch-conn")
 	_, err = c.CreateConnection(ctx, &glue.CreateConnectionInput{
 		ConnectionInput: &gluetypes.ConnectionInput{
 			Name:                 aws.String(conn),
@@ -259,8 +260,8 @@ func TestGlue_BatchGet_SDK(t *testing.T) {
 	assert.Contains(t, bdc.Errors, "no-such-conn")
 
 	// BatchUpdatePartition on a partitioned table.
-	db := uniqueName("glue-sdk-batch-db")
-	tbl := uniqueName("glue-sdk-batch-tbl")
+	db := uniquename.New("glue-sdk-batch-db")
+	tbl := uniquename.New("glue-sdk-batch-tbl")
 	_, err = c.CreateDatabase(ctx, &glue.CreateDatabaseInput{
 		DatabaseInput: &gluetypes.DatabaseInput{Name: aws.String(db)},
 	})

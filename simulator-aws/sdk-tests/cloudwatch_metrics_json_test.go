@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -17,7 +18,7 @@ import (
 // path when the installed CLI is new enough, so assert it at the wire level.
 func TestCloudWatch_AwsJsonMetrics(t *testing.T) {
 	t.Parallel()
-	namespace := uniqueName("MyApp/JSON")
+	namespace := uniquename.New("MyApp/JSON")
 	cw := func(op string, body any) map[string]any {
 		t.Helper()
 		raw, err := json.Marshal(body)

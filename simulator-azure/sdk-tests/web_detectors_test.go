@@ -9,6 +9,7 @@ import (
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/appservice/armappservice/v5"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -42,8 +43,8 @@ import (
 //     detector at all is a 404.
 func TestSDK_Diagnostics_DetectorsMeasureTheWorkloadContainer(t *testing.T) {
 	t.Parallel()
-	rg := uniqueName("sdk-detector-rg")
-	site := uniqueName("detector-app")
+	rg := uniquename.New("sdk-detector-rg")
+	site := uniquename.New("detector-app")
 	host := createSiteForContainers(t, rg, site)
 
 	client, err := armappservice.NewDiagnosticsClient(subscriptionID, &fakeCredential{}, clientOpts())

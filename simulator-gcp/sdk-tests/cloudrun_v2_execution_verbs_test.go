@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	runv2 "google.golang.org/api/run/v2"
@@ -29,7 +30,7 @@ import (
 func TestCloudRunV2_Executions_CancelIsServedAndUnknownVerbsAreNot(t *testing.T) {
 	t.Parallel()
 	svc := newRunV2RESTService(t)
-	jobID := uniqueName("exec-verb-job")
+	jobID := uniquename.New("exec-verb-job")
 	jobName := crV2Parent + "/jobs/" + jobID
 
 	createOp, err := svc.Projects.Locations.Jobs.Create(crV2Parent, &runv2.GoogleCloudRunV2Job{

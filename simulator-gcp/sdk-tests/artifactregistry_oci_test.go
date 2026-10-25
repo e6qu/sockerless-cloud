@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/require"
 	artifactregistry "google.golang.org/api/artifactregistry/v1"
 	"google.golang.org/api/option"
@@ -21,7 +22,7 @@ func TestArtifactRegistryDockerHubRemoteRepositorySDKAndOCI(t *testing.T) {
 	require.NoError(t, err)
 
 	parent := "projects/test-project/locations/us-central1"
-	repoID := uniqueName("docker-hub")
+	repoID := uniquename.New("docker-hub")
 	repo := &artifactregistry.Repository{
 		Format: "DOCKER",
 		Mode:   "REMOTE_REPOSITORY",

@@ -11,6 +11,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/sns"
 	snstypes "github.com/aws/aws-sdk-go-v2/service/sns/types"
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -29,7 +30,7 @@ import (
 // returns an aws.Config bearing its access key.
 func restrictedConfig(t *testing.T, iamc *iam.Client, user, policyName, policyDoc string) aws.Config {
 	t.Helper()
-	user = uniqueName(user)
+	user = uniquename.New(user)
 	_, err := iamc.CreateUser(ctx, &iam.CreateUserInput{UserName: aws.String(user)})
 	require.NoError(t, err)
 	t.Cleanup(func() { iamc.DeleteUser(ctx, &iam.DeleteUserInput{UserName: aws.String(user)}) })

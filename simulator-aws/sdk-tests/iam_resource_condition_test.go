@@ -9,6 +9,7 @@ import (
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/aws/aws-sdk-go-v2/service/ecs"
 	"github.com/aws/aws-sdk-go-v2/service/iam"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -20,7 +21,7 @@ import (
 func TestIAM_ResourceTagCondition(t *testing.T) {
 	t.Parallel()
 	admin := iamClient()
-	user := uniqueName("rt-cond-user")
+	user := uniquename.New("rt-cond-user")
 	_, err := admin.CreateUser(ctx, &iam.CreateUserInput{UserName: aws.String(user)})
 	require.NoError(t, err)
 	defer admin.DeleteUser(ctx, &iam.DeleteUserInput{UserName: aws.String(user)})
@@ -66,7 +67,7 @@ func TestIAM_ResourceTagCondition(t *testing.T) {
 func TestIAM_ECSClusterCondition(t *testing.T) {
 	t.Parallel()
 	admin := iamClient()
-	user := uniqueName("ecs-cond-user")
+	user := uniquename.New("ecs-cond-user")
 	_, err := admin.CreateUser(ctx, &iam.CreateUserInput{UserName: aws.String(user)})
 	require.NoError(t, err)
 	defer admin.DeleteUser(ctx, &iam.DeleteUserInput{UserName: aws.String(user)})

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -71,7 +72,7 @@ func cosmosQuery(t *testing.T, account, coll, query string, params []map[string]
 // collection.
 func TestCosmosQuery_RealGrammar(t *testing.T) {
 	t.Parallel()
-	account := uniqueAlnumName("sdkcosmosquery")
+	account := uniquename.Alnum("sdkcosmosquery")
 	coll := "people"
 
 	seed := []string{
@@ -114,7 +115,7 @@ func TestCosmosQuery_RealGrammar(t *testing.T) {
 // replaces it and returns 200.
 func TestCosmosUpsertAndConflict(t *testing.T) {
 	t.Parallel()
-	account := uniqueAlnumName("sdkcosmosupsert")
+	account := uniquename.Alnum("sdkcosmosupsert")
 	docs := "/dbs/qdb/colls/items/docs"
 
 	resp := cosmosDoc(t, "POST", account, docs, `{"id":"dup","v":1}`, nil)
@@ -149,7 +150,7 @@ func TestCosmosUpsertAndConflict(t *testing.T) {
 // to a stored document (the azcosmos PatchOperations wire shape).
 func TestCosmosPatchIncrement(t *testing.T) {
 	t.Parallel()
-	account := uniqueAlnumName("sdkcosmospatch")
+	account := uniquename.Alnum("sdkcosmospatch")
 	docs := "/dbs/qdb/colls/counters/docs"
 
 	resp := cosmosDoc(t, "POST", account, docs, `{"id":"ctr","count":10,"label":"keep"}`, nil)

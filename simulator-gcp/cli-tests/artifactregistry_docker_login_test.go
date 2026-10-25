@@ -20,6 +20,7 @@ import (
 
 	"github.com/e6qu/sockerless-cloud/testutil/httpsgateway"
 	"github.com/e6qu/sockerless-cloud/testutil/registrytrust"
+	"github.com/e6qu/sockerless-cloud/testutil/scratchimage"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -490,7 +491,7 @@ func buildArtifactRegistryTestImage(t *testing.T, reference string) {
 		// image store.
 		args = []string{"buildx", "build", "--load"}
 	}
-	args = append(args, "--platform", nativeDockerPlatform(), "-t", reference, buildDir)
+	args = append(args, "--platform", scratchimage.NativePlatform(), "-t", reference, buildDir)
 	out, err := dockerCLI(t, "", args...)
 	require.NoError(t, err, "build the image to push: %s", out)
 }

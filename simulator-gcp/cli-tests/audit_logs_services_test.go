@@ -3,6 +3,7 @@ package gcp_cli_test
 import (
 	"testing"
 
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -51,10 +52,10 @@ func readAuditEntry(t *testing.T, methodName, resourceName string) cliAuditEntry
 func TestAuditLogsCLI_ComputeKMSIAMDNS(t *testing.T) {
 	t.Parallel()
 	var (
-		network = uniqueName("cli-audit-net")
-		ring    = uniqueName("cli-audit-ring")
-		account = uniqueName("cli-audit-sa")
-		zone    = uniqueName("cli-audit-zone")
+		network = uniquename.New("cli-audit-net")
+		ring    = uniquename.New("cli-audit-ring")
+		account = uniquename.New("cli-audit-sa")
+		zone    = uniquename.New("cli-audit-zone")
 	)
 
 	runCLI(t, gcloudCLI("compute", "networks", "create", network, "--subnet-mode=custom", "--format=json"))
@@ -101,14 +102,14 @@ func TestAuditLogsCLI_ComputeKMSIAMDNS(t *testing.T) {
 // states.
 func TestAuditLogsCLI_LoggingSinkAndAPIGatewayAPI(t *testing.T) {
 	t.Parallel()
-	sink := uniqueName("cli-audit-sink")
+	sink := uniquename.New("cli-audit-sink")
 	runCLI(t, gcloudCLI("logging", "sinks", "create", sink, "storage.googleapis.com/"+sink, "--quiet"))
 	t.Cleanup(func() { _ = gcloudCLI("logging", "sinks", "delete", sink, "--quiet").Run() })
 	entry := readAuditEntry(t, "google.logging.v2.ConfigServiceV2.CreateSink", "projects/"+project+"/sinks/"+sink)
 	assert.Equal(t, "logging.googleapis.com", entry.ProtoPayload.ServiceName)
 	assert.Equal(t, "logging.sinks.create", entry.ProtoPayload.AuthorizationInfo[0].Permission)
 
-	api := uniqueName("cli-audit-api")
+	api := uniquename.New("cli-audit-api")
 	runCLI(t, gcloudCLI("api-gateway", "apis", "create", api, "--async", "--quiet"))
 	t.Cleanup(func() { _ = gcloudCLI("api-gateway", "apis", "delete", api, "--async", "--quiet").Run() })
 	entry = readAuditEntry(t, "google.cloud.apigateway.v1.ApiGatewayService.CreateApi", "projects/"+project+"/locations/global/apis/"+api)

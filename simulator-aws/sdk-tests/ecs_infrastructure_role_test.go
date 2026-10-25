@@ -9,6 +9,7 @@ import (
 	ecstypes "github.com/aws/aws-sdk-go-v2/service/ecs/types"
 	elbv2 "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2"
 	elbtypes "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2/types"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -104,18 +105,18 @@ func TestECS_InfrastructureRolesMustBeAssumable(t *testing.T) {
 		"missing":     {TaskDefinition: bridgeTask.TaskDefinition.TaskDefinitionArn, Role: aws.String("infra-role-missing"), LoadBalancers: loadBalancers},
 		"without a load balancer": {
 			TaskDefinition: bridgeTask.TaskDefinition.TaskDefinitionArn,
-			Role:           aws.String(createServiceRole(t, uniqueName("ecs-service"), "ecs.amazonaws.com", "elasticloadbalancing:*")),
+			Role:           aws.String(createServiceRole(t, uniquename.New("ecs-service"), "ecs.amazonaws.com", "elasticloadbalancing:*")),
 		},
 		"with the awsvpc network mode": {
 			TaskDefinition: volumeTask.TaskDefinition.TaskDefinitionArn,
-			Role:           aws.String(createServiceRole(t, uniqueName("ecs-service"), "ecs.amazonaws.com", "elasticloadbalancing:*")),
+			Role:           aws.String(createServiceRole(t, uniquename.New("ecs-service"), "ecs.amazonaws.com", "elasticloadbalancing:*")),
 			LoadBalancers: []ecstypes.LoadBalancer{{
 				TargetGroupArn: targetGroupArn, ContainerName: aws.String("app"), ContainerPort: aws.Int32(80),
 			}},
 		},
 	} {
 		in.Cluster = aws.String(cluster)
-		in.ServiceName = aws.String(uniqueName("infra-role"))
+		in.ServiceName = aws.String(uniquename.New("infra-role"))
 		in.DesiredCount = aws.Int32(0)
 		_, err := ecsc.CreateService(ctx, in)
 		assert.Equal(t, "InvalidParameterException", errCode(t, err), "CreateService %s", name)
@@ -133,7 +134,7 @@ func TestECSExpress_ManagedResourcesFailAsTheInfrastructureRole(t *testing.T) {
 	out, err := ecsc.CreateExpressGatewayService(ctx, &ecs.CreateExpressGatewayServiceInput{
 		Cluster:               aws.String(cluster),
 		ServiceName:           aws.String("refused"),
-		InfrastructureRoleArn: aws.String(createServiceRole(t, uniqueName("express-refused"), "ecs.amazonaws.com", "acm:*")),
+		InfrastructureRoleArn: aws.String(createServiceRole(t, uniquename.New("express-refused"), "ecs.amazonaws.com", "acm:*")),
 		PrimaryContainer: &ecstypes.ExpressGatewayContainer{
 			Image:         aws.String(containerCommandImage),
 			ContainerPort: aws.Int32(8080),

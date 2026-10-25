@@ -8,6 +8,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ecr"
 	ecrtypes "github.com/aws/aws-sdk-go-v2/service/ecr/types"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -17,7 +18,7 @@ import (
 func TestECR_RepositoryPolicy(t *testing.T) {
 	t.Parallel()
 	c := ecrClient()
-	repo := uniqueName("policy-repo")
+	repo := uniquename.New("policy-repo")
 	_, err := c.CreateRepository(ctx, &ecr.CreateRepositoryInput{RepositoryName: aws.String(repo)})
 	require.NoError(t, err)
 
@@ -45,7 +46,7 @@ func TestECR_RepositoryPolicy(t *testing.T) {
 func TestECR_LayerUploadPipeline(t *testing.T) {
 	t.Parallel()
 	c := ecrClient()
-	repo := uniqueName("layer-repo")
+	repo := uniquename.New("layer-repo")
 	_, err := c.CreateRepository(ctx, &ecr.CreateRepositoryInput{RepositoryName: aws.String(repo)})
 	require.NoError(t, err)
 
@@ -127,10 +128,10 @@ func ecrLayerDigest(b []byte) string {
 // round-trip through CreateRepository + DescribeRepositories.
 func TestECR_RepositoryConfiguration(t *testing.T) {
 	t.Parallel()
-	defaultRepo := uniqueName("config-default-repo")
+	defaultRepo := uniquename.New("config-default-repo")
 	c := ecrClient()
 
-	repo := uniqueName("config-repo")
+	repo := uniquename.New("config-repo")
 	created, err := c.CreateRepository(ctx, &ecr.CreateRepositoryInput{
 		RepositoryName:             aws.String(repo),
 		ImageTagMutability:         ecrtypes.ImageTagMutabilityImmutable,

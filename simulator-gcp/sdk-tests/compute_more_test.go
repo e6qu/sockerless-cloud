@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/compute/v1"
@@ -89,7 +90,7 @@ func TestCompute_Images_CRUD(t *testing.T) {
 func TestCompute_Snapshots_CRUD(t *testing.T) {
 	t.Parallel()
 	svc := computeService(t)
-	name := uniqueName("sdk-snap-crud")
+	name := uniquename.New("sdk-snap-crud")
 	_, err := svc.Snapshots.Insert(moreProject, &compute.Snapshot{Name: name}).Do()
 	require.NoError(t, err)
 	got, err := svc.Snapshots.Get(moreProject, name).Do()

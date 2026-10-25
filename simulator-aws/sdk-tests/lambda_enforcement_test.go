@@ -11,6 +11,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/lambda"
 	lambdatypes "github.com/aws/aws-sdk-go-v2/service/lambda/types"
 	smithy "github.com/aws/smithy-go"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -64,7 +65,7 @@ func TestLambda_UnsignedAndWrongSecretRejected(t *testing.T) {
 func TestLambda_CallTimeIAMEnforcement(t *testing.T) {
 	t.Parallel()
 	admin := iamClient()
-	user := uniqueName("lambda-restricted-user")
+	user := uniquename.New("lambda-restricted-user")
 
 	_, err := admin.CreateUser(ctx, &iam.CreateUserInput{UserName: aws.String(user)})
 	require.NoError(t, err)

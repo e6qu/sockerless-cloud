@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -379,7 +380,7 @@ func TestEventBridgeCLI_CodeBuildTargetAndTargetParameters(t *testing.T) {
 	t.Parallel()
 	role := cliRoleAllowing(t, "events.amazonaws.com", "codebuild:StartBuild")
 
-	parametersRule := cliUniqueName("eb-cli-parameters")
+	parametersRule := uniquename.New("eb-cli-parameters")
 	runCLI(t, awsCLI("events", "put-rule", "--name", parametersRule, "--event-pattern", `{"source":["`+parametersRule+`"]}`))
 	t.Cleanup(func() {
 		runCLI(t, awsCLI("events", "remove-targets", "--rule", parametersRule, "--ids", "redshift", "pipeline", "graphql"))
@@ -414,7 +415,7 @@ func TestEventBridgeCLI_CodeBuildTargetAndTargetParameters(t *testing.T) {
 	assert.Equal(t, pipeline, byID["pipeline"]["SageMakerPipelineParameters"])
 	assert.Equal(t, graphQL, byID["graphql"]["AppSyncParameters"])
 
-	project := cliUniqueName("eb-cli-codebuild")
+	project := uniquename.New("eb-cli-codebuild")
 	out = runCLI(t, awsCLI("codebuild", "create-project",
 		"--name", project,
 		"--source", `{"type":"NO_SOURCE","buildspec":"version: 0.2\nphases:\n  build:\n    commands:\n      - echo from-eventbridge\n"}`,
@@ -429,7 +430,7 @@ func TestEventBridgeCLI_CodeBuildTargetAndTargetParameters(t *testing.T) {
 	}
 	parseJSON(t, out, &created)
 	t.Cleanup(func() { runCLI(t, awsCLI("codebuild", "delete-project", "--name", project)) })
-	buildRule := cliUniqueName("eb-cli-codebuild")
+	buildRule := uniquename.New("eb-cli-codebuild")
 	runCLI(t, awsCLI("events", "put-rule", "--name", buildRule, "--event-pattern", `{"source":["`+buildRule+`"]}`))
 	t.Cleanup(func() {
 		runCLI(t, awsCLI("events", "remove-targets", "--rule", buildRule, "--ids", "build"))

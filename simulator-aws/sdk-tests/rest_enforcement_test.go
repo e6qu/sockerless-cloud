@@ -16,6 +16,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/scheduler"
 	schedtypes "github.com/aws/aws-sdk-go-v2/service/scheduler/types"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -26,7 +27,7 @@ import (
 func roleSessionConfig(t *testing.T, name, policyDocument string) aws.Config {
 	t.Helper()
 	admin := iamClient()
-	name = uniqueName(name)
+	name = uniquename.New(name)
 	created, err := admin.CreateRole(ctx, &iam.CreateRoleInput{
 		RoleName: aws.String(name),
 		// The account principal delegates to the caller's own policies, which
@@ -55,7 +56,7 @@ func roleSessionConfig(t *testing.T, name, policyDocument string) aws.Config {
 func TestIAM_RESTJSONRoutesAreGated_SDK(t *testing.T) {
 	t.Parallel()
 	sched := schedulerClient()
-	name := uniqueName("rest-gate")
+	name := uniquename.New("rest-gate")
 	_, err := sched.CreateSchedule(ctx, &scheduler.CreateScheduleInput{
 		Name:               aws.String(name),
 		ScheduleExpression: aws.String("rate(1 hour)"),
@@ -67,7 +68,7 @@ func TestIAM_RESTJSONRoutesAreGated_SDK(t *testing.T) {
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = sched.DeleteSchedule(ctx, &scheduler.DeleteScheduleInput{Name: aws.String(name)}) })
-	app, err := amplifyClient().CreateApp(ctx, &amplify.CreateAppInput{Name: aws.String(uniqueName("rest-gate"))})
+	app, err := amplifyClient().CreateApp(ctx, &amplify.CreateAppInput{Name: aws.String(uniquename.New("rest-gate"))})
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = amplifyClient().DeleteApp(ctx, &amplify.DeleteAppInput{AppId: app.App.AppId}) })
 
@@ -105,7 +106,7 @@ func TestIAM_RESTXMLRoutesAreGated_SDK(t *testing.T) {
 	t.Parallel()
 	r53 := route53Client()
 	zone, err := r53.CreateHostedZone(ctx, &route53.CreateHostedZoneInput{
-		Name: aws.String(uniqueName("rest-gate") + ".example."), CallerReference: aws.String(uniqueName("rest-gate")),
+		Name: aws.String(uniquename.New("rest-gate") + ".example."), CallerReference: aws.String(uniquename.New("rest-gate")),
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = r53.DeleteHostedZone(ctx, &route53.DeleteHostedZoneInput{Id: zone.HostedZone.Id}) })
@@ -135,7 +136,7 @@ func TestIAM_RESTXMLRoutesAreGated_SDK(t *testing.T) {
 func TestScheduler_UniversalRESTTargetRunsAsTheExecutionRole_SDK(t *testing.T) {
 	t.Parallel()
 	dlqURL, dlqARN := createSchedulerTestQueue(t, "scheduler-sdk-rest-dlq")
-	deniedName, allowedName := uniqueName("rest-target-denied"), uniqueName("rest-target-allowed")
+	deniedName, allowedName := uniquename.New("rest-target-denied"), uniquename.New("rest-target-allowed")
 	t.Cleanup(func() {
 		apps, err := amplifyClient().ListApps(ctx, &amplify.ListAppsInput{})
 		if err != nil {
@@ -147,7 +148,7 @@ func TestScheduler_UniversalRESTTargetRunsAsTheExecutionRole_SDK(t *testing.T) {
 			}
 		}
 	})
-	deniedRole := uniqueName("scheduler-rest-denied")
+	deniedRole := uniquename.New("scheduler-rest-denied")
 	denied := createServiceRole(t, deniedRole, "scheduler.amazonaws.com", "amplify:ListApps")
 	_, err := iamClient().PutRolePolicy(ctx, &iam.PutRolePolicyInput{
 		RoleName: aws.String(deniedRole), PolicyName: aws.String("dead-letter"),
@@ -172,7 +173,7 @@ func TestScheduler_UniversalRESTTargetRunsAsTheExecutionRole_SDK(t *testing.T) {
 	require.NoError(t, err)
 	createOneTimeSchedule(t, "sdk-rest-allowed", &schedtypes.Target{
 		Arn:     aws.String("arn:aws:scheduler:::aws-sdk:amplify:createApp"),
-		RoleArn: aws.String(createServiceRole(t, uniqueName("scheduler-rest-allowed"), "scheduler.amazonaws.com", "amplify:CreateApp")),
+		RoleArn: aws.String(createServiceRole(t, uniquename.New("scheduler-rest-allowed"), "scheduler.amazonaws.com", "amplify:CreateApp")),
 		Input:   aws.String(string(allowedInput)),
 	})
 	require.Eventually(t, func() bool {

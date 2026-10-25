@@ -12,6 +12,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/security/keyvault/azcertificates"
 	"github.com/Azure/azure-sdk-for-go/sdk/security/keyvault/azkeys"
 	"github.com/Azure/azure-sdk-for-go/sdk/security/keyvault/azsecrets"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -35,11 +36,11 @@ import (
 // RSA key is literally the same key.
 func TestAzureResources_MoveKeyVault(t *testing.T) {
 	t.Parallel()
-	srcRG, dstRG := uniqueName("kv-move-src-rg"), uniqueName("kv-move-dst-rg")
+	srcRG, dstRG := uniquename.New("kv-move-src-rg"), uniquename.New("kv-move-dst-rg")
 	ensureRG(t, srcRG)
 	ensureRG(t, dstRG)
 
-	vault := uniqueAlnumName("kvmovevault")
+	vault := uniquename.Alnum("kvmovevault")
 	createKVVault(t, srcRG, vault)
 	// The vault uses Azure RBAC. A role assignment at the vault's own scope
 	// does not move with it, so the destination group carries one too.

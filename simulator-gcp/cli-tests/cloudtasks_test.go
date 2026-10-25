@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -52,7 +53,7 @@ func describeTasksQueue(t *testing.T, id string) gcloudTasksQueue {
 // resume, purge, list and delete.
 func TestCLI_TasksQueueLifecycle(t *testing.T) {
 	t.Parallel()
-	id := uniqueName("cli-tasks-queue")
+	id := uniquename.New("cli-tasks-queue")
 	runCLI(t, gcloudCLI("tasks", "queues", "create", id, "--location="+location,
 		"--max-dispatches-per-second=20", "--max-concurrent-dispatches=5",
 		"--max-attempts=4", "--min-backoff=2s", "--max-backoff=60s", "--max-doublings=3", "--max-retry-duration=600s", "--quiet"))
@@ -128,7 +129,7 @@ func TestCLI_TasksCreateHTTPTaskDispatches(t *testing.T) {
 		}
 	}
 
-	queue := uniqueName("cli-tasks-http")
+	queue := uniquename.New("cli-tasks-http")
 	runCLI(t, gcloudCLI("tasks", "queues", "create", queue, "--location="+location, "--quiet"))
 	t.Cleanup(func() {
 		_ = gcloudCLI("tasks", "queues", "delete", queue, "--location="+location, "--quiet").Run()

@@ -12,6 +12,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/keyvault/armkeyvault"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/msi/armmsi"
 	"github.com/Azure/azure-sdk-for-go/sdk/security/keyvault/azsecrets"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -117,7 +118,7 @@ func TestSDK_WebApps_IdentityEndpointMintsTheAppsOwnIdentity(t *testing.T) {
 
 	// The token is the app's identity wherever it is presented: a vault whose
 	// access policy names the system-assigned identity serves it the secret.
-	vault := uniqueAlnumName("sdkidendpoint")
+	vault := uniquename.Alnum("sdkidendpoint")
 	createAuthTestVault(t, rg, vault, armkeyvault.VaultProperties{
 		AccessPolicies: []*armkeyvault.AccessPolicyEntry{{
 			TenantID:    to.Ptr(simTenantID),

@@ -36,6 +36,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/sns"
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
 	sqstypes "github.com/aws/aws-sdk-go-v2/service/sqs/types"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -345,9 +346,9 @@ func TestSFN_GenericAWSSDKIntegrations_SDK(t *testing.T) {
 // through an official AWS SDK client at the simulator coordinate.
 func TestSFN_EventingAndObservabilityIntegrations_SDK(t *testing.T) {
 	t.Parallel()
-	namespace := uniqueName("Sockerless/StepFunctions")
-	machineName := uniqueName("sfn-service-integrations")
-	integrationName := uniqueName("sfn-integrations")
+	namespace := uniquename.New("Sockerless/StepFunctions")
+	machineName := uniquename.New("sfn-service-integrations")
+	integrationName := uniquename.New("sfn-integrations")
 	queueAPI := sqsClient()
 	topicAPI := snsClient()
 	eventAPI := eventbridgeClient()
@@ -990,7 +991,7 @@ func TestSFN_TasksActAsTheExecutionRole_SDK(t *testing.T) {
 	t.Parallel()
 	statesAPI := sfnClient()
 	queueAPI := sqsClient()
-	queue, err := queueAPI.CreateQueue(ctx, &sqs.CreateQueueInput{QueueName: aws.String(uniqueName("sfn-role-queue"))})
+	queue, err := queueAPI.CreateQueue(ctx, &sqs.CreateQueueInput{QueueName: aws.String(uniquename.New("sfn-role-queue"))})
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = queueAPI.DeleteQueue(ctx, &sqs.DeleteQueueInput{QueueUrl: queue.QueueUrl}) })
 
@@ -1003,7 +1004,7 @@ func TestSFN_TasksActAsTheExecutionRole_SDK(t *testing.T) {
 		})
 		require.NoError(t, err)
 		machine, err := statesAPI.CreateStateMachine(ctx, &sfn.CreateStateMachineInput{
-			Name: aws.String(uniqueName("sfn-role")), Definition: aws.String(string(definition)),
+			Name: aws.String(uniquename.New("sfn-role")), Definition: aws.String(string(definition)),
 			RoleArn: aws.String(role), Type: sfntypes.StateMachineTypeExpress,
 		})
 		require.NoError(t, err)
@@ -1045,11 +1046,11 @@ func TestSFN_SyncIntegrationsActAsTheExecutionRole_SDK(t *testing.T) {
 	statesAPI := sfnClient()
 	ecsAPI := ecsClient()
 
-	cluster := uniqueName("sfn-sync-role")
+	cluster := uniquename.New("sfn-sync-role")
 	_, err := ecsAPI.CreateCluster(ctx, &ecs.CreateClusterInput{ClusterName: aws.String(cluster)})
 	require.NoError(t, err)
 	taskDefinition, err := ecsAPI.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{
-		Family: aws.String(uniqueName("sfn-sync-role")),
+		Family: aws.String(uniquename.New("sfn-sync-role")),
 		ContainerDefinitions: []ecstypes.ContainerDefinition{{
 			StopTimeout: aws.Int32(2), Name: aws.String("work"),
 			Image: aws.String(containerCommandImage), Command: []string{"hold"},
@@ -1079,7 +1080,7 @@ func TestSFN_SyncIntegrationsActAsTheExecutionRole_SDK(t *testing.T) {
 	require.NoError(t, err)
 	runOnly := statesRole(t, "ecs:RunTask")
 	machine, err := statesAPI.CreateStateMachine(ctx, &sfn.CreateStateMachineInput{
-		Name: aws.String(uniqueName("sfn-sync-role")), Definition: aws.String(string(definition)), RoleArn: aws.String(runOnly),
+		Name: aws.String(uniquename.New("sfn-sync-role")), Definition: aws.String(string(definition)), RoleArn: aws.String(runOnly),
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {
@@ -1100,7 +1101,7 @@ func TestSFN_SyncIntegrationsActAsTheExecutionRole_SDK(t *testing.T) {
 	assert.Len(t, tasks.TaskArns, 1, "the role may run the task; only the wait on it is refused")
 
 	child, err := statesAPI.CreateStateMachine(ctx, &sfn.CreateStateMachineInput{
-		Name:       aws.String(uniqueName("sfn-sync-child")),
+		Name:       aws.String(uniquename.New("sfn-sync-child")),
 		Definition: aws.String(`{"StartAt":"Hold","States":{"Hold":{"Type":"Wait","Seconds":300,"End":true}}}`),
 		RoleArn:    aws.String(serviceRole(t, "states.amazonaws.com")),
 	})
@@ -1112,7 +1113,7 @@ func TestSFN_SyncIntegrationsActAsTheExecutionRole_SDK(t *testing.T) {
 		`{"StartAt":"Child","States":{"Child":{"Type":"Task","Resource":"arn:aws:states:::states:startExecution.sync:2","Parameters":{"StateMachineArn":%q},"End":true}}}`,
 		aws.ToString(child.StateMachineArn))
 	parent, err := statesAPI.CreateStateMachine(ctx, &sfn.CreateStateMachineInput{
-		Name: aws.String(uniqueName("sfn-sync-parent")), Definition: aws.String(parentDefinition),
+		Name: aws.String(uniquename.New("sfn-sync-parent")), Definition: aws.String(parentDefinition),
 		RoleArn: aws.String(statesRole(t, "states:StartExecution", "states:DescribeExecution", "states:StopExecution")),
 	})
 	require.NoError(t, err)

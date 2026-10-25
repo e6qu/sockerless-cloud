@@ -18,6 +18,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/appcontainers/armappcontainers/v3"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/monitor/armmonitor"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/operationalinsights/armoperationalinsights/v2"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -261,7 +262,7 @@ func TestMonitor_KQLOverIngestedRows(t *testing.T) {
 	t.Parallel()
 	p := newLogsPipeline(t, "monitor-kql-rg", "SimJobs_CL", "Job", "Log")
 	now := time.Now().UTC()
-	job := uniqueName("myjob")
+	job := uniquename.New("myjob")
 	p.upload(t, []map[string]any{
 		{"TimeGenerated": now.Add(-10 * time.Minute).Format(time.RFC3339), "Job": job, "Log": "old entry"},
 		{"TimeGenerated": now.Add(-2 * time.Minute).Format(time.RFC3339), "Job": job, "Log": "starting"},
@@ -366,7 +367,7 @@ func TestMonitor_LogsIngestionRoutesThroughTheRule(t *testing.T) {
 		"the rule records the destination workspace's customer id")
 
 	client := ingestionClient(t, *dce.Properties.LogsIngestion.Endpoint)
-	job := uniqueName("routed-job")
+	job := uniquename.New("routed-job")
 	now := time.Now().UTC().Format(time.RFC3339)
 	body, err := json.Marshal([]map[string]any{
 		{"Time": now, "Job": job, "Message": "first", "Attempt": 1, "Payload": `{"kind":"build","steps":[1,2]}`},

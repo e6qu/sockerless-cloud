@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"cloud.google.com/go/run/apiv2/runpb"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
@@ -33,7 +34,7 @@ func TestSDK_CloudRun_JobExecutionTokens(t *testing.T) {
 	jobs := newJobsClient(t)
 	executions := newExecutionsClient(t)
 	parent := "projects/test-project/locations/us-central1"
-	id := uniqueName("sdk-token-job")
+	id := uniquename.New("sdk-token-job")
 
 	createOp, err := jobs.CreateJob(ctx, &runpb.CreateJobRequest{
 		Parent: parent,

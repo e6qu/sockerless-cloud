@@ -8,6 +8,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/iam"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -25,14 +26,14 @@ func TestS3_RESTEnforcement(t *testing.T) {
 	t.Parallel()
 	admin := s3Client()
 	iamc := iamClient()
-	bucket := uniqueName("s3-enf-bucket")
+	bucket := uniquename.New("s3-enf-bucket")
 
 	_, err := admin.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String(bucket)})
 	require.NoError(t, err)
 	_, err = admin.PutObject(ctx, &s3.PutObjectInput{Bucket: aws.String(bucket), Key: aws.String("k"), Body: strings.NewReader("v")})
 	require.NoError(t, err)
 
-	user := uniqueName("s3-reader")
+	user := uniquename.New("s3-reader")
 	_, err = iamc.CreateUser(ctx, &iam.CreateUserInput{UserName: aws.String(user)})
 	require.NoError(t, err)
 	defer iamc.DeleteUser(ctx, &iam.DeleteUserInput{UserName: aws.String(user)})
@@ -68,14 +69,14 @@ func TestS3_BucketPolicyDenyEnforced(t *testing.T) {
 	t.Parallel()
 	admin := s3Client()
 	iamc := iamClient()
-	bucket := uniqueName("s3-bp-deny")
+	bucket := uniquename.New("s3-bp-deny")
 
 	_, err := admin.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String(bucket)})
 	require.NoError(t, err)
 	_, err = admin.PutObject(ctx, &s3.PutObjectInput{Bucket: aws.String(bucket), Key: aws.String("k"), Body: strings.NewReader("v")})
 	require.NoError(t, err)
 
-	user := uniqueName("s3-bp-user")
+	user := uniquename.New("s3-bp-user")
 	_, err = iamc.CreateUser(ctx, &iam.CreateUserInput{UserName: aws.String(user)})
 	require.NoError(t, err)
 	defer iamc.DeleteUser(ctx, &iam.DeleteUserInput{UserName: aws.String(user)})

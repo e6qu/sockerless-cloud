@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -172,7 +173,7 @@ func TestKeyVault_DataPlane_SetGetDelete(t *testing.T) {
 	t.Parallel()
 	rg := "kv-data-rg"
 	ensureRG(t, rg)
-	vaultName := uniqueAlnumName("datavault")
+	vaultName := uniquename.Alnum("datavault")
 	defer func() {
 		req, _ := http.NewRequest("DELETE",
 			baseURL+"/subscriptions/"+subscriptionID+"/resourceGroups/"+rg+"/providers/Microsoft.KeyVault/vaults/"+vaultName+"?api-version=2024-04-01-preview",

@@ -18,6 +18,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/route53"
 	r53types "github.com/aws/aws-sdk-go-v2/service/route53/types"
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -32,7 +33,7 @@ const ssmManagedNodePolicy = `{"Version":"2012-10-17","Statement":[{"Effect":"Al
 func ssmManagedInstanceProfile(t *testing.T) string {
 	t.Helper()
 	iamc := iamClient()
-	name := uniqueName("ssm-managed")
+	name := uniquename.New("ssm-managed")
 	_, err := iamc.CreateRole(ctx, &iam.CreateRoleInput{
 		RoleName:                 aws.String(name),
 		AssumeRolePolicyDocument: aws.String(`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"ec2.amazonaws.com"},"Action":"sts:AssumeRole"}]}`),
@@ -275,7 +276,7 @@ func TestECS_TaskResolvesAPrivateHostedZoneThroughTheVPCResolver(t *testing.T) {
 
 	zone, err := r53.CreateHostedZone(ctx, &route53.CreateHostedZoneInput{
 		Name:            aws.String("corp.internal."),
-		CallerReference: aws.String(uniqueName("private-zone")),
+		CallerReference: aws.String(uniquename.New("private-zone")),
 		VPC:             &r53types.VPC{VPCId: aws.String(vpcID), VPCRegion: r53types.VPCRegionUsEast1},
 	})
 	require.NoError(t, err)

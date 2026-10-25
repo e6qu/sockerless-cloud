@@ -3,6 +3,7 @@ package gcp_sdk_test
 import (
 	"testing"
 
+	"github.com/e6qu/sockerless-cloud/testutil/scratchimage"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/compute/v1"
@@ -10,7 +11,7 @@ import (
 )
 
 func ubuntuFamily() string {
-	if nativeDockerPlatform() == "linux/arm64" {
+	if scratchimage.NativePlatform() == "linux/arm64" {
 		return "ubuntu-2404-lts-arm64"
 	}
 	return "ubuntu-2404-lts-amd64"

@@ -7,6 +7,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/glue"
 	gluetypes "github.com/aws/aws-sdk-go-v2/service/glue/types"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -17,8 +18,8 @@ import (
 func TestGlue_DataQualityResultsV2_SDK(t *testing.T) {
 	t.Parallel()
 	c := glueClient()
-	evaluationContext := uniqueName("dq-v2-context")
-	token := uniqueName("dq-v2-token")
+	evaluationContext := uniquename.New("dq-v2-context")
+	token := uniquename.New("dq-v2-token")
 
 	publish := &glue.PublishDataQualityResultV2Input{
 		Dimensions:        map[string]string{"platform": "emr", "cluster": "j-ABC"},
@@ -104,8 +105,8 @@ func TestGlue_DataQualityResultsV2_SDK(t *testing.T) {
 func TestGlue_DataQualityResultsV2_EvaluationRun_SDK(t *testing.T) {
 	t.Parallel()
 	c := glueClient()
-	rulesetName := uniqueName("dq-v2-ruleset")
-	database, table := uniqueName("dq-v2-db"), uniqueName("dq-v2-tbl")
+	rulesetName := uniquename.New("dq-v2-ruleset")
+	database, table := uniquename.New("dq-v2-db"), uniquename.New("dq-v2-tbl")
 
 	_, err := c.CreateDataQualityRuleset(ctx, &glue.CreateDataQualityRulesetInput{
 		Name:    aws.String(rulesetName),

@@ -7,6 +7,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/appservice/armappservice/v5"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/dns/armdns"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -256,11 +257,11 @@ func TestSDK_StaticSites_BuildsAndZipDeploy(t *testing.T) {
 
 func TestSDK_StaticSites_CustomDomains(t *testing.T) {
 	t.Parallel()
-	swaSdkRgName := uniqueName("swa-sdk-rg-2fb8")
+	swaSdkRgName := uniquename.New("swa-sdk-rg-2fb8")
 	rg := swaSdkRgName
 	ensureRG(t, rg)
 	client := staticSitesClient(t)
-	name := uniqueName("sdk-swa-domains")
+	name := uniquename.New("sdk-swa-domains")
 	created := staticSitesCreate(t, client, rg, name)
 	defaultHostname := *created.Properties.DefaultHostname
 
@@ -268,7 +269,7 @@ func TestSDK_StaticSites_CustomDomains(t *testing.T) {
 	require.NoError(t, err)
 	recordsClient, err := armdns.NewRecordSetsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
-	zone := uniqueName("sdk-swa-example") + ".com"
+	zone := uniquename.New("sdk-swa-example") + ".com"
 	_, err = zonesClient.CreateOrUpdate(ctx, rg, zone, armdns.Zone{Location: to.Ptr("global")}, nil)
 	require.NoError(t, err)
 
@@ -360,11 +361,11 @@ func TestSDK_StaticSites_CustomDomains(t *testing.T) {
 
 func TestSDK_StaticSites_UsersRolesBasicAuth(t *testing.T) {
 	t.Parallel()
-	swaSdkRgName := uniqueName("swa-sdk-rg-cd9d")
+	swaSdkRgName := uniquename.New("swa-sdk-rg-cd9d")
 	rg := swaSdkRgName
 	ensureRG(t, rg)
 	client := staticSitesClient(t)
-	name := uniqueName("sdk-swa-users")
+	name := uniquename.New("sdk-swa-users")
 	created := staticSitesCreate(t, client, rg, name)
 
 	// An invitation for a domain the site does not serve is rejected.

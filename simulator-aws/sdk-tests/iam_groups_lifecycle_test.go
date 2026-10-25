@@ -6,6 +6,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/iam"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -16,9 +17,9 @@ import (
 // attached policy ops, and DeleteGroup.
 func TestIAM_GroupLifecycle(t *testing.T) {
 	t.Parallel()
-	managedPolicy := uniqueName("g-managed")
+	managedPolicy := uniquename.New("g-managed")
 	c := iamClient()
-	user, group := uniqueName("gl-user"), uniqueName("gl-group")
+	user, group := uniquename.New("gl-user"), uniquename.New("gl-group")
 
 	_, err := c.CreateUser(ctx, &iam.CreateUserInput{UserName: aws.String(user)})
 	require.NoError(t, err)
@@ -82,9 +83,9 @@ func TestIAM_GroupLifecycle(t *testing.T) {
 // TestIAM_PermissionBoundaryPutDelete covers Put/DeleteUserPermissionsBoundary.
 func TestIAM_PermissionBoundaryPutDelete(t *testing.T) {
 	t.Parallel()
-	boundaryPolicy := uniqueName("pb-policy")
+	boundaryPolicy := uniquename.New("pb-policy")
 	c := iamClient()
-	user := uniqueName("pb-user")
+	user := uniquename.New("pb-user")
 	_, err := c.CreateUser(ctx, &iam.CreateUserInput{UserName: aws.String(user)})
 	require.NoError(t, err)
 	t.Cleanup(func() { c.DeleteUser(ctx, &iam.DeleteUserInput{UserName: aws.String(user)}) })

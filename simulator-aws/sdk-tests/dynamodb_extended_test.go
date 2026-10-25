@@ -6,6 +6,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	ddbtypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -142,7 +143,7 @@ func TestDDB_RestoreToPointInTime(t *testing.T) {
 func TestDDB_GlobalTables(t *testing.T) {
 	t.Parallel()
 	c := ddbClient()
-	table := uniqueName("ddb-gt")
+	table := uniquename.New("ddb-gt")
 	ddbMakeTable(t, c, table)
 
 	cg, err := c.CreateGlobalTable(ctx, &dynamodb.CreateGlobalTableInput{

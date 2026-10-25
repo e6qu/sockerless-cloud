@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
@@ -19,7 +20,7 @@ import (
 
 func TestCloudRun_CreateJob(t *testing.T) {
 	t.Parallel()
-	jobID := uniqueName("test-job")
+	jobID := uniquename.New("test-job")
 	job := map[string]any{
 		"template": map[string]any{
 			"template": map[string]any{
@@ -89,7 +90,7 @@ func createCloudRunJob(t *testing.T, jobID string) {
 
 func TestCloudRun_GetJob(t *testing.T) {
 	t.Parallel()
-	jobID := uniqueName("get-job")
+	jobID := uniquename.New("get-job")
 	createCloudRunJob(t, jobID)
 
 	getReq, err := http.NewRequestWithContext(ctx, "GET",
@@ -111,7 +112,7 @@ func TestCloudRun_ListJobs(t *testing.T) {
 	t.Parallel()
 	// A list method is only worth anything if a job that exists reaches the
 	// caller, so the list must carry the job this test just created.
-	jobID := uniqueName("list-job")
+	jobID := uniquename.New("list-job")
 	createCloudRunJob(t, jobID)
 
 	req, err := http.NewRequestWithContext(ctx, "GET",
@@ -138,7 +139,7 @@ func TestCloudRun_ListJobs(t *testing.T) {
 
 func TestCloudRun_DeleteJob(t *testing.T) {
 	t.Parallel()
-	jobID := uniqueName("del-job")
+	jobID := uniquename.New("del-job")
 	createCloudRunJob(t, jobID)
 
 	delReq, err := http.NewRequestWithContext(ctx, "DELETE",
@@ -163,7 +164,7 @@ func TestCloudRun_DeleteJob(t *testing.T) {
 // nothing Cloud Run writes on their behalf.
 func TestCloudRun_RunJobLogsTheContainersOutput(t *testing.T) {
 	t.Parallel()
-	jobID := uniqueName("log-output-job")
+	jobID := uniquename.New("log-output-job")
 	marker := "job-output-" + jobID
 	job := map[string]any{
 		"template": map[string]any{
@@ -305,7 +306,7 @@ func runHeldJob(t *testing.T, jobID, marker string) heldJob {
 	t.Helper()
 	client := storageClient(t)
 	t.Cleanup(func() { client.Close() })
-	bucket := client.Bucket(uniqueName("held-job-release"))
+	bucket := client.Bucket(uniquename.New("held-job-release"))
 	require.NoError(t, bucket.Create(ctx, "test-project", nil))
 
 	job := map[string]any{
@@ -353,7 +354,7 @@ func runHeldJob(t *testing.T, jobID, marker string) heldJob {
 
 func TestCloudRun_ExecutionRunningState(t *testing.T) {
 	t.Parallel()
-	jobID := uniqueName("status-running-job")
+	jobID := uniquename.New("status-running-job")
 	const marker = "status-running-marker"
 
 	// The container announces itself on stdout and holds until released, so
@@ -381,7 +382,7 @@ func TestCloudRun_ExecutionRunningState(t *testing.T) {
 
 func TestCloudRun_ExecutionSucceededState(t *testing.T) {
 	t.Parallel()
-	run := createAndRunJob(t, uniqueName("status-succeeded-job"))
+	run := createAndRunJob(t, uniquename.New("status-succeeded-job"))
 
 	exec, err := waitJobRun(t, run)
 	require.NoError(t, err)
@@ -393,7 +394,7 @@ func TestCloudRun_ExecutionSucceededState(t *testing.T) {
 
 func TestCloudRun_ExecutionCancelledState(t *testing.T) {
 	t.Parallel()
-	jobID := uniqueName("status-cancel-job")
+	jobID := uniquename.New("status-cancel-job")
 	const marker = "status-cancel-marker"
 
 	// The container announces itself on stdout and then holds, never released,
@@ -479,7 +480,7 @@ func createAndRunJobInProject(t *testing.T, project, jobID string, image string,
 
 func TestCloudRun_ExecutionRunsCommand(t *testing.T) {
 	t.Parallel()
-	run := createAndRunJobWithCommand(t, uniqueName("exec-cmd-job"), []string{"echo", "hello"}, "5s")
+	run := createAndRunJobWithCommand(t, uniquename.New("exec-cmd-job"), []string{"echo", "hello"}, "5s")
 
 	exec, err := waitJobRun(t, run)
 	require.NoError(t, err)
@@ -491,7 +492,7 @@ func TestCloudRun_ExecutionRunsCommand(t *testing.T) {
 
 func TestCloudRun_ExecutionFailedState(t *testing.T) {
 	t.Parallel()
-	run := createAndRunJobWithCommand(t, uniqueName("exec-fail-job"), []string{"sh", "-c", "exit 1"}, "5s")
+	run := createAndRunJobWithCommand(t, uniquename.New("exec-fail-job"), []string{"sh", "-c", "exit 1"}, "5s")
 
 	exec, err := waitJobRun(t, run)
 	require.Error(t, err, "a failed execution fails its RunJob operation")
@@ -504,7 +505,7 @@ func TestCloudRun_ExecutionFailedState(t *testing.T) {
 
 func TestCloudRun_ExecutionLogsRealOutput(t *testing.T) {
 	t.Parallel()
-	jobID := uniqueName("exec-log-job")
+	jobID := uniquename.New("exec-log-job")
 	_ = createAndRunJobWithCommand(t, jobID, []string{"echo", "real output from process"}, "5s")
 
 	// The process has to run and its stdout has to be ingested into Cloud

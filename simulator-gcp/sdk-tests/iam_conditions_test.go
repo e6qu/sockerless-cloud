@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/apigateway/v1"
@@ -25,10 +26,10 @@ type conditionPrincipal struct {
 
 func newConditionPrincipal(t *testing.T, permissions ...string) conditionPrincipal {
 	t.Helper()
-	saName, _, keyFile := mintServiceAccountKeyFile(t, uniqueName("cond"))
+	saName, _, keyFile := mintServiceAccountKeyFile(t, uniquename.New("cond"))
 	credentials := tokenSourceFromKeyFile(t, keyFile)
 	role, err := iamService(t).Projects.Roles.Create("projects/test-project", &iam.CreateRoleRequest{
-		RoleId: strings.ReplaceAll(uniqueName("condRole"), "-", "_"),
+		RoleId: strings.ReplaceAll(uniquename.New("condRole"), "-", "_"),
 		Role:   &iam.Role{Title: "Condition test role", IncludedPermissions: permissions, Stage: "GA"},
 	}).Do()
 	require.NoError(t, err)
@@ -48,7 +49,7 @@ func newConditionPrincipal(t *testing.T, permissions ...string) conditionPrincip
 func conditionTestKey(t *testing.T, svc *cloudkms.Service) (ringName, keyName string) {
 	t.Helper()
 	parent := "projects/test-project/locations/global"
-	ringID := uniqueName("cond-ring")
+	ringID := uniquename.New("cond-ring")
 	ringName = parent + "/keyRings/" + ringID
 	_, err := svc.Projects.Locations.KeyRings.Create(parent, &cloudkms.KeyRing{}).KeyRingId(ringID).Do()
 	require.NoError(t, err)
@@ -131,7 +132,7 @@ func TestIAMConditions_TagsBoundToTheProjectReachItsResources(t *testing.T) {
 	asked := []string{"cloudkms.cryptoKeys.get"}
 
 	tags := crmV3Service(t)
-	keyShortName := strings.ReplaceAll(uniqueName("env"), "-", "_")
+	keyShortName := strings.ReplaceAll(uniquename.New("env"), "-", "_")
 	keyOp, err := tags.TagKeys.Create(&crm.TagKey{Parent: "organizations/123456789012", ShortName: keyShortName}).Do()
 	require.NoError(t, err)
 	tagKey := crmOpResourceName(t, keyOp)
@@ -202,7 +203,7 @@ func TestIAMConditions_TagsBoundToTheProjectReachItsResources(t *testing.T) {
 func TestIAMConditions_APIGatewayKeepsConditions(t *testing.T) {
 	t.Parallel()
 	owner := apigatewayService(t)
-	apiID := uniqueName("cond-api")
+	apiID := uniquename.New("cond-api")
 	apiOp, err := owner.Projects.Locations.Apis.Create("projects/test-project/locations/global", &apigateway.ApigatewayApi{DisplayName: "Conditions"}).ApiId(apiID).Do()
 	require.NoError(t, err)
 	awaitAPIGatewayLRO(t, owner, apiOp)
@@ -210,7 +211,7 @@ func TestIAMConditions_APIGatewayKeepsConditions(t *testing.T) {
 	configOp, err := owner.Projects.Locations.Apis.Configs.Create(apiName, &apigateway.ApigatewayApiConfig{DisplayName: "v1"}).ApiConfigId("v1").Do()
 	require.NoError(t, err)
 	awaitAPIGatewayLRO(t, owner, configOp)
-	gatewayID := uniqueName("cond-gw")
+	gatewayID := uniquename.New("cond-gw")
 	gatewayOp, err := owner.Projects.Locations.Gateways.Create("projects/test-project/locations/us-central1", &apigateway.ApigatewayGateway{
 		ApiConfig: apiName + "/configs/v1",
 	}).GatewayId(gatewayID).Do()

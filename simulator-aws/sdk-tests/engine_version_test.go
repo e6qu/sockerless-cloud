@@ -7,6 +7,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/elasticache"
 	"github.com/aws/aws-sdk-go-v2/service/rds"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -17,8 +18,8 @@ import (
 // drifts on the next plan if the sim echoes empty.
 func TestRDS_EngineVersionDefault(t *testing.T) {
 	t.Parallel()
-	explicitID := uniqueName("explicit-engine-pg")
-	defaultID := uniqueName("default-engine-pg")
+	explicitID := uniquename.New("explicit-engine-pg")
+	defaultID := uniquename.New("default-engine-pg")
 	c := rds.NewFromConfig(sdkConfig(), func(o *rds.Options) {
 		o.BaseEndpoint = aws.String(baseURL)
 	})
@@ -55,8 +56,8 @@ func TestRDS_EngineVersionDefault(t *testing.T) {
 // TestElastiCache_EngineVersionDefault — same shape for redis cluster.
 func TestElastiCache_EngineVersionDefault(t *testing.T) {
 	t.Parallel()
-	explicitID := uniqueName("explicit-engine-redis")
-	defaultID := uniqueName("default-engine-redis")
+	explicitID := uniquename.New("explicit-engine-redis")
+	defaultID := uniquename.New("default-engine-redis")
 	c := elasticache.NewFromConfig(sdkConfig(), func(o *elasticache.Options) {
 		o.BaseEndpoint = aws.String(baseURL)
 	})

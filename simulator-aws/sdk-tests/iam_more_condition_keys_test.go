@@ -26,6 +26,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/sfn"
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
 	ssmtypes "github.com/aws/aws-sdk-go-v2/service/ssm/types"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -163,7 +164,7 @@ func TestRDS_ManageMasterUserPasswordConditionKeyScopesTheGrant(t *testing.T) {
 // a policy uses to allow a call against one published version and not another.
 func TestSFN_StateMachineQualifierConditionKeyScopesTheGrant(t *testing.T) {
 	t.Parallel()
-	machineName := uniqueName("cond-qualifier-sm")
+	machineName := uniquename.New("cond-qualifier-sm")
 	admin := sfnClient()
 	machine, err := admin.CreateStateMachine(ctx, &sfn.CreateStateMachineInput{
 		Name:       aws.String(machineName),
@@ -246,7 +247,7 @@ func TestCloudMap_ServiceCreatedByAccountConditionKeyScopesTheGrant(t *testing.T
 	t.Parallel()
 	admin := cmClient()
 	namespace, err := admin.CreateHttpNamespace(ctx, &servicediscovery.CreateHttpNamespaceInput{
-		Name: aws.String(uniqueName("cond-created-ns"))})
+		Name: aws.String(uniquename.New("cond-created-ns"))})
 	require.NoError(t, err)
 	operation, err := admin.GetOperation(ctx, &servicediscovery.GetOperationInput{
 		OperationId: namespace.OperationId})

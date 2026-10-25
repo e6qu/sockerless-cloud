@@ -8,6 +8,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -19,7 +20,7 @@ import (
 func TestEC2_InstanceRunsItsCloudConfig(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
-	keyName := uniqueName("cloud-init-key")
+	keyName := uniquename.New("cloud-init-key")
 	_, err := c.ImportKeyPair(ctx, &ec2.ImportKeyPairInput{KeyName: aws.String(keyName), PublicKeyMaterial: []byte(testRSAPublicKey)})
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = c.DeleteKeyPair(ctx, &ec2.DeleteKeyPairInput{KeyName: aws.String(keyName)}) })

@@ -10,6 +10,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	ststypes "github.com/aws/aws-sdk-go-v2/service/sts/types"
 	"github.com/e6qu/sockerless-cloud/testutil/samlidp"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/go-jose/go-jose/v4"
 	"github.com/go-jose/go-jose/v4/jwt"
 	"github.com/stretchr/testify/assert"
@@ -22,7 +23,7 @@ import (
 func sessionTagRole(t *testing.T, prefix, trust string) string {
 	t.Helper()
 	admin := iamClient()
-	name := uniqueName(prefix)
+	name := uniquename.New(prefix)
 	role, err := admin.CreateRole(ctx, &iam.CreateRoleInput{RoleName: aws.String(name), AssumeRolePolicyDocument: aws.String(trust)})
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = admin.DeleteRole(ctx, &iam.DeleteRoleInput{RoleName: aws.String(name)}) })
@@ -116,7 +117,7 @@ func TestSTS_AssumeRoleWithSAMLSessionTags(t *testing.T) {
 	require.NoError(t, err)
 	admin := iamClient()
 	provider, err := admin.CreateSAMLProvider(ctx, &iam.CreateSAMLProviderInput{
-		Name: aws.String(uniqueName("tags-idp")), SAMLMetadataDocument: aws.String(idp.Metadata())})
+		Name: aws.String(uniquename.New("tags-idp")), SAMLMetadataDocument: aws.String(idp.Metadata())})
 	require.NoError(t, err)
 	providerArn := aws.ToString(provider.SAMLProviderArn)
 	t.Cleanup(func() {

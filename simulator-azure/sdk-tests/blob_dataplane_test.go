@@ -23,6 +23,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/lease"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/pageblob"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/service"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -558,7 +559,7 @@ func TestStorageSDK_BlobSoftDeleteAndUndelete(t *testing.T) {
 
 func TestStorageSDK_ContainerSoftDeleteAndRestore(t *testing.T) {
 	t.Parallel()
-	rg, account, containerName := "sdk-blob-restore-rg", uniqueAlnumName("sdkctrrestore"), "restorable-container"
+	rg, account, containerName := "sdk-blob-restore-rg", uniquename.Alnum("sdkctrrestore"), "restorable-container"
 	ensureRG(t, rg)
 
 	// Container soft delete is an ARM setting on the account's blobServices

@@ -12,6 +12,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/admin"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -24,7 +25,7 @@ func TestServiceBusARM_AdvertisedEndpointAndConnectionStrings(t *testing.T) {
 	t.Parallel()
 	rg := "sb-endpoint-rg"
 	ensureRG(t, rg)
-	namespace := uniqueName("sdkshimns")
+	namespace := uniquename.New("sdkshimns")
 	createReq, _ := http.NewRequestWithContext(ctx, "PUT",
 		baseURL+"/subscriptions/"+subscriptionID+"/resourceGroups/"+rg+"/providers/Microsoft.ServiceBus/namespaces/"+namespace+"?api-version=2022-10-01-preview",
 		strings.NewReader(`{"location":"eastus","sku":{"name":"Standard","tier":"Standard"}}`))
@@ -110,10 +111,10 @@ func assertSBAdminRawMissing(t *testing.T, namespace, target string) {
 
 func TestServiceBusAdmin_QueueSDKLifecycle(t *testing.T) {
 	t.Parallel()
-	namespace := uniqueName("sdk-admin-queue")
+	namespace := uniquename.New("sdk-admin-queue")
 	client := sbAdminClient(t, namespace)
 	ctx := context.Background()
-	queueName := uniqueName("q1")
+	queueName := uniquename.New("q1")
 	userMetadata := "queue metadata"
 	maxSize := int32(1024)
 
@@ -153,8 +154,8 @@ func TestServiceBusAdmin_QueueSDKLifecycle(t *testing.T) {
 func TestServiceBusAdmin_QueueListPagingIsNamespaceScoped(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	other := sbAdminClient(t, uniqueName("sdk-admin-queue-other"))
-	target := sbAdminClient(t, uniqueName("sdk-admin-queue-target"))
+	other := sbAdminClient(t, uniquename.New("sdk-admin-queue-other"))
+	target := sbAdminClient(t, uniquename.New("sdk-admin-queue-target"))
 
 	_, err := other.CreateQueue(ctx, "other-q1", nil)
 	require.NoError(t, err)
@@ -172,10 +173,10 @@ func TestServiceBusAdmin_QueueListPagingIsNamespaceScoped(t *testing.T) {
 
 func TestServiceBusAdmin_TopicSubscriptionRuleSDKLifecycle(t *testing.T) {
 	t.Parallel()
-	namespace := uniqueName("sdk-admin-topic")
+	namespace := uniquename.New("sdk-admin-topic")
 	client := sbAdminClient(t, namespace)
 	ctx := context.Background()
-	topicName := uniqueName("topic1")
+	topicName := uniquename.New("topic1")
 	subName := "sub1"
 	ruleName := "important"
 

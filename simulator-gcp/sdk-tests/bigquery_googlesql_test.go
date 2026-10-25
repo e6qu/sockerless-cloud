@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"cloud.google.com/go/bigquery"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/iterator"
@@ -76,7 +77,7 @@ func bqOrdersTable(t *testing.T, client *bigquery.Client, dataset *bigquery.Data
 // and SELECT * EXCEPT and REPLACE.
 func TestBigQuery_GoogleSQLConstructs(t *testing.T) {
 	t.Parallel()
-	project := uniqueName("bq-gsql")
+	project := uniquename.New("bq-gsql")
 	requireProject(t, project)
 	client := bqClient(t, project)
 	dataset := client.Dataset("gsql_ds")
@@ -117,7 +118,7 @@ func TestBigQuery_GoogleSQLConstructs(t *testing.T) {
 // touched in numDmlAffectedRows and dmlStats.
 func TestBigQuery_DMLStatementsReportStatistics(t *testing.T) {
 	t.Parallel()
-	project := uniqueName("bq-dml")
+	project := uniquename.New("bq-dml")
 	requireProject(t, project)
 	client := bqClient(t, project)
 	dataset := client.Dataset("dml_ds")
@@ -156,7 +157,7 @@ func TestBigQuery_DMLStatementsReportStatistics(t *testing.T) {
 // DROP TABLE removes it; each reports the DDL operation and target.
 func TestBigQuery_CreateTableAsSelectAndDrop(t *testing.T) {
 	t.Parallel()
-	project := uniqueName("bq-ddl")
+	project := uniquename.New("bq-ddl")
 	requireProject(t, project)
 	client := bqClient(t, project)
 	dataset := client.Dataset("ddl_ds")
@@ -188,7 +189,7 @@ func TestBigQuery_CreateTableAsSelectAndDrop(t *testing.T) {
 // reads back through tables.get and tabledata.list.
 func TestBigQuery_DestinationlessQueryWritesAnAnonymousTable(t *testing.T) {
 	t.Parallel()
-	project := uniqueName("bq-anon")
+	project := uniquename.New("bq-anon")
 	requireProject(t, project)
 	client := bqClient(t, project)
 	dataset := client.Dataset("anon_ds")
@@ -227,7 +228,7 @@ func TestBigQuery_DestinationlessQueryWritesAnAnonymousTable(t *testing.T) {
 // job, carrying its variables between them.
 func TestBigQuery_ScriptRunsChildJobs(t *testing.T) {
 	t.Parallel()
-	project := uniqueName("bq-script")
+	project := uniquename.New("bq-script")
 	requireProject(t, project)
 	client := bqClient(t, project)
 	dataset := client.Dataset("script_ds")
@@ -268,7 +269,7 @@ func TestBigQuery_ScriptRunsChildJobs(t *testing.T) {
 // result schema without running it.
 func TestBigQuery_DryRunQuery(t *testing.T) {
 	t.Parallel()
-	project := uniqueName("bq-dry")
+	project := uniquename.New("bq-dry")
 	requireProject(t, project)
 	client := bqClient(t, project)
 	dataset := client.Dataset("dry_ds")
@@ -307,7 +308,7 @@ func TestBigQuery_DryRunQuery(t *testing.T) {
 // microseconds under formatOptions.useInt64Timestamp.
 func TestBigQuery_TimestampFormatOptions(t *testing.T) {
 	t.Parallel()
-	project := uniqueName("bq-tsfmt")
+	project := uniquename.New("bq-tsfmt")
 	requireProject(t, project)
 	client := bqClient(t, project)
 	dataset := client.Dataset("ts_ds")
@@ -343,7 +344,7 @@ func TestBigQuery_LoadAppliesPartitioningAndClustering(t *testing.T) {
 	client := bqClient(t, project)
 	gcs := storageClient(t)
 	defer gcs.Close()
-	bucketName := uniqueName("bq-part")
+	bucketName := uniquename.New("bq-part")
 	requireProject(t, project)
 	bucket := gcs.Bucket(bucketName)
 	require.NoError(t, bucket.Create(ctx, project, nil))
@@ -352,7 +353,7 @@ func TestBigQuery_LoadAppliesPartitioningAndClustering(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, w.Close())
 
-	dataset := client.Dataset(strings.ReplaceAll(uniqueName("ds_part"), "-", "_"))
+	dataset := client.Dataset(strings.ReplaceAll(uniquename.New("ds_part"), "-", "_"))
 	require.NoError(t, dataset.Create(ctx, nil))
 	source := bigquery.NewGCSReference("gs://" + bucketName + "/events.csv")
 	source.Schema = bigquery.Schema{{Name: "id", Type: bigquery.IntegerFieldType}, {Name: "at", Type: bigquery.TimestampFieldType}}
@@ -384,7 +385,7 @@ func (r bqSavedRow) Save() (map[string]bigquery.Value, string, error) {
 // instance table created from the template's schema.
 func TestBigQuery_InsertAllDeduplicatesAndUsesTemplates(t *testing.T) {
 	t.Parallel()
-	project := uniqueName("bq-insert")
+	project := uniquename.New("bq-insert")
 	requireProject(t, project)
 	client := bqClient(t, project)
 	dataset := client.Dataset("ins_ds")
@@ -410,7 +411,7 @@ func TestBigQuery_InsertAllDeduplicatesAndUsesTemplates(t *testing.T) {
 // A SNAPSHOT copy makes a read-only table snapshot that names its base table.
 func TestBigQuery_SnapshotCopy(t *testing.T) {
 	t.Parallel()
-	project := uniqueName("bq-snap")
+	project := uniquename.New("bq-snap")
 	requireProject(t, project)
 	client := bqClient(t, project)
 	dataset := client.Dataset("snap_ds")

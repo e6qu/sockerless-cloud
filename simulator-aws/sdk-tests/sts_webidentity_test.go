@@ -16,6 +16,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	ststypes "github.com/aws/aws-sdk-go-v2/service/sts/types"
 	"github.com/aws/smithy-go"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/go-jose/go-jose/v4"
 	"github.com/go-jose/go-jose/v4/jwt"
 	"github.com/stretchr/testify/assert"
@@ -100,7 +101,7 @@ func registerWebIdentityRole(t *testing.T, issuerURL, audience string) string {
 
 	// The suite's tests federate at the same time, each through a role of
 	// its own.
-	role := uniqueName("console-federation-role")
+	role := uniquename.New("console-federation-role")
 	_, err = c.CreateRole(ctx, &iam.CreateRoleInput{
 		RoleName:                 aws.String(role),
 		AssumeRolePolicyDocument: aws.String(`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Federated":"` + providerArn + `"},"Action":"sts:AssumeRoleWithWebIdentity"}]}`),

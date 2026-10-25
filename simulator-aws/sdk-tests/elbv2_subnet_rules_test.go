@@ -10,6 +10,7 @@ import (
 	elbv2 "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2"
 	elbtypes "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2/types"
 	"github.com/aws/smithy-go"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -68,7 +69,7 @@ func TestELBv2_SubnetRules(t *testing.T) {
 	zoneB := subnet("10.164.3.0/24", "us-east-1b", "")
 	create := func(name string, lbType elbtypes.LoadBalancerTypeEnum, ipType elbtypes.IpAddressType, subnets ...string) (*elbv2.CreateLoadBalancerOutput, error) {
 		return elb.CreateLoadBalancer(ctx, &elbv2.CreateLoadBalancerInput{
-			Name: aws.String(uniqueName(name)), Type: lbType, IpAddressType: ipType, Subnets: subnets,
+			Name: aws.String(uniquename.New(name)), Type: lbType, IpAddressType: ipType, Subnets: subnets,
 		})
 	}
 

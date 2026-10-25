@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	bigquery "google.golang.org/api/bigquery/v2"
@@ -42,7 +43,7 @@ func bqFinishedJob(t *testing.T, svc *bigquery.Service, project string, job *big
 func TestBigQuery_LoadJobFromMedia(t *testing.T) {
 	t.Parallel()
 	svc := bqService(t)
-	project, dataset := "sock-proj", strings.ReplaceAll(uniqueName("ds_loads"), "-", "_")
+	project, dataset := "sock-proj", strings.ReplaceAll(uniquename.New("ds_loads"), "-", "_")
 	bqMakeDataset(t, svc, project, dataset)
 
 	var source strings.Builder

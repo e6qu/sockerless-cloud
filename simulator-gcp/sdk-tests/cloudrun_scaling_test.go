@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"cloud.google.com/go/run/apiv2/runpb"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -131,7 +132,7 @@ func TestSDK_CloudRunV2Services_NoAvailableInstance(t *testing.T) {
 // its instance ID.
 func TestSDK_CloudRunV2Services_MinInstancesStartOnDeploy(t *testing.T) {
 	t.Parallel()
-	serviceID := uniqueName("v2-svc-min")
+	serviceID := uniquename.New("v2-svc-min")
 	tailCtx, cancel := context.WithTimeout(ctx, jobLogWaitTimeout)
 	defer cancel()
 	stream, early := openReadyTail(t, tailCtx, newLoggingV2Client(t), "test-project",

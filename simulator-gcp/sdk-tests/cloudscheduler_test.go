@@ -12,6 +12,7 @@ import (
 
 	scheduler "cloud.google.com/go/scheduler/apiv1"
 	"cloud.google.com/go/scheduler/apiv1/schedulerpb"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	cloudscheduler "google.golang.org/api/cloudscheduler/v1"
@@ -90,7 +91,7 @@ func TestCloudScheduler_HTTPJobLifecycle(t *testing.T) {
 	t.Parallel()
 	c := schedulerClient(t)
 	endpoint, received := schedulerEndpoint(t, http.StatusOK)
-	name := schedulerParent + "/jobs/" + uniqueName("sdk-http-job")
+	name := schedulerParent + "/jobs/" + uniquename.New("sdk-http-job")
 
 	created, err := c.CreateJob(ctx, &schedulerpb.CreateJobRequest{Parent: schedulerParent, Job: &schedulerpb.Job{
 		Name:        name,
@@ -186,7 +187,7 @@ func TestCloudScheduler_RetriesUnderRetryConfig(t *testing.T) {
 	t.Parallel()
 	c := schedulerClient(t)
 	endpoint, received := schedulerEndpoint(t, http.StatusServiceUnavailable, http.StatusServiceUnavailable, http.StatusOK)
-	name := schedulerParent + "/jobs/" + uniqueName("sdk-retry-job")
+	name := schedulerParent + "/jobs/" + uniquename.New("sdk-retry-job")
 	_, err := c.CreateJob(ctx, &schedulerpb.CreateJobRequest{Parent: schedulerParent, Job: &schedulerpb.Job{
 		Name:     name,
 		Schedule: "0 0 1 1 *",
@@ -225,7 +226,7 @@ func TestCloudScheduler_FailedAttemptRecordsItsStatus(t *testing.T) {
 	t.Parallel()
 	c := schedulerClient(t)
 	endpoint, received := schedulerEndpoint(t, http.StatusNotFound)
-	name := schedulerParent + "/jobs/" + uniqueName("sdk-refused-job")
+	name := schedulerParent + "/jobs/" + uniquename.New("sdk-refused-job")
 	_, err := c.CreateJob(ctx, &schedulerpb.CreateJobRequest{Parent: schedulerParent, Job: &schedulerpb.Job{
 		Name:     name,
 		Schedule: "0 0 1 1 *",
@@ -249,8 +250,8 @@ func TestCloudScheduler_PubsubTargetPublishes(t *testing.T) {
 	t.Parallel()
 	c := schedulerClient(t)
 	ps := pubsubService(t)
-	topic := "projects/" + harnessProject + "/topics/" + uniqueName("sched-topic")
-	sub := "projects/" + harnessProject + "/subscriptions/" + uniqueName("sched-sub")
+	topic := "projects/" + harnessProject + "/topics/" + uniquename.New("sched-topic")
+	sub := "projects/" + harnessProject + "/subscriptions/" + uniquename.New("sched-sub")
 	_, err := ps.Projects.Topics.Create(topic, &pubsub.Topic{}).Do()
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = ps.Projects.Topics.Delete(topic).Do() })
@@ -258,7 +259,7 @@ func TestCloudScheduler_PubsubTargetPublishes(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = ps.Projects.Subscriptions.Delete(sub).Do() })
 
-	name := schedulerParent + "/jobs/" + uniqueName("sdk-pubsub-job")
+	name := schedulerParent + "/jobs/" + uniquename.New("sdk-pubsub-job")
 	_, err = c.CreateJob(ctx, &schedulerpb.CreateJobRequest{Parent: schedulerParent, Job: &schedulerpb.Job{
 		Name:     name,
 		Schedule: "*/30 * * * *",
@@ -286,7 +287,7 @@ func TestCloudScheduler_ScheduleFires(t *testing.T) {
 	t.Parallel()
 	c := schedulerClient(t)
 	endpoint, received := schedulerEndpoint(t, http.StatusOK)
-	name := schedulerParent + "/jobs/" + uniqueName("sdk-cron-job")
+	name := schedulerParent + "/jobs/" + uniquename.New("sdk-cron-job")
 	created, err := c.CreateJob(ctx, &schedulerpb.CreateJobRequest{Parent: schedulerParent, Job: &schedulerpb.Job{
 		Name:     name,
 		Schedule: "* * * * *",
@@ -319,7 +320,7 @@ func TestCloudScheduler_RefusesWhatItDoesNotServe(t *testing.T) {
 		{&schedulerpb.Job{Schedule: "* * * * *", Target: httpTarget,
 			RetryConfig: &schedulerpb.RetryConfig{RetryCount: 6}}, http.StatusBadRequest},
 	} {
-		tc.job.Name = schedulerParent + "/jobs/" + uniqueName("sdk-refused")
+		tc.job.Name = schedulerParent + "/jobs/" + uniquename.New("sdk-refused")
 		_, err := c.CreateJob(ctx, &schedulerpb.CreateJobRequest{Parent: schedulerParent, Job: tc.job})
 		var apiErr *googleapi.Error
 		require.ErrorAs(t, err, &apiErr, "%v", tc.job)

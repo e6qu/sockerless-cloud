@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"cloud.google.com/go/run/apiv2/runpb"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/iam/v1"
@@ -40,7 +41,7 @@ func TestOAuth2_LegacyTokenEndpoint(t *testing.T) {
 func TestMetadataSDK_CloudRunWorkloadIdentity(t *testing.T) {
 	t.Parallel()
 	client := newServicesClient(t)
-	runner := createServiceAccount(t, "test-project", uniqueName("md-runner"))
+	runner := createServiceAccount(t, "test-project", uniquename.New("md-runner"))
 	for _, tc := range []struct {
 		prefix  string
 		account string

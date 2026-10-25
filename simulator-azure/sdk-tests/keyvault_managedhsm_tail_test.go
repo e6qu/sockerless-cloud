@@ -5,6 +5,7 @@ import (
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/keyvault/armkeyvault"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -27,7 +28,7 @@ import (
 //	GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.KeyVault/managedHSMs/{name}/regions
 func TestManagedHSMs_SoftDeleteRecoverAndPurge(t *testing.T) {
 	t.Parallel()
-	rg, hsm := uniqueName("managedhsm-tail-rg"), uniqueAlnumName("tailhsm")
+	rg, hsm := uniquename.New("managedhsm-tail-rg"), uniquename.Alnum("tailhsm")
 	ensureKVResourceGroup(t, rg)
 
 	client, err := armkeyvault.NewManagedHsmsClient(subscriptionID, &fakeCredential{}, clientOpts())

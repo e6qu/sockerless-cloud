@@ -9,6 +9,7 @@ import (
 
 	run "cloud.google.com/go/run/apiv2"
 	"cloud.google.com/go/run/apiv2/runpb"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/iterator"
@@ -70,7 +71,7 @@ func runTaskCompleted(task *runpb.Task) *runpb.Condition {
 func TestSDK_CloudRun_ExecutionRunsEachTaskOnItsOwn(t *testing.T) {
 	t.Parallel()
 	jobs := newJobsClient(t)
-	jobID := uniqueName("sdk-job-tasks")
+	jobID := uniquename.New("sdk-job-tasks")
 	name := createRunJobTasks(t, jobs, jobID, 3, 2, &runpb.TaskTemplate{
 		Containers: []*runpb.Container{{
 			Image: simWorkloadImage,
@@ -161,7 +162,7 @@ echo "end $CLOUD_RUN_TASK_INDEX $CLOUD_RUN_TASK_ATTEMPT"`},
 func TestSDK_CloudRun_ExecutionReportsEachTasksOutcome(t *testing.T) {
 	t.Parallel()
 	jobs := newJobsClient(t)
-	name := createRunJobTasks(t, jobs, uniqueName("sdk-job-outcomes"), 2, 0, &runpb.TaskTemplate{
+	name := createRunJobTasks(t, jobs, uniquename.New("sdk-job-outcomes"), 2, 0, &runpb.TaskTemplate{
 		Containers: []*runpb.Container{{
 			Image:   simWorkloadImage,
 			Command: []string{"sh", "-c", `[ "$CLOUD_RUN_TASK_INDEX" = 1 ] && exit 3; exit 0`},
@@ -198,7 +199,7 @@ func TestSDK_CloudRun_ExecutionReportsEachTasksOutcome(t *testing.T) {
 func TestSDK_CloudRun_JobDefaultsMaxRetries(t *testing.T) {
 	t.Parallel()
 	jobs := newJobsClient(t)
-	name := createRunJob(t, jobs, uniqueName("sdk-job-default-retries"), &runpb.TaskTemplate{
+	name := createRunJob(t, jobs, uniquename.New("sdk-job-default-retries"), &runpb.TaskTemplate{
 		Containers: []*runpb.Container{{Image: simWorkloadImage}},
 	})
 	job, err := jobs.GetJob(ctx, &runpb.GetJobRequest{Name: name})
@@ -212,7 +213,7 @@ func TestSDK_CloudRun_JobDefaultsMaxRetries(t *testing.T) {
 func TestSDK_CloudRun_TaskTimeoutStopsTheAttemptAndRetries(t *testing.T) {
 	t.Parallel()
 	jobs := newJobsClient(t)
-	jobID := uniqueName("sdk-job-timeout")
+	jobID := uniquename.New("sdk-job-timeout")
 	name := createRunJob(t, jobs, jobID, &runpb.TaskTemplate{
 		Containers: []*runpb.Container{{
 			Image: simWorkloadImage,
@@ -245,7 +246,7 @@ echo "attempt $CLOUD_RUN_TASK_ATTEMPT done"`},
 func TestSDK_CloudRun_CancelStopsTasksNotYetStarted(t *testing.T) {
 	t.Parallel()
 	jobs := newJobsClient(t)
-	jobID := uniqueName("sdk-job-cancel-tasks")
+	jobID := uniquename.New("sdk-job-cancel-tasks")
 	name := createRunJobTasks(t, jobs, jobID, 3, 1, &runpb.TaskTemplate{
 		Containers: []*runpb.Container{{
 			Image: simWorkloadImage,

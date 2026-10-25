@@ -13,6 +13,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armresources"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/servicebus/armservicebus"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -81,11 +82,11 @@ func sbMoveReceive(t *testing.T, client *azservicebus.Client, queue string) stri
 // plane rejects it.
 func TestAzureResources_MoveServiceBusNamespace(t *testing.T) {
 	t.Parallel()
-	srcRG, dstRG := uniqueName("sb-move-src-rg"), uniqueName("sb-move-dst-rg")
+	srcRG, dstRG := uniquename.New("sb-move-src-rg"), uniquename.New("sb-move-dst-rg")
 	ensureRG(t, srcRG)
 	ensureRG(t, dstRG)
 
-	namespace := uniqueName("sdk-sb-move-ns")
+	namespace := uniquename.New("sdk-sb-move-ns")
 	const queue = "sb-move-queue"
 
 	factory, err := armservicebus.NewClientFactory(subscriptionID, &fakeCredential{}, clientOpts())

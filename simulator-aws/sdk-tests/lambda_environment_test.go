@@ -17,6 +17,7 @@ import (
 	lambdatypes "github.com/aws/aws-sdk-go-v2/service/lambda/types"
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
 	sqstypes "github.com/aws/aws-sdk-go-v2/service/sqs/types"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -114,7 +115,7 @@ func (g *invocationGate) awaitArrival(t *testing.T) {
 func TestLambda_ExecutionEnvironmentIsReused(t *testing.T) {
 	t.Parallel()
 	lc := lambdaClient()
-	name := uniqueName("env-reuse-fn")
+	name := uniquename.New("env-reuse-fn")
 	createCountingFunction(t, lc, name, false)
 
 	for want := 1; want <= 3; want++ {

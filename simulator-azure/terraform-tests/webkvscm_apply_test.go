@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/e6qu/sockerless-cloud/testutil/githttp"
 	"github.com/stretchr/testify/require"
 )
 
@@ -18,8 +19,8 @@ import (
 // token its identity endpoint issues the user-assigned identity.
 func TestTerraformWebAppKeyVaultReferenceAndSourceControl(t *testing.T) {
 	t.Parallel()
-	repo := startGitHTTPRepo(t, "tf-site")
-	repo.commit("main", "Deployed page", map[string]string{"index.html": "page-from-the-repository"})
+	repo := githttp.StartRepo(t, "tf-site")
+	repo.Commit("main", "Deployed page", map[string]string{"index.html": "page-from-the-repository"})
 
 	dir := tfWorkspaceFrom(t, mustAbs("webkvscm"))
 	run := func(name string, args ...string) {

@@ -20,6 +20,7 @@ import (
 	elbtypes "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2/types"
 	"github.com/aws/aws-sdk-go-v2/service/route53"
 	r53types "github.com/aws/aws-sdk-go-v2/service/route53/types"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -32,8 +33,8 @@ import (
 // receives a plain-HTTP request, proving termination + forwarding.
 func TestELBv2_HTTPSListenerTerminatesTLS(t *testing.T) {
 	t.Parallel()
-	lbName := uniqueName("alb-tls")
-	tgName := uniqueName("alb-tls-tg")
+	lbName := uniquename.New("alb-tls")
+	tgName := uniquename.New("alb-tls-tg")
 	elb := elbv2Client()
 	acmC := acmClient()
 	r53C := r53Client()
@@ -241,8 +242,8 @@ func TestELBv2_HTTPSListenerTerminatesTLS(t *testing.T) {
 // the target.
 func TestELBv2_NLBTLSListenerTerminatesTLS(t *testing.T) {
 	t.Parallel()
-	lbName := uniqueName("nlb-tls")
-	tgName := uniqueName("nlb-tls-tg")
+	lbName := uniquename.New("nlb-tls")
+	tgName := uniquename.New("nlb-tls-tg")
 	elb := elbv2Client()
 	acmC := acmClient()
 	r53C := r53Client()

@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	dns "google.golang.org/api/dns/v1"
@@ -224,7 +225,7 @@ func TestCloudSQL_ResolveConnectSettingsAndPointInTimeRestore(t *testing.T) {
 // directly — the same wire a client will speak once it does.
 func TestGCS_RapidCachesAndManagedFolderPatch(t *testing.T) {
 	t.Parallel()
-	bucket := uniqueName("rapid-cache-bucket")
+	bucket := uniquename.New("rapid-cache-bucket")
 	gcpRawJSON(t, http.MethodPost, "/storage/v1/b?project=test-project",
 		map[string]any{"name": bucket}, http.StatusOK)
 

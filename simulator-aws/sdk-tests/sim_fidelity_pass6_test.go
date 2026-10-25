@@ -13,6 +13,7 @@ import (
 	lambdatypes "github.com/aws/aws-sdk-go-v2/service/lambda/types"
 	"github.com/aws/aws-sdk-go-v2/service/servicediscovery"
 	sdtypes "github.com/aws/aws-sdk-go-v2/service/servicediscovery/types"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -100,7 +101,7 @@ func TestEventBridge_CreateEventBusPersistsKMS(t *testing.T) {
 func TestCloudMap_DiscoverInstancesHealth(t *testing.T) {
 	t.Parallel()
 	client := cmClient()
-	nsName := uniqueName("health-test") + ".local"
+	nsName := uniquename.New("health-test") + ".local"
 	createOut, err := client.CreatePrivateDnsNamespace(ctx, &servicediscovery.CreatePrivateDnsNamespaceInput{
 		Name: aws.String(nsName), Vpc: aws.String("vpc-health"),
 	})

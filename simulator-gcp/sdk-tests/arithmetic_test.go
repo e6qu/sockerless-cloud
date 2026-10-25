@@ -9,6 +9,7 @@ import (
 
 	"cloud.google.com/go/logging/apiv2/loggingpb"
 	"cloud.google.com/go/logging/logadmin"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/iterator"
@@ -16,7 +17,7 @@ import (
 
 func TestCloudRun_JobArithmetic(t *testing.T) {
 	t.Parallel()
-	jobID := uniqueName("arith-crj")
+	jobID := uniquename.New("arith-crj")
 	run := createAndRunJobWithImageAndCommand(t, jobID, evalImageName, []string{"(10 + 5) * 2"}, "10s")
 
 	exec, err := waitJobRun(t, run)
@@ -32,7 +33,7 @@ func TestCloudRun_JobArithmetic(t *testing.T) {
 
 func TestCloudRun_JobArithmeticInvalid(t *testing.T) {
 	t.Parallel()
-	run := createAndRunJobWithImageAndCommand(t, uniqueName("arith-crj-fail"), evalImageName, []string{"3 +"}, "10s")
+	run := createAndRunJobWithImageAndCommand(t, uniquename.New("arith-crj-fail"), evalImageName, []string{"3 +"}, "10s")
 
 	exec, err := waitJobRun(t, run)
 	require.Error(t, err, "the execution fails, and so does its RunJob operation")
@@ -42,7 +43,7 @@ func TestCloudRun_JobArithmeticInvalid(t *testing.T) {
 
 func TestCloudRun_JobArithmeticLogs(t *testing.T) {
 	t.Parallel()
-	jobID := uniqueName("arith-crj-logs")
+	jobID := uniquename.New("arith-crj-logs")
 	_ = createAndRunJobWithImageAndCommand(t, jobID, evalImageName, []string{"10 / 3"}, "10s")
 
 	// Both the result and the parsing line the container printed are ingested.

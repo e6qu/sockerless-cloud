@@ -11,6 +11,7 @@ import (
 	acmtypes "github.com/aws/aws-sdk-go-v2/service/acm/types"
 	"github.com/aws/aws-sdk-go-v2/service/route53"
 	r53types "github.com/aws/aws-sdk-go-v2/service/route53/types"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/require"
 )
 
@@ -24,8 +25,8 @@ func TestACMDNSCertWildcardAndIssuance(t *testing.T) {
 	r53C := r53Client()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	appDomain := uniqueName("app") + ".example.test"
-	devbox := uniqueName("devbox") + ".example.test"
+	appDomain := uniquename.New("app") + ".example.test"
+	devbox := uniquename.New("devbox") + ".example.test"
 
 	reqOut, err := acmC.RequestCertificate(ctx, &acm.RequestCertificateInput{
 		DomainName:              aws.String(appDomain),

@@ -6,6 +6,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ecr"
 	ecrtypes "github.com/aws/aws-sdk-go-v2/service/ecr/types"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -17,7 +18,7 @@ const ecrManifest = `{"schemaVersion":2,"mediaType":"application/vnd.docker.dist
 // by tag must drop the image's digest alias too).
 func TestECR_ListAndDescribeAndDeleteImages(t *testing.T) {
 	t.Parallel()
-	repo := uniqueName("cov-images")
+	repo := uniquename.New("cov-images")
 	c := ecrClient()
 	_, err := c.CreateRepository(ctx, &ecr.CreateRepositoryInput{RepositoryName: aws.String(repo)})
 	require.NoError(t, err)
@@ -64,7 +65,7 @@ func TestECR_ListAndDescribeAndDeleteImages(t *testing.T) {
 // UNTAGGED filter previously returned every image).
 func TestECR_ListImagesFilterAndPagination(t *testing.T) {
 	t.Parallel()
-	repo := uniqueName("cov-filter")
+	repo := uniquename.New("cov-filter")
 	c := ecrClient()
 	_, err := c.CreateRepository(ctx, &ecr.CreateRepositoryInput{RepositoryName: aws.String(repo)})
 	require.NoError(t, err)
@@ -123,7 +124,7 @@ func TestECR_ListImagesFilterAndPagination(t *testing.T) {
 // TestECR_LifecyclePolicyLifecycle covers Put/Get/DeleteLifecyclePolicy.
 func TestECR_LifecyclePolicyLifecycle(t *testing.T) {
 	t.Parallel()
-	repo := uniqueName("cov-lifecycle")
+	repo := uniquename.New("cov-lifecycle")
 	c := ecrClient()
 	_, err := c.CreateRepository(ctx, &ecr.CreateRepositoryInput{RepositoryName: aws.String(repo)})
 	require.NoError(t, err)
@@ -147,7 +148,7 @@ func TestECR_LifecyclePolicyLifecycle(t *testing.T) {
 func TestECR_DescribeImagesReportsLayerSizesPerRepository(t *testing.T) {
 	t.Parallel()
 	c := ecrClient()
-	repo, otherRepo := uniqueName("cov-size"), uniqueName("cov-size-other")
+	repo, otherRepo := uniquename.New("cov-size"), uniquename.New("cov-size-other")
 	for _, name := range []string{repo, otherRepo} {
 		_, err := c.CreateRepository(ctx, &ecr.CreateRepositoryInput{RepositoryName: aws.String(name)})
 		require.NoError(t, err)
@@ -212,7 +213,7 @@ const ecrClusterAutoscalerManifest = `{
 func TestECR_DescribeImagesSizesTheDocumentedImage(t *testing.T) {
 	t.Parallel()
 	c := ecrClient()
-	repo := uniqueName("cluster-autoscaler")
+	repo := uniquename.New("cluster-autoscaler")
 	_, err := c.CreateRepository(ctx, &ecr.CreateRepositoryInput{RepositoryName: aws.String(repo)})
 	require.NoError(t, err)
 	_, err = c.PutImage(ctx, &ecr.PutImageInput{

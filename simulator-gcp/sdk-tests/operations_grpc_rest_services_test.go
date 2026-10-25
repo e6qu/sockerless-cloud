@@ -8,6 +8,7 @@ import (
 	longrunningpb "cloud.google.com/go/longrunning/autogen/longrunningpb"
 	"cloud.google.com/go/redis/apiv1/redispb"
 	"cloud.google.com/go/redis/cluster/apiv1/clusterpb"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	apigateway "google.golang.org/api/apigateway/v1"
@@ -82,7 +83,7 @@ func TestOperations_RESTServiceOperationsReadOverGRPC(t *testing.T) {
 
 	gcs := storageClient(t)
 	t.Cleanup(func() { gcs.Close() })
-	exportBucket := uniqueName("grpc-backup-export")
+	exportBucket := uniquename.New("grpc-backup-export")
 	requireProject(t, "ops-grpc-project")
 	require.NoError(t, gcs.Bucket(exportBucket).Create(ctx, "ops-grpc-project", nil))
 	op, err = redisSvc.Projects.Locations.BackupCollections.Backups.Export(

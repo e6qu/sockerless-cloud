@@ -8,6 +8,7 @@ import (
 
 	"cloud.google.com/go/functions/apiv2/functionspb"
 	"cloud.google.com/go/run/apiv2/runpb"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
@@ -18,7 +19,7 @@ import (
 // flow against the simulator: create → run → verify running → logs → cancel → verify cancelled → delete.
 func TestIntegration_CloudRunJobLifecycle(t *testing.T) {
 	t.Parallel()
-	jobID := uniqueName("integ-crj")
+	jobID := uniquename.New("integ-crj")
 	const marker = "integ-crj-running"
 
 	// 1. Create job. Its container announces itself on stdout and then holds,

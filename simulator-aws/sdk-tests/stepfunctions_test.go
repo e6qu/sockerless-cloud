@@ -11,6 +11,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/sfn"
 	sfntypes "github.com/aws/aws-sdk-go-v2/service/sfn/types"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -120,7 +121,7 @@ func TestSFN_StateMachineCRUD_SDK(t *testing.T) {
 
 func TestSFN_ExecutionLifecycle_SDK(t *testing.T) {
 	t.Parallel()
-	machineName := uniqueName("sfn-sdk-exec-sm")
+	machineName := uniquename.New("sfn-sdk-exec-sm")
 	c := sfnClient()
 
 	create, err := c.CreateStateMachine(ctx, &sfn.CreateStateMachineInput{
@@ -231,7 +232,7 @@ func TestSFN_FailState_SDK(t *testing.T) {
 // describe response is probed raw.
 func TestSFNDescribeStateMachineOmitsTags(t *testing.T) {
 	t.Parallel()
-	machineName := uniqueName("sfn-tags-shape")
+	machineName := uniquename.New("sfn-tags-shape")
 	c := sfnClient()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -270,7 +271,7 @@ func TestSFNDescribeStateMachineOmitsTags(t *testing.T) {
 // Choice interpreter end-to-end (input routes to the >5 branch).
 func TestSFN_GetExecutionHistory_SDK(t *testing.T) {
 	t.Parallel()
-	machineName := uniqueName("sfn-sdk-history-sm")
+	machineName := uniquename.New("sfn-sdk-history-sm")
 	c := sfnClient()
 	create, err := c.CreateStateMachine(ctx, &sfn.CreateStateMachineInput{
 		Name: aws.String(machineName),

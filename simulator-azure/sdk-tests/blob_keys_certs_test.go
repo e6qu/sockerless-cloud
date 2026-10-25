@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -115,7 +116,7 @@ func TestBlobDataPlane_RoundTrip(t *testing.T) {
 
 func TestBlobDataPlane_ListContainersProperties(t *testing.T) {
 	t.Parallel()
-	account := uniqueAlnumName("listprops")
+	account := uniquename.Alnum("listprops")
 	container := "probe"
 
 	resp := blobReq(t, "PUT", account, "/"+container+"?restype=container", nil, nil)
@@ -202,7 +203,7 @@ func kvReq(t *testing.T, method, vault, path string, body []byte) *http.Response
 func TestKeyVault_KeysAndCertificates(t *testing.T) {
 	t.Parallel()
 	// Vault must exist in the ARM control plane first.
-	vault := uniqueAlnumName("testvault")
+	vault := uniquename.Alnum("testvault")
 	createKVViaARM(t, "kv-keys-certs-rg", vault)
 
 	// Create a key.

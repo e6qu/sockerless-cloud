@@ -12,6 +12,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/eventgrid/armeventgrid"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/servicebus/armservicebus"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azqueue"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -21,17 +22,17 @@ import (
 // message's body are the event's JSON.
 func TestEventGrid_DeliversToAStorageQueueAndAServiceBusQueueSDK(t *testing.T) {
 	t.Parallel()
-	rg := uniqueName("sdk-eventgrid-dest-rg")
+	rg := uniquename.New("sdk-eventgrid-dest-rg")
 	ensureRG(t, rg)
 	cred := &fakeCredential{}
 
-	account := uniqueAlnumName("egdest")
+	account := uniquename.Alnum("egdest")
 	require.NotEmpty(t, storageAccountPrimaryKey(account))
 	queues := queueSDKService(t, account)
 	_, err := queues.CreateQueue(ctx, "events", nil)
 	require.NoError(t, err)
 
-	namespace := uniqueName("egdest")
+	namespace := uniquename.New("egdest")
 	serviceBusNamespaceKey(t, namespace)
 	sbQueues, err := armservicebus.NewQueuesClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)
@@ -40,7 +41,7 @@ func TestEventGrid_DeliversToAStorageQueueAndAServiceBusQueueSDK(t *testing.T) {
 
 	topics, err := armeventgrid.NewTopicsClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)
-	topicName := uniqueName("egdest-topic")
+	topicName := uniquename.New("egdest-topic")
 	topicPoller, err := topics.BeginCreateOrUpdate(ctx, rg, topicName, armeventgrid.Topic{Location: to.Ptr("eastus")}, nil)
 	require.NoError(t, err)
 	topic, err := topicPoller.PollUntilDone(ctx, nil)

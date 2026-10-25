@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	goredis "github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -127,7 +128,7 @@ func TestMemorystore_ImportAndExportInstance(t *testing.T) {
 	t.Cleanup(func() { gcs.Close() })
 	const project, location = "redis-transfer", "us-central1"
 	parent := "projects/" + project + "/locations/" + location
-	bucket := uniqueName("redis-transfer")
+	bucket := uniquename.New("redis-transfer")
 	requireProject(t, project)
 	require.NoError(t, gcs.Bucket(bucket).Create(ctx, project, nil))
 
@@ -266,7 +267,7 @@ func TestMemorystoreRedis_ClusterServesRedis(t *testing.T) {
 	total := backup.TotalSizeBytes
 	assert.Positive(t, total)
 
-	bucket := uniqueName("cluster-backups")
+	bucket := uniquename.New("cluster-backups")
 	requireProject(t, project)
 	require.NoError(t, gcs.Bucket(bucket).Create(ctx, project, nil))
 	op, err = svc.Projects.Locations.BackupCollections.Backups.Export(backupName, &redis.ExportBackupRequest{GcsBucket: bucket}).Do()

@@ -17,6 +17,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/servicebus/armservicebus"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -63,7 +64,7 @@ func serviceBusHTTPStatus(t *testing.T, namespace, authorization string) (int, s
 // data plane with tokens that must not authenticate, and one that must.
 func TestServiceBusHTTP_RefusesUnverifiableTokens(t *testing.T) {
 	t.Parallel()
-	namespace := uniqueName("sdk-sb-authns")
+	namespace := uniquename.New("sdk-sb-authns")
 	realKey := serviceBusNamespaceKey(t, namespace)
 	audience := "https://" + namespace + ".servicebus.localhost/"
 
@@ -103,7 +104,7 @@ func TestServiceBusHTTP_RefusesUnverifiableTokens(t *testing.T) {
 	})
 
 	t.Run("token for another namespace", func(t *testing.T) {
-		otherKey := serviceBusNamespaceKey(t, uniqueName("sdk-sb-authns-other"))
+		otherKey := serviceBusNamespaceKey(t, uniquename.New("sdk-sb-authns-other"))
 		token := sasTokenSignedWith(messagingRootRule, otherKey, audience, time.Now().Add(time.Hour))
 		status, body := serviceBusHTTPStatus(t, namespace, token)
 		assert.Equal(t, http.StatusUnauthorized, status,
@@ -127,7 +128,7 @@ func TestServiceBusHTTP_RefusesUnverifiableTokens(t *testing.T) {
 func TestServiceBusHTTP_RotatedKeyInvalidatesToken(t *testing.T) {
 	t.Parallel()
 	rg := "messaging-dataplane-rg"
-	namespace := uniqueName("sdk-sb-rotateauth")
+	namespace := uniquename.New("sdk-sb-rotateauth")
 	ensureRG(t, rg)
 
 	client, err := armservicebus.NewNamespacesClient(subscriptionID, &fakeCredential{}, clientOpts())
@@ -182,7 +183,7 @@ func TestServiceBusHTTP_RotatedKeyInvalidatesToken(t *testing.T) {
 // failure rather than proceeding to send.
 func TestServiceBusAMQP_RefusesUnverifiableToken(t *testing.T) {
 	t.Parallel()
-	namespace := uniqueName("sdk-sb-amqpauth")
+	namespace := uniquename.New("sdk-sb-amqpauth")
 	// Provision the namespace so the only thing wrong is the key.
 	serviceBusNamespaceKey(t, namespace)
 

@@ -6,6 +6,7 @@ import (
 	artifactregistry "google.golang.org/api/artifactregistry/v1"
 	"google.golang.org/api/option"
 
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -36,7 +37,7 @@ func TestArtifactRegistry_PackagesVersionsTagsFiles(t *testing.T) {
 	t.Parallel()
 	svc := arAdminService(t)
 	parent := "projects/ar-admin/locations/us-central1"
-	repoID := uniqueName("subres-repo")
+	repoID := uniquename.New("subres-repo")
 	repoName := parent + "/repositories/" + repoID
 
 	_, err := svc.Projects.Locations.Repositories.Create(parent, &artifactregistry.Repository{Format: "DOCKER"}).RepositoryId(repoID).Do()
@@ -92,7 +93,7 @@ func TestArtifactRegistry_Rules(t *testing.T) {
 	t.Parallel()
 	svc := arAdminService(t)
 	parent := "projects/ar-admin/locations/us-central1"
-	repoID := uniqueName("rules-repo")
+	repoID := uniquename.New("rules-repo")
 	repoName := parent + "/repositories/" + repoID
 
 	_, err := svc.Projects.Locations.Repositories.Create(parent, &artifactregistry.Repository{Format: "DOCKER"}).RepositoryId(repoID).Do()
@@ -126,7 +127,7 @@ func TestArtifactRegistry_RepositoryIAM(t *testing.T) {
 	t.Parallel()
 	svc := arAdminService(t)
 	parent := "projects/ar-admin/locations/us-central1"
-	repoID := uniqueName("iam-repo")
+	repoID := uniquename.New("iam-repo")
 	repoName := parent + "/repositories/" + repoID
 
 	_, err := svc.Projects.Locations.Repositories.Create(parent, &artifactregistry.Repository{Format: "DOCKER"}).RepositoryId(repoID).Do()

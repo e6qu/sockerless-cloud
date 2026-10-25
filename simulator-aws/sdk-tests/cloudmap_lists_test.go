@@ -11,6 +11,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/servicediscovery"
 	sdtypes "github.com/aws/aws-sdk-go-v2/service/servicediscovery/types"
 	"github.com/aws/smithy-go"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -79,7 +80,7 @@ func cmService(t *testing.T, client *servicediscovery.Client, nsID, name string)
 func TestCloudMap_ListNamespaces(t *testing.T) {
 	t.Parallel()
 	client := cmClient()
-	prefix := uniqueName("list-ns")
+	prefix := uniquename.New("list-ns")
 	httpName := prefix + "-http"
 	nameA := prefix + "-a.local"
 

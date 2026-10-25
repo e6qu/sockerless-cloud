@@ -9,6 +9,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/aws/smithy-go"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -424,7 +425,7 @@ func TestEC2_RunInstancesClientTokenReplayReportsLaunchState(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	token := uniqueName("replay-token-run-instances")
+	token := uniquename.New("replay-token-run-instances")
 	input := &ec2.RunInstancesInput{
 		ImageId:      aws.String(ec2AmazonLinuxAMI(t)),
 		InstanceType: types.InstanceTypeT3Micro,

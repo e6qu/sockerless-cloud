@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -89,7 +90,7 @@ func cosmosSeedDoc(t *testing.T, account, coll, doc string) {
 // current continuation when nothing changed is 304 Not Modified.
 func TestCosmosChangeFeed_Incremental(t *testing.T) {
 	t.Parallel()
-	account := uniqueAlnumName("sdkcosmoschangefeed")
+	account := uniquename.Alnum("sdkcosmoschangefeed")
 	coll := "events"
 
 	cosmosSeedDoc(t, account, coll, `{"id":"e1","pk":"p","seq":1}`)
@@ -124,7 +125,7 @@ func TestCosmosChangeFeed_Incremental(t *testing.T) {
 // every document one page at a time via the advancing continuation, in order.
 func TestCosmosChangeFeed_Paginated(t *testing.T) {
 	t.Parallel()
-	account := uniqueAlnumName("sdkcosmoschangefeedpage")
+	account := uniquename.Alnum("sdkcosmoschangefeedpage")
 	coll := "log"
 
 	want := []string{"a", "b", "c", "d"}

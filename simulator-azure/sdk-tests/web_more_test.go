@@ -7,6 +7,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/appservice/armappservice/v5"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/msi/armmsi"
+	"github.com/e6qu/sockerless-cloud/testutil/githttp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -238,8 +239,8 @@ func TestSDK_WebMore_SiteSubResources(t *testing.T) {
 	}
 
 	// Source control round-trip.
-	repo := startGitHTTPRepo(t, "webmore")
-	repo.commit("main", "Initial content", map[string]string{"index.html": "webmore"})
+	repo := githttp.StartRepo(t, "webmore")
+	repo.Commit("main", "Initial content", map[string]string{"index.html": "webmore"})
 	scPoller, err := client.BeginCreateOrUpdateSourceControl(ctx, rg, name, armappservice.SiteSourceControl{
 		Properties: &armappservice.SiteSourceControlProperties{
 			RepoURL: to.Ptr(repo.URL),

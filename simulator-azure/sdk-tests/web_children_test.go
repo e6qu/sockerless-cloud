@@ -17,6 +17,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/appservice/armappservice/v5"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/keyvault/armkeyvault"
 	"github.com/Azure/azure-sdk-for-go/sdk/security/keyvault/azsecrets"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -288,8 +289,8 @@ func TestSDK_WebChildren_PremierAddOns(t *testing.T) {
 
 func TestSDK_WebChildren_PushSettings(t *testing.T) {
 	t.Parallel()
-	wcPushSiteName := uniqueName("wc-push-site")
-	rg := uniqueName("webchild-push-rg")
+	wcPushSiteName := uniquename.New("wc-push-site")
+	rg := uniquename.New("webchild-push-rg")
 	ensureRG(t, rg)
 	planID := webMoreEnsurePlan(t, rg, "wc-push-plan")
 

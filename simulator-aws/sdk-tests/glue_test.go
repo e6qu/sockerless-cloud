@@ -13,6 +13,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/glue"
 	gluetypes "github.com/aws/aws-sdk-go-v2/service/glue/types"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -1206,8 +1207,8 @@ func TestGlue_TableVersions_SDK(t *testing.T) {
 func TestGlue_ColumnStatistics_SDK(t *testing.T) {
 	t.Parallel()
 	c := glueClient()
-	db := uniqueName("glue-sdk-stats-db")
-	tbl := uniqueName("glue-sdk-stats-tbl")
+	db := uniquename.New("glue-sdk-stats-db")
+	tbl := uniquename.New("glue-sdk-stats-tbl")
 
 	_, err := c.CreateDatabase(ctx, &glue.CreateDatabaseInput{
 		DatabaseInput: &gluetypes.DatabaseInput{Name: aws.String(db)},

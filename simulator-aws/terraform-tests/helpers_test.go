@@ -24,6 +24,7 @@ import (
 	"github.com/e6qu/sockerless-cloud/testutil/httpsgateway"
 	"github.com/e6qu/sockerless-cloud/testutil/simready"
 
+	"github.com/e6qu/sockerless-cloud/testutil/scratchimage"
 	"github.com/stretchr/testify/require"
 )
 
@@ -79,9 +80,13 @@ func TestMain(m *testing.M) {
 	}
 
 	lambdaHandlerDir, _ := filepath.Abs("../../testdata/lambda-runtime-handler")
-	buildGoScratchImage("sockerless-lambda-runtime-handler:aws-terraform", lambdaHandlerDir, "lambda-runtime-handler", nativeDockerPlatform())
+	if err := scratchimage.Build("sockerless-lambda-runtime-handler:aws-terraform", lambdaHandlerDir, "lambda-runtime-handler", scratchimage.NativePlatform(), ""); err != nil {
+		log.Fatal(err)
+	}
 	containerCommandDir, _ := filepath.Abs("../../testdata/container-command")
-	buildGoScratchImage("sockerless-container-command:aws-terraform", containerCommandDir, "container-command", nativeDockerPlatform())
+	if err := scratchimage.Build("sockerless-container-command:aws-terraform", containerCommandDir, "container-command", scratchimage.NativePlatform(), ""); err != nil {
+		log.Fatal(err)
+	}
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -266,47 +271,6 @@ func reapSubprocessesOnSignal() {
 		signal.Reset(sig.(syscall.Signal))
 		_ = syscall.Kill(syscall.Getpid(), sig.(syscall.Signal))
 	}()
-}
-
-func nativeDockerPlatform() string {
-	return "linux/" + runtime.GOARCH
-}
-
-func buildGoScratchImage(imageName, sourceDir, binaryName, platform string) {
-	buildDir, err := os.MkdirTemp("", "sockerless-aws-image-*")
-	if err != nil {
-		log.Fatalf("Failed to create image build dir: %v", err)
-	}
-	defer os.RemoveAll(buildDir)
-
-	binaryPath := filepath.Join(buildDir, binaryName)
-	build := exec.Command("go", "build", "-o", binaryPath, ".")
-	build.Dir = sourceDir
-	build.Env = append(os.Environ(),
-		"CGO_ENABLED=0",
-		"GOOS=linux",
-		"GOARCH="+runtime.GOARCH,
-	)
-	if out, err := build.CombinedOutput(); err != nil {
-		log.Fatalf("Failed to build %s binary: %v\n%s", binaryName, err, out)
-	}
-
-	dockerfile := fmt.Sprintf(`FROM scratch
-COPY %s /usr/local/bin/%s
-ENTRYPOINT ["/usr/local/bin/%s"]
-`, binaryName, binaryName, binaryName)
-	var args []string
-	if exec.Command("docker", "buildx", "version").Run() == nil {
-		args = []string{"buildx", "build", "--load"}
-	} else {
-		args = []string{"build"}
-	}
-	args = append(args, "--platform", platform, "-t", imageName, "-f", "-", buildDir)
-	dockerBuild := exec.Command("docker", args...)
-	dockerBuild.Stdin = strings.NewReader(dockerfile)
-	if out, err := dockerBuild.CombinedOutput(); err != nil {
-		log.Fatalf("Failed to build %s Docker image: %v\n%s", binaryName, err, out)
-	}
 }
 
 func terraformCmd(args ...string) *exec.Cmd {

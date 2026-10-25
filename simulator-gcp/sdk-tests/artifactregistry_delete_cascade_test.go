@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -36,7 +37,7 @@ func arPushImage(t *testing.T, repo, tag, content string) string {
 // Docker images and their manifests.
 func TestArtifactRegistry_DeletesCascadeAcrossPlanes(t *testing.T) {
 	t.Parallel()
-	repoID := uniqueName("cascade-repo")
+	repoID := uniquename.New("cascade-repo")
 	arCreateRepository(t, "test-project", "us-central1", repoID)
 	svc := arAdminService(t)
 	repoName := "projects/test-project/locations/us-central1/repositories/" + repoID

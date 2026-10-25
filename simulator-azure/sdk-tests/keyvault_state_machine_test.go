@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/security/keyvault/azsecrets"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -20,7 +21,7 @@ import (
 func TestKeyVault_State_FullVersionChain(t *testing.T) {
 	t.Parallel()
 	rg := "kv-state-versions-rg"
-	vault := uniqueAlnumName("kvversions")
+	vault := uniquename.Alnum("kvversions")
 	createKVViaARM(t, rg, vault)
 
 	c, err := azsecrets.NewClient(kvVaultURL(vault), &fakeCredential{},
@@ -86,7 +87,7 @@ func TestKeyVault_State_FullVersionChain(t *testing.T) {
 func TestKeyVault_State_VersionListOrder(t *testing.T) {
 	t.Parallel()
 	rg := "kv-state-order-rg"
-	vault := uniqueAlnumName("kvorder")
+	vault := uniquename.Alnum("kvorder")
 	createKVViaARM(t, rg, vault)
 
 	c, err := azsecrets.NewClient(kvVaultURL(vault), &fakeCredential{},
@@ -140,7 +141,7 @@ func TestKeyVault_State_VersionListOrder(t *testing.T) {
 func TestKeyVault_State_SoftDeleteRoundTrip(t *testing.T) {
 	t.Parallel()
 	rg := "kv-state-softdel-rg"
-	vault := uniqueAlnumName("kvsoftdel")
+	vault := uniquename.Alnum("kvsoftdel")
 	createKVViaARM(t, rg, vault)
 
 	c, err := azsecrets.NewClient(kvVaultURL(vault), &fakeCredential{},

@@ -7,6 +7,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -165,7 +166,7 @@ func TestEC2_CapacityReservationFleetLifecycle(t *testing.T) {
 func TestEC2_FleetLifecycle(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
-	ltID := createFleetLaunchTemplate(t, c, uniqueName("fleet-lt-sdk"))
+	ltID := createFleetLaunchTemplate(t, c, uniquename.New("fleet-lt-sdk"))
 
 	created, err := c.CreateFleet(ctx, &ec2.CreateFleetInput{
 		Type: types.FleetTypeMaintain,

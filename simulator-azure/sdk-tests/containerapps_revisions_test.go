@@ -11,6 +11,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/appcontainers/armappcontainers/v3"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -94,7 +95,7 @@ func updateContainerApp(t *testing.T, client *armappcontainers.ContainerAppsClie
 // revision as an inactive one, up to maxInactiveRevisions.
 func TestSDK_ContainerAppsRevisions_SingleModeTemplateChangesCreateRevisions(t *testing.T) {
 	t.Parallel()
-	rg, name := uniqueName("sdk-aca-rev-single-rg"), uniqueName("revsingle")
+	rg, name := uniquename.New("sdk-aca-rev-single-rg"), uniquename.New("revsingle")
 	ensureRG(t, rg)
 	client, err := armappcontainers.NewContainerAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
@@ -182,7 +183,7 @@ func TestSDK_ContainerAppsRevisions_SingleModeTemplateChangesCreateRevisions(t *
 // deactivated, activated and restarted on its own.
 func TestSDK_ContainerAppsRevisions_MultipleModeSplitsTraffic(t *testing.T) {
 	t.Parallel()
-	rg, name := uniqueName("sdk-aca-rev-multi-rg"), uniqueName("revmulti")
+	rg, name := uniquename.New("sdk-aca-rev-multi-rg"), uniquename.New("revmulti")
 	ensureRG(t, rg)
 	client, err := armappcontainers.NewContainerAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)

@@ -10,6 +10,7 @@ import (
 
 	run "cloud.google.com/go/run/apiv2"
 	"cloud.google.com/go/run/apiv2/runpb"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/iterator"
@@ -50,7 +51,7 @@ func TestSDK_CloudRunV2Services_ListPaginationAndWireShape(t *testing.T) {
 	client := newServicesClient(t)
 	parent := "projects/test-project/locations/us-central1"
 
-	for _, id := range []string{uniqueName("v2-svc-page-a"), uniqueName("v2-svc-page-b")} {
+	for _, id := range []string{uniquename.New("v2-svc-page-a"), uniquename.New("v2-svc-page-b")} {
 		op, err := client.CreateService(ctx, &runpb.CreateServiceRequest{
 			Parent:    parent,
 			ServiceId: id,
@@ -157,7 +158,7 @@ func TestSDK_CloudRunServiceV1V2AreOneResource(t *testing.T) {
 
 func TestSDK_CloudRunV2Service_OperationMetadataAndTimestampShape(t *testing.T) {
 	t.Parallel()
-	serviceID := uniqueName("v2-svc-lro-shape")
+	serviceID := uniquename.New("v2-svc-lro-shape")
 	cleanupService(t, newServicesClient(t), "projects/test-project/locations/us-central1/services/"+serviceID)
 	body := strings.NewReader(`{"template":{"containers":[{"image":"gcr.io/test-project/raw"}]}}`)
 	resp, err := http.Post(baseURL+"/v2/projects/test-project/locations/us-central1/services?serviceId="+serviceID, "application/json", body)
@@ -180,7 +181,7 @@ func TestSDK_CloudRunV2Service_OperationMetadataAndTimestampShape(t *testing.T) 
 func TestSDK_CloudRunV2Services_CreateGetListDelete(t *testing.T) {
 	t.Parallel()
 	client := newServicesClient(t)
-	serviceID := uniqueName("v2-svc-roundtrip")
+	serviceID := uniquename.New("v2-svc-roundtrip")
 
 	createOp, err := client.CreateService(ctx, &runpb.CreateServiceRequest{
 		Parent:    "projects/test-project/locations/us-central1",
@@ -500,7 +501,7 @@ func TestSDK_CloudRunV2Services_UpdateBumpsGeneration(t *testing.T) {
 
 	createOp, err := client.CreateService(ctx, &runpb.CreateServiceRequest{
 		Parent:    "projects/test-project/locations/us-central1",
-		ServiceId: uniqueName("v2-svc-update"),
+		ServiceId: uniquename.New("v2-svc-update"),
 		Service: &runpb.Service{
 			Template: &runpb.RevisionTemplate{
 				Containers: []*runpb.Container{{Image: "gcr.io/test-project/v1"}},

@@ -12,6 +12,7 @@ import (
 	"cloud.google.com/go/logging/logadmin"
 	"cloud.google.com/go/pubsub/apiv1/pubsubpb"
 	"cloud.google.com/go/run/apiv2/runpb"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/oauth2"
@@ -147,15 +148,15 @@ func TestEventarc_AuditLogTriggerDeliversToCloudRun(t *testing.T) {
 			Image: httpProbeImageName, Args: []string{"log-cloudevent"},
 		}}}})
 	serviceID := svc.Name[strings.LastIndex(svc.Name, "/")+1:]
-	triggerAccount := createServiceAccount(t, project, uniqueName("ea-trig"))
+	triggerAccount := createServiceAccount(t, project, uniquename.New("ea-trig"))
 	grantOnService(t, runClient, svc.Name, "roles/run.invoker", "serviceAccount:"+triggerAccount, nil)
-	caller := createServiceAccount(t, project, uniqueName("ea-call"))
+	caller := createServiceAccount(t, project, uniquename.New("ea-call"))
 	grantOnProject(t, project, "roles/storage.admin", "serviceAccount:"+caller)
 
-	bucket := uniqueName("audit-trigger-bucket")
+	bucket := uniquename.New("audit-trigger-bucket")
 	client := eventarcClient(t)
 	parent := "projects/" + project + "/locations/" + region
-	triggerID := uniqueName("audit-trigger")
+	triggerID := uniquename.New("audit-trigger")
 	create, err := client.CreateTrigger(ctx, &eventarcpb.CreateTriggerRequest{
 		Parent:    parent,
 		TriggerId: triggerID,
@@ -253,7 +254,7 @@ func TestAuditLogs_DataAccessAndRPCMethods(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, policy.AuditConfigs, 1, "the policy keeps the auditConfigs the mask named")
 
-	bucket := uniqueName("audit-data-bucket")
+	bucket := uniquename.New("audit-data-bucket")
 	svc := storageService(t)
 	mustCreateBucket(t, svc, bucket)
 	t.Cleanup(func() { assert.NoError(t, svc.Buckets.Delete(bucket).Do()) })
@@ -269,7 +270,7 @@ func TestAuditLogs_DataAccessAndRPCMethods(t *testing.T) {
 	assert.Empty(t, auditLogEntries(t, "data_access", `protoPayload.methodName="storage.buckets.get" AND protoPayload.resourceName="projects/_/buckets/`+bucket+`"`),
 		"ADMIN_READ stays off")
 
-	topic := "projects/" + project + "/topics/" + uniqueName("audit-topic")
+	topic := "projects/" + project + "/topics/" + uniquename.New("audit-topic")
 	publisher, _ := psRawClient(t)
 	_, err = publisher.CreateTopic(ctx, &pubsubpb.Topic{Name: topic})
 	require.NoError(t, err)

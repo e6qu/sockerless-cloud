@@ -5,6 +5,7 @@ import (
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/postgresql/armpostgresqlflexibleservers/v4"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -18,7 +19,7 @@ import (
 func TestAzurePGFlexibleServer_CompletionSurfaces(t *testing.T) {
 	t.Parallel()
 	rg := "pg-completion-rg"
-	server := uniqueName("pg-completion-srv")
+	server := uniquename.New("pg-completion-srv")
 	loc := "eastus"
 	createResourceGroup(t, rg)
 	pgCreateServer(t, rg, server)

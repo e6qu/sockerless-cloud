@@ -8,6 +8,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/rds"
 	rdstypes "github.com/aws/aws-sdk-go-v2/service/rds/types"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -38,7 +39,7 @@ func describeRDSCapacityReservation(t *testing.T, c *rds.Client, id string) *rds
 func TestRDS_DBCapacityReservations(t *testing.T) {
 	t.Parallel()
 	c := rdsClient()
-	name := uniqueName("sdk-dbcr")
+	name := uniquename.New("sdk-dbcr")
 	created, err := c.CreateDBCapacityReservation(ctx, &rds.CreateDBCapacityReservationInput{
 		DBCapacityReservationName:   aws.String(name),
 		DBInstanceClass:             aws.String("db.m5.large"),
@@ -74,7 +75,7 @@ func TestRDS_DBCapacityReservations(t *testing.T) {
 	})
 	assertAWSAPIErrorCode(t, err, "DBCapacityReservationAlreadyExists")
 
-	instID := uniqueName("sdk-dbcr-db")
+	instID := uniquename.New("sdk-dbcr-db")
 	launched, err := c.CreateDBInstance(ctx, &rds.CreateDBInstanceInput{
 		DBInstanceIdentifier:            aws.String(instID),
 		Engine:                          aws.String("oracle-ee"),
@@ -94,7 +95,7 @@ func TestRDS_DBCapacityReservations(t *testing.T) {
 	assert.Equal(t, map[string]int32{"us-east-1a": 1, "us-east-1b": 0}, rdsAvailableCapacity(describeRDSCapacityReservation(t, c, id)))
 
 	_, err = c.CreateDBInstance(ctx, &rds.CreateDBInstanceInput{
-		DBInstanceIdentifier:            aws.String(uniqueName("sdk-dbcr-full")),
+		DBInstanceIdentifier:            aws.String(uniquename.New("sdk-dbcr-full")),
 		Engine:                          aws.String("oracle-ee"),
 		DBInstanceClass:                 aws.String("db.m5.large"),
 		AllocatedStorage:                aws.Int32(20),
@@ -105,7 +106,7 @@ func TestRDS_DBCapacityReservations(t *testing.T) {
 	})
 	assertAWSAPIErrorCode(t, err, "InsufficientDBInstanceCapacity")
 	_, err = c.CreateDBInstance(ctx, &rds.CreateDBInstanceInput{
-		DBInstanceIdentifier:            aws.String(uniqueName("sdk-dbcr-class")),
+		DBInstanceIdentifier:            aws.String(uniquename.New("sdk-dbcr-class")),
 		Engine:                          aws.String("oracle-ee"),
 		DBInstanceClass:                 aws.String("db.r5.large"),
 		AllocatedStorage:                aws.Int32(20),
@@ -181,7 +182,7 @@ func TestRDS_FutureDatedDBCapacityReservation(t *testing.T) {
 	c := rdsClient()
 	start := time.Now().UTC().Add(10 * 24 * time.Hour).Truncate(time.Second)
 	created, err := c.CreateDBCapacityReservation(ctx, &rds.CreateDBCapacityReservationInput{
-		DBCapacityReservationName:   aws.String(uniqueName("sdk-dbcr-future")),
+		DBCapacityReservationName:   aws.String(uniquename.New("sdk-dbcr-future")),
 		DBInstanceClass:             aws.String("db.m7g.xlarge"),
 		Engine:                      aws.String("postgres"),
 		CapacityPerAvailabilityZone: aws.Int32(8),
@@ -206,7 +207,7 @@ func TestRDS_FutureDatedDBCapacityReservation(t *testing.T) {
 	assertAWSAPIErrorCode(t, err, "InvalidDBCapacityReservationState")
 
 	_, err = c.CreateDBCapacityReservation(ctx, &rds.CreateDBCapacityReservationInput{
-		DBCapacityReservationName:   aws.String(uniqueName("sdk-dbcr-small")),
+		DBCapacityReservationName:   aws.String(uniquename.New("sdk-dbcr-small")),
 		DBInstanceClass:             aws.String("db.m7g.xlarge"),
 		Engine:                      aws.String("postgres"),
 		CapacityPerAvailabilityZone: aws.Int32(7),

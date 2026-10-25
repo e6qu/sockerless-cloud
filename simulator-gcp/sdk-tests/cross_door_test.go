@@ -12,6 +12,7 @@ import (
 	pubsubpb "cloud.google.com/go/pubsub/apiv1/pubsubpb"
 	secretmanagerpb "cloud.google.com/go/secretmanager/apiv1/secretmanagerpb"
 	sppb "cloud.google.com/go/spanner/apiv1/spannerpb"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	bigtableadmin "google.golang.org/api/bigtableadmin/v2"
@@ -232,8 +233,8 @@ func TestCrossDoor_PubSub(t *testing.T) {
 	ensureProject(t, "cross-door-pubsub")
 	rest := pubsubService(t)
 	const project = "projects/cross-door-pubsub"
-	topicName := project + "/topics/" + uniqueName("crossing")
-	subName := project + "/subscriptions/" + uniqueName("crossing-sub")
+	topicName := project + "/topics/" + uniquename.New("crossing")
+	subName := project + "/subscriptions/" + uniquename.New("crossing-sub")
 
 	// Topic and subscription created over REST.
 	_, err := rest.Projects.Topics.Create(topicName, &pubsub.Topic{}).Do()

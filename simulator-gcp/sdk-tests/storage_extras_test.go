@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/googleapi"
@@ -93,7 +94,7 @@ func mustCreateBucket(t *testing.T, svc *storageapi.Service, name string) {
 
 func TestGCS_BucketACL_RoundTrip(t *testing.T) {
 	t.Parallel()
-	bucketAclBucket := uniqueName("acl-bucket")
+	bucketAclBucket := uniquename.New("acl-bucket")
 	svc := storageService(t)
 	mustCreateBucket(t, svc, bucketAclBucket)
 
@@ -134,7 +135,7 @@ func TestGCS_BucketACL_RoundTrip(t *testing.T) {
 
 func TestGCS_DefaultObjectACL_RoundTrip(t *testing.T) {
 	t.Parallel()
-	bucketDefaclBucket := uniqueName("defacl-bucket")
+	bucketDefaclBucket := uniquename.New("defacl-bucket")
 	svc := storageService(t)
 	mustCreateBucket(t, svc, bucketDefaclBucket)
 
@@ -187,12 +188,12 @@ func TestGCS_Notifications_RoundTrip(t *testing.T) {
 	// A project of its own: the test asserts what Cloud Storage's service
 	// agent may not do, and other tests grant the agent of test-project
 	// publishing rights on the whole project.
-	project := uniqueName("notif-project")
+	project := uniquename.New("notif-project")
 	number := requireProject(t, project)
-	bucket := uniqueName("notif-bucket")
+	bucket := uniquename.New("notif-bucket")
 	_, err := svc.Buckets.Insert(project, &storageapi.Bucket{Name: bucket}).Do()
 	require.NoError(t, err)
-	topicName := "projects/" + project + "/topics/" + uniqueName("notif-topic")
+	topicName := "projects/" + project + "/topics/" + uniquename.New("notif-topic")
 	topic := "//pubsub.googleapis.com/" + topicName
 	notification := &storageapi.Notification{
 		Topic:         topic,
@@ -300,13 +301,13 @@ func TestGCS_ServiceAccount(t *testing.T) {
 		assert.Equal(t, want, sa.EmailAddress)
 	}
 
-	bucket := uniqueName("numbered-bucket")
+	bucket := uniquename.New("numbered-bucket")
 	mustCreateBucket(t, svc, bucket)
 	got, err := svc.Buckets.Get(bucket).Do()
 	require.NoError(t, err)
 	assert.Equal(t, number, strconv.FormatUint(got.ProjectNumber, 10))
 
-	_, err = svc.Buckets.Insert("no-such-project", &storageapi.Bucket{Name: uniqueName("orphan-bucket")}).Do()
+	_, err = svc.Buckets.Insert("no-such-project", &storageapi.Bucket{Name: uniquename.New("orphan-bucket")}).Do()
 	var apiErr *googleapi.Error
 	require.ErrorAs(t, err, &apiErr)
 	assert.Equal(t, http.StatusBadRequest, apiErr.Code)
@@ -315,7 +316,7 @@ func TestGCS_ServiceAccount(t *testing.T) {
 
 func TestGCS_Folders_RoundTrip(t *testing.T) {
 	t.Parallel()
-	bucketFoldersBucket := uniqueName("folders-bucket")
+	bucketFoldersBucket := uniquename.New("folders-bucket")
 	svc := storageService(t)
 	mustCreateBucket(t, svc, bucketFoldersBucket)
 
@@ -358,7 +359,7 @@ func TestGCS_Folders_RoundTrip(t *testing.T) {
 
 func TestGCS_ManagedFolders_RoundTrip(t *testing.T) {
 	t.Parallel()
-	bucketMfBucket := uniqueName("mf-bucket")
+	bucketMfBucket := uniquename.New("mf-bucket")
 	svc := storageService(t)
 	mustCreateBucket(t, svc, bucketMfBucket)
 
@@ -401,7 +402,7 @@ func TestGCS_ManagedFolders_RoundTrip(t *testing.T) {
 
 func TestGCS_BucketIAM_TestPermissions(t *testing.T) {
 	t.Parallel()
-	bucketIamPermsBucket := uniqueName("iam-perms-bucket")
+	bucketIamPermsBucket := uniquename.New("iam-perms-bucket")
 	svc := storageService(t)
 	mustCreateBucket(t, svc, bucketIamPermsBucket)
 
@@ -432,7 +433,7 @@ func TestGCS_BucketIAM_TestPermissions(t *testing.T) {
 // hold is NOT_FOUND from both rather than an invented resource.
 func TestGCS_BucketLockRetentionPolicy(t *testing.T) {
 	t.Parallel()
-	bucketLockBucket := uniqueName("lock-bucket")
+	bucketLockBucket := uniquename.New("lock-bucket")
 	svc := storageService(t)
 	mustCreateBucket(t, svc, bucketLockBucket)
 
@@ -467,7 +468,7 @@ func TestGCS_BucketLockRetentionPolicy(t *testing.T) {
 
 func TestGCS_AnywhereCaches_RoundTrip(t *testing.T) {
 	t.Parallel()
-	bucketCacheBucket := uniqueName("cache-bucket")
+	bucketCacheBucket := uniquename.New("cache-bucket")
 	svc := storageService(t)
 	mustCreateBucket(t, svc, bucketCacheBucket)
 
@@ -519,7 +520,7 @@ func TestGCS_AnywhereCaches_RoundTrip(t *testing.T) {
 // alike.
 func TestGCS_BucketOperations_ReportRecordedWork(t *testing.T) {
 	t.Parallel()
-	bucketOpsBucket := uniqueName("ops-bucket")
+	bucketOpsBucket := uniquename.New("ops-bucket")
 	svc := storageService(t)
 	mustCreateBucket(t, svc, bucketOpsBucket)
 
@@ -607,8 +608,8 @@ func TestGCS_BucketOperations_ReportRecordedWork(t *testing.T) {
 // another bucket's collection.
 func TestGCS_BucketOperations_AreParentedByTheirBucket(t *testing.T) {
 	t.Parallel()
-	bucketOpsParentA := uniqueName("ops-parent-a")
-	bucketOpsParentB := uniqueName("ops-parent-b")
+	bucketOpsParentA := uniquename.New("ops-parent-a")
+	bucketOpsParentB := uniquename.New("ops-parent-b")
 	svc := storageService(t)
 	mustCreateBucket(t, svc, bucketOpsParentA)
 	mustCreateBucket(t, svc, bucketOpsParentB)
@@ -632,7 +633,7 @@ func TestGCS_BucketOperations_AreParentedByTheirBucket(t *testing.T) {
 // in the same collection the relocation does.
 func TestGCS_BucketOperations_RecordEveryLongRunningMethod(t *testing.T) {
 	t.Parallel()
-	bucketOpsLroBucket := uniqueName("ops-lro-bucket")
+	bucketOpsLroBucket := uniquename.New("ops-lro-bucket")
 	svc := storageService(t)
 	mustCreateBucket(t, svc, bucketOpsLroBucket)
 
@@ -661,7 +662,7 @@ func TestGCS_BucketOperations_RecordEveryLongRunningMethod(t *testing.T) {
 // leaves it where it is.
 func TestGCS_BucketRelocate(t *testing.T) {
 	t.Parallel()
-	bucketRelocateBucket := uniqueName("relocate-bucket")
+	bucketRelocateBucket := uniquename.New("relocate-bucket")
 	svc := storageService(t)
 	mustCreateBucket(t, svc, bucketRelocateBucket)
 
@@ -698,7 +699,7 @@ func TestGCS_BucketRelocate(t *testing.T) {
 
 func TestGCS_ObjectInsertMetadataOnly(t *testing.T) {
 	t.Parallel()
-	bucketObjInsertBucket := uniqueName("obj-insert-bucket")
+	bucketObjInsertBucket := uniquename.New("obj-insert-bucket")
 	svc := storageService(t)
 	mustCreateBucket(t, svc, bucketObjInsertBucket)
 

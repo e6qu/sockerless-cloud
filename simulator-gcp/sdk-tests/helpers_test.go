@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	mathrand "math/rand/v2"
 	"net"
 	"net/http"
 	"net/url"
@@ -13,7 +12,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -24,6 +22,8 @@ import (
 	"github.com/e6qu/sockerless-cloud/testutil/baseimage"
 	"github.com/e6qu/sockerless-cloud/testutil/simready"
 
+	"github.com/e6qu/sockerless-cloud/testutil/freeports"
+	"github.com/e6qu/sockerless-cloud/testutil/scratchimage"
 	"golang.org/x/oauth2"
 	"google.golang.org/api/option"
 )
@@ -66,15 +66,19 @@ func TestMain(m *testing.M) {
 		log.Fatalf("Failed to build simulator: %v\n%s", err, out)
 	}
 
-	workloadPlatform := nativeDockerPlatform()
+	workloadPlatform := scratchimage.NativePlatform()
 
 	evalDir, _ := filepath.Abs("../../testdata/eval-arithmetic")
 	evalImageName = "sockerless-eval-arithmetic:gcp-sdk"
-	buildGoScratchImage(evalImageName, evalDir, "eval-arithmetic", workloadPlatform)
+	if err := scratchimage.Build(evalImageName, evalDir, "eval-arithmetic", workloadPlatform, ""); err != nil {
+		log.Fatal(err)
+	}
 
 	commandDir, _ := filepath.Abs("../../testdata/container-command")
 	commandImageName = "sockerless-container-command:gcp-sdk"
-	buildGoScratchImage(commandImageName, commandDir, "container-command", workloadPlatform)
+	if err := scratchimage.Build(commandImageName, commandDir, "container-command", workloadPlatform, ""); err != nil {
+		log.Fatal(err)
+	}
 
 	// The Cloud SQL data plane boots real engines from these images at first
 	// connection. Pulling them inside the timed test made a live registry a
@@ -94,11 +98,15 @@ func TestMain(m *testing.M) {
 
 	probeDir, _ := filepath.Abs("../../testdata/http-localhost-probe")
 	httpProbeImageName = "sockerless-http-localhost-probe:gcp-sdk"
-	buildGoScratchImage(httpProbeImageName, probeDir, "http-localhost-probe", workloadPlatform)
+	if err := scratchimage.Build(httpProbeImageName, probeDir, "http-localhost-probe", workloadPlatform, ""); err != nil {
+		log.Fatal(err)
+	}
 
 	metadataClientDir, _ := filepath.Abs("testdata/metadata-client")
 	metadataClientImageName = "sockerless-metadata-client:gcp-sdk"
-	buildGoScratchImage(metadataClientImageName, metadataClientDir, "metadata-client", workloadPlatform)
+	if err := scratchimage.Build(metadataClientImageName, metadataClientDir, "metadata-client", workloadPlatform, ""); err != nil {
+		log.Fatal(err)
+	}
 
 	// The Cloud Run job tests run this image as their workload, so it is
 	// acquired here, with retries, and its absence fails the run: a pull that
@@ -126,7 +134,7 @@ func TestMain(m *testing.M) {
 	ln.Close()
 	ln2.Close()
 
-	dnsPort, err := freeTCPUDPPort()
+	dnsPort, err := freeports.TCPUDP()
 	if err != nil {
 		log.Fatalf("Failed to find a free DNS port: %v", err)
 	}
@@ -346,54 +354,6 @@ func (f simTokenFetcher) Token() (*oauth2.Token, error) {
 	}, nil
 }
 
-func nativeDockerPlatform() string {
-	return "linux/" + runtime.GOARCH
-}
-
-func buildGoScratchImage(imageName, sourceDir, binaryName, platform string) {
-	buildDir, err := os.MkdirTemp("", "sockerless-gcp-image-*")
-	if err != nil {
-		log.Fatalf("Failed to create image build dir: %v", err)
-	}
-	defer os.RemoveAll(buildDir)
-
-	binaryPath := filepath.Join(buildDir, binaryName)
-	build := exec.Command("go", "build", "-o", binaryPath, ".")
-	build.Dir = sourceDir
-	build.Env = append(os.Environ(),
-		"CGO_ENABLED=0",
-		"GOWORK=off",
-		"GOOS=linux",
-		"GOARCH="+runtime.GOARCH,
-	)
-	if out, err := build.CombinedOutput(); err != nil {
-		log.Fatalf("Failed to build %s workload binary: %v\n%s", binaryName, err, out)
-	}
-
-	dockerfile := fmt.Sprintf(`FROM scratch
-COPY %s /usr/local/bin/%s
-ENTRYPOINT ["/usr/local/bin/%s"]
-`, binaryName, binaryName, binaryName)
-	// On a docker-container buildx driver (the default on many dev machines),
-	// `docker build -t` leaves the image in the build cache only — never the
-	// daemon store — so the sim's container start can't find it. `docker buildx
-	// build --load` materializes it into the daemon store. The legacy builder
-	// builds into the store natively and rejects the buildx-only `--load`, so
-	// omit it there.
-	var args []string
-	if exec.Command("docker", "buildx", "version").Run() == nil {
-		args = []string{"buildx", "build", "--load"}
-	} else {
-		args = []string{"build"}
-	}
-	args = append(args, "--platform", platform, "-t", imageName, "-f", "-", buildDir)
-	dockerBuild := exec.Command("docker", args...)
-	dockerBuild.Stdin = strings.NewReader(dockerfile)
-	if out, err := dockerBuild.CombinedOutput(); err != nil {
-		log.Fatalf("Failed to build %s Docker image: %v\n%s", imageName, err, out)
-	}
-}
-
 // simWorkloadImage is the base image these suites run as a container workload
 // and build from. It is served from mirror.gcr.io, which is a registry CI
 // warms from a cached tarball (scripts/base-images-for.sh derives that set by
@@ -436,32 +396,6 @@ func testRunSelects(name string) bool {
 		log.Fatalf("Invalid -test.run expression %q: %v", pattern, err)
 	}
 	return selected
-}
-
-// uniqueName suffixes prefix with a random id, so a test run twice against one
-// simulator creates new resources rather than colliding with its last run's.
-func uniqueName(prefix string) string {
-	return fmt.Sprintf("%s-%08x", prefix, mathrand.Uint32())
-}
-
-// freeTCPUDPPort finds a port free on both protocols, which a DNS server binds.
-func freeTCPUDPPort() (int, error) {
-	const attempts = 100
-	for range attempts {
-		tcpListener, err := net.Listen("tcp4", "127.0.0.1:0")
-		if err != nil {
-			return 0, err
-		}
-		port := tcpListener.Addr().(*net.TCPAddr).Port
-		udpListener, udpErr := net.ListenPacket("udp4", fmt.Sprintf("127.0.0.1:%d", port))
-		_ = tcpListener.Close()
-		if udpErr != nil {
-			continue
-		}
-		_ = udpListener.Close()
-		return port, nil
-	}
-	return 0, fmt.Errorf("could not find a port available on both TCP and UDP after %d attempts", attempts)
 }
 
 // debianCatalogImage is the OCI image the simulator's public catalog boots a

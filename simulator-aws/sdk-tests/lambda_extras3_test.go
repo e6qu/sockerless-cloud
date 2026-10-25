@@ -9,6 +9,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
 	"github.com/aws/aws-sdk-go-v2/service/lambda"
 	lambdatypes "github.com/aws/aws-sdk-go-v2/service/lambda/types"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -288,7 +289,7 @@ func TestLambda_InvokeWithResponseStream(t *testing.T) {
 func TestLambda_DurableExecutionLifecycle(t *testing.T) {
 	t.Parallel()
 	lc := lambdaClient()
-	fn := uniqueName("extras3-durable-fn")
+	fn := uniquename.New("extras3-durable-fn")
 	_, err := lc.CreateFunction(ctx, &lambda.CreateFunctionInput{
 		FunctionName: aws.String(fn),
 		Role:         aws.String(serviceRole(t, "lambda.amazonaws.com")),
@@ -434,7 +435,7 @@ func TestLambda_DurableExecutionLifecycle(t *testing.T) {
 func TestLambda_DurableCheckpointAndCallbackReplay(t *testing.T) {
 	t.Parallel()
 	lc := lambdaClient()
-	fn := uniqueName("extras3-durable-callback-fn")
+	fn := uniquename.New("extras3-durable-callback-fn")
 	source := `
 exports.handler = async (event) => {
   const callback = event.InitialExecutionState.Operations.find(

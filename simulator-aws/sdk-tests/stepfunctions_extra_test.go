@@ -10,6 +10,7 @@ import (
 	lambdatypes "github.com/aws/aws-sdk-go-v2/service/lambda/types"
 	"github.com/aws/aws-sdk-go-v2/service/sfn"
 	sfntypes "github.com/aws/aws-sdk-go-v2/service/sfn/types"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -119,8 +120,8 @@ func TestSFN_LambdaTaskHistory_SDK(t *testing.T) {
 // discoverable child execution.
 func TestSFN_NestedWorkflowIntegration_SDK(t *testing.T) {
 	t.Parallel()
-	parentName := uniqueName("sfn-sdk-nested-parent")
-	childName := uniqueName("sfn-sdk-nested-child")
+	parentName := uniquename.New("sfn-sdk-nested-parent")
+	childName := uniquename.New("sfn-sdk-nested-child")
 	c := sfnClient()
 	child, err := c.CreateStateMachine(ctx, &sfn.CreateStateMachineInput{
 		Name:       aws.String(childName),

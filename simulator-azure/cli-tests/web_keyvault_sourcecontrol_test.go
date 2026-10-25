@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/e6qu/sockerless-cloud/testutil/githttp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -134,8 +135,8 @@ func TestWebAppSourceControl_DeploysAndSyncsTheRepository(t *testing.T) {
 	az := kuduCLILogin(t)
 	rg, plan, app := "scm-cli-rg", "scm-cli-plan", "scm-cli-app"
 	read := filesWebAppCLI(t, az, rg, plan, app)
-	repo := startGitHTTPRepo(t, "cli-site")
-	first := repo.commit("main", "First page", map[string]string{"index.html": "first", "notes.txt": "removed later"})
+	repo := githttp.StartRepo(t, "cli-site")
+	first := repo.Commit("main", "First page", map[string]string{"index.html": "first", "notes.txt": "removed later"})
 
 	runCLI(t, az.command("webapp", "deployment", "source", "config", "-g", rg, "-n", app,
 		"--repo-url", repo.URL, "--branch", "main", "--manual-integration", "-o", "json"))
@@ -153,8 +154,8 @@ func TestWebAppSourceControl_DeploysAndSyncsTheRepository(t *testing.T) {
 	assert.Equal(t, "main", shown.Branch)
 	assert.True(t, shown.IsManualIntegration)
 
-	repo.remove("notes.txt")
-	second := repo.commit("main", "Second page", map[string]string{"index.html": "second"})
+	repo.Remove("notes.txt")
+	second := repo.Commit("main", "Second page", map[string]string{"index.html": "second"})
 	runCLI(t, az.command("webapp", "deployment", "source", "sync", "-g", rg, "-n", app))
 	page, err = read("/files/index.html")
 	require.NoError(t, err)

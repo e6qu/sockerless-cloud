@@ -8,6 +8,7 @@ import (
 	ecstypes "github.com/aws/aws-sdk-go-v2/service/ecs/types"
 	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
 	smtypes "github.com/aws/aws-sdk-go-v2/service/secretsmanager/types"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -16,7 +17,7 @@ import (
 func TestECS_ListTaskDefinitions_SortAndStatus(t *testing.T) {
 	t.Parallel()
 	c := ecsClient()
-	fam := uniqueName("ltd-probe-630")
+	fam := uniquename.New("ltd-probe-630")
 	var arns []string
 	for i := 0; i < 3; i++ {
 		reg, err := c.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{
@@ -54,8 +55,8 @@ func TestECS_ListTaskDefinitions_SortAndStatus(t *testing.T) {
 // TestSM_ListSecrets_TagKeyFilter covers issue #629.
 func TestSM_ListSecrets_TagKeyFilter(t *testing.T) {
 	t.Parallel()
-	nameB := uniqueName("sm629-b")
-	nameA := uniqueName("sm629-a")
+	nameB := uniquename.New("sm629-b")
+	nameA := uniquename.New("sm629-a")
 	c := smClient()
 	_, err := c.CreateSecret(ctx, &secretsmanager.CreateSecretInput{
 		Name: aws.String(nameA), SecretString: aws.String("x"),

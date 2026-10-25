@@ -7,6 +7,7 @@ import (
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/keyvault/armkeyvault"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -53,7 +54,7 @@ func kvPolicyViews(t *testing.T, vaults *armkeyvault.VaultsClient, rg, vault str
 func TestKeyVault_AccessPolicyUpdatesWorkPerPermission(t *testing.T) {
 	t.Parallel()
 	rg := "kv-policy-update-rg"
-	vault := uniqueAlnumName("kvpolicyupd")
+	vault := uniquename.Alnum("kvpolicyupd")
 	alice, bob, carol, app := uuid.NewString(), uuid.NewString(), uuid.NewString(), uuid.NewString()
 	entry := func(object, application string, keys []armkeyvault.KeyPermissions, secrets []armkeyvault.SecretPermissions) *armkeyvault.AccessPolicyEntry {
 		e := &armkeyvault.AccessPolicyEntry{

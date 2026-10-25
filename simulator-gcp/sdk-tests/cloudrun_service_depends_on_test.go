@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"cloud.google.com/go/run/apiv2/runpb"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
@@ -61,7 +62,7 @@ func TestSDK_CloudRunV2Services_CreateRefusesUnresolvableDependsOn(t *testing.T)
 	} {
 		_, err := client.CreateService(ctx, &runpb.CreateServiceRequest{
 			Parent:    "projects/test-project/locations/us-central1",
-			ServiceId: uniqueName("v2-svc-bad-depends"),
+			ServiceId: uniquename.New("v2-svc-bad-depends"),
 			Service:   &runpb.Service{Template: &runpb.RevisionTemplate{Containers: containers}},
 		})
 		require.Error(t, err)

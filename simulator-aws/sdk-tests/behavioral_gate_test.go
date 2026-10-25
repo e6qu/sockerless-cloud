@@ -22,6 +22,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/sns"
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
 	sqstypes "github.com/aws/aws-sdk-go-v2/service/sqs/types"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -41,14 +42,14 @@ func route53Client() *route53.Client {
 // transition dispatches its AlarmActions through SNS to an SQS subscriber.
 func TestBehavioralGate_CloudWatchAlarmSNSActionToSQS(t *testing.T) {
 	t.Parallel()
-	queueName := uniqueName("behavioral-queue")
-	topicName := uniqueName("behavioral-topic")
+	queueName := uniquename.New("behavioral-queue")
+	topicName := uniquename.New("behavioral-topic")
 	cw := cloudwatchClient()
 	snsC := snsClient()
 	sqsC := sqsClient()
 
-	ns := uniqueName("Custom/BehavioralGate")
-	alarmName := uniqueName("behavioral-alarm-sns-sqs")
+	ns := uniquename.New("Custom/BehavioralGate")
+	alarmName := uniquename.New("behavioral-alarm-sns-sqs")
 
 	tpc, err := snsC.CreateTopic(ctx, &sns.CreateTopicInput{Name: aws.String(topicName)})
 	require.NoError(t, err)
@@ -117,8 +118,8 @@ func TestBehavioralGate_CloudWatchAlarmSNSActionToSQS(t *testing.T) {
 // maxReceiveCount is moved from the source queue to the dead-letter queue.
 func TestBehavioralGate_SQS_DLQ_Redrive(t *testing.T) {
 	t.Parallel()
-	srcName := uniqueName("bg-src")
-	dlqName := uniqueName("bg-dlq")
+	srcName := uniquename.New("bg-src")
+	dlqName := uniquename.New("bg-dlq")
 	client := sqsClient()
 
 	dlq, err := client.CreateQueue(ctx, &sqs.CreateQueueInput{QueueName: aws.String(dlqName)})
@@ -355,9 +356,9 @@ func TestBehavioralGate_CloudWatchLogs_MetricFilterPublishesMetric(t *testing.T)
 	logsC := cwLogsClient()
 	cwC := cloudwatchClient()
 
-	group := uniqueName("bg-metric-filter-group")
+	group := uniquename.New("bg-metric-filter-group")
 	stream := "bg-stream"
-	ns := uniqueName("Custom/BehavioralGateLogs")
+	ns := uniquename.New("Custom/BehavioralGateLogs")
 	metric := "ErrorCount"
 	ts := time.Now().UTC().Truncate(time.Minute)
 	tsMillis := ts.UnixMilli()
@@ -424,7 +425,7 @@ func TestBehavioralGate_CloudWatchLogs_MetricFilterPublishesMetric(t *testing.T)
 func TestBehavioralGate_DynamoDBTimeToLive_DeletesExpiredItems(t *testing.T) {
 	t.Parallel()
 	c := ddbClient()
-	table := uniqueName("behavioral-ttl")
+	table := uniquename.New("behavioral-ttl")
 	ddbCoverageTable(t, c, table)
 	_, err := c.UpdateTimeToLive(ctx, &dynamodb.UpdateTimeToLiveInput{
 		TableName: aws.String(table),

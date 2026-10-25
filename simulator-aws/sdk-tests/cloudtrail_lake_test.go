@@ -8,6 +8,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/cloudtrail"
 	cttypes "github.com/aws/aws-sdk-go-v2/service/cloudtrail/types"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -20,7 +21,7 @@ import (
 func TestCloudTrail_EventDataStoreLifecycleSDK(t *testing.T) {
 	t.Parallel()
 	ct := cloudTrailClient()
-	name := uniqueName("ct-eds-lifecycle")
+	name := uniquename.New("ct-eds-lifecycle")
 
 	created, err := ct.CreateEventDataStore(ctx, &cloudtrail.CreateEventDataStoreInput{
 		Name:            aws.String(name),
@@ -101,7 +102,7 @@ func TestCloudTrail_EventDataStoreLifecycleSDK(t *testing.T) {
 // ListQueries → CancelQuery, plus GenerateQuery and SearchSampleQueries.
 func TestCloudTrail_LakeQuerySDK(t *testing.T) {
 	t.Parallel()
-	edsName := uniqueName("lake-query-eds")
+	edsName := uniquename.New("lake-query-eds")
 	ct := cloudTrailClient()
 	created, err := ct.CreateEventDataStore(ctx, &cloudtrail.CreateEventDataStoreInput{
 		Name:                         aws.String(edsName),
@@ -280,8 +281,8 @@ func TestCloudTrail_ImportLifecycleSDK(t *testing.T) {
 // ListInsightsMetricData / ListInsightsData, UpdateChannel.
 func TestCloudTrail_GovernanceSDK(t *testing.T) {
 	t.Parallel()
-	channelName := uniqueName("ct-gov-channel")
-	renamedChannel := uniqueName("ct-gov-channel-renamed")
+	channelName := uniquename.New("ct-gov-channel")
+	renamedChannel := uniquename.New("ct-gov-channel-renamed")
 	ct := cloudTrailClient()
 
 	// Resource policy round-trip against a Lake channel ARN.
@@ -312,7 +313,7 @@ func TestCloudTrail_GovernanceSDK(t *testing.T) {
 	require.NoError(t, err)
 
 	// Event configuration round-trip against an event data store.
-	edsName := uniqueName("ct-gov-eds")
+	edsName := uniquename.New("ct-gov-eds")
 	created, err := ct.CreateEventDataStore(ctx, &cloudtrail.CreateEventDataStoreInput{Name: aws.String(edsName)})
 	require.NoError(t, err)
 	edsArn := aws.ToString(created.EventDataStoreArn)

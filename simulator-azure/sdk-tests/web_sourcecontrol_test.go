@@ -6,6 +6,7 @@ import (
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/appservice/armappservice/v5"
+	"github.com/e6qu/sockerless-cloud/testutil/githttp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -22,13 +23,13 @@ import (
 func TestSDK_WebApps_SourceControlDeploysTheRepository(t *testing.T) {
 	t.Parallel()
 	rg, name := "sdk-scm-rg", "sdk-scm-app"
-	repo := startGitHTTPRepo(t, "site")
-	first := repo.commit("main", "First page", map[string]string{
+	repo := githttp.StartRepo(t, "site")
+	first := repo.Commit("main", "First page", map[string]string{
 		"index.html":     "first",
 		"css/site.css":   "body{}",
 		"docs/notes.txt": "kept until removed",
 	})
-	repo.commit("other", "Another branch", map[string]string{"index.html": "other branch"})
+	repo.Commit("other", "Another branch", map[string]string{"index.html": "other branch"})
 
 	client := createFilesWebApp(t, rg, name, nil)
 	cfg, err := client.GetConfiguration(ctx, rg, name, nil)
@@ -65,8 +66,8 @@ func TestSDK_WebApps_SourceControlDeploysTheRepository(t *testing.T) {
 
 	// A sync deploys the branch's current head with Kudu's sync semantics: a
 	// file the new commit removed leaves the app.
-	repo.remove("docs/notes.txt")
-	second := repo.commit("main", "Second page", map[string]string{"index.html": "second"})
+	repo.Remove("docs/notes.txt")
+	second := repo.Commit("main", "Second page", map[string]string{"index.html": "second"})
 	_, err = client.SyncRepository(ctx, rg, name, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "second", siteFile(t, name, "index.html"))

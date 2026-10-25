@@ -13,6 +13,7 @@ import (
 	lambdatypes "github.com/aws/aws-sdk-go-v2/service/lambda/types"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -20,7 +21,7 @@ import (
 // s3VersionedBucket creates a bucket and sets its versioning state.
 func s3VersionedBucket(t *testing.T, c *s3.Client, prefix string, status types.BucketVersioningStatus) string {
 	t.Helper()
-	bucket := uniqueName(prefix)
+	bucket := uniquename.New(prefix)
 	s3CreateBucket(t, c, bucket)
 	s3SetVersioning(t, c, bucket, status)
 	return bucket
@@ -298,7 +299,7 @@ func TestS3_ListObjectVersionsPages(t *testing.T) {
 func TestS3_DeleteObjectsRefusesEachEntryOnItsOwn(t *testing.T) {
 	t.Parallel()
 	admin := s3Client()
-	bucket := uniqueName("delete-objects-partial")
+	bucket := uniquename.New("delete-objects-partial")
 	s3CreateBucket(t, admin, bucket)
 	s3Put(t, admin, bucket, "scratch/tmp", "x")
 	s3Put(t, admin, bucket, "records/keep", "y")
@@ -342,7 +343,7 @@ func TestLambda_CreateFunctionReadsTheNamedS3ObjectVersion(t *testing.T) {
 	version := put(deployed)
 	put(lambdaNodeDeploymentZip(t, "'superseded'"))
 
-	name := uniqueName("versioned-code")
+	name := uniquename.New("versioned-code")
 	created, err := lambdaClient().CreateFunction(ctx, &lambda.CreateFunctionInput{
 		FunctionName: aws.String(name),
 		Role:         aws.String(serviceRole(t, "lambda.amazonaws.com")),

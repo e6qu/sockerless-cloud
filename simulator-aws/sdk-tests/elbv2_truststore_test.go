@@ -21,6 +21,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/aws/smithy-go"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -35,7 +36,7 @@ func TestELBv2_TrustStoreLifecycle(t *testing.T) {
 	t.Parallel()
 	c := elbv2Client()
 	s3c := s3Client()
-	caBucket := uniqueName("my-ca-bucket")
+	caBucket := uniquename.New("my-ca-bucket")
 	s3CreateBucket(t, s3c, caBucket)
 	firstCA, firstKey := elbv2TestCA(t, "first")
 	secondCA, _ := elbv2TestCA(t, "second")

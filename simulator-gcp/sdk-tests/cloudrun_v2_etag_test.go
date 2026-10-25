@@ -3,6 +3,7 @@ package gcp_sdk_test
 import (
 	"testing"
 
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	runv2 "google.golang.org/api/run/v2"
@@ -34,7 +35,7 @@ func requireEtagRotates(t *testing.T, before, after string) {
 func TestSDK_RunV2REST_Service_EtagOptimisticConcurrency(t *testing.T) {
 	t.Parallel()
 	svc := newRunV2RESTService(t)
-	id := uniqueName("etag-service")
+	id := uniquename.New("etag-service")
 	name := crV2Parent + "/services/" + id
 
 	body := func(image string) *runv2.GoogleCloudRunV2Service {
@@ -102,7 +103,7 @@ func TestSDK_RunV2REST_Service_EtagOptimisticConcurrency(t *testing.T) {
 func TestSDK_RunV2REST_WorkerPool_EtagOptimisticConcurrency(t *testing.T) {
 	t.Parallel()
 	svc := newRunV2RESTService(t)
-	id := uniqueName("etag-workerpool")
+	id := uniquename.New("etag-workerpool")
 	name := crV2Parent + "/workerPools/" + id
 
 	body := func(image string) *runv2.GoogleCloudRunV2WorkerPool {
@@ -165,7 +166,7 @@ func TestSDK_RunV2REST_WorkerPool_EtagOptimisticConcurrency(t *testing.T) {
 func TestSDK_RunV2REST_Instance_EtagOptimisticConcurrency(t *testing.T) {
 	t.Parallel()
 	svc := newRunV2RESTService(t)
-	id := uniqueName("etag-instance")
+	id := uniquename.New("etag-instance")
 	name := crV2Parent + "/instances/" + id
 
 	body := func(image string) *runv2.GoogleCloudRunV2Instance {
@@ -239,7 +240,7 @@ func TestSDK_RunV2REST_Instance_EtagOptimisticConcurrency(t *testing.T) {
 func TestSDK_RunV2REST_ExecutionTask_EtagOptimisticConcurrency(t *testing.T) {
 	t.Parallel()
 	svc := newRunV2RESTService(t)
-	id := uniqueName("etag-exec-job")
+	id := uniquename.New("etag-exec-job")
 	jobName := crV2Parent + "/jobs/" + id
 
 	// The container holds for the length of the test: every etag below is read

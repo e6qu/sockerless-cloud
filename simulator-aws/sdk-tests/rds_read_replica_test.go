@@ -10,6 +10,7 @@ import (
 	cwtypes "github.com/aws/aws-sdk-go-v2/service/cloudwatch/types"
 	"github.com/aws/aws-sdk-go-v2/service/rds"
 	"github.com/aws/aws-sdk-go-v2/service/rds/types"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -29,7 +30,7 @@ func rdsReplicationStatus(instance types.DBInstance) *types.DBInstanceStatusInfo
 // a read replica's source needs, holding a ledger with one row.
 func rdsCreateReplicationSource(f rdsInstanceFixture, prefix, engine string) (string, auroraSnapshotClient) {
 	f.t.Helper()
-	sourceID := uniqueName(prefix + "-" + engine)
+	sourceID := uniquename.New(prefix + "-" + engine)
 	_, err := f.client.CreateDBInstance(f.ctx, &rds.CreateDBInstanceInput{
 		DBInstanceIdentifier:  aws.String(sourceID),
 		DBInstanceClass:       aws.String("db.t3.micro"),
@@ -63,7 +64,7 @@ func TestRDS_ReadReplicaReplicatesItsSource(t *testing.T) {
 			c := f.client
 			sourceID, source := rdsCreateReplicationSource(f, "sdk-rr-src", engine)
 
-			replicaID := uniqueName("sdk-rr-" + engine)
+			replicaID := uniquename.New("sdk-rr-" + engine)
 			created, err := c.CreateDBInstanceReadReplica(ctx, &rds.CreateDBInstanceReadReplicaInput{
 				DBInstanceIdentifier:       aws.String(replicaID),
 				SourceDBInstanceIdentifier: aws.String(sourceID),
@@ -130,7 +131,7 @@ func TestRDS_DeletingASourcePromotesItsReadReplica(t *testing.T) {
 	f := rdsInstanceFixture{t: t, ctx: ctx, client: rdsClient(), family: "postgres"}
 	c := f.client
 
-	unbackedID := uniqueName("sdk-rr-nobackup")
+	unbackedID := uniquename.New("sdk-rr-nobackup")
 	_, err := c.CreateDBInstance(ctx, &rds.CreateDBInstanceInput{
 		DBInstanceIdentifier:  aws.String(unbackedID),
 		DBInstanceClass:       aws.String("db.t3.micro"),
@@ -144,13 +145,13 @@ func TestRDS_DeletingASourcePromotesItsReadReplica(t *testing.T) {
 	f.cleanup(unbackedID)
 	f.waitAvailable(unbackedID)
 	_, err = c.CreateDBInstanceReadReplica(ctx, &rds.CreateDBInstanceReadReplicaInput{
-		DBInstanceIdentifier:       aws.String(uniqueName("sdk-rr-refused")),
+		DBInstanceIdentifier:       aws.String(uniquename.New("sdk-rr-refused")),
 		SourceDBInstanceIdentifier: aws.String(unbackedID),
 	})
 	assertAWSAPIErrorCode(t, err, "InvalidDBInstanceState")
 
 	sourceID, _ := rdsCreateReplicationSource(f, "sdk-rr-gone", "postgres")
-	replicaID := uniqueName("sdk-rr-orphan")
+	replicaID := uniquename.New("sdk-rr-orphan")
 	_, err = c.CreateDBInstanceReadReplica(ctx, &rds.CreateDBInstanceReadReplicaInput{
 		DBInstanceIdentifier:       aws.String(replicaID),
 		SourceDBInstanceIdentifier: aws.String(sourceID),

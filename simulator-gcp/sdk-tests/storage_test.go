@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"cloud.google.com/go/storage"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/googleapi"
@@ -30,7 +31,7 @@ func storageClient(t *testing.T) *storage.Client {
 
 func TestGCS_CreateBucket(t *testing.T) {
 	t.Parallel()
-	bucketSdkTestBucket := uniqueName("sdk-test-bucket")
+	bucketSdkTestBucket := uniquename.New("sdk-test-bucket")
 	client := storageClient(t)
 	defer client.Close()
 
@@ -43,14 +44,14 @@ func TestGCS_CreateBucket(t *testing.T) {
 	assert.Equal(t, "US", attrs.Location)
 	assert.Equal(t, "multi-region", attrs.LocationType)
 
-	regional := uniqueName("sdk-test-regional")
+	regional := uniquename.New("sdk-test-regional")
 	require.NoError(t, client.Bucket(regional).Create(ctx, "test-project", &storage.BucketAttrs{Location: "us-central1"}))
 	attrs, err = client.Bucket(regional).Attrs(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, "US-CENTRAL1", attrs.Location)
 	assert.Equal(t, "region", attrs.LocationType)
 
-	dual := uniqueName("sdk-test-dual")
+	dual := uniquename.New("sdk-test-dual")
 	require.NoError(t, client.Bucket(dual).Create(ctx, "test-project", &storage.BucketAttrs{Location: "nam4"}))
 	attrs, err = client.Bucket(dual).Attrs(ctx)
 	require.NoError(t, err)
@@ -59,7 +60,7 @@ func TestGCS_CreateBucket(t *testing.T) {
 
 func TestGCS_UploadAndDownload(t *testing.T) {
 	t.Parallel()
-	bucketUploadBucket := uniqueName("upload-bucket")
+	bucketUploadBucket := uniquename.New("upload-bucket")
 	client := storageClient(t)
 	defer client.Close()
 
@@ -85,7 +86,7 @@ func TestGCS_UploadAndDownload(t *testing.T) {
 
 func TestGCS_ResumableWriterFollowsCustomEndpoint(t *testing.T) {
 	t.Parallel()
-	bucketResumableSdkBucket := uniqueName("resumable-sdk-bucket")
+	bucketResumableSdkBucket := uniquename.New("resumable-sdk-bucket")
 	client := storageClient(t)
 	defer client.Close()
 
@@ -117,7 +118,7 @@ func TestGCS_ResumableWriterFollowsCustomEndpoint(t *testing.T) {
 
 func TestGCS_JSONAPIObjectGetAltMedia(t *testing.T) {
 	t.Parallel()
-	bucketJsonApiMediaBucket := uniqueName("json-api-media-bucket")
+	bucketJsonApiMediaBucket := uniquename.New("json-api-media-bucket")
 	client := storageClient(t)
 	defer client.Close()
 
@@ -145,7 +146,7 @@ func TestGCS_JSONAPIObjectGetAltMedia(t *testing.T) {
 
 func TestGCS_ListObjects(t *testing.T) {
 	t.Parallel()
-	bucketListObjBucket := uniqueName("list-obj-bucket")
+	bucketListObjBucket := uniquename.New("list-obj-bucket")
 	client := storageClient(t)
 	defer client.Close()
 
@@ -178,7 +179,7 @@ func TestGCS_ListObjects(t *testing.T) {
 // every object exactly once.
 func TestGCS_ListObjectsPaged(t *testing.T) {
 	t.Parallel()
-	bucketPagedObjBucket := uniqueName("paged-obj-bucket")
+	bucketPagedObjBucket := uniquename.New("paged-obj-bucket")
 	client := storageClient(t)
 	defer client.Close()
 
@@ -219,7 +220,7 @@ func TestGCS_ListObjectsPaged(t *testing.T) {
 
 func TestGCS_CopierFromRewriteTo(t *testing.T) {
 	t.Parallel()
-	bucketCopyObjBucket := uniqueName("copy-obj-bucket")
+	bucketCopyObjBucket := uniquename.New("copy-obj-bucket")
 	client := storageClient(t)
 	defer client.Close()
 
@@ -269,7 +270,7 @@ func TestGCS_CopierFromRewriteTo(t *testing.T) {
 
 func TestGCS_CopierFromRewriteToRejectsInvalidMetadata(t *testing.T) {
 	t.Parallel()
-	bucketCopyInvalidMetadataBucket := uniqueName("copy-invalid-metadata-bucket")
+	bucketCopyInvalidMetadataBucket := uniquename.New("copy-invalid-metadata-bucket")
 	client := storageClient(t)
 	defer client.Close()
 
@@ -292,7 +293,7 @@ func TestGCS_CopierFromRewriteToRejectsInvalidMetadata(t *testing.T) {
 
 func TestGCS_DeleteObject(t *testing.T) {
 	t.Parallel()
-	bucketDelObjBucket := uniqueName("del-obj-bucket")
+	bucketDelObjBucket := uniquename.New("del-obj-bucket")
 	client := storageClient(t)
 	defer client.Close()
 
@@ -330,7 +331,7 @@ func TestGCS_CreateBucketTwiceConflicts(t *testing.T) {
 	client := storageClient(t)
 	defer client.Close()
 
-	name := uniqueName("sdk-duplicate-bucket")
+	name := uniquename.New("sdk-duplicate-bucket")
 	require.NoError(t, client.Bucket(name).Create(ctx, "test-project", nil))
 	t.Cleanup(func() { assert.NoError(t, client.Bucket(name).Delete(ctx)) })
 
@@ -349,7 +350,7 @@ func TestGCS_DeleteNonEmptyBucketConflicts(t *testing.T) {
 	client := storageClient(t)
 	defer client.Close()
 
-	bucket := client.Bucket(uniqueName("sdk-nonempty-bucket"))
+	bucket := client.Bucket(uniquename.New("sdk-nonempty-bucket"))
 	require.NoError(t, bucket.Create(ctx, "test-project", nil))
 	object := bucket.Object("keep.txt")
 	_, err := writeObject(t, object, "kept")

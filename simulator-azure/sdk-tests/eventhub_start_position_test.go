@@ -11,6 +11,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs/v2"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/eventhub/armeventhub"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -19,7 +20,7 @@ import (
 // StartPosition says — the latest event, or a sequence number — and receives
 // events published after it attached.
 func TestEventHubsSDK_StartPositions(t *testing.T) {
-	rg, ns, hub := "eh-start-rg", uniqueName("sdk-eventhub-start"), "starthub"
+	rg, ns, hub := "eh-start-rg", uniquename.New("sdk-eventhub-start"), "starthub"
 	ensureRG(t, rg)
 	nsClient, err := armeventhub.NewNamespacesClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)

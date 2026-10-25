@@ -10,6 +10,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
 	cwltypes "github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs/types"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -68,7 +69,7 @@ func seedLogGroupWithEvents(t *testing.T, cw *cloudwatchlogs.Client, group, stre
 func TestLogs_StartLiveTail(t *testing.T) {
 	t.Parallel()
 	cw := cwLogsStreamClient()
-	group := uniqueName("livetail-group")
+	group := uniquename.New("livetail-group")
 	stream := "livetail-stream"
 	groupArn := seedLogGroupWithEvents(t, cw, group, stream, []string{"stored before the session"})
 
@@ -129,7 +130,7 @@ func TestLogs_StartLiveTail(t *testing.T) {
 func TestLogs_StartLiveTail_FilterPattern(t *testing.T) {
 	t.Parallel()
 	cw := cwLogsStreamClient()
-	group := uniqueName("livetail-filter-group")
+	group := uniquename.New("livetail-filter-group")
 	stream := "livetail-filter-stream"
 	groupArn := seedLogGroupWithEvents(t, cw, group, stream, []string{`{"level":"error","msg":"stored"}`})
 
@@ -176,7 +177,7 @@ func TestLogs_StartLiveTail_FilterPattern(t *testing.T) {
 func TestLogs_StartLiveTail_MalformedFilterPattern(t *testing.T) {
 	t.Parallel()
 	cw := cwLogsStreamClient()
-	groupArn := seedLogGroupWithEvents(t, cw, uniqueName("livetail-bad-filter-group"), "s", []string{"x"})
+	groupArn := seedLogGroupWithEvents(t, cw, uniquename.New("livetail-bad-filter-group"), "s", []string{"x"})
 	_, err := cw.StartLiveTail(ctx, &cloudwatchlogs.StartLiveTailInput{
 		LogGroupIdentifiers:   []string{groupArn},
 		LogEventFilterPattern: aws.String(`{ $.level = }`),
@@ -255,7 +256,7 @@ func TestLogs_StartLiveTail_UnknownGroup(t *testing.T) {
 func TestLogs_GetLogObject(t *testing.T) {
 	t.Parallel()
 	cw := cwLogsStreamClient()
-	group := uniqueName("getlogobject-group")
+	group := uniquename.New("getlogobject-group")
 	stream := "getlogobject-stream"
 	seedLogGroupWithEvents(t, cw, group, stream, []string{
 		"object-line-0",

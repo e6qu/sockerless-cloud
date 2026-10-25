@@ -26,6 +26,7 @@ import (
 	r53types "github.com/aws/aws-sdk-go-v2/service/route53/types"
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
 	sqstypes "github.com/aws/aws-sdk-go-v2/service/sqs/types"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -156,7 +157,7 @@ func cwLogsClient() *cloudwatchlogs.Client {
 
 func TestLambda_FunctionConfigurationOmitsCodeAndTags(t *testing.T) {
 	t.Parallel()
-	rawFn := uniqueName("raw-shape-fn")
+	rawFn := uniquename.New("raw-shape-fn")
 	lc := lambdaClient()
 	fnName := "shape-fn"
 	deployment := lambdaDeploymentZip(t)

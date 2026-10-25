@@ -16,6 +16,7 @@ import (
 	cloudtasks "cloud.google.com/go/cloudtasks/apiv2"
 	"cloud.google.com/go/cloudtasks/apiv2/cloudtaskspb"
 	"cloud.google.com/go/iam/apiv1/iampb"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	cloudtasksapi "google.golang.org/api/cloudtasks/v2"
@@ -110,7 +111,7 @@ func awaitTaskGone(t *testing.T, c *cloudtasks.Client, name string) {
 func TestCloudTasks_QueueLifecycle(t *testing.T) {
 	t.Parallel()
 	c := tasksClient(t)
-	name := tasksParent + "/queues/" + uniqueName("sdk-queue")
+	name := tasksParent + "/queues/" + uniquename.New("sdk-queue")
 	created := createTasksQueue(t, c, &cloudtaskspb.Queue{
 		Name:        name,
 		RateLimits:  &cloudtaskspb.RateLimits{MaxDispatchesPerSecond: 10},
@@ -190,12 +191,12 @@ func TestCloudTasks_HTTPTaskRetriesWithBackoff(t *testing.T) {
 	t.Parallel()
 	c := tasksClient(t)
 	target, received := taskTarget(t, nil, http.StatusTooManyRequests, http.StatusInternalServerError, http.StatusNoContent)
-	queue := tasksParent + "/queues/" + uniqueName("sdk-retry")
+	queue := tasksParent + "/queues/" + uniquename.New("sdk-retry")
 	createTasksQueue(t, c, &cloudtaskspb.Queue{Name: queue, RetryConfig: &cloudtaskspb.RetryConfig{
 		MaxAttempts: 5, MinBackoff: durationpb.New(500 * time.Millisecond), MaxBackoff: durationpb.New(5 * time.Second), MaxDoublings: 1,
 	}})
 	sa := "invoker@" + harnessProject + ".iam.gserviceaccount.com"
-	name := queue + "/tasks/" + uniqueName("order")
+	name := queue + "/tasks/" + uniquename.New("order")
 	created, err := c.CreateTask(ctx, &cloudtaskspb.CreateTaskRequest{Parent: queue, ResponseView: cloudtaskspb.Task_FULL, Task: &cloudtaskspb.Task{
 		Name: name,
 		MessageType: &cloudtaskspb.Task_HttpRequest{HttpRequest: &cloudtaskspb.HttpRequest{
@@ -258,7 +259,7 @@ func TestCloudTasks_FailedAttemptsRecordTheirStatus(t *testing.T) {
 	t.Parallel()
 	c := tasksClient(t)
 	target, received := taskTarget(t, nil, http.StatusNotFound)
-	queue := tasksParent + "/queues/" + uniqueName("sdk-failing")
+	queue := tasksParent + "/queues/" + uniquename.New("sdk-failing")
 	createTasksQueue(t, c, &cloudtaskspb.Queue{Name: queue, RetryConfig: &cloudtaskspb.RetryConfig{
 		MaxAttempts: 2, MinBackoff: durationpb.New(2 * time.Second), MaxBackoff: durationpb.New(2 * time.Second),
 	}})
@@ -292,7 +293,7 @@ func TestCloudTasks_RateLimitsSpaceDispatches(t *testing.T) {
 	t.Parallel()
 	c := tasksClient(t)
 	target, received := taskTarget(t, nil, http.StatusOK)
-	queue := tasksParent + "/queues/" + uniqueName("sdk-rate")
+	queue := tasksParent + "/queues/" + uniquename.New("sdk-rate")
 	createTasksQueue(t, c, &cloudtaskspb.Queue{Name: queue, RateLimits: &cloudtaskspb.RateLimits{MaxDispatchesPerSecond: 2}})
 	_, err := c.PauseQueue(ctx, &cloudtaskspb.PauseQueueRequest{Name: queue})
 	require.NoError(t, err)
@@ -319,7 +320,7 @@ func TestCloudTasks_ConcurrencyLimitHoldsTasks(t *testing.T) {
 	c := tasksClient(t)
 	hold := make(chan struct{})
 	target, received := taskTarget(t, hold, http.StatusOK)
-	queue := tasksParent + "/queues/" + uniqueName("sdk-serial")
+	queue := tasksParent + "/queues/" + uniquename.New("sdk-serial")
 	createTasksQueue(t, c, &cloudtaskspb.Queue{Name: queue, RateLimits: &cloudtaskspb.RateLimits{MaxConcurrentDispatches: 1}})
 	_, err := c.CreateTask(ctx, &cloudtaskspb.CreateTaskRequest{Parent: queue, Task: httpTask(target.URL + "/first")})
 	require.NoError(t, err)
@@ -342,7 +343,7 @@ func TestCloudTasks_PauseRunAndPurge(t *testing.T) {
 	t.Parallel()
 	c := tasksClient(t)
 	target, received := taskTarget(t, nil, http.StatusOK)
-	queue := tasksParent + "/queues/" + uniqueName("sdk-paused")
+	queue := tasksParent + "/queues/" + uniquename.New("sdk-paused")
 	createTasksQueue(t, c, &cloudtaskspb.Queue{Name: queue})
 	_, err := c.PauseQueue(ctx, &cloudtaskspb.PauseQueueRequest{Name: queue})
 	require.NoError(t, err)
@@ -393,11 +394,11 @@ func TestCloudTasks_PauseRunAndPurge(t *testing.T) {
 func TestCloudTasks_NamedTaskDeduplication(t *testing.T) {
 	t.Parallel()
 	c := tasksClient(t)
-	queue := tasksParent + "/queues/" + uniqueName("sdk-dedup")
+	queue := tasksParent + "/queues/" + uniquename.New("sdk-dedup")
 	createTasksQueue(t, c, &cloudtaskspb.Queue{Name: queue})
 	_, err := c.PauseQueue(ctx, &cloudtaskspb.PauseQueueRequest{Name: queue})
 	require.NoError(t, err)
-	task := &cloudtaskspb.Task{Name: queue + "/tasks/" + uniqueName("once"),
+	task := &cloudtaskspb.Task{Name: queue + "/tasks/" + uniquename.New("once"),
 		MessageType: &cloudtaskspb.Task_HttpRequest{HttpRequest: &cloudtaskspb.HttpRequest{Url: "https://hooks.example/once"}}}
 	_, err = c.CreateTask(ctx, &cloudtaskspb.CreateTaskRequest{Parent: queue, Task: task})
 	require.NoError(t, err)
@@ -417,7 +418,7 @@ func TestCloudTasks_ScheduledTaskWaits(t *testing.T) {
 	t.Parallel()
 	c := tasksClient(t)
 	target, received := taskTarget(t, nil, http.StatusOK)
-	queue := tasksParent + "/queues/" + uniqueName("sdk-later")
+	queue := tasksParent + "/queues/" + uniquename.New("sdk-later")
 	createTasksQueue(t, c, &cloudtaskspb.Queue{Name: queue})
 	at := time.Now().Add(1500 * time.Millisecond).Truncate(time.Microsecond)
 	task := httpTask(target.URL)
@@ -441,7 +442,7 @@ func TestCloudTasks_QueueRoutingOverridesTasks(t *testing.T) {
 	host, portText, _ := strings.Cut(strings.TrimPrefix(target.URL, "http://"), ":")
 	port, err := strconv.ParseInt(portText, 10, 64)
 	require.NoError(t, err)
-	queue := tasksParent + "/queues/" + uniqueName("sdk-routed")
+	queue := tasksParent + "/queues/" + uniquename.New("sdk-routed")
 	createTasksQueue(t, c, &cloudtaskspb.Queue{Name: queue, HttpTarget: &cloudtaskspb.HttpTarget{
 		UriOverride: &cloudtaskspb.UriOverride{
 			Scheme: cloudtaskspb.UriOverride_HTTP.Enum(), Host: &host, Port: &port,
@@ -464,7 +465,7 @@ func TestCloudTasks_QueueRoutingOverridesTasks(t *testing.T) {
 func TestCloudTasks_BatchCreateAndDelete(t *testing.T) {
 	t.Parallel()
 	c := tasksClient(t)
-	queue := tasksParent + "/queues/" + uniqueName("sdk-batch")
+	queue := tasksParent + "/queues/" + uniquename.New("sdk-batch")
 	createTasksQueue(t, c, &cloudtaskspb.Queue{Name: queue})
 	_, err := c.PauseQueue(ctx, &cloudtaskspb.PauseQueueRequest{Name: queue})
 	require.NoError(t, err)
@@ -503,7 +504,7 @@ func TestCloudTasks_BatchCreateAndDelete(t *testing.T) {
 func TestCloudTasks_RefusesWhatItDoesNotServe(t *testing.T) {
 	t.Parallel()
 	c := tasksClient(t)
-	queue := tasksParent + "/queues/" + uniqueName("sdk-refused")
+	queue := tasksParent + "/queues/" + uniquename.New("sdk-refused")
 	createTasksQueue(t, c, &cloudtaskspb.Queue{Name: queue})
 	var apiErr *googleapi.Error
 	_, err := c.CreateTask(ctx, &cloudtaskspb.CreateTaskRequest{Parent: queue, Task: &cloudtaskspb.Task{
@@ -534,7 +535,7 @@ func TestCloudTasks_RefusesWhatItDoesNotServe(t *testing.T) {
 func TestCloudTasks_BatchVerbsThroughTheDiscoveryClient(t *testing.T) {
 	t.Parallel()
 	c := tasksClient(t)
-	queue := tasksParent + "/queues/" + uniqueName("sdk-apiary-batch")
+	queue := tasksParent + "/queues/" + uniquename.New("sdk-apiary-batch")
 	createTasksQueue(t, c, &cloudtaskspb.Queue{Name: queue})
 	_, err := c.PauseQueue(ctx, &cloudtaskspb.PauseQueueRequest{Name: queue})
 	require.NoError(t, err)

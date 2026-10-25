@@ -6,6 +6,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/iam"
 	iamtypes "github.com/aws/aws-sdk-go-v2/service/iam/types"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -16,8 +17,8 @@ import (
 // UntagRole (post-create attribute + tag changes were UnknownOperation).
 func TestIAM_RoleFidelitySDK(t *testing.T) {
 	t.Parallel()
-	roleName := uniqueName("fidelity-role")
-	boundaryName := uniqueName("fidelity-boundary")
+	roleName := uniquename.New("fidelity-role")
+	boundaryName := uniquename.New("fidelity-boundary")
 	c := iamClient()
 	assumeDoc := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"ecs-tasks.amazonaws.com"},"Action":"sts:AssumeRole"}]}`
 
@@ -89,7 +90,7 @@ func TestIAM_OIDCProviderTagsSDK(t *testing.T) {
 	c := iamClient()
 
 	created, err := c.CreateOpenIDConnectProvider(ctx, &iam.CreateOpenIDConnectProviderInput{
-		Url:            aws.String("https://" + uniqueName("oidc-fidelity") + ".example.test"),
+		Url:            aws.String("https://" + uniquename.New("oidc-fidelity") + ".example.test"),
 		ClientIDList:   []string{"sts.amazonaws.com"},
 		ThumbprintList: []string{"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
 		Tags:           []iamtypes.Tag{{Key: aws.String("purpose"), Value: aws.String("github-actions")}},

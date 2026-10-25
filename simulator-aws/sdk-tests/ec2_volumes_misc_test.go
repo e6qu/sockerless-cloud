@@ -8,6 +8,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/aws/smithy-go"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -365,7 +366,7 @@ func TestEC2_SecurityGroupReferencesSDK(t *testing.T) {
 // instance) and DeleteLaunchTemplateVersions.
 func TestEC2_LaunchTemplateDataSDK(t *testing.T) {
 	t.Parallel()
-	ltName := uniqueName("sdk-lt-data")
+	ltName := uniquename.New("sdk-lt-data")
 	c := ec2Client()
 
 	vpc, err := c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.213.0.0/16")})

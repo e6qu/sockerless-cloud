@@ -10,6 +10,7 @@ import (
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
 	"github.com/Azure/azure-sdk-for-go/sdk/monitor/azquery"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -226,7 +227,7 @@ func TestSDK_LogAnalytics_QueryByResourceID(t *testing.T) {
 //	GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Insights/components/{resourceName}/quotastatus
 func TestSDK_ApplicationInsights_FeaturesAndPricing(t *testing.T) {
 	t.Parallel()
-	rg, component := "insights-features-rg", uniqueName("insights-features-component")
+	rg, component := "insights-features-rg", uniquename.New("insights-features-component")
 	createAppInsightsComponent(t, rg, component, "")
 
 	base := "/subscriptions/" + subscriptionID + "/resourceGroups/" + rg +

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/iam/v1"
@@ -32,7 +33,7 @@ func writeServiceAccountJSON(t *testing.T) (path, email string) {
 	svc := iamService(t)
 	sa, err := svc.Projects.ServiceAccounts.Create("projects/test-project",
 		&iam.CreateServiceAccountRequest{
-			AccountId:      uniqueName("sockerless-runner"),
+			AccountId:      uniquename.New("sockerless-runner"),
 			ServiceAccount: &iam.ServiceAccount{DisplayName: "Sockerless runner"},
 		}).Do()
 	require.NoError(t, err)

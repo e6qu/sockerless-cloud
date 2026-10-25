@@ -12,6 +12,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/containerinstance/armcontainerinstance"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/network/armnetwork/v8"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/privatedns/armprivatedns"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -743,8 +744,8 @@ func TestSDK_WebHybridConnections_SiteAndPlanViews(t *testing.T) {
 // round-trips exactly.
 func TestSDK_WebPrivateAccess_RoundTrip(t *testing.T) {
 	t.Parallel()
-	s5PaAppName := uniqueName("s5-pa-app")
-	rg := uniqueName("stage5-pa-rg")
+	s5PaAppName := uniquename.New("s5-pa-app")
+	rg := uniquename.New("stage5-pa-rg")
 	ensureRG(t, rg)
 	planID := stage5EnsurePlan(t, rg, "s5-pa-plan", "S1", "Standard")
 	stage5CreateSite(t, rg, s5PaAppName, planID, unstartedSiteImage, "", false)

@@ -6,6 +6,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/rds"
 	rdstypes "github.com/aws/aws-sdk-go-v2/service/rds/types"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -63,7 +64,7 @@ func TestRDS_CustomEngineVersions(t *testing.T) {
 func TestRDS_DBRecommendations(t *testing.T) {
 	t.Parallel()
 	c := rdsClient()
-	instID := uniqueName("rec-pg-db")
+	instID := uniquename.New("rec-pg-db")
 	created, err := c.CreateDBInstance(ctx, &rds.CreateDBInstanceInput{
 		DBInstanceIdentifier: aws.String(instID),
 		Engine:               aws.String("postgres"),
@@ -110,7 +111,7 @@ func TestRDS_DBRecommendations(t *testing.T) {
 func TestRDS_SnapshotTenantDatabases(t *testing.T) {
 	t.Parallel()
 	c := rdsClient()
-	instID := uniqueName("stdb-oracle-db")
+	instID := uniquename.New("stdb-oracle-db")
 	_, err := c.CreateDBInstance(ctx, &rds.CreateDBInstanceInput{
 		DBInstanceIdentifier: aws.String(instID),
 		Engine:               aws.String("oracle-ee"),
@@ -137,7 +138,7 @@ func TestRDS_SnapshotTenantDatabases(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	snapID := uniqueName("stdb-snap")
+	snapID := uniquename.New("stdb-snap")
 	_, err = c.CreateDBSnapshot(ctx, &rds.CreateDBSnapshotInput{
 		DBSnapshotIdentifier: aws.String(snapID),
 		DBInstanceIdentifier: aws.String(instID),

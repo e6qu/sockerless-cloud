@@ -3,6 +3,7 @@ package gcp_sdk_test
 import (
 	"testing"
 
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	pubsub "google.golang.org/api/pubsub/v1"
@@ -15,9 +16,9 @@ func TestPubSub_SnapshotLifecycle(t *testing.T) {
 	svc := pubsubService(t)
 	const project = "snap-project"
 	ensureProject(t, project)
-	topic := "projects/" + project + "/topics/" + uniqueName("snap-topic")
-	subName := "projects/" + project + "/subscriptions/" + uniqueName("snap-sub")
-	snapName := "projects/" + project + "/snapshots/" + uniqueName("snap1")
+	topic := "projects/" + project + "/topics/" + uniquename.New("snap-topic")
+	subName := "projects/" + project + "/subscriptions/" + uniquename.New("snap-sub")
+	snapName := "projects/" + project + "/snapshots/" + uniquename.New("snap1")
 
 	_, err := svc.Projects.Topics.Create(topic, &pubsub.Topic{}).Do()
 	require.NoError(t, err)

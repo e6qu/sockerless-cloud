@@ -11,6 +11,7 @@ import (
 	"cloud.google.com/go/logging/apiv2/loggingpb"
 	"cloud.google.com/go/logging/logadmin"
 	"cloud.google.com/go/run/apiv2/runpb"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/iterator"
@@ -25,7 +26,7 @@ import (
 // and a trace= filter finds the entry.
 func TestSDK_CloudRunV2Services_StructuredLogLine(t *testing.T) {
 	t.Parallel()
-	serviceID := uniqueName("v2-svc-json")
+	serviceID := uniquename.New("v2-svc-json")
 	trace := fmt.Sprintf("projects/test-project/traces/%032x", uint64(mathrand.Uint32())<<32|uint64(mathrand.Uint32()))
 	// Cloud Logging discards an entry stamped before its bucket's retention,
 	// so the line's own time is recent.
@@ -110,7 +111,7 @@ func TestSDK_CloudRunV2Services_StructuredLogLine(t *testing.T) {
 func TestCloudRun_RunJobStderrLineLandsInTheStderrLog(t *testing.T) {
 	t.Parallel()
 	jobsClient := newJobsClient(t)
-	jobID := uniqueName("sdk-run-job-stderr")
+	jobID := uniquename.New("sdk-run-job-stderr")
 	marker := "stderr-output-" + jobID
 
 	createOp, err := jobsClient.CreateJob(ctx, &runpb.CreateJobRequest{

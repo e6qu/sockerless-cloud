@@ -13,6 +13,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	elbv2 "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2"
 	elbtypes "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2/types"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -29,7 +30,7 @@ func TestELBv2_StickinessKeepsAClientOnOneTargetGroupAndTarget(t *testing.T) {
 	elb := elbv2Client()
 	vpcID, subnets := elbv2FidVPCSubnets(t, "10.23.0.0/16", "10.23.1.0/24", "10.23.2.0/24")
 	lbOut, err := elb.CreateLoadBalancer(ctx, &elbv2.CreateLoadBalancerInput{
-		Name: aws.String(uniqueName("sticky-lb")), Type: elbtypes.LoadBalancerTypeEnumApplication, Subnets: subnets,
+		Name: aws.String(uniquename.New("sticky-lb")), Type: elbtypes.LoadBalancerTypeEnumApplication, Subnets: subnets,
 	})
 	require.NoError(t, err)
 	lbArn := aws.ToString(lbOut.LoadBalancers[0].LoadBalancerArn)
@@ -57,7 +58,7 @@ func TestELBv2_StickinessKeepsAClientOnOneTargetGroupAndTarget(t *testing.T) {
 	targetGroup := func(name string, members ...elbtypes.TargetDescription) string {
 		t.Helper()
 		out, err := elb.CreateTargetGroup(ctx, &elbv2.CreateTargetGroupInput{
-			Name: aws.String(uniqueName(name)), Protocol: elbtypes.ProtocolEnumHttp, Port: aws.Int32(80),
+			Name: aws.String(uniquename.New(name)), Protocol: elbtypes.ProtocolEnumHttp, Port: aws.Int32(80),
 			VpcId: aws.String(vpcID), TargetType: elbtypes.TargetTypeEnumIp,
 			HealthCheckIntervalSeconds: aws.Int32(5), HealthCheckTimeoutSeconds: aws.Int32(2),
 		})

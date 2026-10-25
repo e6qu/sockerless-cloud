@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/googleapi"
@@ -38,7 +39,7 @@ func mustUploadObject(t *testing.T, svc *storageapi.Service, bucket, name, body 
 
 func TestGCS_SoftDeleteAndRestore(t *testing.T) {
 	t.Parallel()
-	bucketSoftDeleteBucket := uniqueName("soft-delete-bucket")
+	bucketSoftDeleteBucket := uniquename.New("soft-delete-bucket")
 	svc := storageService(t)
 	mustCreateBucket(t, svc, bucketSoftDeleteBucket)
 
@@ -93,7 +94,7 @@ func TestGCS_SoftDeleteAndRestore(t *testing.T) {
 // it.
 func TestGCS_RestorePreconditionOnTheLiveObject(t *testing.T) {
 	t.Parallel()
-	bucketRestorePreconditionBucket := uniqueName("restore-precondition-bucket")
+	bucketRestorePreconditionBucket := uniquename.New("restore-precondition-bucket")
 	svc := storageService(t)
 	mustCreateBucket(t, svc, bucketRestorePreconditionBucket)
 	first := mustUploadObject(t, svc, bucketRestorePreconditionBucket, "doc.txt", "first")
@@ -115,7 +116,7 @@ func TestGCS_RestorePreconditionOnTheLiveObject(t *testing.T) {
 
 func TestGCS_SoftDeleteDisabledDestroysTheObject(t *testing.T) {
 	t.Parallel()
-	bucketHardDeleteBucket := uniqueName("hard-delete-bucket")
+	bucketHardDeleteBucket := uniquename.New("hard-delete-bucket")
 	svc := storageService(t)
 	_, err := svc.Buckets.Insert("test-project", &storageapi.Bucket{
 		Name: bucketHardDeleteBucket,
@@ -140,7 +141,7 @@ func TestGCS_SoftDeleteDisabledDestroysTheObject(t *testing.T) {
 
 func TestGCS_BulkRestore(t *testing.T) {
 	t.Parallel()
-	bucketBulkRestoreBucket := uniqueName("bulk-restore-bucket")
+	bucketBulkRestoreBucket := uniquename.New("bulk-restore-bucket")
 	svc := storageService(t)
 	mustCreateBucket(t, svc, bucketBulkRestoreBucket)
 
@@ -163,7 +164,7 @@ func TestGCS_BulkRestore(t *testing.T) {
 // `**` must cross "/": path.Match semantics would silently restore too little.
 func TestGCS_BulkRestoreHonoursMatchGlobs(t *testing.T) {
 	t.Parallel()
-	bucketGlobRestoreBucket := uniqueName("glob-restore-bucket")
+	bucketGlobRestoreBucket := uniquename.New("glob-restore-bucket")
 	svc := storageService(t)
 	mustCreateBucket(t, svc, bucketGlobRestoreBucket)
 
@@ -188,7 +189,7 @@ func TestGCS_BulkRestoreHonoursMatchGlobs(t *testing.T) {
 
 func TestGCS_BulkRestoreSingleStarDoesNotCrossSeparators(t *testing.T) {
 	t.Parallel()
-	bucketStarRestoreBucket := uniqueName("star-restore-bucket")
+	bucketStarRestoreBucket := uniquename.New("star-restore-bucket")
 	svc := storageService(t)
 	mustCreateBucket(t, svc, bucketStarRestoreBucket)
 
@@ -209,7 +210,7 @@ func TestGCS_BulkRestoreSingleStarDoesNotCrossSeparators(t *testing.T) {
 
 func TestGCS_ObjectMoveRequiresHierarchicalNamespace(t *testing.T) {
 	t.Parallel()
-	bucketFlatBucket := uniqueName("flat-bucket")
+	bucketFlatBucket := uniquename.New("flat-bucket")
 	svc := storageService(t)
 	mustCreateBucket(t, svc, bucketFlatBucket)
 	mustUploadObject(t, svc, bucketFlatBucket, "a.txt", "payload")
@@ -221,7 +222,7 @@ func TestGCS_ObjectMoveRequiresHierarchicalNamespace(t *testing.T) {
 
 func TestGCS_ObjectMove(t *testing.T) {
 	t.Parallel()
-	bucketHnsBucket := uniqueName("hns-bucket")
+	bucketHnsBucket := uniquename.New("hns-bucket")
 	svc := storageService(t)
 	_, err := svc.Buckets.Insert("test-project", &storageapi.Bucket{
 		Name:                  bucketHnsBucket,
@@ -244,7 +245,7 @@ func TestGCS_ObjectMove(t *testing.T) {
 
 func TestGCS_ObjectACL_RoundTrip(t *testing.T) {
 	t.Parallel()
-	bucketObjectAclBucket := uniqueName("object-acl-bucket")
+	bucketObjectAclBucket := uniquename.New("object-acl-bucket")
 	svc := storageService(t)
 	mustCreateBucket(t, svc, bucketObjectAclBucket)
 	mustUploadObject(t, svc, bucketObjectAclBucket, "doc.txt", "payload")
@@ -289,7 +290,7 @@ func TestGCS_ObjectACL_RoundTrip(t *testing.T) {
 // as covered.
 func TestGCS_ObjectACLIsNotTheObjectHandler(t *testing.T) {
 	t.Parallel()
-	bucketAclNotObjectBucket := uniqueName("acl-not-object-bucket")
+	bucketAclNotObjectBucket := uniquename.New("acl-not-object-bucket")
 	svc := storageService(t)
 	mustCreateBucket(t, svc, bucketAclNotObjectBucket)
 
@@ -302,7 +303,7 @@ func TestGCS_ObjectACLIsNotTheObjectHandler(t *testing.T) {
 
 func TestGCS_ObjectACLSeededFromTheBucketDefault(t *testing.T) {
 	t.Parallel()
-	bucketSeededAclBucket := uniqueName("seeded-acl-bucket")
+	bucketSeededAclBucket := uniquename.New("seeded-acl-bucket")
 	svc := storageService(t)
 	mustCreateBucket(t, svc, bucketSeededAclBucket)
 
@@ -337,7 +338,7 @@ func TestGCS_ObjectACLSeededFromTheBucketDefault(t *testing.T) {
 
 func TestGCS_ObjectACLRejectedUnderUniformBucketLevelAccess(t *testing.T) {
 	t.Parallel()
-	bucketUblaBucket := uniqueName("ubla-bucket")
+	bucketUblaBucket := uniquename.New("ubla-bucket")
 	svc := storageService(t)
 	_, err := svc.Buckets.Insert("test-project", &storageapi.Bucket{
 		Name: bucketUblaBucket,

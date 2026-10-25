@@ -9,6 +9,7 @@ import (
 	iampb "cloud.google.com/go/iam/apiv1/iampb"
 	run "cloud.google.com/go/run/apiv2"
 	"cloud.google.com/go/run/apiv2/runpb"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/iterator"
@@ -51,7 +52,7 @@ func TestSDK_CloudRunV2_WorkerPools_RoundTrip(t *testing.T) {
 	pools := newWorkerPoolsClient(t)
 	revisions := newRevisionsClient(t)
 	parent := "projects/test-project/locations/us-central1"
-	id := uniqueName("v2-wp-roundtrip")
+	id := uniquename.New("v2-wp-roundtrip")
 	name := parent + "/workerPools/" + id
 
 	op, err := pools.CreateWorkerPool(ctx, &runpb.CreateWorkerPoolRequest{
@@ -138,7 +139,7 @@ func TestSDK_CloudRunV2_WorkerPools_IAM(t *testing.T) {
 	t.Parallel()
 	pools := newWorkerPoolsClient(t)
 	parent := "projects/test-project/locations/us-central1"
-	id := uniqueName("v2-wp-iam")
+	id := uniquename.New("v2-wp-iam")
 	name := parent + "/workerPools/" + id
 
 	op, err := pools.CreateWorkerPool(ctx, &runpb.CreateWorkerPoolRequest{
@@ -185,7 +186,7 @@ func TestSDK_CloudRunV2_Instances_RoundTrip(t *testing.T) {
 	t.Parallel()
 	inst := newInstancesClient(t)
 	parent := "projects/test-project/locations/us-central1"
-	id := uniqueName("v2-inst-roundtrip")
+	id := uniquename.New("v2-inst-roundtrip")
 	name := parent + "/instances/" + id
 
 	op, err := inst.CreateInstance(ctx, &runpb.CreateInstanceRequest{
@@ -242,7 +243,7 @@ func TestSDK_CloudRunV2_Instances_IAM(t *testing.T) {
 	t.Parallel()
 	inst := newInstancesClient(t)
 	parent := "projects/test-project/locations/us-central1"
-	id := uniqueName("v2-inst-iam")
+	id := uniquename.New("v2-inst-iam")
 	name := parent + "/instances/" + id
 
 	op, err := inst.CreateInstance(ctx, &runpb.CreateInstanceRequest{
@@ -302,7 +303,7 @@ func TestSDK_CloudRunV2_JobUpdate_And_ExecutionTasks(t *testing.T) {
 	execs := newExecutionsClient(t)
 	tasks := newTasksClient(t)
 	parent := "projects/test-project/locations/us-central1"
-	id := uniqueName("v2-job-update-tasks")
+	id := uniquename.New("v2-job-update-tasks")
 	jobName := parent + "/jobs/" + id
 
 	op, err := jobs.CreateJob(ctx, &runpb.CreateJobRequest{

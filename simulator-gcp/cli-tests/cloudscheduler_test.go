@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -45,7 +46,7 @@ func describeSchedulerJob(t *testing.T, id string) gcloudSchedulerJob {
 // delete; the run publishes the job's message to its topic.
 func TestCLI_SchedulerPubsubJobLifecycle(t *testing.T) {
 	t.Parallel()
-	topic, sub, id := uniqueName("cli-sched-topic"), uniqueName("cli-sched-sub"), uniqueName("cli-sched-pubsub")
+	topic, sub, id := uniquename.New("cli-sched-topic"), uniquename.New("cli-sched-sub"), uniquename.New("cli-sched-pubsub")
 	runCLI(t, gcloudCLI("pubsub", "topics", "create", topic, "--quiet"))
 	t.Cleanup(func() { _ = gcloudCLI("pubsub", "topics", "delete", topic, "--quiet").Run() })
 	runCLI(t, gcloudCLI("pubsub", "subscriptions", "create", sub, "--topic="+topic, "--quiet"))
@@ -124,7 +125,7 @@ func TestCLI_SchedulerHTTPJobRuns(t *testing.T) {
 	}))
 	t.Cleanup(endpoint.Close)
 
-	id := uniqueName("cli-sched-http")
+	id := uniquename.New("cli-sched-http")
 	runCLI(t, gcloudCLI("scheduler", "jobs", "create", "http", id, "--location="+location,
 		"--schedule=*/5 * * * *", "--uri="+endpoint.URL+"/hook", "--http-method=put",
 		"--headers=X-Release=blue", "--message-body=deploy", "--quiet"))

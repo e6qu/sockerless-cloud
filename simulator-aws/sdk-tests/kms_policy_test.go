@@ -10,6 +10,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/iam"
 	"github.com/aws/aws-sdk-go-v2/service/kms"
 	smithy "github.com/aws/smithy-go"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -22,7 +23,7 @@ func TestKMS_KeyPolicyDenyBlocksDecrypt(t *testing.T) {
 	t.Parallel()
 	adminIAM := iamClient()
 	adminKMS := kmsClient()
-	user := uniqueName("kms-deny-user")
+	user := uniquename.New("kms-deny-user")
 
 	_, err := adminIAM.CreateUser(ctx, &iam.CreateUserInput{UserName: aws.String(user)})
 	require.NoError(t, err)

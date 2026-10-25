@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"log"
-	mathrand "math/rand/v2"
 	"net/http"
 	"net/url"
 	"os"
@@ -20,6 +19,7 @@ import (
 
 	"github.com/e6qu/sockerless-cloud/testutil/baseimage"
 	"github.com/e6qu/sockerless-cloud/testutil/freeports"
+	"github.com/e6qu/sockerless-cloud/testutil/scratchimage"
 	"github.com/e6qu/sockerless-cloud/testutil/simready"
 )
 
@@ -128,19 +128,25 @@ func TestMain(m *testing.M) {
 		log.Fatalf("Failed to build simulator: %v\n%s", err, out)
 	}
 
-	workloadPlatform := nativeDockerPlatform()
+	workloadPlatform := scratchimage.NativePlatform()
 
 	evalDir, _ := filepath.Abs("../../testdata/eval-arithmetic")
 	evalImageName = "sockerless-eval-arithmetic:gcp-cli"
-	buildGoScratchImage(evalImageName, evalDir, "eval-arithmetic", workloadPlatform)
+	if err := scratchimage.Build(evalImageName, evalDir, "eval-arithmetic", workloadPlatform, ""); err != nil {
+		log.Fatal(err)
+	}
 
 	commandDir, _ := filepath.Abs("../../testdata/container-command")
 	commandImageName = "sockerless-container-command:gcp-cli"
-	buildGoScratchImage(commandImageName, commandDir, "container-command", workloadPlatform)
+	if err := scratchimage.Build(commandImageName, commandDir, "container-command", workloadPlatform, ""); err != nil {
+		log.Fatal(err)
+	}
 
 	probeDir, _ := filepath.Abs("../../testdata/http-localhost-probe")
 	httpProbeImageName = "sockerless-http-localhost-probe:gcp-cli"
-	buildGoScratchImage(httpProbeImageName, probeDir, "http-localhost-probe", workloadPlatform)
+	if err := scratchimage.Build(httpProbeImageName, probeDir, "http-localhost-probe", workloadPlatform, ""); err != nil {
+		log.Fatal(err)
+	}
 
 	ports, err := freeports.Pick(2)
 	if err != nil {
@@ -369,12 +375,6 @@ func installGcloudComponents(gcloudPath string, components ...string) {
 	}
 }
 
-// uniqueName suffixes prefix with a random id, so tests running at once, or a
-// test run twice against one simulator, create resources of their own.
-func uniqueName(prefix string) string {
-	return fmt.Sprintf("%s-%08x", prefix, mathrand.Uint32())
-}
-
 // gcloudCLI creates a gcloud command with config isolation and endpoint overrides.
 //
 // Eventarc and Cloud Build both publish `/v1/projects/{p}/locations/{l}/triggers`,
@@ -521,54 +521,6 @@ func runCLI(t *testing.T, cmd *exec.Cmd) string {
 			err, strings.Join(cmd.Args, " "), stdout.String(), stderr.String())
 	}
 	return stdout.String()
-}
-
-func nativeDockerPlatform() string {
-	return "linux/" + runtime.GOARCH
-}
-
-func buildGoScratchImage(imageName, sourceDir, binaryName, platform string) {
-	buildDir, err := os.MkdirTemp("", "sockerless-gcp-image-*")
-	if err != nil {
-		log.Fatalf("Failed to create image build dir: %v", err)
-	}
-	defer os.RemoveAll(buildDir)
-
-	binaryPath := filepath.Join(buildDir, binaryName)
-	build := exec.Command("go", "build", "-o", binaryPath, ".")
-	build.Dir = sourceDir
-	build.Env = append(os.Environ(),
-		"CGO_ENABLED=0",
-		"GOWORK=off",
-		"GOOS=linux",
-		"GOARCH="+runtime.GOARCH,
-	)
-	if out, err := build.CombinedOutput(); err != nil {
-		log.Fatalf("Failed to build %s workload binary: %v\n%s", binaryName, err, out)
-	}
-
-	dockerfile := fmt.Sprintf(`FROM scratch
-COPY %s /usr/local/bin/%s
-ENTRYPOINT ["/usr/local/bin/%s"]
-`, binaryName, binaryName, binaryName)
-	// On a docker-container buildx driver (the default on many dev machines),
-	// `docker build -t` leaves the image in the build cache only — never the
-	// daemon store — so the sim's container start can't find it. `docker buildx
-	// build --load` materializes it into the daemon store. The legacy builder
-	// builds into the store natively and rejects the buildx-only `--load`, so
-	// omit it there.
-	var args []string
-	if exec.Command("docker", "buildx", "version").Run() == nil {
-		args = []string{"buildx", "build", "--load"}
-	} else {
-		args = []string{"build"}
-	}
-	args = append(args, "--platform", platform, "-t", imageName, "-f", "-", buildDir)
-	dockerBuild := exec.Command("docker", args...)
-	dockerBuild.Stdin = strings.NewReader(dockerfile)
-	if out, err := dockerBuild.CombinedOutput(); err != nil {
-		log.Fatalf("Failed to build %s Docker image: %v\n%s", imageName, err, out)
-	}
 }
 
 // parseJSON decodes the JSON payload a command wrote to stdout into target.

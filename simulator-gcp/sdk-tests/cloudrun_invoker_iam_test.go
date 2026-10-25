@@ -13,6 +13,7 @@ import (
 	"cloud.google.com/go/iam/apiv1/iampb"
 	run "cloud.google.com/go/run/apiv2"
 	"cloud.google.com/go/run/apiv2/runpb"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/cloudresourcemanager/v1"
@@ -133,7 +134,7 @@ func createInvokableServiceIn(t *testing.T, client *run.ServicesClient, parent, 
 	t.Helper()
 	op, err := client.CreateService(ctx, &runpb.CreateServiceRequest{
 		Parent:    parent,
-		ServiceId: uniqueName(prefix),
+		ServiceId: uniquename.New(prefix),
 		Service:   service,
 	})
 	require.NoError(t, err)
@@ -159,7 +160,7 @@ func TestSDK_CloudRunV2Services_InvokerIAMOnTheService(t *testing.T) {
 	t.Parallel()
 	client := newServicesClient(t)
 	svc := createInvokableServiceIn(t, client, "projects/test-project/locations/us-central1", "v2-svc-invoker", echoService())
-	email := createServiceAccount(t, "test-project", uniqueName("sdk-inv"))
+	email := createServiceAccount(t, "test-project", uniquename.New("sdk-inv"))
 	member := "serviceAccount:" + email
 	token := idTokenFor(t, email, svc.Uri)
 
@@ -226,11 +227,11 @@ func TestSDK_CloudRunV2Services_InvokerIAMOnTheService(t *testing.T) {
 // A role granted on the project reaches every service in it.
 func TestSDK_CloudRunV2Services_InvokerInheritedFromTheProject(t *testing.T) {
 	t.Parallel()
-	project := uniqueName("run-inv")
+	project := uniquename.New("run-inv")
 	ensureV1Project(t, crmService(t), project)
 	client := newServicesClient(t)
 	svc := createInvokableServiceIn(t, client, "projects/"+project+"/locations/us-central1", "v2-svc-inherit", echoService())
-	email := createServiceAccount(t, project, uniqueName("sdk-proj-inv"))
+	email := createServiceAccount(t, project, uniquename.New("sdk-proj-inv"))
 	member := "serviceAccount:" + email
 	token := idTokenFor(t, email, svc.Uri)
 
@@ -260,7 +261,7 @@ func TestSDK_CloudRunV2Services_InvokerBindingConditions(t *testing.T) {
 	client := newServicesClient(t)
 	svc := createInvokableServiceIn(t, client, "projects/test-project/locations/us-central1", "v2-svc-cond", echoService())
 	other := createInvokableServiceIn(t, client, "projects/test-project/locations/us-central1", "v2-svc-cond-other", echoService())
-	email := createServiceAccount(t, "test-project", uniqueName("sdk-cond"))
+	email := createServiceAccount(t, "test-project", uniquename.New("sdk-cond"))
 	member := "serviceAccount:" + email
 	token := idTokenFor(t, email, svc.Uri)
 

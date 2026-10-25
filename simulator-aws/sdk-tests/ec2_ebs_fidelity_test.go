@@ -6,6 +6,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -25,7 +26,7 @@ func describeOneVolume(t *testing.T, c *ec2.Client, id string) types.Volume {
 func TestEC2_EBSVolumeFidelitySDK(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
-	env := uniqueName("prod")
+	env := uniquename.New("prod")
 
 	// gp3 with no iops/throughput → AWS returns the defaults 3000/125.
 	gp3, err := c.CreateVolume(ctx, &ec2.CreateVolumeInput{

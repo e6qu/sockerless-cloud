@@ -15,6 +15,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/eventhub/armeventhub"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/redis/armredis/v3"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armresources"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -48,11 +49,11 @@ func moveResourceToGroup(t *testing.T, srcRG, dstRG, resourceID string) {
 // hook that only re-homed the ARM records would break.
 func TestAzureResources_MoveEventHubNamespace(t *testing.T) {
 	t.Parallel()
-	srcRG, dstRG := uniqueName("eh-move-src-rg"), uniqueName("eh-move-dst-rg")
+	srcRG, dstRG := uniquename.New("eh-move-src-rg"), uniquename.New("eh-move-dst-rg")
 	ensureRG(t, srcRG)
 	ensureRG(t, dstRG)
 
-	namespace := uniqueName("sdk-eh-move-ns")
+	namespace := uniquename.New("sdk-eh-move-ns")
 	const hub = "eh-move-hub"
 	const group = "$Default"
 
@@ -173,11 +174,11 @@ func eventHubMoveProducer(t *testing.T, connectionString string) *azeventhubs.Pr
 // after the move, and the cache's children re-home with it.
 func TestAzureResources_MoveRedisCache(t *testing.T) {
 	t.Parallel()
-	srcRG, dstRG := uniqueName("redis-move-src-rg"), uniqueName("redis-move-dst-rg")
+	srcRG, dstRG := uniquename.New("redis-move-src-rg"), uniquename.New("redis-move-dst-rg")
 	ensureRG(t, srcRG)
 	ensureRG(t, dstRG)
 
-	cache := uniqueName("sdk-redis-move")
+	cache := uniquename.New("sdk-redis-move")
 	client := newRedisCacheForTest(t, srcRG, cache)
 
 	firewall, err := armredis.NewFirewallRulesClient(subscriptionID, &fakeCredential{}, clientOpts())
@@ -235,11 +236,11 @@ func TestAzureResources_MoveRedisCache(t *testing.T) {
 // the same username and passwords afterwards, and the child subtree re-homes.
 func TestAzureResources_MoveContainerRegistry(t *testing.T) {
 	t.Parallel()
-	srcRG, dstRG := uniqueName("acr-move-src-rg"), uniqueName("acr-move-dst-rg")
+	srcRG, dstRG := uniquename.New("acr-move-src-rg"), uniquename.New("acr-move-dst-rg")
 	ensureRG(t, srcRG)
 	ensureRG(t, dstRG)
 
-	registry := uniqueAlnumName("sdkacrmove")
+	registry := uniquename.Alnum("sdkacrmove")
 	registries, err := armcontainerregistry.NewRegistriesClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	createPoller, err := registries.BeginCreate(ctx, srcRG, registry, armcontainerregistry.Registry{
@@ -305,11 +306,11 @@ func TestAzureResources_MoveContainerRegistry(t *testing.T) {
 // destination scope.
 func TestAzureResources_MoveEventGridTopic(t *testing.T) {
 	t.Parallel()
-	srcRG, dstRG := uniqueName("eg-move-src-rg"), uniqueName("eg-move-dst-rg")
+	srcRG, dstRG := uniquename.New("eg-move-src-rg"), uniquename.New("eg-move-dst-rg")
 	ensureRG(t, srcRG)
 	ensureRG(t, dstRG)
 
-	topicName := uniqueName("sdk-eg-move")
+	topicName := uniquename.New("sdk-eg-move")
 	topics, err := armeventgrid.NewTopicsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	createPoller, err := topics.BeginCreateOrUpdate(ctx, srcRG, topicName, armeventgrid.Topic{

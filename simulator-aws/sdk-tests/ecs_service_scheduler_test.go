@@ -11,6 +11,7 @@ import (
 	ecstypes "github.com/aws/aws-sdk-go-v2/service/ecs/types"
 	"github.com/aws/aws-sdk-go-v2/service/servicediscovery"
 	sdtypes "github.com/aws/aws-sdk-go-v2/service/servicediscovery/types"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -168,11 +169,11 @@ func TestECS_Service_ReconcilesRealTasks(t *testing.T) {
 // the task was replaced, and deregistered it when the service was deleted.
 func TestECS_Service_RegistersRunningTasksInCloudMap(t *testing.T) {
 	t.Parallel()
-	family := uniqueName("discovery-scheduler-task")
+	family := uniquename.New("discovery-scheduler-task")
 	client := ecsClient()
 	cloudMap := cmClient()
-	cluster := uniqueName("discovery-scheduler-cluster")
-	serviceName := uniqueName("discovery-scheduler-service")
+	cluster := uniquename.New("discovery-scheduler-cluster")
+	serviceName := uniquename.New("discovery-scheduler-service")
 
 	_, err := client.CreateCluster(ctx, &ecs.CreateClusterInput{ClusterName: aws.String(cluster)})
 	require.NoError(t, err)
@@ -201,7 +202,7 @@ func TestECS_Service_RegistersRunningTasksInCloudMap(t *testing.T) {
 	require.NoError(t, err)
 
 	namespaceOut, err := cloudMap.CreatePrivateDnsNamespace(ctx, &servicediscovery.CreatePrivateDnsNamespaceInput{
-		Name: aws.String(uniqueName("ecs-service-discovery") + ".local"),
+		Name: aws.String(uniquename.New("ecs-service-discovery") + ".local"),
 		Vpc:  aws.String("vpc-ecs-service-discovery"),
 	})
 	require.NoError(t, err)
@@ -305,11 +306,11 @@ func TestECS_Service_RegistersRunningTasksInCloudMap(t *testing.T) {
 // "container started" event, which made every service in the simulator opaque.
 func TestECS_ServiceTaskStreamsLogsLive(t *testing.T) {
 	t.Parallel()
-	family := uniqueName("svc-live-logs-task")
+	family := uniquename.New("svc-live-logs-task")
 	client := ecsClient()
-	cluster := uniqueName("svc-live-logs-cluster")
-	serviceName := uniqueName("svc-live-logs-svc")
-	logGroup := uniqueName("/ecs/svc-live-logs")
+	cluster := uniquename.New("svc-live-logs-cluster")
+	serviceName := uniquename.New("svc-live-logs-svc")
+	logGroup := uniquename.New("/ecs/svc-live-logs")
 	const marker = "service-line-from-running-task"
 	_, err := client.CreateCluster(ctx, &ecs.CreateClusterInput{ClusterName: aws.String(cluster)})
 	require.NoError(t, err)

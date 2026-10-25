@@ -10,6 +10,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatch"
 	cwtypes "github.com/aws/aws-sdk-go-v2/service/cloudwatch/types"
 	"github.com/aws/aws-sdk-go-v2/service/iam"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -98,7 +99,7 @@ func TestCloudWatch_AlarmsKeepTheirActionConfiguration(t *testing.T) {
 func TestCloudWatch_EnablingAlarmTagsPropagationNeedsListTagsForResource(t *testing.T) {
 	t.Parallel()
 	iamc := iamClient()
-	user := uniqueName("cw-tags-propagation")
+	user := uniquename.New("cw-tags-propagation")
 	_, err := iamc.CreateUser(ctx, &iam.CreateUserInput{UserName: aws.String(user)})
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = iamc.DeleteUser(ctx, &iam.DeleteUserInput{UserName: aws.String(user)}) })

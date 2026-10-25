@@ -16,6 +16,7 @@ import (
 	artifactregistry "google.golang.org/api/artifactregistry/v1"
 	"google.golang.org/api/option"
 
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -77,7 +78,7 @@ func TestArtifactRegistry_GenericUploadDownloadAndExport(t *testing.T) {
 	t.Parallel()
 	svc := arAdminService(t)
 	parent := "projects/ar-generic/locations/us-central1"
-	repo := arCreateFormatRepository(t, svc, parent, uniqueName("generic-repo"), "GENERIC")
+	repo := arCreateFormatRepository(t, svc, parent, uniquename.New("generic-repo"), "GENERIC")
 	content := []byte("generic release payload\n")
 
 	uploaded, err := svc.Projects.Locations.Repositories.GenericArtifacts.Upload(repo,
@@ -105,7 +106,7 @@ func TestArtifactRegistry_GenericUploadDownloadAndExport(t *testing.T) {
 
 	storageClient := storageClient(t)
 	defer storageClient.Close()
-	bucket := uniqueName("ar-export")
+	bucket := uniquename.New("ar-export")
 	arCreateBucket(t, storageClient, bucket)
 
 	op, err := arClient(t).ExportArtifact(ctx, &artifactregistrypb.ExportArtifactRequest{
@@ -129,7 +130,7 @@ func TestArtifactRegistry_GenericUploadDownloadAndExport(t *testing.T) {
 // writes the manifest and every blob the manifest references.
 func TestArtifactRegistry_ExportPushedDockerImage(t *testing.T) {
 	t.Parallel()
-	project, repoID := "ar-export-docker", uniqueName("docker-repo-121e")
+	project, repoID := "ar-export-docker", uniquename.New("docker-repo-121e")
 	arCreateRepository(t, project, "us-central1", repoID)
 	repo := "projects/" + project + "/locations/us-central1/repositories/" + repoID
 	image := project + "/" + repoID + "/app"
@@ -157,7 +158,7 @@ func TestArtifactRegistry_ExportPushedDockerImage(t *testing.T) {
 
 	storageClient := storageClient(t)
 	defer storageClient.Close()
-	bucket := uniqueName("ar-docker-export")
+	bucket := uniquename.New("ar-docker-export")
 	arCreateBucket(t, storageClient, bucket)
 
 	op, err := arClient(t).ExportArtifact(ctx, &artifactregistrypb.ExportArtifactRequest{
@@ -223,11 +224,11 @@ func TestArtifactRegistry_ImportAptArtifactsFromCloudStorage(t *testing.T) {
 	t.Parallel()
 	svc := arAdminService(t)
 	parent := "projects/ar-apt-import/locations/us-central1"
-	repo := arCreateFormatRepository(t, svc, parent, uniqueName("apt-repo"), "APT")
+	repo := arCreateFormatRepository(t, svc, parent, uniquename.New("apt-repo"), "APT")
 
 	storageClient := storageClient(t)
 	defer storageClient.Close()
-	bucket := uniqueName("ar-debs")
+	bucket := uniquename.New("ar-debs")
 	arCreateBucket(t, storageClient, bucket)
 	deb := arTestDebPackage(t, "hello", "2.10-2", "amd64")
 	writer := storageClient.Bucket(bucket).Object("pool/hello_2.10-2_amd64.deb").NewWriter(ctx)

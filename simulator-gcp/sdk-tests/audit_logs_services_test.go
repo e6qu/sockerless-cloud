@@ -14,6 +14,7 @@ import (
 	"cloud.google.com/go/logging"
 	"cloud.google.com/go/logging/logadmin"
 	"cloud.google.com/go/run/apiv2/runpb"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	compute "google.golang.org/api/compute/v1"
@@ -63,7 +64,7 @@ func TestAuditLogs_ComputeEngine(t *testing.T) {
 	t.Parallel()
 	const project = "test-project"
 	svc := computeService(t)
-	name := uniqueName("audit-net")
+	name := uniquename.New("audit-net")
 	op, err := svc.Networks.Insert(project, &compute.Network{Name: name, AutoCreateSubnetworks: false, ForceSendFields: []string{"AutoCreateSubnetworks"}}).Do()
 	require.NoError(t, err)
 	t.Cleanup(func() {
@@ -94,7 +95,7 @@ func TestAuditLogs_IAMServiceAccounts(t *testing.T) {
 	t.Parallel()
 	const project = "test-project"
 	svc := iamService(t)
-	accountID := uniqueName("audit-sa")
+	accountID := uniquename.New("audit-sa")
 	created, err := svc.Projects.ServiceAccounts.Create("projects/"+project,
 		&iam.CreateServiceAccountRequest{AccountId: accountID}).Do()
 	require.NoError(t, err)
@@ -123,7 +124,7 @@ func TestAuditLogs_IAMServiceAccounts(t *testing.T) {
 func TestAuditLogs_ResourceManagerSetIamPolicy(t *testing.T) {
 	t.Parallel()
 	const project = "test-project"
-	member := "serviceAccount:" + uniqueName("audit-member") + "@test-project.iam.gserviceaccount.com"
+	member := "serviceAccount:" + uniquename.New("audit-member") + "@test-project.iam.gserviceaccount.com"
 	grantOnProject(t, project, "roles/browser", member)
 
 	it := logadminClient(t).Entries(ctx, logadmin.Filter(
@@ -148,7 +149,7 @@ func TestAuditLogs_CloudDNS(t *testing.T) {
 	t.Parallel()
 	const project = "test-project"
 	svc := dnsService(t)
-	zone := uniqueName("audit-zone")
+	zone := uniquename.New("audit-zone")
 	_, err := svc.ManagedZones.Create(project, &dns.ManagedZone{Name: zone, DnsName: zone + ".example.com.", Description: "audit"}).Do()
 	require.NoError(t, err)
 	t.Cleanup(func() { assert.NoError(t, svc.ManagedZones.Delete(project, zone).Do()) })
@@ -170,7 +171,7 @@ func TestAuditLogs_RPCDefinedServices(t *testing.T) {
 	const project = "test-project"
 
 	kmsClient := newKMSGRPCClient(t)
-	ringID := uniqueName("audit-ring")
+	ringID := uniquename.New("audit-ring")
 	ring, err := kmsClient.CreateKeyRing(ctx, &kmspb.CreateKeyRingRequest{
 		Parent: "projects/" + project + "/locations/us-central1", KeyRingId: ringID, KeyRing: &kmspb.KeyRing{},
 	})
@@ -182,7 +183,7 @@ func TestAuditLogs_RPCDefinedServices(t *testing.T) {
 	assert.Equal(t, ringID, entry.Resource.GetLabels()["key_ring_id"])
 
 	spanner := spannerAdminService(t, ctx)
-	instance := uniqueName("audit-sp")
+	instance := uniquename.New("audit-sp")
 	op, err := spanner.Projects.Instances.Create("projects/"+project, &spanneradmin.CreateInstanceRequest{
 		InstanceId: instance,
 		Instance:   &spanneradmin.Instance{DisplayName: instance, NodeCount: 1},
@@ -202,7 +203,7 @@ func TestAuditLogs_RPCDefinedServices(t *testing.T) {
 	assert.True(t, entry.Operation.GetFirst())
 
 	fs := firestoreAdminService(t)
-	database := uniqueName("audit-db")
+	database := uniquename.New("audit-db")
 	_, err = fs.Projects.Databases.Create("projects/"+project, &firestore.GoogleFirestoreAdminV1Database{
 		LocationId: "nam5", Type: "FIRESTORE_NATIVE",
 	}).DatabaseId(database).Do()
@@ -212,7 +213,7 @@ func TestAuditLogs_RPCDefinedServices(t *testing.T) {
 	assert.Equal(t, "datastore.databases.create", auditPermission(t, payload))
 
 	instanceAdmin, _, _ := bigtableAdminGRPCConn(t)
-	btInstance, _ := bigtableAdminGRPCInstance(t, instanceAdmin, project, uniqueName("audit-bt"), "c1")
+	btInstance, _ := bigtableAdminGRPCInstance(t, instanceAdmin, project, uniquename.New("audit-bt"), "c1")
 	t.Cleanup(func() {
 		_, err := instanceAdmin.DeleteInstance(ctx, &adminpb.DeleteInstanceRequest{Name: btInstance})
 		assert.NoError(t, err)
@@ -236,15 +237,15 @@ func TestEventarc_AuditLogTriggerForCloudKMS(t *testing.T) {
 			Image: httpProbeImageName, Args: []string{"log-cloudevent"},
 		}}}})
 	serviceID := svc.Name[strings.LastIndex(svc.Name, "/")+1:]
-	triggerAccount := createServiceAccount(t, project, uniqueName("ea-kms"))
+	triggerAccount := createServiceAccount(t, project, uniquename.New("ea-kms"))
 	grantOnService(t, runClient, svc.Name, "roles/run.invoker", "serviceAccount:"+triggerAccount, nil)
 
-	ringID := uniqueName("audit-trigger-ring")
+	ringID := uniquename.New("audit-trigger-ring")
 	ringName := "projects/" + project + "/locations/" + region + "/keyRings/" + ringID
 	client := eventarcClient(t)
 	create, err := client.CreateTrigger(ctx, &eventarcpb.CreateTriggerRequest{
 		Parent:    "projects/" + project + "/locations/" + region,
-		TriggerId: uniqueName("kms-audit"),
+		TriggerId: uniquename.New("kms-audit"),
 		Trigger: &eventarcpb.Trigger{
 			EventFilters: []*eventarcpb.EventFilter{
 				{Attribute: "type", Value: "google.cloud.audit.log.v1.written"},

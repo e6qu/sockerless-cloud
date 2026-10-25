@@ -14,6 +14,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 )
 
 // Differential testing of the Cosmos server-side-programming and change-feed
@@ -52,14 +54,14 @@ var cosmosScriptDiffKnownDivergences = map[string]cosmosDiffDivergence{
 }
 
 func TestCosmosScripts_DifferentialVsEmulator(t *testing.T) {
-	dataPlaneAccount := uniqueAlnumName("sdkdataplane")
+	dataPlaneAccount := uniquename.Alnum("sdkdataplane")
 	emuEndpoint, release := startCosmosEmulator(t)
 	defer release()
 
 	for _, sc := range cosmosScriptDiffScenarios() {
 		t.Run(sc.name, func(t *testing.T) {
-			simRes := cosmosCapture(sc.run(t, cosmosSimCoordinate(t, dataPlaneAccount), uniqueName("sim-"+sc.name)))
-			oracleRes := cosmosCapture(sc.run(t, cosmosCoordinate{url: emuEndpoint, key: cosmosEmulatorKey}, uniqueName("emu-"+sc.name)))
+			simRes := cosmosCapture(sc.run(t, cosmosSimCoordinate(t, dataPlaneAccount), uniquename.New("sim-"+sc.name)))
+			oracleRes := cosmosCapture(sc.run(t, cosmosCoordinate{url: emuEndpoint, key: cosmosEmulatorKey}, uniquename.New("emu-"+sc.name)))
 			if div, ok := cosmosScriptDiffKnownDivergences[sc.name]; ok {
 				cosmosAssertEqual(t, "sim (documented divergence: "+div.reason+")", div.sim, simRes)
 				cosmosAssertEqual(t, "emulator (documented divergence: "+div.reason+")", div.oracle, oracleRes)

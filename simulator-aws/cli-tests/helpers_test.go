@@ -27,7 +27,9 @@ import (
 
 	"github.com/e6qu/sockerless-cloud/testutil/baseimage"
 	"github.com/e6qu/sockerless-cloud/testutil/freeports"
+	"github.com/e6qu/sockerless-cloud/testutil/scratchimage"
 	"github.com/e6qu/sockerless-cloud/testutil/simready"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 )
 
 // signRawSigV4 signs a hand-built HTTP request with SigV4 using the seed
@@ -287,19 +289,25 @@ func TestMain(m *testing.M) {
 		}
 	}
 
-	workloadPlatform := nativeDockerPlatform()
+	workloadPlatform := scratchimage.NativePlatform()
 
 	evalDir, _ := filepath.Abs("../../testdata/eval-arithmetic")
 	evalImageName = "sockerless-eval-arithmetic:aws-cli"
-	buildGoScratchImage(evalImageName, evalDir, "eval-arithmetic", workloadPlatform)
+	if err := scratchimage.Build(evalImageName, evalDir, "eval-arithmetic", workloadPlatform, ""); err != nil {
+		log.Fatal(err)
+	}
 
 	lambdaHandlerDir, _ := filepath.Abs("../../testdata/lambda-runtime-handler")
 	lambdaHandlerImageName = "sockerless-lambda-runtime-handler:aws-cli"
-	buildGoScratchImage(lambdaHandlerImageName, lambdaHandlerDir, "lambda-runtime-handler", workloadPlatform)
+	if err := scratchimage.Build(lambdaHandlerImageName, lambdaHandlerDir, "lambda-runtime-handler", workloadPlatform, ""); err != nil {
+		log.Fatal(err)
+	}
 
 	containerCommandDir, _ := filepath.Abs("../../testdata/container-command")
 	containerCommandImage = "sockerless-container-command:aws-cli"
-	buildGoScratchImage(containerCommandImage, containerCommandDir, "container-command", workloadPlatform)
+	if err := scratchimage.Build(containerCommandImage, containerCommandDir, "container-command", workloadPlatform, ""); err != nil {
+		log.Fatal(err)
+	}
 
 	ports, err := freeports.Pick(2)
 	if err != nil {
@@ -613,25 +621,12 @@ func parseJSON(t *testing.T, data string, target any) {
 	}
 }
 
-var (
-	cliUniqueNameMu    sync.Mutex
-	cliUniqueNameCount int
-)
-
-// cliUniqueName suffixes prefix with an id unique to this run.
-func cliUniqueName(prefix string) string {
-	cliUniqueNameMu.Lock()
-	defer cliUniqueNameMu.Unlock()
-	cliUniqueNameCount++
-	return prefix + "-" + strconv.FormatInt(time.Now().UnixNano(), 36) + strconv.Itoa(cliUniqueNameCount)
-}
-
 // cliServiceRole creates, with `aws iam create-role`, a uniquely named role
 // whose trust policy lets the service principal assume it, deleted when the
 // test ends.
 func cliServiceRole(t *testing.T, principal string) string {
 	t.Helper()
-	name := cliUniqueName(strings.SplitN(principal, ".", 2)[0])
+	name := uniquename.New(strings.SplitN(principal, ".", 2)[0])
 	var created struct {
 		Role struct {
 			Arn string `json:"Arn"`
@@ -666,47 +661,6 @@ func cliRoleAllowing(t *testing.T, principal string, actions ...string) string {
 		`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":`+string(allowed)+`,"Resource":"*"}]}`))
 	t.Cleanup(func() { _ = awsCLI("iam", "delete-role-policy", "--role-name", name, "--policy-name", "actions").Run() })
 	return role
-}
-
-func nativeDockerPlatform() string {
-	return "linux/" + runtime.GOARCH
-}
-
-func buildGoScratchImage(imageName, sourceDir, binaryName, platform string) {
-	buildDir, err := os.MkdirTemp("", "sockerless-aws-image-*")
-	if err != nil {
-		log.Fatalf("Failed to create image build dir: %v", err)
-	}
-	defer os.RemoveAll(buildDir)
-
-	binaryPath := filepath.Join(buildDir, binaryName)
-	build := exec.Command("go", "build", "-o", binaryPath, ".")
-	build.Dir = sourceDir
-	build.Env = append(os.Environ(),
-		"CGO_ENABLED=0",
-		"GOOS=linux",
-		"GOARCH="+runtime.GOARCH,
-	)
-	if out, err := build.CombinedOutput(); err != nil {
-		log.Fatalf("Failed to build %s binary: %v\n%s", binaryName, err, out)
-	}
-
-	dockerfile := fmt.Sprintf(`FROM scratch
-COPY %s /usr/local/bin/%s
-ENTRYPOINT ["/usr/local/bin/%s"]
-`, binaryName, binaryName, binaryName)
-	var args []string
-	if exec.Command("docker", "buildx", "version").Run() == nil {
-		args = []string{"buildx", "build", "--load"}
-	} else {
-		args = []string{"build"}
-	}
-	args = append(args, "--platform", platform, "-t", imageName, "-f", "-", buildDir)
-	dockerBuild := exec.Command("docker", args...)
-	dockerBuild.Stdin = strings.NewReader(dockerfile)
-	if out, err := dockerBuild.CombinedOutput(); err != nil {
-		log.Fatalf("Failed to build %s Docker image: %v\n%s", binaryName, err, out)
-	}
 }
 
 func cleanupCLIECSTask(t *testing.T, clusterName, taskArn string) {

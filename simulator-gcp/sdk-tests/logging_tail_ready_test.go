@@ -7,6 +7,7 @@ import (
 
 	vkit "cloud.google.com/go/logging/apiv2"
 	"cloud.google.com/go/logging/apiv2/loggingpb"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/genproto/googleapis/api/monitoredres"
 	"google.golang.org/protobuf/types/known/durationpb"
@@ -22,7 +23,7 @@ import (
 // everything ingested before it.
 func openReadyTail(t *testing.T, tailCtx context.Context, client *vkit.Client, project, filter string) (loggingpb.LoggingServiceV2_TailLogEntriesClient, []*loggingpb.LogEntry) {
 	t.Helper()
-	markerLog := "projects/" + project + "/logs/tail-ready-" + uniqueName("t")
+	markerLog := "projects/" + project + "/logs/tail-ready-" + uniquename.New("t")
 	stream, err := client.TailLogEntries(tailCtx)
 	require.NoError(t, err)
 	require.NoError(t, stream.Send(&loggingpb.TailLogEntriesRequest{

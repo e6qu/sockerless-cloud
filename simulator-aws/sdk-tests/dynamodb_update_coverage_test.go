@@ -6,6 +6,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	ddbtypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -30,7 +31,7 @@ func ddbKey(v string) map[string]ddbtypes.AttributeValue {
 // implemented, so update-item with an UpdateExpression was a silent no-op).
 func TestDynamoDB_UpdateItemExpression(t *testing.T) {
 	t.Parallel()
-	table := uniqueName("cov-update-expr")
+	table := uniquename.New("cov-update-expr")
 	c := ddbClient()
 	ddbCoverageTable(t, c, table)
 	get := func() map[string]ddbtypes.AttributeValue {
@@ -92,7 +93,7 @@ func TestDynamoDB_UpdateItemExpression(t *testing.T) {
 
 func TestDynamoDB_TimeToLiveAndContinuousBackups(t *testing.T) {
 	t.Parallel()
-	table := uniqueName("cov-ttl-pitr")
+	table := uniquename.New("cov-ttl-pitr")
 	c := ddbClient()
 	ddbCoverageTable(t, c, table)
 
@@ -125,7 +126,7 @@ func TestDynamoDB_TimeToLiveAndContinuousBackups(t *testing.T) {
 // sim process with "slice bounds out of range".
 func TestDynamoDB_UpdateItemMalformedExpression(t *testing.T) {
 	t.Parallel()
-	table := uniqueName("cov-update-malformed")
+	table := uniquename.New("cov-update-malformed")
 	c := ddbClient()
 	ddbCoverageTable(t, c, table)
 

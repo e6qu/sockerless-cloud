@@ -10,6 +10,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/aws/smithy-go"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -24,7 +25,7 @@ func s3ErrorCode(t *testing.T, err error) string {
 
 func s3LockedBucket(t *testing.T, c *s3.Client, prefix string) string {
 	t.Helper()
-	bucket := uniqueName(prefix)
+	bucket := uniquename.New(prefix)
 	_, err := c.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String(bucket), ObjectLockEnabledForBucket: aws.Bool(true)})
 	require.NoError(t, err)
 	return bucket
@@ -57,7 +58,7 @@ func TestS3_ObjectLockEnablement(t *testing.T) {
 		VersioningConfiguration: &types.VersioningConfiguration{Status: types.BucketVersioningStatusSuspended}})
 	assert.Equal(t, "InvalidBucketState", s3ErrorCode(t, err), "versioning stays enabled on an Object Lock bucket")
 
-	plain := uniqueName("lock-plain")
+	plain := uniquename.New("lock-plain")
 	s3CreateBucket(t, c, plain)
 	_, err = c.GetObjectLockConfiguration(ctx, &s3.GetObjectLockConfigurationInput{Bucket: aws.String(plain)})
 	assert.Equal(t, "ObjectLockConfigurationNotFoundError", s3ErrorCode(t, err))

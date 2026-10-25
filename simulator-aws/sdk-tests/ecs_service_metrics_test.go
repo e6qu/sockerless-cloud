@@ -9,6 +9,7 @@ import (
 	cwtypes "github.com/aws/aws-sdk-go-v2/service/cloudwatch/types"
 	"github.com/aws/aws-sdk-go-v2/service/ecs"
 	ecstypes "github.com/aws/aws-sdk-go-v2/service/ecs/types"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -20,7 +21,7 @@ import (
 func TestECS_ServiceReportsItsUtilization(t *testing.T) {
 	t.Parallel()
 	ecsC, cwC := ecsClient(), cloudwatchClient()
-	cluster, service, family := uniqueName("metrics-cluster"), uniqueName("metrics-svc"), uniqueName("metrics-task")
+	cluster, service, family := uniquename.New("metrics-cluster"), uniquename.New("metrics-svc"), uniquename.New("metrics-task")
 	_, err := ecsC.CreateCluster(ctx, &ecs.CreateClusterInput{ClusterName: aws.String(cluster)})
 	require.NoError(t, err)
 	_, err = ecsC.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{
