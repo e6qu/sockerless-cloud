@@ -1,6 +1,11 @@
 package azure_sdk_test
 
 import (
+	"fmt"
+	"io"
+	"net/http"
+	neturl "net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -67,15 +72,33 @@ func TestStorageARM_AccountActions(t *testing.T) {
 	}, nil)
 	require.NoError(t, err)
 	require.NotNil(t, accountSAS.AccountSasToken)
-	assert.Contains(t, *accountSAS.AccountSasToken, "sig=")
+	// The token ARM signed with the account's key opens the data plane.
+	assert.Equal(t, http.StatusOK, storageSASRequest(t, account, "/?restype=service&comp=properties&"+*accountSAS.AccountSasToken),
+		"the account SAS reads the Blob service properties")
+	assert.Equal(t, http.StatusForbidden, storageSASRequest(t, account, "/container1?restype=container&comp=list&"+*accountSAS.AccountSasToken),
+		"the account SAS grants the service resource type only, not a container's")
 
+	_, err = newBlobTestClient(t, account).CreateContainer(ctx, "container1", nil)
+	require.NoError(t, err)
 	serviceSAS, err := client.ListServiceSAS(ctx, rg, account, armstorage.ServiceSasParameters{
-		CanonicalizedResource: to.Ptr("/blob/" + account + "/container1"),
-		Resource:              to.Ptr(armstorage.SignedResourceC),
-		Permissions:           to.Ptr(armstorage.PermissionsR),
+		CanonicalizedResource:  to.Ptr("/blob/" + account + "/container1"),
+		Resource:               to.Ptr(armstorage.SignedResourceC),
+		Permissions:            to.Ptr(armstorage.PermissionsL),
+		SharedAccessExpiryTime: to.Ptr(time.Now().Add(time.Hour)),
 	}, nil)
 	require.NoError(t, err)
 	require.NotNil(t, serviceSAS.ServiceSasToken)
+	assert.Equal(t, http.StatusOK, storageSASRequest(t, account, "/container1?restype=container&comp=list&"+*serviceSAS.ServiceSasToken),
+		"the service SAS lists the container it names")
+	assert.Equal(t, http.StatusForbidden, storageSASRequest(t, account, "/?comp=list&"+*serviceSAS.ServiceSasToken),
+		"the service SAS reaches nothing outside its container")
+
+	_, err = client.ListServiceSAS(ctx, rg, account, armstorage.ServiceSasParameters{
+		CanonicalizedResource: to.Ptr("/blob/" + account + "/container1"),
+		Resource:              to.Ptr(armstorage.SignedResourceC),
+		Permissions:           to.Ptr(armstorage.PermissionsL),
+	}, nil)
+	require.Error(t, err, "a service SAS needs an expiry or a stored access policy")
 
 	_, err = client.RevokeUserDelegationKeys(ctx, rg, account, nil)
 	require.NoError(t, err)
@@ -315,4 +338,23 @@ func TestStorageARM_AccountChildResources(t *testing.T) {
 	require.NotNil(t, luPass.SSHPassword)
 	_, err = luClient.Delete(ctx, rg, account, "localuser1", nil)
 	require.NoError(t, err)
+}
+
+// storageSASRequest sends an unsigned data-plane GET carrying only the SAS in
+// its query, as a holder of the token sends it, and returns the status.
+func storageSASRequest(t *testing.T, account, target string) int {
+	t.Helper()
+	u, err := neturl.Parse(baseURL)
+	require.NoError(t, err)
+	_, port, ok := strings.Cut(u.Host, ":")
+	require.True(t, ok)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(baseURL, "/")+target, nil)
+	require.NoError(t, err)
+	req.Host = fmt.Sprintf("%s.blob.localhost:%s", account, port)
+	req.Header.Set("x-ms-version", "2022-11-02")
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	_, _ = io.Copy(io.Discard, resp.Body)
+	require.NoError(t, resp.Body.Close())
+	return resp.StatusCode
 }

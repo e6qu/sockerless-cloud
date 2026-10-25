@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"sort"
 	"strings"
 	"time"
@@ -575,27 +574,6 @@ func handleStorageRegenerateKey(w http.ResponseWriter, r *http.Request) {
 	}
 	azureBumpKeyGen(acctID, req.KeyName, "")
 	sim.WriteJSON(w, http.StatusOK, storageAccountKeysBody(acctID))
-}
-
-func storageSASToken(seed string) string {
-	sig := simListKey32(seed, "sas")
-	return "sv=2024-01-01&ss=bfqt&srt=sco&sp=rwdlacupx&se=2030-01-01T00:00:00Z&st=2020-01-01T00:00:00Z&spr=https&sig=" + url.QueryEscape(sig)
-}
-
-func handleStorageListAccountSAS(w http.ResponseWriter, r *http.Request) {
-	acctID, _, ok := requireStorageAccount(w, r)
-	if !ok {
-		return
-	}
-	sim.WriteJSON(w, http.StatusOK, map[string]any{"accountSasToken": storageSASToken(acctID + "|account")})
-}
-
-func handleStorageListServiceSAS(w http.ResponseWriter, r *http.Request) {
-	acctID, _, ok := requireStorageAccount(w, r)
-	if !ok {
-		return
-	}
-	sim.WriteJSON(w, http.StatusOK, map[string]any{"serviceSasToken": storageSASToken(acctID + "|service")})
 }
 
 func handleStorageFailover(w http.ResponseWriter, r *http.Request) {
