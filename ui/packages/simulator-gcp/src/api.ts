@@ -2131,3 +2131,66 @@ export const pubsubSubscriptionRequest = (
     ...(config.pushEndpoint ? { pushConfig: { pushEndpoint: config.pushEndpoint } } : {}),
   },
 });
+
+// ---------------------------------------------------------------------------
+// Cloud Scheduler (cloudscheduler.googleapis.com/v1)
+// ---------------------------------------------------------------------------
+
+export interface SchedulerJob {
+  name: string;
+  description?: string;
+  schedule?: string;
+  timeZone?: string;
+  state?: "ENABLED" | "PAUSED" | "DISABLED" | "UPDATE_FAILED" | string;
+  status?: { code?: number; message?: string };
+  scheduleTime?: string;
+  lastAttemptTime?: string;
+  userUpdateTime?: string;
+  attemptDeadline?: string;
+  pubsubTarget?: { topicName?: string; data?: string; attributes?: Record<string, string> };
+  httpTarget?: { uri?: string; httpMethod?: string; body?: string; headers?: Record<string, string> };
+}
+
+const schedulerParent = (project: string, location = CONSOLE_REGION) =>
+  `/v1/projects/${project}/locations/${location}/jobs`;
+
+export const fetchSchedulerJobs = async (project: string): Promise<SchedulerJob[]> =>
+  (await authorizedJSON<{ jobs?: SchedulerJob[] }>(schedulerParent(project))).jobs ?? [];
+
+export interface SchedulerJobConfig {
+  name: string;
+  description: string;
+  schedule: string;
+  timeZone: string;
+  target: "http" | "pubsub";
+  uri: string;
+  httpMethod: string;
+  topic: string;
+  body: string;
+}
+
+export const schedulerJobRequest = (project: string, config: SchedulerJobConfig): ApiRequest => ({
+  method: "POST",
+  path: schedulerParent(project),
+  body: {
+    name: `projects/${project}/locations/${CONSOLE_REGION}/jobs/${config.name}`,
+    ...(config.description ? { description: config.description } : {}),
+    schedule: config.schedule,
+    timeZone: config.timeZone,
+    ...(config.target === "http"
+      ? {
+          httpTarget: {
+            uri: config.uri,
+            httpMethod: config.httpMethod,
+            ...(config.body ? { body: encodeBase64(config.body) } : {}),
+          },
+        }
+      : { pubsubTarget: { topicName: `projects/${project}/topics/${config.topic}`, data: encodeBase64(config.body) } }),
+  },
+});
+
+// jobs.run, jobs.pause and jobs.resume: custom methods on the job.
+export const schedulerJobAction = (jobName: string, action: "run" | "pause" | "resume"): Promise<SchedulerJob> =>
+  authorizedJSONPost<SchedulerJob>(`/v1/${jobName}:${action}`, {});
+
+export const deleteSchedulerJob = (jobName: string): Promise<unknown> => authorizedJSONDelete(`/v1/${jobName}`);

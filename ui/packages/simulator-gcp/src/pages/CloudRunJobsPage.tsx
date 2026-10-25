@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { GcpResourceTable, GcpStatus, type GcpColumn } from "../console/index.js";
+import type { MenuEntry } from "../console/menu.js";
 import { GcpDialog } from "../console/GcpDialog.js";
 import { LabelsEditor, pairsToLabels, type LabelPair } from "../console/LabelsEditor.js";
 import { shortName, formatTimestamp } from "../console/format.js";
@@ -361,49 +362,24 @@ export function CloudRunJobsPage() {
 
   const refresh = () => void queryClient.invalidateQueries({ queryKey: ["cloudrun-jobs-real", project] });
 
-  const columnsWithActions: GcpColumn<CloudRunJob>[] = [
-    ...columns,
-    {
-      id: "actions",
-      header: "Actions",
-      cell: (row) => {
-        const id = shortName(row.name);
-        return (
-          <span className="gc-row-actions">
-            <button
-              type="button"
-              className="gc-button-text"
-              data-testid={`cloudrun-run-${id}`}
-              aria-label={`Run ${id}`}
-              onClick={() => setRunning(id)}
-            >
-              Run
-            </button>
-            <button
-              type="button"
-              className="gc-button-text"
-              data-testid={`cloudrun-delete-${id}`}
-              aria-label={`Delete ${id}`}
-              onClick={() => setDeleting(id)}
-            >
-              Delete
-            </button>
-          </span>
-        );
-      },
-      value: () => "",
-    },
-  ];
+  const rowActions = (row: CloudRunJob): MenuEntry[] => {
+    const id = shortName(row.name);
+    return [
+      { label: "Run", testId: `cloudrun-run-${id}`, onSelect: () => setRunning(id) },
+      { label: "Delete", testId: `cloudrun-delete-${id}`, onSelect: () => setDeleting(id) },
+    ];
+  };
 
   return (
     <>
       <GcpResourceTable<CloudRunJob>
-        title="Cloud Run jobs"
+        title="Jobs"
         description="A job executes tasks to completion. Jobs are ideal for batch processing and scheduled workloads."
         actions={[
           { label: "Create job", icon: "add", primary: true, testId: "cloudrun-create-job", onSelect: () => setCreating(true) },
         ]}
-        columns={columnsWithActions}
+        columns={columns}
+        rowActions={rowActions}
         queryKey={["cloudrun-jobs-real", project]}
         queryFn={() => fetchCloudRunJobsReal(project)}
         filterPlaceholder="Filter jobs"

@@ -1013,8 +1013,9 @@ body:has(.gcp) {
 }
 .gc-table th,
 .gc-table td {
-  height: 40px;
-  padding: 6px 16px;
+  height: 44px;
+  box-sizing: border-box;
+  padding: 4px 16px;
   text-align: left;
   vertical-align: middle;
   border-bottom: 1px solid var(--gc-border-subtle);
@@ -1076,6 +1077,8 @@ body:has(.gcp) {
 .gc-checkbox input {
   width: 18px;
   height: 18px;
+  margin: 0;
+  vertical-align: middle;
   accent-color: var(--gc-primary);
   cursor: pointer;
 }

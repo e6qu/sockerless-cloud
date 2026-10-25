@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link, useParams } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { GcpResourceTable, GcpStatus, type GcpColumn } from "../console/index.js";
+import type { MenuEntry } from "../console/menu.js";
 import { GcpPageHeader } from "../console/GcpConsole.js";
 import { GcpDialog } from "../console/GcpDialog.js";
 import { GcpTabs } from "../console/GcpTabs.js";
@@ -128,46 +129,17 @@ export function CloudBuildPage() {
     queryFn: () => fetchCloudBuildTriggers(project),
   });
 
-  const columnsWithActions: GcpColumn<CloudBuild>[] = [
-    ...columns,
-    {
-      id: "actions",
-      header: "Actions",
-      cell: (row) => (
-        <span className="gc-row-actions">
-          {TERMINAL_STATUSES.has(row.status ?? "") ? (
-            <button
-              type="button"
-              className="gc-button-text"
-              data-testid={`cloudbuild-retry-${row.id}`}
-              aria-label={`Retry ${row.id}`}
-              onClick={() => setPending({ id: row.id, action: "retry" })}
-            >
-              Retry
-            </button>
-          ) : (
-            <button
-              type="button"
-              className="gc-button-text"
-              data-testid={`cloudbuild-cancel-${row.id}`}
-              aria-label={`Cancel ${row.id}`}
-              onClick={() => setPending({ id: row.id, action: "cancel" })}
-            >
-              Cancel
-            </button>
-          )}
-        </span>
-      ),
-      value: () => "",
-    },
-  ];
+  const rowActions = (row: CloudBuild): MenuEntry[] => TERMINAL_STATUSES.has(row.status ?? "")
+    ? [{ label: "Retry", testId: `cloudbuild-retry-${row.id}`, onSelect: () => setPending({ id: row.id, action: "retry" }) }]
+    : [{ label: "Cancel", testId: `cloudbuild-cancel-${row.id}`, onSelect: () => setPending({ id: row.id, action: "cancel" }) }];
 
   return (
     <>
       <GcpResourceTable<CloudBuild>
-        title="Cloud Build history"
+        title="Build history"
         description="Cloud Build executes your builds on Google Cloud, running each step in its own container."
-        columns={columnsWithActions}
+        columns={columns}
+        rowActions={rowActions}
         queryKey={["cloudbuild-builds", project]}
         queryFn={() => fetchCloudBuilds(project)}
         filterPlaceholder="Filter builds"

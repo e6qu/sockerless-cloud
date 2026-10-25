@@ -119,6 +119,7 @@ describe("Cloud Run job run", () => {
     renderWithProviders(<CloudRunJobsPage />);
     expect(await screen.findByText("runme")).toBeTruthy();
 
+    fireEvent.click(screen.getByRole("button", { name: "Actions for runme" }));
     fireEvent.click(screen.getByTestId("cloudrun-run-runme"));
     const dialog = await screen.findByTestId("cloudrun-run-dialog");
     fireEvent.click(within(dialog).getByTestId("cloudrun-run-confirm"));

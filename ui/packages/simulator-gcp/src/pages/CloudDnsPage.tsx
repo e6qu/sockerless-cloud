@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { GcpResourceTable, type GcpColumn } from "../console/index.js";
+import type { MenuEntry } from "../console/menu.js";
 import { GcpPageHeader } from "../console/GcpConsole.js";
 import { GcpDialog } from "../console/GcpDialog.js";
 import { GcpTabs } from "../console/GcpTabs.js";
@@ -166,27 +167,11 @@ export function CloudDnsPage() {
 
   const refresh = () => void queryClient.invalidateQueries({ queryKey: ["dns-zones", project] });
 
-  const columnsWithActions: GcpColumn<DnsManagedZone>[] = [
-    ...columns,
-    {
-      id: "actions",
-      header: "Actions",
-      cell: (row) => (
-        <span className="gc-row-actions">
-          <button
-            type="button"
-            className="gc-button-text"
-            data-testid={`dns-delete-${row.name}`}
-            aria-label={`Delete ${row.name}`}
-            onClick={() => setDeleting(row.name)}
-          >
-            Delete
-          </button>
-        </span>
-      ),
-      value: () => "",
-    },
-  ];
+  const rowActions = (row: DnsManagedZone): MenuEntry[] => {
+    return [
+      { label: "Delete", testId: `dns-delete-${row.name}`, onSelect: () => setDeleting(row.name) },
+    ];
+  };
 
   return (
     <>
@@ -196,7 +181,8 @@ export function CloudDnsPage() {
         actions={[
           { label: "Create zone", icon: "add", primary: true, testId: "dns-create-zone", onSelect: () => setCreating(true) },
         ]}
-        columns={columnsWithActions}
+        columns={columns}
+        rowActions={rowActions}
         queryKey={["dns-zones", project]}
         queryFn={() => fetchDnsZones(project)}
         filterPlaceholder="Filter zones"

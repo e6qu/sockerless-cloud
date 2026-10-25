@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { GcpResourceTable, GcpStatus, type GcpColumn } from "../console/index.js";
+import type { MenuEntry } from "../console/menu.js";
 import { GcpPageHeader } from "../console/GcpConsole.js";
 import { GcpDialog } from "../console/GcpDialog.js";
 import { GcpTabs } from "../console/GcpTabs.js";
@@ -235,37 +236,22 @@ export function CloudSqlPage() {
 
   const refresh = () => void queryClient.invalidateQueries({ queryKey: ["sql-instances", project] });
 
-  const columnsWithActions: GcpColumn<SqlInstance>[] = [
-    ...columns,
-    {
-      id: "actions",
-      header: "Actions",
-      cell: (row) => (
-        <span className="gc-row-actions">
-          <button
-            type="button"
-            className="gc-button-text"
-            data-testid={`sql-delete-${row.name}`}
-            aria-label={`Delete ${row.name}`}
-            onClick={() => setDeleting(row.name)}
-          >
-            Delete
-          </button>
-        </span>
-      ),
-      value: () => "",
-    },
-  ];
+  const rowActions = (row: SqlInstance): MenuEntry[] => {
+    return [
+      { label: "Delete", testId: `sql-delete-${row.name}`, onSelect: () => setDeleting(row.name) },
+    ];
+  };
 
   return (
     <>
       <GcpResourceTable<SqlInstance>
-        title="Cloud SQL instances"
+        title="Instances"
         description="Cloud SQL is a fully managed relational database service for MySQL, PostgreSQL and SQL Server."
         actions={[
           { label: "Create instance", icon: "add", primary: true, testId: "sql-create-instance", onSelect: () => setCreating(true) },
         ]}
-        columns={columnsWithActions}
+        columns={columns}
+        rowActions={rowActions}
         queryKey={["sql-instances", project]}
         queryFn={() => fetchSqlInstances(project)}
         filterPlaceholder="Filter instances"

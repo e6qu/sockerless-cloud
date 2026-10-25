@@ -53,6 +53,7 @@ export interface MenuEntry {
   href?: string;
   checked?: boolean;
   disabled?: boolean;
+  testId?: string;
 }
 
 /** An icon or text button opening a menu of actions or links. */
@@ -141,6 +142,7 @@ export function MenuButton({
                 key={entry.label}
                 type="button"
                 role={radio ? "menuitemradio" : "menuitem"}
+                data-testid={entry.testId}
                 aria-checked={radio ? Boolean(entry.checked) : undefined}
                 aria-disabled={entry.disabled || undefined}
                 tabIndex={-1}

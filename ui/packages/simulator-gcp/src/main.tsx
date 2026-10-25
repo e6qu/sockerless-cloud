@@ -43,6 +43,7 @@ import { DataflowJobDetailPage, DataflowPage } from "./pages/DataflowPage.js";
 import { CloudBuildDetailPage, CloudBuildPage } from "./pages/CloudBuildPage.js";
 import { EventarcPage, EventarcTriggerDetailPage } from "./pages/EventarcPage.js";
 import { ApiGatewayPage } from "./pages/ApiGatewayPage.js";
+import { CloudSchedulerCreatePage, CloudSchedulerPage } from "./pages/CloudSchedulerPage.js";
 import { EnabledApisPage } from "./pages/EnabledApisPage.js";
 import { CloudKmsCryptoKeyDetailPage, CloudKmsKeyRingDetailPage, CloudKmsPage } from "./pages/CloudKmsPage.js";
 import { SecretCreatePage, SecretDetailPage, SecretManagerPage } from "./pages/SecretManagerPage.js";
@@ -125,6 +126,8 @@ createRoot(document.getElementById("root")!).render(
         <Route path="/ui/eventarc/triggers" element={<EventarcPage />} />
         <Route path="/ui/eventarc/triggers/:name" element={<EventarcTriggerDetailPage />} />
         <Route path="/ui/api-gateway" element={<ApiGatewayPage />} />
+        <Route path="/ui/cloudscheduler" element={<CloudSchedulerPage />} />
+        <Route path="/ui/cloudscheduler/jobs/new" element={<CloudSchedulerCreatePage />} />
 
         <Route path="/ui/security/secret-manager" element={<SecretManagerPage />} />
         <Route path="/ui/security/secret-manager/create" element={<SecretCreatePage />} />

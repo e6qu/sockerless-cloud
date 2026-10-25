@@ -489,6 +489,44 @@ test.describe("Pub/Sub", () => {
   });
 });
 
+test.describe("Cloud Scheduler", () => {
+  test("creates a job that publishes to a topic, force-runs it, pauses it and deletes it", async ({ page }) => {
+    const topic = unique("e2e-cron");
+    const job = unique("e2e-job");
+    await page.goto("/ui/cloudpubsub/topic/list");
+    await page.getByTestId("pubsub-create-topic").click();
+    await page.getByTestId("pubsub-create-topic-id").fill(topic);
+    await page.getByTestId("pubsub-create-topic-submit").click();
+    await expect(snackbar(page)).toContainText(`Created topic "${topic}"`);
+
+    await page.goto("/ui/cloudscheduler");
+    await page.getByRole("link", { name: "Create job" }).click();
+    await page.getByLabel("Name", { exact: true }).fill(job);
+    await page.getByLabel("Frequency").fill("0 3 * * *");
+    await page.getByLabel("Select a Cloud Pub/Sub topic").selectOption(topic);
+    await page.getByLabel("Message body").fill("nightly");
+    await page.getByTestId("scheduler-create-form-submit").click();
+    await expect(page).toHaveURL(/\/ui\/cloudscheduler\?project=sockerless$/);
+    const table = page.getByTestId("scheduler-jobs-table");
+    const row = table.getByRole("row", { name: new RegExp(job) });
+    await expect(row).toContainText("Enabled");
+    await expect(row).toContainText("Has not run yet");
+
+    await table.getByRole("button", { name: `Actions for ${job}` }).click();
+    await page.getByRole("menuitem", { name: "Force run" }).click();
+    await page.getByRole("button", { name: "Refresh" }).click();
+    await expect(row).toContainText("Success");
+    await table.getByRole("button", { name: `Actions for ${job}` }).click();
+    await page.getByRole("menuitem", { name: "Pause" }).click();
+    await expect(row).toContainText("Paused");
+
+    await table.getByRole("checkbox", { name: `Select ${job}` }).check();
+    await page.getByRole("button", { name: "Delete" }).click();
+    await page.getByTestId("scheduler-delete-confirm").click();
+    await expect(table).not.toContainText(job);
+  });
+});
+
 test.describe("Secret Manager", () => {
   test("creates a secret with a value, reads it back, versions it and deletes it", async ({ page }) => {
     const secret = unique("e2e-secret");
@@ -628,6 +666,7 @@ test.describe("Accessibility", () => {
     "/ui/iam-admin/iam",
     "/ui/iam-admin/workforce-identity-pools",
     "/ui/logs/query",
+    "/ui/cloudscheduler/jobs/new",
     "/ui/cloud-resource-manager",
     "/ui/projectcreate",
   ];

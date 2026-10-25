@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { GcpResourceTable, GcpStatus, type GcpColumn } from "../console/index.js";
+import type { MenuEntry } from "../console/menu.js";
 import { GcpPageHeader } from "../console/GcpConsole.js";
 import { GcpDialog } from "../console/GcpDialog.js";
 import { GcpTabs } from "../console/GcpTabs.js";
@@ -162,40 +163,23 @@ export function BigQueryPage() {
 
   const refresh = () => void queryClient.invalidateQueries({ queryKey: ["bigquery-datasets", project] });
 
-  const columnsWithActions: GcpColumn<BigQueryDataset>[] = [
-    ...columns,
-    {
-      id: "actions",
-      header: "Actions",
-      cell: (row) => {
-        const id = datasetId(row);
-        return (
-          <span className="gc-row-actions">
-            <button
-              type="button"
-              className="gc-button-text"
-              data-testid={`bigquery-delete-${id}`}
-              aria-label={`Delete ${id}`}
-              onClick={() => setDeleting(id)}
-            >
-              Delete
-            </button>
-          </span>
-        );
-      },
-      value: () => "",
-    },
-  ];
+  const rowActions = (row: BigQueryDataset): MenuEntry[] => {
+    const id = datasetId(row);
+    return [
+      { label: "Delete", testId: `bigquery-delete-${id}`, onSelect: () => setDeleting(id) },
+    ];
+  };
 
   return (
     <>
       <GcpResourceTable<BigQueryDataset>
-        title="BigQuery datasets"
+        title="Datasets"
         description="BigQuery is a serverless, highly scalable data warehouse. A dataset is the top-level container for your tables and views."
         actions={[
           { label: "Create dataset", icon: "add", primary: true, testId: "bigquery-create-dataset", onSelect: () => setCreating(true) },
         ]}
-        columns={columnsWithActions}
+        columns={columns}
+        rowActions={rowActions}
         queryKey={["bigquery-datasets", project]}
         queryFn={() => fetchBigQueryDatasets(project)}
         filterPlaceholder="Filter datasets"

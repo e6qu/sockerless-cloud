@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { GcpResourceTable, GcpStatus, type GcpColumn } from "../console/index.js";
+import type { MenuEntry } from "../console/menu.js";
 import { GcpDialog } from "../console/GcpDialog.js";
 import { LabelsEditor, labelsToPairs, pairsToLabels, type LabelPair } from "../console/LabelsEditor.js";
 import { shortName, formatTimestamp } from "../console/format.js";
@@ -297,28 +298,12 @@ export function CloudFunctionsPage() {
 
   const refresh = () => void queryClient.invalidateQueries({ queryKey: ["cloud-functions-real", project] });
 
-  const columnsWithActions: GcpColumn<CloudFunction>[] = [
-    ...columns,
-    {
-      id: "actions",
-      header: "Actions",
-      cell: (row) => {
-        const id = shortName(row.name);
-        return (
-          <button
-            type="button"
-            className="gc-button-text"
-            data-testid={`function-delete-${id}`}
-            aria-label={`Delete ${id}`}
-            onClick={() => setDeleting(id)}
-          >
-            Delete
-          </button>
-        );
-      },
-      value: () => "",
-    },
-  ];
+  const rowActions = (row: CloudFunction): MenuEntry[] => {
+    const id = shortName(row.name);
+    return [
+      { label: "Delete", testId: `function-delete-${id}`, onSelect: () => setDeleting(id) },
+    ];
+  };
 
   return (
     <>
@@ -328,7 +313,8 @@ export function CloudFunctionsPage() {
         actions={[
           { label: "Create function", icon: "add", primary: true, testId: "function-create", onSelect: () => setCreating(true) },
         ]}
-        columns={columnsWithActions}
+        columns={columns}
+        rowActions={rowActions}
         queryKey={["cloud-functions-real", project]}
         queryFn={() => fetchCloudFunctions(project)}
         filterPlaceholder="Filter functions"

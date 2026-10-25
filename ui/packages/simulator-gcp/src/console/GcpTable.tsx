@@ -296,7 +296,12 @@ export function ResourceTableView<T>({
   const visible = rows.slice(currentPage * pageSize, currentPage * pageSize + pageSize);
   const allVisibleSelected = visible.length > 0 && visible.every((row) => selected.has(rowKey(row)));
   const columnCount = visibleColumns.length + (selectable ? 1 : 0) + (rowActions ? 1 : 0);
-  const label = rowLabel ?? rowKey;
+  const label =
+    rowLabel ??
+    ((row: T) => {
+      const key = rowKey(row);
+      return key.slice(key.lastIndexOf("/") + 1);
+    });
 
   function toggle(ids: string[], on: boolean) {
     const next = new Set(selected);

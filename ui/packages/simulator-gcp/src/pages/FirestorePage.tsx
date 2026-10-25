@@ -114,7 +114,7 @@ export function FirestorePage() {
   return (
     <>
       <GcpResourceTable<FirestoreDatabase>
-        title="Firestore databases"
+        title="Databases"
         description="Firestore is a serverless document database that scales automatically and keeps your data in sync across clients."
         actions={[
           { label: "Create database", icon: "add", primary: true, testId: "firestore-create", onSelect: () => setCreating(true) },

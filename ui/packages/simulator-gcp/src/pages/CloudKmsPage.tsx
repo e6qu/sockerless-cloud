@@ -167,7 +167,7 @@ export function CloudKmsPage() {
   return (
     <>
       <GcpResourceTable<KmsKeyRing>
-        title="Cloud KMS key rings"
+        title="Key management"
         description={`Cloud Key Management Service lets you create and manage cryptographic keys. A key ring groups keys in one location. Showing key rings in ${CONSOLE_REGION}.`}
         actions={[
           { label: "Create key ring", icon: "add", primary: true, testId: "kms-create-ring", onSelect: () => setCreating(true) },

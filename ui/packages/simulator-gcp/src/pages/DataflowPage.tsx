@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link, useParams } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { GcpResourceTable, GcpStatus, type GcpColumn } from "../console/index.js";
+import type { MenuEntry } from "../console/menu.js";
 import { GcpPageHeader } from "../console/GcpConsole.js";
 import { GcpDialog } from "../console/GcpDialog.js";
 import { GcpTabs } from "../console/GcpTabs.js";
@@ -127,46 +128,28 @@ export function DataflowPage() {
     null,
   );
 
-  const columnsWithActions: GcpColumn<DataflowJob>[] = [
-    ...columns,
+  const rowActions = (row: DataflowJob): MenuEntry[] => [
     {
-      id: "actions",
-      header: "Actions",
-      cell: (row) =>
-        TERMINAL_STATES.has(row.currentState ?? "") ? (
-          <span className="gc-row-actions">—</span>
-        ) : (
-          <span className="gc-row-actions">
-            <button
-              type="button"
-              className="gc-button-text"
-              data-testid={`dataflow-cancel-${row.id}`}
-              aria-label={`Cancel ${row.name ?? row.id}`}
-              onClick={() => setPending({ id: row.id, state: "JOB_STATE_CANCELLED" })}
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              className="gc-button-text"
-              data-testid={`dataflow-drain-${row.id}`}
-              aria-label={`Drain ${row.name ?? row.id}`}
-              onClick={() => setPending({ id: row.id, state: "JOB_STATE_DRAINED" })}
-            >
-              Drain
-            </button>
-          </span>
-        ),
-      value: () => "",
+      label: "Cancel",
+      testId: `dataflow-cancel-${row.id}`,
+      disabled: TERMINAL_STATES.has(row.currentState ?? ""),
+      onSelect: () => setPending({ id: row.id, state: "JOB_STATE_CANCELLED" }),
+    },
+    {
+      label: "Drain",
+      testId: `dataflow-drain-${row.id}`,
+      disabled: TERMINAL_STATES.has(row.currentState ?? ""),
+      onSelect: () => setPending({ id: row.id, state: "JOB_STATE_DRAINED" }),
     },
   ];
 
   return (
     <>
       <GcpResourceTable<DataflowJob>
-        title="Dataflow jobs"
+        title="Jobs"
         description={`Dataflow runs Apache Beam pipelines as fully managed batch and streaming jobs. Showing jobs in ${CONSOLE_REGION}.`}
-        columns={columnsWithActions}
+        columns={columns}
+        rowActions={rowActions}
         queryKey={["dataflow-jobs", project]}
         queryFn={() => fetchDataflowJobs(project)}
         filterPlaceholder="Filter jobs"

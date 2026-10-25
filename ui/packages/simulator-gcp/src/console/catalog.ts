@@ -258,6 +258,15 @@ export const PRODUCTS: ConsoleProduct[] = [
     nav: [{ items: [{ label: "Triggers", to: "/ui/eventarc/triggers", match: ["/ui/eventarc/triggers"] }] }],
   },
   {
+    id: "cloudscheduler",
+    name: "Cloud Scheduler",
+    icon: "schedule",
+    category: "Integration services",
+    description: "Run jobs on a cron schedule against HTTP targets and Pub/Sub topics",
+    docs: "https://cloud.google.com/scheduler/docs",
+    nav: [{ items: [{ label: "Scheduler jobs", to: "/ui/cloudscheduler", match: ["/ui/cloudscheduler/jobs"] }] }],
+  },
+  {
     id: "api-gateway",
     name: "API Gateway",
     icon: "api",
