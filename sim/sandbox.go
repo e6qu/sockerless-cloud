@@ -49,6 +49,10 @@ type SandboxProfile struct {
 	// option string ("size=512m"). Lambda enforces tmpfs /tmp.
 	TmpfsSize string
 
+	// VolatileRun: mount /run as tmpfs, so each boot of a machine starts
+	// with an empty /run as a booted Linux system does.
+	VolatileRun bool
+
 	// DenyDockerSocket: refuse to mount the host's docker.sock under
 	// any path. Real clouds expose no such surface.
 	DenyDockerSocket bool
@@ -88,6 +92,14 @@ func (p SandboxProfile) Apply(hostCfg *container.HostConfig, containerCfg *conta
 		}
 		if _, exists := hostCfg.Tmpfs["/tmp"]; !exists {
 			hostCfg.Tmpfs["/tmp"] = p.TmpfsSize
+		}
+	}
+	if p.VolatileRun {
+		if hostCfg.Tmpfs == nil {
+			hostCfg.Tmpfs = map[string]string{}
+		}
+		if _, exists := hostCfg.Tmpfs["/run"]; !exists {
+			hostCfg.Tmpfs["/run"] = "mode=755"
 		}
 	}
 	if p.User != "" && containerCfg != nil && containerCfg.User == "" {
