@@ -105,6 +105,11 @@ func TestMain(m *testing.M) {
 	// The App Service platform images the shared stack's Linux web apps run,
 	// and the Azure Functions host image its Node function app runs, pulled
 	// when the run selects the shared stack.
+	if testRunSelects("TestTerraformTutorial") {
+		if err := baseimage.Ensure("mcr.microsoft.com/azure-functions/node:4.1054.250-4-node22-appservice"); err != nil {
+			log.Fatalf("Failed to pre-pull the Azure Functions host image: %v", err)
+		}
+	}
 	if testRunSelects("TestTerraformApplyDestroy") {
 		for _, image := range []string{
 			"mcr.microsoft.com/appsvc/node:20-lts_20260904.5.tuxprod",
