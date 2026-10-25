@@ -68,14 +68,15 @@ func awaitSchedulerRequest(t *testing.T, received <-chan schedulerRequest, withi
 
 // awaitJobStatus reads the job until Cloud Scheduler has recorded the outcome
 // of an attempt that started at or after since: the API offers no wait on a
-// job's status.
+// job's status. The comparison keeps lastAttemptTime's full precision, since an
+// earlier attempt can start within the same millisecond as since.
 func awaitJobStatus(t *testing.T, c *scheduler.CloudSchedulerClient, name string, since time.Time) *schedulerpb.Job {
 	t.Helper()
 	deadline := time.Now().Add(30 * time.Second)
 	for {
 		job, err := c.GetJob(ctx, &schedulerpb.GetJobRequest{Name: name})
 		require.NoError(t, err)
-		if job.GetStatus() != nil && job.GetLastAttemptTime() != nil && !job.GetLastAttemptTime().AsTime().Before(since.Truncate(time.Millisecond)) {
+		if job.GetStatus() != nil && job.GetLastAttemptTime() != nil && !job.GetLastAttemptTime().AsTime().Before(since) {
 			return job
 		}
 		require.True(t, time.Now().Before(deadline), "the job never recorded an attempt's outcome: %v", job)
