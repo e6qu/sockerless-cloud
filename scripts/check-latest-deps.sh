@@ -847,33 +847,11 @@ npm_release_versions() {
     | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -rV
 }
 
-
-# npm_hold_reason names a package deliberately kept behind its newest release,
-# and prints why. A hold is not a version nobody looked at: each of these
-# breaks something here, and ui/README.md carries the evidence. Drop a branch
-# the moment the upstream release that broke it is superseded.
-#
-# A case rather than an associative array: this script runs under the bash
-# macOS ships, which is 3.2 and has none, and under zsh in its own CI job.
-npm_hold_reason() {
-  case $1 in
-    "@tanstack/react-table")
-      printf '%s\n' "v9 is an API redesign — createColumnHelper takes feature generics and the table is built from a feature set — so adopting it is a migration of every console's tables. See ui/README.md."
-      ;;
-    *) return 1 ;;
-  esac
-}
-
 echo "=== npm package freshness (adoption quarantine ${quarantine_seconds}s) ==="
 while IFS= read -r manifest; do
   [[ -z "$manifest" ]] && continue
   while IFS='|' read -r name constraint; do
     [[ -z "$name" ]] && continue
-    if hold_reason=$(npm_hold_reason "$name"); then
-      echo "  HELD  $manifest: $name pinned at $constraint — $hold_reason"
-      held=$((held + 1))
-      continue
-    fi
     versions=$(npm_release_versions "$name") || {
       echo "  FAIL  $manifest: $name could not be read from the npm registry after three attempts — this is the registry being unreachable, not a stale pin"
       fail=$((fail + 1))
