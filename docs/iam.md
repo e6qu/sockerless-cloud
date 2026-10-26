@@ -96,7 +96,7 @@ The streaming forms (`STREAMING-AWS4-HMAC-SHA256-PAYLOAD[-TRAILER]`, `STREAMING-
 | Unknown or inactive key, bad token | `UnrecognizedClientException` | `InvalidClientTokenId` | `InvalidAccessKeyId` |
 | Expired session | `ExpiredTokenException` | `ExpiredToken` | `ExpiredToken` |
 | Presigned URL expired | n/a | n/a | `AccessDenied` ("Request has expired") |
-| No credential | `MissingAuthenticationTokenException` | `MissingAuthenticationToken` | anonymous (allowed through) |
+| No credential | `MissingAuthenticationTokenException` | `MissingAuthenticationToken` | the anonymous principal (below) |
 
 All of these answer HTTP 403 (`sigv4WriteControlPlaneError`, `sigv4WriteControlPlaneMissingAuth`, `sigv4WriteS3Error`).
 
@@ -105,10 +105,10 @@ Where the gate runs:
 | Surface | Authentication | Unsigned request |
 |---|---|---|
 | `POST /` (every awsJson and awsQuery service) — `main.go` → `sigv4EnforceControlPlane` | verified | refused, except `AssumeRoleWithWebIdentity`, `AssumeRoleWithSAML` and in-process service calls |
-| Amazon S3 REST — `s3Enforced` (`s3.go`) | verified | treated as anonymous and passed to authorization |
+| Amazon S3 REST — `s3Enforced` (`s3.go`) | verified | the anonymous principal: `CreateBucket`, `ListBuckets` and `ListDirectoryBuckets` are refused, and any other operation needs a bucket-policy statement for Principal `"*"` or an AllUsers ACL grant, which Block Public Access (`RestrictPublicBuckets`, `IgnorePublicAcls`) and `BucketOwnerEnforced` withdraw (`s3RefuseAnonymous`, `s3_anonymous.go`). A request to a missing bucket still answers `NoSuchBucket`. |
 | AWS Lambda REST — `lambdaEnforcedDynamic` (`lambda_enforcement.go`) | verified | refused, except in-process service principals |
 | Lambda function URLs with `AWS_IAM` (`lambda_function_urls.go`), Amazon CloudWatch CBOR (`cloudwatch_alarm_ops.go`), Amazon RDS IAM auth tokens (`rds_dataplane.go`) | verified | refused |
-| AWS Amplify, Amazon API Gateway, AWS Batch, Amazon EFS, EventBridge Scheduler, Amazon CloudFront, Amazon Route 53 REST — `iamEnforceRESTRoute` (`rest_enforcement.go`) | **not verified** | admitted (see the limits) |
+| AWS Amplify, Amazon API Gateway, AWS Batch, Amazon EFS, EventBridge Scheduler, Amazon CloudFront, Amazon Route 53 REST — `awsRESTAuthenticate`, then `iamEnforceRESTRoute` (`rest_enforcement.go`) | verified, header and presigned forms | refused, except in-process service principals. REST-JSON services answer `MissingAuthenticationTokenException`, `InvalidSignatureException`, `UnrecognizedClientException` or `ExpiredTokenException`; CloudFront and Route 53 answer `MissingAuthenticationToken`, `SignatureDoesNotMatch`, `InvalidClientTokenId` or `ExpiredToken`, in an `<ErrorResponse>`. |
 
 ### Authorization: the IAM gate
 
@@ -124,7 +124,7 @@ Where the gate runs:
 
 For each target, `iamAuthorizeWithContext` takes these steps:
 
-1. It resolves the principal. An unregistered key returns `registered=false`, and the gate allows the request. Only unsigned REST requests and anonymous S3 requests reach this branch, because SigV4 already refused unknown keys.
+1. It resolves the principal. An unregistered key returns `registered=false`, and the gate allows the request. Only an in-process service principal reaches this branch: SigV4 refuses unknown keys, and `s3RefuseAnonymous` decides anonymous S3 requests first.
 2. It evaluates the identity policies: the user's inline, attached and group policies, or the assumed role's inline and attached policies (`iamEvalDecision`). An explicit `Deny` ends evaluation.
 3. It evaluates the resource policy stored under the target ARN (`iamResourcePolicyDocsForARN`). For `sts:AssumeRole` and `sts:TagSession`, it adds the role's trust policy. A `Deny` there ends evaluation. An `Allow` that names the caller (by ARN, by `*`, or by a role ARN for that role's sessions) grants on its own. An `Allow` that names only the caller's account delegates to IAM and grants nothing (`iamPrincipalDelegated`), which is how the default AWS KMS key policy behaves.
 4. It applies the user's permissions boundary (`iamPermissionBoundaryDocs`). Anything the boundary does not allow is denied.
@@ -247,8 +247,7 @@ These limits come from reading the code. Those marked "observed" were also repro
 
 | Limit | Detail | Bug |
 |---|---|---|
-| Unauthenticated REST services | `iamEnforceRESTRoute` neither verifies SigV4 nor refuses an unsigned request. On Amplify, API Gateway, Batch, EFS, EventBridge Scheduler, CloudFront and Route 53, an unsigned request, or one with a forged signature under any key ID, runs. It is evaluated as the claimed key's principal when that key is registered (observed: unsigned and forged `ListHostedZones` → 200). | not filed |
-| Anonymous Amazon S3 | An unsigned S3 request reaches `iamAuthorize` as unregistered and is allowed whatever the bucket policy says, unless the policy has an explicit deny. Observed: anonymous `CreateBucket`, `PutObject` and `GetObject` → 200. The anonymous `ListBuckets` case is 3663. | 3663 (part); rest not filed |
+| Amazon S3 public access details | `x-amz-acl` and `x-amz-grant-*` on `PutObject`, `CreateBucket` and `CopyObject` are not persisted; `BlockPublicAcls` and `BlockPublicPolicy` do not refuse public ACL and policy writes, there is no account-level Block Public Access, and new buckets do not default to `BucketOwnerEnforced` with Block Public Access on; `BucketOwnerEnforced` does not refuse ACL writes with `AccessControlListNotSupported`; a caller with `s3:GetObject` but not `s3:ListBucket` gets `NoSuchKey` for a missing key where S3 answers 403. | [3765](../BUGS.md) |
 | Role permissions boundaries | `PutRolePermissionsBoundary` stores the boundary, but `iamPermissionBoundaryDocs` reads users only. A role's boundary does not cap its sessions (observed). | [3737](../BUGS.md) |
 | Session policies | `AssumeRole`, `GetFederationToken` and the federation calls ignore `Policy` and `PolicyArns`. `PackedPolicySize` is always 0. A deny-all session policy does not restrict the session (observed). | [3737](../BUGS.md) |
 | Federated-user and root sessions | `GetFederationToken` and `AssumeRoot` sessions resolve to no policy documents, so the gate denies them every action (observed for federation). | [3737](../BUGS.md) |
@@ -339,7 +338,9 @@ Real Google access tokens are opaque. A client must treat the simulator's the sa
 
 `isAuthExempt` lists what a client reaches without a token: the token endpoints, `/v1/introspect`, Discovery documents, `/.well-known/`, `/health`, `/computeMetadata/` (gated by `Metadata-Flavor` instead), the console under `/ui/` and `/auth/`, the Artifact Registry Docker data plane (its own token service, `ar_dataplane_auth.go`), and `*.run.app` hosts (the Cloud Run front end authenticates invokers itself). The Cloud Storage XML data plane (`GET /{bucket}/{object}`) checks the bearer itself, or a V4 signed URL in its place (`gcsSignedURLAuthorized`).
 
-The gRPC listener (HTTP port + 2) installs only `auditUnaryInterceptor` (`startGRPCServer`, `main.go`). It verifies no bearer, and a call without one is treated as the account owner (`gcpContextPrincipal`).
+The gRPC listener (the HTTP port plus two, or `SIM_GCP_GRPC_PORT`) verifies the bearer in each call's `authorization` metadata with the same check (`grpc_auth.go`), and refuses a missing or invalid one with `UNAUTHENTICATED` and an `ErrorInfo` detail. Google's client libraries send credentials only over TLS, so `SIM_GCP_GRPC_TLS_CERT` and `SIM_GCP_GRPC_TLS_KEY` make the port a TLS front end that serves both gRPC and REST, as Google's hosts do.
+
+A bearer may also be a JWT a service account signs itself, which google-auth sends by default (`sa_self_signed_jwt.go`). It must be RS256 with a `kid` naming a key IAM registered and has not disabled, for an account that is not disabled; carry the account's email as `iss` and `sub`; name `https://<api>.googleapis.com/` as `aud`, or carry a `scope` claim; and live at most an hour. The caller is then that service account.
 
 #### OAuth 2.0 token endpoint
 
@@ -587,7 +588,6 @@ gcloud auth print-identity-token --audiences=https://hello-abc-uc.a.run.app
 | Gap | Tracked |
 |---|---|
 | IAM is not enforced on control-plane or data-plane methods outside the [Enforcement](#google-cloud-enforcement) table. | [3735](../BUGS.md) |
-| The gRPC listener verifies no bearer token. | Not filed |
 | The Artifact Registry Docker data plane does not evaluate the repository's policy. | [3742](../BUGS.md) |
 | Impersonation checks no `getAccessToken` or `getOpenIdToken` permission, ignores `delegates`, and serves disabled accounts. | [3742](../BUGS.md) |
 | A deleted custom role still grants its permissions; `stage: DISABLED` is not honoured. | [3742](../BUGS.md) |
@@ -644,7 +644,7 @@ The SDK, CLI and Terraform suites all sign in as the bootstrap registration. The
 |---|---|---|
 | Applications | `/applications`, `addPassword`, `removePassword`, `owners` | `passwordCredentials` validate the `client_credentials` grant. A write's `keyCredentials` is dropped (`entraApplicationServiceOwned`). |
 | Service principals | `/servicePrincipals`, `addPassword`, `removePassword`, `owners` | A secret added to a service principal also authenticates its application (`entraClientSecretMatches`). The token endpoint requires a service principal for the application. |
-| Users | `/users`, `memberOf`, `manager` | Users have no password. Tokens resolve a user by `userPrincipalName`. |
+| Users | `/users`, `memberOf`, `manager` | `passwordProfile.password` is stored as a verifier, never returned. Tokens resolve a user by `userPrincipalName`. |
 | Groups | `/groups`, `members`, `owners`, `memberOf` | Members are any object ID. Membership nests, and `entraTransitiveGroupIDs` resolves it transitively. |
 | Signed-in caller | `/me`, `/me/memberOf`, `/me/transitiveMemberOf` | |
 | Any object | `/directoryObjects/{id}` | `entra_directory.go` |
@@ -681,7 +681,7 @@ Both token endpoints share `handleAzureToken`. The audience comes from the first
 | `client_credentials` with `client_assertion` | `client_assertion_type=urn:ietf:params:oauth:client-assertion-type:jwt-bearer` | `handleAzureFederatedClientCredentials` (`auth_federation.go`): workload identity federation, described under "Federated identity credentials and workload identity". |
 | `authorization_code` | `client_id` and `redirect_uri` must match the code. No secret is checked. | The code lives 60 seconds and is single-use, with PKCE `plain` or `S256`. `login_hint` on the authorize request binds the code to a directory user. Without it, the token speaks for the built-in user `test-oid` (`sockerless-test@example.com`). `openid` adds an `id_token`; `offline_access` adds a refresh token. |
 | `refresh_token` | `client_id` must match | Refresh tokens persist in `azure_auth_refresh_tokens`. |
-| `password` (ROPC) | none | `handleAzureROPC` looks the user up by `username`. **It does not check the password.** |
+| `password` (ROPC) | none | `handleAzureROPC` checks the password against the PBKDF2-SHA256 verifier Graph stored from `passwordProfile.password` (`entra_password.go`). A wrong password, or a user with none, gets `invalid_grant` with `AADSTS50126`; an unknown user `AADSTS50034`. MSAL's home-realm discovery, `GET /common/UserRealm/{user}`, is served. |
 
 There is no certificate credential. The token endpoint sends every `client_assertion` down the federated path, which accepts only the client ID of a user-assigned managed identity. A certificate-signed assertion from an application registration therefore fails with `invalid_client`.
 
@@ -779,7 +779,7 @@ Matching is case-insensitive, and `*` stands for any run of characters (`rbacAct
 | Surface | Credentials accepted | Authorization | Code |
 |---|---|---|---|
 | Azure Resource Manager | Entra bearer | **None.** Any valid ARM-audience token may perform any operation. The required `Microsoft.X/y/write` action is never derived. | `AzureBearerVerificationMiddleware` |
-| Microsoft Graph | none required | none | `entra.go` |
+| Microsoft Graph | Entra bearer with Graph's audience (`https://graph.microsoft.com`, its app ID, or the simulator origin `/metadata/endpoints` advertises); 401 `InvalidAuthenticationToken` otherwise | none: any authenticated caller performs any Graph operation | `graph_auth.go`, `entra.go` |
 | Key Vault, `enableRbacAuthorization: true` | Entra bearer | Azure RBAC data actions at the object (`…/vaults/{v}/secrets/{name}`) or the vault, for the caller and its groups. Refusal: 403 `ForbiddenByRbac`. | `keyVaultGrants`, `kvDataPlaneOperation` |
 | Key Vault, access policies | Entra bearer | An access policy whose `objectId` is the caller or a group of the caller's, whose `tenantId` matches, and whose `applicationId` (for a compound identity) matches `appid`, granting the permission or `all`. Refusal: 403 `AccessDenied`. | `keyVaultGrants` |
 | Key Vault network rules | — | `publicNetworkAccess: Disabled` refuses with `ForbiddenByConnection`. `defaultAction: Deny` admits only IP rules and virtual network rules, and refuses with `ForbiddenByFirewall`. Network rules run before the permission model. | `kvNetworkRefusal` |
@@ -894,8 +894,8 @@ The vault's `vaultUri` reads `https://iamdemokv.vault.localhost:4568/`. Without 
 
 - **Azure Resource Manager has no Azure RBAC.** Any valid token with the ARM audience performs any operation, from any tenant. `actions` and `notActions` are stored and listed but never evaluated ([3736](../BUGS.md)).
 - **Storage bearers get no data-action check.** Storage Blob Data Contributor and the other Storage roles have no effect. `allowSharedKeyAccess: false` is stored but does not refuse Shared Key. The simulator does not verify a user delegation SAS against the delegation key ([3736](../BUGS.md)).
-- **Microsoft Graph is unauthenticated.** `/me` reads an unverified `oid`. Graph tokens carry no `roles` or `scp`, so app roles and delegated permissions are not modelled ([3745](../BUGS.md)).
-- **Credentials are partial.** There are no certificate credentials (`keyCredentials` is dropped) and no federated credentials on application registrations. The `password` grant ignores the password, and `authorization_code` does not check a client secret ([3745](../BUGS.md)).
+- **Microsoft Graph authorizes nothing.** Graph requires a token with its audience, but tokens carry no `roles` or `scp`, so app roles and delegated permissions are not modelled, and any authenticated caller performs any Graph operation ([3745](../BUGS.md)).
+- **Credentials are partial.** There are no certificate credentials (`keyCredentials` is dropped) and no federated credentials on application registrations. The `authorization_code` grant does not check a client secret ([3745](../BUGS.md)).
 - **Role assignments:** no conditions (ABAC), no deny assignments, no management-group hierarchy for inheritance. `principalId` is not checked against the directory. Custom roles work at subscription scope only, with `assignableScopes` unenforced. The unfiltered list returns assignments from every scope ([3746](../BUGS.md)).
 - **Service Bus and Event Hubs:** an authorization rule's `rights` (`Listen`, `Send`, `Manage`) are not checked against the operation. Entra-authenticated access to the data plane is not served; `BUGS.md` row 3540 covers its scale-rule side.
 - **Azure Cosmos DB:** RBAC (`type=aad`) and resource tokens are refused, not modelled.

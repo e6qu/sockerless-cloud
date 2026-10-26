@@ -236,6 +236,7 @@ The same mechanism serves the same idea in every cloud:
 | Function execution environments | `sim/funcrt` | AWS Lambda pools, concurrency, provisioned concurrency, event-source pollers |
 | Replica sets and probes | `sim/replicas`, `sim/revisions` | Cloud Run services and worker pools, Container Apps revisions |
 | Relational engines | `sim/dbengine`, `pgwire`, `mysqlwire` | Amazon RDS, Cloud SQL, Azure Database for PostgreSQL and MySQL |
+| Cache engines | `sim/cacheengine` | Amazon ElastiCache, Memorystore for Redis, Azure Cache for Redis |
 | Object contents | `sim/blobstore`, `sim/sparse` | Amazon S3, Cloud Storage, Azure Blob Storage and Files, Amazon EBS snapshots |
 | Lists, filters and page tokens | `sim/listq` | Every list operation with a filter or order grammar |
 | Keys and tokens | `sim/simkms`, `sim/simjwt`, `sim/oidcfed` | AWS KMS, Cloud KMS, Azure Key Vault; each cloud's token issuer; workload identity federation |

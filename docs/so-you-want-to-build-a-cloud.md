@@ -246,7 +246,9 @@ The glue between services, and the place where three clouds look most alike.
   locks, expiry sweeps, change logs, entity-tag preconditions); each query
   language stays with its cloud.
 - **Caches**: Amazon ElastiCache, Memorystore for Redis, Azure Cache for
-  Redis. Only Memorystore runs a real Redis today (see the gaps).
+  Redis. Library: `sim/cacheengine` runs real Valkey, Redis and Memcached
+  nodes, as instances with replicas or as Redis Cluster shards, behind
+  endpoints the simulator owns.
 
 ### 10. Observability
 
@@ -294,7 +296,7 @@ pages** (every `Describe*` and `list` call, and every data source).
 
 ## The library map
 
-The 34 packages under `sim/`, by the layer they serve:
+The 35 packages under `sim/`, by the layer they serve:
 
 | Layer | Packages |
 |---|---|
@@ -305,7 +307,7 @@ The 34 packages under `sim/`, by the layer they serve:
 | Compute | `placement`, `nodeagent`, `machine`, `vminstance`, `workload`, `workloadhost`, `replicas`, `revisions`, `jobrun`, `funcrt`, `procimage` |
 | Storage | `blobstore`, `sparse`, `fileshare` |
 | Messaging | `msgq`, `streamlog`, `eventbus`, `delivery`, `cron` |
-| Data | `dbengine`, `kvstore`, `logstore` |
+| Data | `dbengine`, `cacheengine`, `kvstore`, `logstore` |
 
 [`sim/README.md`](../sim/README.md) describes each one, and
 [Architecture](architecture.md) shows how they fit together. Each package
@@ -365,12 +367,6 @@ flowchart LR
 
 ### Gaps in the core services
 
-- **A managed cache engine.** Memorystore for Redis runs a real Redis
-  topology; Amazon ElastiCache reports a cluster `available` without starting
-  an engine, and Azure Cache for Redis serves only its Azure Resource Manager
-  lifecycle. The fix is the same move `sim/dbengine` made for relational
-  databases: lift Memorystore's engine into a `sim/cacheengine` and put all
-  three caches on it.
 - **Azure Managed Disks.** Azure's block storage, and with it disk snapshots
   and attaching data disks, is not served.
 - **Cloud Monitoring.** Google Cloud has no metrics service, so nothing on
@@ -399,21 +395,20 @@ Mechanisms two or three clouds still implement separately (`PLAN.md`, M3):
 3. **Time-bounded soft delete.** Key Vault, AWS KMS pending deletion, Secrets
    Manager recovery windows, Cloud Storage soft delete, Cloud KMS version
    destruction, Blob and Files soft delete, the EC2 Recycle Bin.
-4. **Managed cache engine** (above).
-5. **Simulated certificate authority.** Nine sites call
+4. **Simulated certificate authority.** Nine sites call
    `x509.CreateCertificate` on their own.
-6. **Versioned secrets.** Versions, stages and password generation shared by
+5. **Versioned secrets.** Versions, stages and password generation shared by
    Secrets Manager, Parameter Store, Secret Manager and Key Vault.
-7. **Metric time series and alarms.** CloudWatch's aggregation beside Azure
+6. **Metric time series and alarms.** CloudWatch's aggregation beside Azure
    Monitor's, as the base for Cloud Monitoring and for autoscalers that read
    metrics.
-8. **Audit capture middleware.** CloudTrail and Cloud Audit Logs capture,
+7. **Audit capture middleware.** CloudTrail and Cloud Audit Logs capture,
    extended to the Azure Activity Log.
-9. **Build runner.** The step pipeline, workspace and push shared by CodeBuild,
+8. **Build runner.** The step pipeline, workspace and push shared by CodeBuild,
    Cloud Build and ACR Tasks.
-10. **Registry ingest.** Image ingestion behind ECR pull-through cache and
+9. **Registry ingest.** Image ingestion behind ECR pull-through cache and
     Artifact Registry remote repositories, extended to ACR cache rules.
-11. **Field masks and merge patch, idempotency tokens.** Small, repeated
+10. **Field masks and merge patch, idempotency tokens.** Small, repeated
     request semantics.
 
 ### Refactorings inside each cloud
@@ -438,7 +433,7 @@ relying on a row.
 | **Breadth** | Every operation of 42 vendored AWS Smithy models served or exempt; every method spelling of 33 Google Cloud Discovery documents routed; 2,653 of 2,660 Azure Swagger operations served | Broad AWS coverage; which services a user gets depends on the tier | Its site claims 126 AWS services; an independent review counted 85 in its service matrix |
 | **Contract** | The cloud's own specification, vendored; responses validated against it at run time; coverage ratchets in CI | Not stated in the pages consulted | "Real wire protocols"; compatibility tests (below) |
 | **Authentication** | SigV4 verified on AWS requests and an IAM gate on every operation; Google Cloud and Azure verify every token, and enforce authorization in fewer places ([Identity and access](iam.md)) | IAM enforcement off by default, enabled with `ENFORCE_IAM=1`; not on the Hobby tier | Any non-empty credentials by default; stricter checks opt-in per service |
-| **Heavy services** | Real engines: PostgreSQL, MySQL and MariaDB for the managed databases, Redis for Memorystore, containers or Firecracker microVMs for compute | Container-backed RDS and ECS from the Base tier, EKS from Ultimate | Real engines in containers: Lambda runtimes, RDS, ElastiCache on Valkey, DocumentDB on MongoDB, MSK on Redpanda, EKS on k3s, and more |
+| **Heavy services** | Real engines: PostgreSQL, MySQL and MariaDB for the managed databases, Valkey, Redis and Memcached for the managed caches, containers or Firecracker microVMs for compute | Container-backed RDS and ECS from the Base tier, EKS from Ultimate | Real engines in containers: Lambda runtimes, RDS, ElastiCache on Valkey, DocumentDB on MongoDB, MSK on Redpanda, EKS on k3s, and more |
 | **Networks** | Each VPC, subnetwork or virtual network is an engine network over its own range, with the resolver, metadata and NAT at the addresses the cloud reserves | A DNS server that answers `*.amazonaws.com` with LocalStack's address; network behaviour not described | One Docker network per VPC; NAT gateways and routing are records |
 | **State** | SQLite; with `SIM_PERSIST`, kept across restarts, and a restarted simulator adopts its workloads and resumes background work | Persistence and Cloud Pods from the Base tier | Four modes: memory, persistent, hybrid and write-ahead log |
 | **Tests** | Every operation through the official Go SDK, the vendor CLI and the Terraform provider, enforced by a pre-commit hook | Not compared here | 2,576 compatibility tests across five SDKs (Java, Node.js, Python, Go, AWS CLI) and three IaC tools (Terraform, OpenTofu, CDK) |
@@ -566,8 +561,7 @@ Where each one fits:
   paid plan.
 - **Floci** is the fast, MIT-licensed AWS stand-in with a wide AWS service
   list and a small native-image footprint. It runs more of AWS's
-  heavy services on real engines than sockerless-cloud does today, Amazon
-  ElastiCache among them (BUG-3732). Its compatibility tests check the SDK and
+  heavy services on real engines than sockerless-cloud does today. Its compatibility tests check the SDK and
   IaC calls they exercise; by default it accepts any credentials.
 - **sockerless-cloud** is narrower per cloud and trades breadth for a contract:
   each operation it serves is checked against the cloud's own specification,

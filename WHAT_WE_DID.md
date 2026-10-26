@@ -662,6 +662,17 @@ principal matches the regional name as well as the global one.
 
 ### Managed databases
 
+Managed caches run as managed databases do: `sim/cacheengine` runs real
+Valkey, Redis and Memcached nodes on `placement.Backend` behind loopback
+endpoints the simulator owns, as primary/replica instances or Redis Cluster
+shards, with resharding, failover, reboot, restart and adoption, and TLS
+required, preferred or off per endpoint. Memorystore for Redis moved onto it
+unchanged. Amazon ElastiCache clusters, replication groups and serverless
+caches report `creating` until their engine answers, and report the
+endpoints it serves; a serverless migration copies the source's keys. Azure
+Cache for Redis serves its `hostName` on TLS 6380, and on plaintext 6379
+when enabled, to either access key.
+
 Amazon RDS, Cloud SQL and Azure Database for PostgreSQL run real engines on
 named volumes, readiness classified by SQLSTATE (57P03 is not ready whatever
 the socket answers). Lessons:
@@ -755,6 +766,24 @@ since a timer could be late. An Azure cross-resource-group move rewrites
 references by walking every tracked store, because a hand-kept list rots.
 
 ### Authorization and identity
+
+Every surface that the cloud authenticates, the simulator authenticates:
+- the AWS REST management services (AWS Amplify, Amazon API Gateway, AWS
+  Batch, Amazon EFS, EventBridge Scheduler, Amazon CloudFront, Amazon
+  Route 53) verify SigV4 before IAM, and answer the front end's own 403
+  codes;
+- Amazon S3 treats an unsigned request as the anonymous principal, which
+  only a Principal `"*"` bucket policy or an AllUsers ACL grant admits, and
+  Block Public Access withdraws;
+- the Google Cloud gRPC listener verifies every call's bearer, over a TLS
+  front end because Google's clients send credentials only over TLS;
+- Google Cloud accepts a service account's self-signed JWT, as google-auth
+  sends by default;
+- Microsoft Graph requires a token with Graph's audience, and the password
+  grant checks a verifier of the password Graph stored.
+
+Each shortcut these replaced let a test pass without the credential its
+client sends against the cloud.
 
 Each simulator's first credential is seeded, the way a new account's is: the
 AWS simulator's IAM user with the `test` key, the Azure simulator's bootstrap
