@@ -118,18 +118,24 @@ consoles' patterns.
   token without the `workflows` permission, which it cannot be granted — to
   create a ref there. That stranded the 2.4.1 release pull request (#284) on
   `68af5b1`, which main's replaced history no longer contains.
-- **Scope.** In this pull request: drop the unreleased 2.4.1 entry from
-  `CHANGELOG.md` and set `.release-please-manifest.json` back to 2.4.0, so the
-  next release is computed from main's own history. Owner actions: remove
-  `autorelease: pending` from #284 so release-please stops retrying it; create
-  a GitHub App with contents, pull-requests and workflows permissions, install
-  it on the repository, and run release-please with its installation token,
-  which removes the recurrence.
-- **Exit.** After this pull request merges and the label is gone, the next
-  push to `main` opens a fresh release pull request, and its release run
-  creates the tag, the GitHub Release, the binaries, console bundles and image
-  index, with `scripts/verify-release-complete.sh` passing; release-please
-  runs with the App's token.
+- **Done.** The unreleased 2.4.1 entry left `CHANGELOG.md`, the manifest went
+  back to 2.4.0, and `autorelease: pending` left #284. release-please then
+  opened #353 and released v3.0.0 from main's own history. v3.0.0 shipped
+  its Linux binaries, console bundles and the Google Cloud and Azure images,
+  but no darwin binaries (`sim/fileshare` read Linux-only `Stat_t` fields)
+  and no AWS images (the AWS Dockerfile's workspace named the removed
+  `realexec` module); its tag holds that code, so the release that follows
+  these fixes is the first complete 3.x release.
+  CI now builds every simulator for the four release platforms —
+  `build-gates` the runner's, the `release platform build` jobs the other
+  three — and checks each Dockerfile's workspace.
+- **Remaining.** Create a GitHub App with contents, pull-requests and
+  workflows permissions, install it on the repository, store its ID and
+  private key as Actions secrets, and run release-please with its
+  installation token, which removes the workflow-file race.
+- **Exit.** A release run creates the tag, the GitHub Release, the binaries,
+  console bundles and image index, with `scripts/verify-release-complete.sh`
+  passing, and release-please runs with the App's token.
 - **Closes.** BUG-3465.
 
 ### M3 — New shared libraries
@@ -203,6 +209,11 @@ unifies; this pull request carries those it lands, and the rest stay planned.
 14. **Idempotency tokens** (low–medium). Client-token handling with request
     digest and window, written ad hoc across about forty AWS files and
     Google Cloud's `requestId`; `msgq.Dedup` is close.
+15. **Managed cache engine `sim/cacheengine`** (high, medium). Memorystore
+    for Redis runs a real Redis topology on the placement backend; Amazon
+    ElastiCache and Azure Cache for Redis run no engine. Lift Memorystore's
+    engine into `sim` beside `sim/dbengine` and put all three caches on it.
+    *Closes:* BUG-3732; narrows BUG-3553.
 
 ### M4 — Cleanups
 

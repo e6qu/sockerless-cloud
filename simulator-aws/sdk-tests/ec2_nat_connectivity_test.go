@@ -6,6 +6,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
+	"github.com/aws/smithy-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -55,4 +56,16 @@ func TestEC2_NatGatewayConnectivityType(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, descDef.NatGateways, 1)
 	assert.Equal(t, types.ConnectivityTypePublic, descDef.NatGateways[0].ConnectivityType)
+
+	// A gateway placed in a subnet is zonal, and terraform-provider-aws reads
+	// its public and private addresses only for a zonal gateway.
+	assert.Equal(t, types.AvailabilityModeZonal, pub.AvailabilityMode, "Create reports the availability mode")
+	assert.Equal(t, types.AvailabilityModeZonal, descDef.NatGateways[0].AvailabilityMode)
+
+	_, err = c.CreateNatGateway(ctx, &ec2.CreateNatGatewayInput{
+		VpcId: vpc.Vpc.VpcId, AvailabilityMode: types.AvailabilityModeRegional,
+	})
+	var apiErr smithy.APIError
+	require.ErrorAs(t, err, &apiErr, "a regional NAT gateway is refused, not created as a zonal one")
+	assert.Equal(t, "UnsupportedOperation", apiErr.ErrorCode())
 }

@@ -603,7 +603,6 @@ func registerECS(r *AWSRouter, srv *sim.Server) {
 	ecsManagedVolumeOwners = sim.MakeStore[ecsManagedVolumeOwner](srv.DB(), "ecs_managed_volume_owners")
 	ecsBackgroundServer = srv
 	kvstore.StartSweeper(srv, "Amazon ECS stopped task retention", storeSweepInterval, func(now time.Time) { ecsSweepStoppedTasks(now) })
-	startECSServiceMetricsPublisher(srv)
 	ecsRebuildRevisionIndex()
 
 	r.Register("AmazonEC2ContainerServiceV20141113.CreateCluster", handleECSCreateCluster)

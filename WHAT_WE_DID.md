@@ -642,6 +642,10 @@ balancers, certificates and scaling through the services' APIs as the
 infrastructure role; writing straight into another service's store skipped
 that service's rules.
 
+A NAT gateway reports its `availabilityMode`: terraform-provider-aws reads a
+zonal gateway's addresses only when the mode says zonal, so a gateway without it
+left `public_ip` empty.
+
 Every service that takes a role refuses one IAM does not hold or whose trust
 policy does not admit the service (`iamServiceTrustedRole`), and tests that
 had passed invented role ARNs create real roles. A trust policy's `Service`
@@ -715,6 +719,12 @@ simulator's view of each path, every change the simulator makes happens under
 one mutex, and a barrier makes each JSON API request wait for the events
 queued before it. Files open with `RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS`
 (BUG-3084 holds the rest).
+
+Put Block List and Set Blob Properties store the blob's Content-MD5 only from
+`x-ms-blob-content-md5` and clear it otherwise, and Put Block List's response
+`Content-MD5` covers the block list, as the Blob Storage specification states.
+azurerm uploads a blob and then sets its properties without the header, so a
+Content-MD5 that survived either step drifted its `content_md5` on every plan.
 
 A Cloud Storage bucket reports its `locationType` (multi-region,
 dual-region including the predefined pairs, or region), which a relocation
@@ -949,6 +959,12 @@ fails once the row closes or the operation is served.
   below the ephemeral range when a restarted simulator must bind them again;
   a DNS port comes from `freeports.TCPUDP`, free on both protocols on every
   interface.
+- **A tutorial is a test.** Each cloud's tutorial configuration is the
+  fixture its Terraform test applies, and the test checks the outputs the
+  tutorial tells the reader to look for, so a step that stops working fails
+  CI. Its function and container steps check real work: the Lambda
+  function's return value, the Azure function's response, a Fargate service
+  in steady state.
 - **A helper two suites need lives in `testutil`**, never as a copy per
   suite: copies of the workload image builder drifted until only five of
   seven built with `GOWORK=off`. What stays per suite is what sets one
@@ -993,6 +1009,12 @@ fails once the row closes or the operation is served.
   start after every slice is registered and the role-session stores open
   first of all: a mapping restored from an earlier process once polled
   through a role-credential store that did not exist yet and panicked.
+- **Amazon CloudWatch.** `registerCloudWatchMetrics` makes CloudWatch's
+  stores after the Amazon ECS, Elastic Load Balancing and Application Auto
+  Scaling slices, so their metric publishers and the target-tracking
+  evaluator start after every slice is registered: the ELB publisher's first
+  flush, due at the next minute, once raced the store's creation in a
+  simulator built just before the minute turned.
 - **Amazon SNS.** A new topic carries the owner-only `__default_policy_ID`
   policy, and a topic's `DisplayName` defaults to empty, not to its name.
 - **Google Cloud hosts.** Eventarc and Cloud Build both publish
@@ -1065,7 +1087,16 @@ Release pull requests run no CI and the owner merges them. release-please tags
 the release pull request's merge commit; the Actions token cannot create a
 ref at a commit whose workflow files differ from the branch heads, so a
 workflow-changing merge landing before the release run stranded 2.4.1
-(BUG-3465). Publishes are keyed per commit and never cancelled; retention
+(BUG-3465). A merged release pull request left labelled `autorelease: pending`
+holds release-please on it for every later run; removing the label freed it,
+and release-please computed v3.0.0 from main's own history although the v2.4.0
+tag's commit is not on main. The release builds for darwin and from the
+Dockerfiles, which no pull request job did, so `check-installable-build.sh`
+builds the platforms it is given and checks each Dockerfile's workspace;
+`build-gates` builds the runner's platform and one `release platform build`
+job each of the other three, since a cold cross-compile of the three
+simulators outruns the build gates' budget.
+Publishes are keyed per commit and never cancelled; retention
 spares anything under two hours old, because a publish between its two
 per-architecture pushes looks abandoned. `actions/setup-go` went because the
 runner fetched it once per job from codeload with no retry; a local action

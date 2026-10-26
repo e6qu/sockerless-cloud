@@ -155,7 +155,7 @@ func buildSimulatorWithOptions(cfg sim.Config, options simulatorBuildOptions) (*
 		}
 	}
 	registerGlue(awsRouter, srv)
-	registerApplicationAutoScaling(awsRouter, srv, options.startBackgroundEvaluators)
+	registerApplicationAutoScaling(awsRouter, srv)
 	registerBudgets(awsRouter, srv)
 
 	// Register AWS Query Protocol services (Action form parameter routing)
@@ -269,7 +269,12 @@ func buildSimulatorWithOptions(cfg sim.Config, options simulatorBuildOptions) (*
 		return nil, nil, nil, err
 	}
 
+	// These loops write and read Amazon CloudWatch's stores, which
+	// registerCloudWatchMetrics makes after the slices that start them.
+	startECSServiceMetricsPublisher(srv)
+	startELBv2RequestMetricsPublisher(srv)
 	if options.startBackgroundEvaluators {
+		startAppScalingEvalLoop(srv)
 		if err := recoverLambdaInvocations(); err != nil {
 			return nil, nil, nil, fmt.Errorf("restore AWS Lambda invocations: %w", err)
 		}

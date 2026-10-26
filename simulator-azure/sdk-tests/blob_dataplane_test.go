@@ -2,6 +2,7 @@ package azure_sdk_test
 
 import (
 	"bytes"
+	"crypto/md5"
 	"errors"
 	"fmt"
 	"io"
@@ -324,6 +325,8 @@ func TestStorageSDK_BlobSystemPropertiesAndTier(t *testing.T) {
 	props, err := blobClient.GetProperties(ctx, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "sockerless", storageMetadataValue(props.Metadata, "owner"))
+	payloadMD5 := md5.Sum([]byte("properties payload"))
+	assert.Equal(t, payloadMD5[:], props.ContentMD5)
 
 	_, err = blobClient.SetHTTPHeaders(ctx, blob.HTTPHeaders{
 		BlobContentType:        to.Ptr("text/csv"),
@@ -341,6 +344,9 @@ func TestStorageSDK_BlobSystemPropertiesAndTier(t *testing.T) {
 	assert.Equal(t, "max-age=42", *props.CacheControl)
 	require.NotNil(t, props.ContentLanguage)
 	assert.Equal(t, "en-GB", *props.ContentLanguage)
+
+	// Set Blob Properties clears the Content-MD5 the request leaves out.
+	assert.Empty(t, props.ContentMD5)
 
 	// The metadata set earlier survives a header-only change.
 	assert.Equal(t, "sockerless", storageMetadataValue(props.Metadata, "owner"))

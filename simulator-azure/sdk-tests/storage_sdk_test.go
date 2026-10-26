@@ -2,6 +2,7 @@ package azure_sdk_test
 
 import (
 	"bytes"
+	"crypto/md5"
 	"encoding/base64"
 	"encoding/json"
 	"encoding/xml"
@@ -373,6 +374,24 @@ func TestStorageSDK_BlobBlockStaging(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, download.Body.Close())
 	assert.Equal(t, append(payloadA, payloadB...), got)
+
+	// Put Block List stores only the Content-MD5 the caller states for the blob.
+	props, err := blobClient.GetProperties(ctx, nil)
+	require.NoError(t, err)
+	assert.Empty(t, props.ContentMD5)
+	require.NotNil(t, props.ContentType)
+	assert.Equal(t, "application/octet-stream", *props.ContentType)
+
+	blobMD5 := md5.Sum(got)
+	_, err = blobClient.CommitBlockList(ctx, []string{blockA, blockB}, &blockblob.CommitBlockListOptions{
+		HTTPHeaders: &blob.HTTPHeaders{BlobContentMD5: blobMD5[:], BlobContentType: to.Ptr("text/plain")},
+	})
+	require.NoError(t, err)
+	props, err = blobClient.GetProperties(ctx, nil)
+	require.NoError(t, err)
+	assert.Equal(t, blobMD5[:], props.ContentMD5)
+	require.NotNil(t, props.ContentType)
+	assert.Equal(t, "text/plain", *props.ContentType)
 }
 
 func TestStorageSDK_FileLifecycleAndPagedLists(t *testing.T) {

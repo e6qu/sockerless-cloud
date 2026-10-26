@@ -231,7 +231,6 @@ func registerELBv2(r *AWSQueryRouter, srv *sim.Server) {
 	registerELBv2Rules(r, srv)
 	registerELBv2TrustStores(r, srv)
 	startELBv2TargetHealthChecker(srv)
-	startELBv2RequestMetricsPublisher(srv)
 	if err := elbv2RecoverDataPlanes(); err != nil {
 		panic(fmt.Sprintf("restore Elastic Load Balancing data planes: %v", err))
 	}

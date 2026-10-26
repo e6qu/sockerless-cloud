@@ -1485,6 +1485,10 @@ jobs:
             cloud: aws
             tf_packages: "./network-interface"
             timeout_minutes: 12
+          - suite: aws tutorial
+            cloud: aws
+            tf_packages: "./tutorial"
+            timeout_minutes: 15
           - suite: aws S3 control plane
             cloud: aws
             tf_packages: "./s3control ./s3-versioning ./s3-object-lock"
@@ -1511,6 +1515,11 @@ jobs:
             timeout_minutes: 12
           - suite: gcp
             cloud: gcp
+            tf_args: "-skip TestTerraformTutorial"
+            timeout_minutes: 12
+          - suite: gcp tutorial
+            cloud: gcp
+            tf_args: "-run TestTerraformTutorial"
             timeout_minutes: 12
           - suite: azure
             cloud: azure
@@ -1546,6 +1555,11 @@ jobs:
             cloud: azure
             tf_timeout: 600s
             tf_run: TestTerraformFrontEndForwardedHeaders
+            timeout_minutes: 12
+          - suite: azure tutorial
+            cloud: azure
+            tf_timeout: 600s
+            tf_run: TestTerraformTutorial
             timeout_minutes: 12
           - suite: azure web app key vault references and source control
             cloud: azure
@@ -1646,7 +1660,7 @@ jobs:
           else
             env \
               SOCKERLESS_SPEC_VALIDATE="$SOCKERLESS_SPEC_VALIDATE" SOCKERLESS_SPEC_DIR="$SOCKERLESS_SPEC_DIR" \
-              make terraform-https-test TERRAFORM_TEST_TIMEOUT=600s
+              make terraform-https-test TERRAFORM_TEST_TIMEOUT=600s TERRAFORM_TEST_ARGS="${{ matrix.tf_args }}"
           fi
         # Must exceed the inner go-test deadline (TERRAFORM_TEST_TIMEOUT)
         # plus docker startup so the step never beats the test's own
@@ -1948,6 +1962,36 @@ jobs:
         run: bash scripts/simulators-knip.sh
       - name: simulators jscpd (UI ≥200 tokens)
         run: bash scripts/simulators-jscpd.sh
+
+  # The release builds each simulator for four platforms; build-gates builds
+  # the runner's, and this job the other three, each on a runner of its own,
+  # because one cold cross-compile of the three simulators takes about six
+  # minutes.
+  release-platform-build:
+    name: release platform build (${{ matrix.platform }})
+    needs: verified-on-pr
+    if: ${{ !cancelled() && needs.verified-on-pr.outputs.verified != 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [linux/arm64, darwin/amd64, darwin/arm64]
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: ./.github/actions/install-go
+      - name: Restore the Go module and build caches for this platform
+        uses: actions/cache@v6.1.0
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: release-platform-go-${{ strategy.job-index }}-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('go.work', '**/go.sum') }}
+          restore-keys: |
+            release-platform-go-${{ strategy.job-index }}-${{ runner.os }}-${{ runner.arch }}-
+      - name: Every simulator builds from its pinned modules for ${{ matrix.platform }}
+        run: bash scripts/check-installable-build.sh "${{ matrix.platform }}"
+        timeout-minutes: 12
 
   build-gates:
     needs: verified-on-pr

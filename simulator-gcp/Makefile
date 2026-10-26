@@ -58,6 +58,7 @@ cli-test: build-api ## go test the CLI-driven sim tests
 	cd cli-tests && $(GO_ENV) bash ../../scripts/go-test-summary.sh -count=1 -timeout 900s $(CLI_TEST_ARGS)
 
 TERRAFORM_TEST_TIMEOUT ?= 300s
+TERRAFORM_TEST_ARGS ?=
 
 terraform-test: ## go test the terraform-driven sim tests
 	@if [ "$$(uname -s)" = "Darwin" ]; then \
@@ -67,14 +68,14 @@ terraform-test: ## go test the terraform-driven sim tests
 	fi
 
 terraform-test-native: build-api
-	cd terraform-tests && $(GO_ENV) go test -v -count=1 -timeout $(TERRAFORM_TEST_TIMEOUT) ./...
+	cd terraform-tests && $(GO_ENV) go test -v -count=1 -timeout $(TERRAFORM_TEST_TIMEOUT) $(TERRAFORM_TEST_ARGS) ./...
 
 terraform-https-test: ## go test terraform via the optional Caddy HTTPS gateway
 	@if [ "$$(uname -s)" = "Darwin" ]; then \
 	  $(MAKE) terraform-https-test-docker; \
 	else \
 	  $(MAKE) build-api && \
-	  cd terraform-tests && SOCKERLESS_TF_HTTPS_GATEWAY=1 $(GO_ENV) go test -v -count=1 -timeout $(TERRAFORM_TEST_TIMEOUT) ./...; \
+	  cd terraform-tests && SOCKERLESS_TF_HTTPS_GATEWAY=1 $(GO_ENV) go test -v -count=1 -timeout $(TERRAFORM_TEST_TIMEOUT) $(TERRAFORM_TEST_ARGS) ./...; \
 	fi
 
 # Aggregate that runs every test category.

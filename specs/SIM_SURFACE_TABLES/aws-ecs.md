@@ -17,24 +17,24 @@ The extractor reads the route out of a single string literal, so a registration 
 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
-| `Action AmazonEC2ContainerServiceV20141113.CreateCluster` | ✓ `simulator-aws/ecs.go:609::handleECSCreateCluster` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AmazonEC2ContainerServiceV20141113.DescribeClusters` | ✓ `simulator-aws/ecs.go:610::handleECSDescribeClusters` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AmazonEC2ContainerServiceV20141113.UpdateCluster` | ✓ `simulator-aws/ecs.go:611::handleECSUpdateCluster` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AmazonEC2ContainerServiceV20141113.UpdateClusterSettings` | ✓ `simulator-aws/ecs.go:612::handleECSUpdateClusterSettings` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AmazonEC2ContainerServiceV20141113.RegisterTaskDefinition` | ✓ `simulator-aws/ecs.go:613::handleECSRegisterTaskDefinition` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AmazonEC2ContainerServiceV20141113.DeregisterTaskDefinition` | ✓ `simulator-aws/ecs.go:614::handleECSDeregisterTaskDefinition` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AmazonEC2ContainerServiceV20141113.DescribeTaskDefinition` | ✓ `simulator-aws/ecs.go:615::handleECSDescribeTaskDefinition` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AmazonEC2ContainerServiceV20141113.RunTask` | ✓ `simulator-aws/ecs.go:616::handleECSRunTask` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AmazonEC2ContainerServiceV20141113.DescribeTasks` | ✓ `simulator-aws/ecs.go:617::handleECSDescribeTasks` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AmazonEC2ContainerServiceV20141113.StopTask` | ✓ `simulator-aws/ecs.go:618::handleECSStopTask` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AmazonEC2ContainerServiceV20141113.ListTasks` | ✓ `simulator-aws/ecs.go:619::handleECSListTasks` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AmazonEC2ContainerServiceV20141113.DeleteCluster` | ✓ `simulator-aws/ecs.go:620::handleECSDeleteCluster` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AmazonEC2ContainerServiceV20141113.ListTagsForResource` | ✓ `simulator-aws/ecs.go:621::handleECSListTagsForResource` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AmazonEC2ContainerServiceV20141113.TagResource` | ✓ `simulator-aws/ecs.go:622::handleECSTagResource` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AmazonEC2ContainerServiceV20141113.UntagResource` | ✓ `simulator-aws/ecs.go:623::handleECSUntagResource` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AmazonEC2ContainerServiceV20141113.ExecuteCommand` | ✓ `simulator-aws/ecs.go:624::srv` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AmazonEC2ContainerServiceV20141113.DeleteTaskDefinitions` | ✓ `simulator-aws/ecs.go:642::handleECSDeleteTaskDefinitions` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /ecs-exec/{sessionId}` | ○ `simulator-aws/ecs.go:645::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AmazonEC2ContainerServiceV20141113.CreateCluster` | ✓ `simulator-aws/ecs.go:608::handleECSCreateCluster` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AmazonEC2ContainerServiceV20141113.DescribeClusters` | ✓ `simulator-aws/ecs.go:609::handleECSDescribeClusters` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AmazonEC2ContainerServiceV20141113.UpdateCluster` | ✓ `simulator-aws/ecs.go:610::handleECSUpdateCluster` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AmazonEC2ContainerServiceV20141113.UpdateClusterSettings` | ✓ `simulator-aws/ecs.go:611::handleECSUpdateClusterSettings` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AmazonEC2ContainerServiceV20141113.RegisterTaskDefinition` | ✓ `simulator-aws/ecs.go:612::handleECSRegisterTaskDefinition` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AmazonEC2ContainerServiceV20141113.DeregisterTaskDefinition` | ✓ `simulator-aws/ecs.go:613::handleECSDeregisterTaskDefinition` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AmazonEC2ContainerServiceV20141113.DescribeTaskDefinition` | ✓ `simulator-aws/ecs.go:614::handleECSDescribeTaskDefinition` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AmazonEC2ContainerServiceV20141113.RunTask` | ✓ `simulator-aws/ecs.go:615::handleECSRunTask` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AmazonEC2ContainerServiceV20141113.DescribeTasks` | ✓ `simulator-aws/ecs.go:616::handleECSDescribeTasks` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AmazonEC2ContainerServiceV20141113.StopTask` | ✓ `simulator-aws/ecs.go:617::handleECSStopTask` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AmazonEC2ContainerServiceV20141113.ListTasks` | ✓ `simulator-aws/ecs.go:618::handleECSListTasks` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AmazonEC2ContainerServiceV20141113.DeleteCluster` | ✓ `simulator-aws/ecs.go:619::handleECSDeleteCluster` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AmazonEC2ContainerServiceV20141113.ListTagsForResource` | ✓ `simulator-aws/ecs.go:620::handleECSListTagsForResource` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AmazonEC2ContainerServiceV20141113.TagResource` | ✓ `simulator-aws/ecs.go:621::handleECSTagResource` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AmazonEC2ContainerServiceV20141113.UntagResource` | ✓ `simulator-aws/ecs.go:622::handleECSUntagResource` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AmazonEC2ContainerServiceV20141113.ExecuteCommand` | ✓ `simulator-aws/ecs.go:623::srv` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AmazonEC2ContainerServiceV20141113.DeleteTaskDefinitions` | ✓ `simulator-aws/ecs.go:641::handleECSDeleteTaskDefinitions` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /ecs-exec/{sessionId}` | ○ `simulator-aws/ecs.go:644::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action AmazonEC2ContainerServiceV20141113.PutAccountSetting` | ✓ `simulator-aws/ecs_account.go:29::handleECSPutAccountSetting` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action AmazonEC2ContainerServiceV20141113.PutAccountSettingDefault` | ✓ `simulator-aws/ecs_account.go:30::handleECSPutAccountSettingDefault` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action AmazonEC2ContainerServiceV20141113.DeleteAccountSetting` | ✓ `simulator-aws/ecs_account.go:31::handleECSDeleteAccountSetting` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
