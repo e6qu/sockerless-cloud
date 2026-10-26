@@ -6,7 +6,6 @@ matching `scripts/fetch-*-spec.sh` script, which rewrites this table.
 | Local file | Upstream repo / host | Upstream path | License | Pinned at | Fetched (UTC) |
 |---|---|---|---|---|---|
 | `discovery-v1.discovery.json.gz` | `discovery.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20200806` | 2026-10-06T10:43:37Z |
-| `secretmanager-v1.discovery.json.gz` | `secretmanager.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20260925` | 2026-10-07T14:37:45Z |
 | `cloudbuild-v1.discovery.json.gz` | `cloudbuild.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261010` | 2026-10-19T13:08:07Z |
 | `eventarc-v1.discovery.json.gz` | `eventarc.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261014` | 2026-10-19T13:08:08Z |
 | `spanner-v1.discovery.json.gz` | `spanner.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261006` | 2026-10-19T13:08:08Z |
@@ -31,9 +30,6 @@ matching `scripts/fetch-*-spec.sh` script, which rewrites this table.
 | `redis-v1.discovery.json.gz` | `redis.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261016` | 2026-10-22T21:20:42Z |
 | `artifactregistry-v1.discovery.json.gz` | `artifactregistry.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261022` | 2026-10-23T11:42:07Z |
 | `cloudkms-v1.discovery.json.gz` | `cloudkms.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261016` | 2026-10-23T11:42:07Z |
-| `cloudresourcemanager-v1.discovery.json.gz` | `cloudresourcemanager.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261018` | 2026-10-23T11:42:07Z |
-| `cloudresourcemanager-v2.discovery.json.gz` | `cloudresourcemanager.googleapis.com` | `$discovery/rest?version=v2` | Apache-2.0 | `revision 20261018` | 2026-10-23T11:42:07Z |
-| `cloudresourcemanager-v3.discovery.json.gz` | `cloudresourcemanager.googleapis.com` | `$discovery/rest?version=v3` | Apache-2.0 | `revision 20261018` | 2026-10-23T11:42:07Z |
 | `storage-v1.discovery.json.gz` | `storage.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261020` | 2026-10-23T11:42:07Z |
 | `cloudrun-logging.md.gz` | `docs.cloud.google.com` | `run/docs/logging` | CC-BY-4.0 | `modified2026-10-22` | 2026-10-23T08:37:49Z |
 | `logging-agent-configuration.md.gz` | `docs.cloud.google.com` | `logging/docs/agent/logging/configuration` | CC-BY-4.0 | `modified2026-10-22` | 2026-10-23T08:37:55Z |
@@ -82,7 +78,6 @@ matching `scripts/fetch-*-spec.sh` script, which rewrites this table.
 | `dataflow-audit-logging.md.gz` | `docs.cloud.google.com` | `dataflow/docs/audit-logging` | CC-BY-4.0 | `modified2026-10-22` | 2026-10-24T11:23:20Z |
 | `iam-conditions-attribute-reference.md.gz` | `docs.cloud.google.com` | `iam/docs/conditions-attribute-reference` | CC-BY-4.0 | `modified2026-10-22` | 2026-10-24T11:23:21Z |
 | `iam-conditions-resource-attributes.md.gz` | `docs.cloud.google.com` | `iam/docs/conditions-resource-attributes` | CC-BY-4.0 | `modified2026-10-22` | 2026-10-24T11:23:23Z |
-| `cloudscheduler-v1.discovery.json.gz` | `cloudscheduler.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261004` | 2026-10-24T18:33:06Z |
 | `scheduler-retry-jobs.md.gz` | `docs.cloud.google.com` | `scheduler/docs/configuring/retry-jobs` | CC-BY-4.0 | `modified2026-10-22` | 2026-10-24T18:34:24Z |
 | `scheduler-cron-job-schedules.md.gz` | `docs.cloud.google.com` | `scheduler/docs/configuring/cron-job-schedules` | CC-BY-4.0 | `modified2026-10-22` | 2026-10-24T18:34:33Z |
 | `cloudrun-container-contract.md.gz` | `docs.cloud.google.com` | `run/docs/container-contract` | CC-BY-4.0 | `modified2026-10-22` | 2026-10-24T23:08:06Z |
@@ -94,3 +89,8 @@ matching `scripts/fetch-*-spec.sh` script, which rewrites this table.
 | `tasks-configuring-queues.md.gz` | `docs.cloud.google.com` | `tasks/docs/configuring-queues` | CC-BY-4.0 | `modified2026-10-22` | 2026-10-25T03:34:56Z |
 | `tasks-quotas.md.gz` | `docs.cloud.google.com` | `tasks/docs/quotas` | CC-BY-4.0 | `modified2026-10-22` | 2026-10-25T03:34:57Z |
 | `firestore-v1.discovery.json.gz` | `firestore.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261021` | 2026-10-25T11:16:38Z |
+| `cloudresourcemanager-v1.discovery.json.gz` | `cloudresourcemanager.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261021` | 2026-10-26T12:50:11Z |
+| `cloudresourcemanager-v2.discovery.json.gz` | `cloudresourcemanager.googleapis.com` | `$discovery/rest?version=v2` | Apache-2.0 | `revision 20261021` | 2026-10-26T12:50:11Z |
+| `cloudresourcemanager-v3.discovery.json.gz` | `cloudresourcemanager.googleapis.com` | `$discovery/rest?version=v3` | Apache-2.0 | `revision 20261021` | 2026-10-26T12:50:11Z |
+| `cloudscheduler-v1.discovery.json.gz` | `cloudscheduler.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261020` | 2026-10-26T12:50:11Z |
+| `secretmanager-v1.discovery.json.gz` | `secretmanager.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261021` | 2026-10-26T12:50:11Z |
