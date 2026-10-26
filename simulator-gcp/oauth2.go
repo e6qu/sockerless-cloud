@@ -128,8 +128,38 @@ type saAssertionClaims struct {
 // there, and pinning Google's would reject every coordinate-swapped client.
 func verifyServiceAccountAssertion(assertion string, now time.Time) (saAssertionClaims, *oauth2GrantError) {
 	var none saAssertionClaims
+	signed, grantErr := verifyServiceAccountJWT(assertion)
+	if grantErr != nil {
+		return none, grantErr
+	}
+	var claims struct {
+		TargetAudience string `json:"target_audience"`
+		Exp            int64  `json:"exp"`
+	}
+	if err := json.Unmarshal(signed.claims, &claims); err != nil {
+		return none, invalidGrant("Invalid JWT: Failed to parse token payload")
+	}
+	if claims.Exp == 0 || now.After(time.Unix(claims.Exp, 0)) {
+		return none, invalidGrant("Invalid JWT: Token must be a short-lived token (60 minutes) and in a reasonable timeframe. Check your iat and exp values in the JWT claim.")
+	}
+	return saAssertionClaims{issuer: signed.issuer, targetAudience: claims.TargetAudience}, nil
+}
 
-	parts := strings.Split(assertion, ".")
+// serviceAccountJWT is a JWT whose signature verified against a key of the
+// enabled service account its iss claim names.
+type serviceAccountJWT struct {
+	kid    string
+	issuer string
+	claims []byte
+}
+
+// verifyServiceAccountJWT checks that one of the enabled keys IAM registered
+// for the service account the JWT's iss claim names signed it with RS256: the
+// key the kid header names, or with no kid any of the account's keys. It
+// leaves the claims beyond iss to the caller.
+func verifyServiceAccountJWT(raw string) (serviceAccountJWT, *oauth2GrantError) {
+	var none serviceAccountJWT
+	parts := strings.Split(raw, ".")
 	if len(parts) != 3 {
 		return none, invalidGrant("Invalid JWT: Token must consist of header, claims, and signature")
 	}
@@ -153,9 +183,7 @@ func verifyServiceAccountAssertion(assertion string, now time.Time) (saAssertion
 		return none, invalidGrant("Invalid JWT: Failed to parse token payload")
 	}
 	var claims struct {
-		Iss            string `json:"iss"`
-		TargetAudience string `json:"target_audience"`
-		Exp            int64  `json:"exp"`
+		Iss string `json:"iss"`
 	}
 	if err := json.Unmarshal(claimsJSON, &claims); err != nil {
 		return none, invalidGrant("Invalid JWT: Failed to parse token payload")
@@ -178,16 +206,10 @@ func verifyServiceAccountAssertion(assertion string, now time.Time) (saAssertion
 		return none, invalidGrant("Invalid JWT Signature.")
 	}
 	digest := sha256.Sum256([]byte(parts[0] + "." + parts[1]))
-	verified := serviceAccountSigned(saName, header.Kid, digest[:], signature)
-	if !verified {
+	if !serviceAccountSigned(saName, header.Kid, digest[:], signature) {
 		return none, invalidGrant("Invalid JWT Signature.")
 	}
-
-	if claims.Exp == 0 || now.After(time.Unix(claims.Exp, 0)) {
-		return none, invalidGrant("Invalid JWT: Token must be a short-lived token (60 minutes) and in a reasonable timeframe. Check your iat and exp values in the JWT claim.")
-	}
-
-	return saAssertionClaims{issuer: claims.Iss, targetAudience: claims.TargetAudience}, nil
+	return serviceAccountJWT{kid: header.Kid, issuer: claims.Iss, claims: claimsJSON}, nil
 }
 
 // serviceAccountSigned reports whether one of the service account's enabled

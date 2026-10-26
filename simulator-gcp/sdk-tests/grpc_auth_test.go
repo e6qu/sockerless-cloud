@@ -4,16 +4,21 @@ import (
 	"errors"
 	"testing"
 
+	run "cloud.google.com/go/run/apiv2"
+	"cloud.google.com/go/run/apiv2/runpb"
 	secretmanager "cloud.google.com/go/secretmanager/apiv1"
 	smpb "cloud.google.com/go/secretmanager/apiv1/secretmanagerpb"
 	"github.com/googleapis/gax-go/v2/apierror"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/oauth2"
+	"golang.org/x/oauth2/google"
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+
+	"github.com/e6qu/sockerless-cloud/testutil/gcpbootstrap"
 )
 
 const (
@@ -89,5 +94,38 @@ func TestGRPC_ServesTheBootstrapCredential(t *testing.T) {
 	_, err = cli.ListSecrets(ctx, &smpb.ListSecretsRequest{Parent: "projects/" + harnessProject}).Next()
 	if !errors.Is(err, iterator.Done) {
 		require.NoError(t, err)
+	}
+}
+
+// TestSelfSignedJWT_ServesRESTAndGRPC authenticates with the bootstrap key the
+// way Google's client libraries do without an OAuth token exchange: a JWT the
+// service account signs itself, carrying the API's service URL as audience or
+// the requested scope in its place.
+func TestSelfSignedJWT_ServesRESTAndGRPC(t *testing.T) {
+	t.Parallel()
+	key := gcpbootstrap.CredentialJSON(baseURL + "/token")
+	scoped, err := google.JWTAccessTokenSourceWithScope(key, "https://www.googleapis.com/auth/cloud-platform")
+	require.NoError(t, err)
+	audienced, err := google.JWTAccessTokenSourceFromJSON(key, "https://run.googleapis.com/")
+	require.NoError(t, err)
+
+	for name, ts := range map[string]oauth2.TokenSource{"scope": scoped, "audience": audienced} {
+		t.Run(name, func(t *testing.T) {
+			jobs, err := run.NewJobsRESTClient(ctx, option.WithEndpoint(baseURL), option.WithTokenSource(ts))
+			require.NoError(t, err)
+			defer jobs.Close()
+			_, err = jobs.ListJobs(ctx, &runpb.ListJobsRequest{Parent: "projects/" + harnessProject + "/locations/us-central1"}).Next()
+			if !errors.Is(err, iterator.Done) {
+				require.NoError(t, err, "Cloud Run jobs.list with a self-signed JWT")
+			}
+
+			secrets, err := secretmanager.NewClient(ctx, simGRPCClientOptionsAt(grpcAddr, ts)...)
+			require.NoError(t, err)
+			defer secrets.Close()
+			_, err = secrets.ListSecrets(ctx, &smpb.ListSecretsRequest{Parent: "projects/" + harnessProject}).Next()
+			if !errors.Is(err, iterator.Done) {
+				require.NoError(t, err, "Secret Manager ListSecrets over gRPC with a self-signed JWT")
+			}
+		})
 	}
 }
