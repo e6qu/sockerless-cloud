@@ -10,24 +10,17 @@ import (
 	"cloud.google.com/go/firestore"
 	firestorepb "cloud.google.com/go/firestore/apiv1/firestorepb"
 	"google.golang.org/api/iterator"
-	"google.golang.org/api/option"
-	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 )
 
 // newFSGRPCClient builds the high-level cloud.google.com/go/firestore client
 // over gRPC (its only transport), pointed at the simulator's Firestore gRPC
-// data plane by endpoint. FIRESTORE_EMULATOR_HOST would do the same, but it is
-// process-wide and the REST client refuses to start while it is set.
+// data plane by endpoint with the bootstrap credential. FIRESTORE_EMULATOR_HOST
+// would make the client send no credential.
 func newFSGRPCClient(t *testing.T, project string) *firestore.Client {
 	t.Helper()
-	c, err := firestore.NewClient(ctx, project,
-		option.WithEndpoint(grpcAddr),
-		option.WithoutAuthentication(),
-		option.WithGRPCDialOption(grpc.WithTransportCredentials(insecure.NewCredentials())),
-	)
+	c, err := firestore.NewClient(ctx, project, simGRPCClientOptions()...)
 	if err != nil {
 		t.Fatalf("firestore.NewClient (gRPC): %v", err)
 	}

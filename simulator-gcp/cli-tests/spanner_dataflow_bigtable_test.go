@@ -89,11 +89,11 @@ func TestBigtableCLI_InstanceTableList(t *testing.T) {
 
 // TestBigtableCLI_DataPlane_cbt exercises the Bigtable Data API v2 gRPC slice
 // through the canonical data-plane CLI `cbt` (a distinct adaptor from the Go
-// SDK), reaching the sim via BIGTABLE_EMULATOR_HOST — the same coordinate the
-// real client uses for the real emulator. Closes the Bigtable data-plane CLI
-// gap: the data plane had no second-adaptor coverage at all (gcloud bigtable is
-// admin-only; the data plane's CLI surface is cbt). cbt is built in TestMain
-// (see installCBT) so the test runs unconditionally.
+// SDK), configured as against Google: the admin and data endpoints, the
+// bootstrap key as its credential, and the authority the gRPC port's
+// certificate chains to. gcloud bigtable is admin-only, so cbt is the data
+// plane's CLI surface. cbt is built in TestMain (see installCBT) so the test
+// runs unconditionally.
 func TestBigtableCLI_DataPlane_cbt(t *testing.T) {
 	t.Parallel()
 	const (
@@ -111,14 +111,13 @@ func TestBigtableCLI_DataPlane_cbt(t *testing.T) {
 		"--instance-type=PRODUCTION",
 		"--format=json"))
 
-	// cbt inherits BIGTABLE_EMULATOR_HOST from its env, which points it at the
-	// sim's gRPC server (admin + data plane). -project and -instance are the
-	// canonical cbt flags (positional instance args are not part of cbt's CLI).
 	cbt := func(args ...string) string {
 		cmd := exec.Command(cbtPath, append([]string{
 			"-project=" + project, "-instance=" + instance,
+			"-admin-endpoint=" + grpcAddr, "-data-endpoint=" + grpcAddr,
+			"-creds=" + bootstrapKeyFile(), "-cert-file=" + grpcTLS.CA,
 		}, args...)...)
-		cmd.Env = append(gcloudEnv(), "BIGTABLE_EMULATOR_HOST="+grpcAddr)
+		cmd.Env = gcloudEnv()
 		return runCLI(t, cmd)
 	}
 

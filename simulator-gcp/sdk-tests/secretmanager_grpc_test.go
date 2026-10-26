@@ -15,7 +15,6 @@ import (
 	sqladmin "google.golang.org/api/sqladmin/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/fieldmaskpb"
 )
@@ -33,7 +32,7 @@ func smGRPCCrc32C(b []byte) int64 { return int64(crc32.Checksum(b, smGRPCCrc32CT
 // the same pattern the Cloud KMS gRPC test uses.
 func newSecretManagerGRPCClient(t *testing.T) *secretmanager.Client {
 	t.Helper()
-	conn, err := grpc.NewClient(grpcAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.NewClient(grpcAddr, simGRPCDialOptions(simTokenSource())...)
 	require.NoError(t, err)
 	t.Cleanup(func() { conn.Close() })
 

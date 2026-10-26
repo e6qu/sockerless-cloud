@@ -16,11 +16,11 @@ import (
 	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/oauth2"
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 )
 
@@ -240,16 +240,16 @@ func waitForFunctionLogMessage(t *testing.T, functionID, message string) {
 // them; an entry both report counts once, by insert ID.
 func followLogMessages(t *testing.T, filter string, done func(messages []string) bool) []string {
 	t.Helper()
-	return followLogMessagesAt(t, grpcAddr, filter, done)
+	return followLogMessagesAt(t, grpcAddr, simTokenSource(), filter, done)
 }
 
 // followLogMessagesAt follows log entries as followLogMessages does, from the
-// simulator whose gRPC endpoint is at address.
-func followLogMessagesAt(t *testing.T, address, filter string, done func(messages []string) bool) []string {
+// simulator whose gRPC endpoint is at address, with the tokens ts mints.
+func followLogMessagesAt(t *testing.T, address string, ts oauth2.TokenSource, filter string, done func(messages []string) bool) []string {
 	t.Helper()
 	tailCtx, cancel := context.WithTimeout(ctx, jobLogWaitTimeout)
 	defer cancel()
-	conn, err := grpc.NewClient(address, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.NewClient(address, simGRPCDialOptions(ts)...)
 	require.NoError(t, err)
 	defer conn.Close()
 	tailClient, err := vkit.NewClient(ctx, option.WithGRPCConn(conn))

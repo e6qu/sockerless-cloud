@@ -14,7 +14,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/descriptorpb"
 	"google.golang.org/protobuf/types/known/durationpb"
@@ -37,7 +36,7 @@ import (
 // generated clients the Cloud Bigtable admin surface is reached through.
 func bigtableAdminGRPCConn(t *testing.T) (adminpb.BigtableInstanceAdminClient, adminpb.BigtableTableAdminClient, longrunningpb.OperationsClient) {
 	t.Helper()
-	conn, err := grpc.NewClient(grpcAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.NewClient(grpcAddr, simGRPCDialOptions(simTokenSource())...)
 	require.NoError(t, err)
 	t.Cleanup(func() { conn.Close() })
 	return adminpb.NewBigtableInstanceAdminClient(conn),
@@ -411,7 +410,7 @@ func TestBigtableAdminGRPC_BackupsAndRestore(t *testing.T) {
 	// down read them back out of the restore. Were the capture missing, a
 	// restore would yield an empty table and still report success — every row
 	// silently lost behind a green result.
-	client, err := bigtable.NewClient(ctx, project, instanceID)
+	client, err := bigtable.NewClientWithConfig(ctx, project, instanceID, bigtableClientConfig, simGRPCClientOptions()...)
 	require.NoError(t, err)
 	defer client.Close()
 	source := client.Open("events")
@@ -740,7 +739,7 @@ func TestBigtableAdminGRPC_TableUpdatesConsistencyAndDropRowRange(t *testing.T) 
 
 	// DropRowRange deletes real rows: write through the data plane, drop a
 	// prefix, and read back what survived.
-	client, err := bigtable.NewClient(ctx, project, instanceID)
+	client, err := bigtable.NewClientWithConfig(ctx, project, instanceID, bigtableClientConfig, simGRPCClientOptions()...)
 	require.NoError(t, err)
 	defer client.Close()
 	tbl := client.Open("events")
@@ -798,7 +797,7 @@ func TestBigtableAdminGRPC_SnapshotsAndCreateTableFromSnapshot(t *testing.T) {
 	instance, cluster := bigtableAdminGRPCInstance(t, ia, project, instanceID, "c1")
 	table := bigtableAdminGRPCTable(t, ta, instance, "events", family)
 
-	client, err := bigtable.NewClient(ctx, project, instanceID)
+	client, err := bigtable.NewClientWithConfig(ctx, project, instanceID, bigtableClientConfig, simGRPCClientOptions()...)
 	require.NoError(t, err)
 	defer client.Close()
 	source := client.Open("events")

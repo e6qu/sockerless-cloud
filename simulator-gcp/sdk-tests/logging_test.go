@@ -19,7 +19,6 @@ import (
 	loggingrpc "google.golang.org/api/logging/v2"
 	"google.golang.org/api/option"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 )
 
 func logadminClient(t *testing.T) *logadmin.Client {
@@ -29,7 +28,7 @@ func logadminClient(t *testing.T) *logadmin.Client {
 
 func logadminClientFor(t *testing.T, project string) *logadmin.Client {
 	t.Helper()
-	conn, err := grpc.NewClient(grpcAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.NewClient(grpcAddr, simGRPCDialOptions(simTokenSource())...)
 	require.NoError(t, err)
 	t.Cleanup(func() { conn.Close() })
 

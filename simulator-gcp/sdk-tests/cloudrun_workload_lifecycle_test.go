@@ -366,7 +366,7 @@ func TestSDK_CloudRun_WorkloadsResumeAfterSimulatorRestart(t *testing.T) {
 	taskLogs := `resource.type="cloud_run_job" AND resource.labels.job_name="resumed-job"`
 	host := func(filter, prefix string) string {
 		var hosts []string
-		followLogMessagesAt(t, logsAt, filter, func(messages []string) bool {
+		followLogMessagesAt(t, logsAt, simTokenSourceFor(endpoint), filter, func(messages []string) bool {
 			hosts = distinctLogHosts(messages, prefix)
 			return len(hosts) >= 1
 		})
@@ -430,22 +430,22 @@ func TestSDK_CloudRun_WorkloadsResumeAfterSimulatorRestart(t *testing.T) {
 
 	// The deletions stop the containers the earlier process started, which only
 	// a process that adopted them can do; their start lines stay logged once.
-	poolMessages := followLogMessagesAt(t, logsAt, poolLogs, func(messages []string) bool {
+	poolMessages := followLogMessagesAt(t, logsAt, simTokenSourceFor(endpoint), poolLogs, func(messages []string) bool {
 		return countLogMessages(messages, "stopping pool worker "+poolHost) == 1
 	})
 	assert.Equal(t, []string{poolHost}, distinctLogHosts(poolMessages, "pool worker"), "the pool started no other instance")
 	assert.Equal(t, 1, countLogMessages(poolMessages, "pool worker "+poolHost))
-	instanceMessages := followLogMessagesAt(t, logsAt, instanceLogs, func(messages []string) bool {
+	instanceMessages := followLogMessagesAt(t, logsAt, simTokenSourceFor(endpoint), instanceLogs, func(messages []string) bool {
 		return countLogMessages(messages, "stopping instance "+instanceHost) == 1
 	})
 	assert.Equal(t, []string{instanceHost}, distinctLogHosts(instanceMessages, "instance"), "the instance started no other container")
 	assert.Equal(t, 1, countLogMessages(instanceMessages, "instance "+instanceHost))
-	serviceMessages := followLogMessagesAt(t, logsAt, serviceLogs, func(messages []string) bool {
+	serviceMessages := followLogMessagesAt(t, logsAt, simTokenSourceFor(endpoint), serviceLogs, func(messages []string) bool {
 		return countLogMessages(messages, "stopping service "+serviceHost) == 1
 	})
 	assert.Equal(t, []string{serviceHost}, distinctLogHosts(serviceMessages, "service"), "the service started no other instance")
 	assert.Equal(t, 1, countLogMessages(serviceMessages, "service "+serviceHost))
-	taskMessages := followLogMessagesAt(t, logsAt, taskLogs, func(messages []string) bool {
+	taskMessages := followLogMessagesAt(t, logsAt, simTokenSourceFor(endpoint), taskLogs, func(messages []string) bool {
 		return countLogMessages(messages, "stopping task "+taskHost) == 1
 	})
 	assert.Equal(t, []string{taskHost}, distinctLogHosts(taskMessages, "task"), "the execution started no other task")

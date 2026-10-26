@@ -19,6 +19,7 @@ import (
 	"github.com/e6qu/sockerless-cloud/testutil/baseimage"
 	"github.com/e6qu/sockerless-cloud/testutil/freeports"
 	"github.com/e6qu/sockerless-cloud/testutil/gcpbootstrap"
+	"github.com/e6qu/sockerless-cloud/testutil/loopbacktls"
 	"github.com/e6qu/sockerless-cloud/testutil/scratchimage"
 	"github.com/e6qu/sockerless-cloud/testutil/simready"
 )
@@ -41,6 +42,10 @@ var (
 	// gcloud minted and the suite's raw HTTP calls present; set once in
 	// TestMain.
 	accessToken string
+
+	// grpcTLS is the certificate the simulator's gRPC port serves, issued in
+	// TestMain.
+	grpcTLS loopbacktls.Files
 )
 
 // activateBootstrapServiceAccount signs gcloud in as the simulator's bootstrap
@@ -49,7 +54,7 @@ var (
 // simulator's token endpoint. It returns the access token gcloud prints, which
 // the suite's raw HTTP calls present.
 func activateBootstrapServiceAccount() (string, error) {
-	keyFile := filepath.Join(tmpDir, "bootstrap-key.json")
+	keyFile := bootstrapKeyFile()
 	if err := gcpbootstrap.WriteCredentialFile(keyFile, baseURL+"/token"); err != nil {
 		return "", err
 	}
@@ -65,6 +70,12 @@ func activateBootstrapServiceAccount() (string, error) {
 		return "", fmt.Errorf("gcloud auth print-access-token printed nothing")
 	}
 	return token, nil
+}
+
+// bootstrapKeyFile is where TestMain writes the bootstrap service account's
+// key, the credential gcloud and cbt read.
+func bootstrapKeyFile() string {
+	return filepath.Join(tmpDir, "bootstrap-key.json")
 }
 
 // cliWorkloadImage is the base image this suite runs as a container workload
@@ -152,11 +163,25 @@ func TestMain(m *testing.M) {
 	}
 	port, grpcPort := ports[0], ports[1]
 
+	// The gRPC port serves TLS, the only transport Google's client libraries
+	// send credentials over, with a certificate from an authority of the
+	// suite's own that cbt trusts through -cert-file.
+	grpcTLSDir, err := os.MkdirTemp("", "gcp-cli-grpc-tls-*")
+	if err != nil {
+		log.Fatalf("Failed to create the gRPC certificate directory: %v", err)
+	}
+	grpcTLS, err = loopbacktls.Write(grpcTLSDir)
+	if err != nil {
+		log.Fatalf("Failed to issue the gRPC port's certificate: %v", err)
+	}
+
 	// Start simulator
 	simCmd = exec.Command(binaryPath)
 	simCmd.Env = append(os.Environ(),
 		fmt.Sprintf("SIM_LISTEN_ADDR=:%d", port),
 		fmt.Sprintf("SIM_GCP_GRPC_PORT=%d", grpcPort),
+		"SIM_GCP_GRPC_TLS_CERT="+grpcTLS.Cert,
+		"SIM_GCP_GRPC_TLS_KEY="+grpcTLS.Key,
 	)
 	simCmd.Stdout = os.Stdout
 	if err := simready.Start(simCmd, os.Stderr); err != nil {
@@ -220,6 +245,7 @@ func TestMain(m *testing.M) {
 	simCmd.Process.Kill()
 	simCmd.Wait()
 	os.RemoveAll(tmpDir)
+	os.RemoveAll(grpcTLSDir)
 	for _, dir := range provisionedToolDirs {
 		os.RemoveAll(dir)
 	}

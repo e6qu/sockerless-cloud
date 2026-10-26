@@ -43,7 +43,7 @@ provider "google" {
   sql_custom_endpoint               = "${var.endpoint}/sql/v1beta4/"
   vpc_access_custom_endpoint        = "${var.endpoint}/v1/"
   spanner_custom_endpoint           = "${var.endpoint}/spanner/v1/"
-  bigtable_custom_endpoint          = "${var.endpoint}/v2/"
+  bigtable_custom_endpoint          = "${var.bigtable_endpoint}/v2/"
   dataflow_custom_endpoint          = "${var.endpoint}/v1b3/"
   # iam_beta_custom_endpoint routes the `google_service_account` resource's
   # iambeta.NewClient → iam.googleapis.com surface; without it the resource

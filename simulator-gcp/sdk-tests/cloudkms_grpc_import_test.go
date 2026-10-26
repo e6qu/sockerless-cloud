@@ -16,7 +16,6 @@ import (
 	"google.golang.org/api/iterator"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/wrapperspb"
@@ -433,7 +432,7 @@ func TestCloudKMS_GRPC_DeleteCryptoKeyAndVersion(t *testing.T) {
 
 	// The server mounts one google.longrunning.Operations service, so an
 	// operation name Cloud KMS hands a client has to resolve there.
-	conn, err := grpc.NewClient(grpcAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.NewClient(grpcAddr, simGRPCDialOptions(simTokenSource())...)
 	require.NoError(t, err)
 	defer conn.Close()
 	resolved, err := longrunningpb.NewOperationsClient(conn).GetOperation(ctx,

@@ -15,7 +15,6 @@ import (
 	artifactregistry "google.golang.org/api/artifactregistry/v1"
 	redis "google.golang.org/api/redis/v1"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
@@ -40,7 +39,7 @@ func grpcOperation(t *testing.T, ops longrunningpb.OperationsClient, name string
 // ran and the resource it acted on, for deletes too.
 func TestOperations_RESTServiceOperationsReadOverGRPC(t *testing.T) {
 	t.Parallel()
-	conn, err := grpc.NewClient(grpcAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.NewClient(grpcAddr, simGRPCDialOptions(simTokenSource())...)
 	require.NoError(t, err)
 	t.Cleanup(func() { conn.Close() })
 	ops := longrunningpb.NewOperationsClient(conn)

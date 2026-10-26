@@ -26,6 +26,7 @@ import (
 	"github.com/e6qu/sockerless-cloud/testutil/freeports"
 	"github.com/e6qu/sockerless-cloud/testutil/gcpbootstrap"
 	"github.com/e6qu/sockerless-cloud/testutil/httpsgateway"
+	"github.com/e6qu/sockerless-cloud/testutil/loopbacktls"
 	"github.com/e6qu/sockerless-cloud/testutil/simready"
 
 	"github.com/stretchr/testify/require"
@@ -33,14 +34,20 @@ import (
 )
 
 var (
-	baseURL      string
-	simCmd       *exec.Cmd
-	gatewayCmd   *exec.Cmd
-	binaryPath   string
-	simPort      int
-	gatewayPort  int
-	grpcEndpoint string
-	caCertFile   string
+	baseURL     string
+	simCmd      *exec.Cmd
+	gatewayCmd  *exec.Cmd
+	binaryPath  string
+	simPort     int
+	gatewayPort int
+	caCertFile  string
+	// bigtableEndpoint is the simulator's gRPC port as a TLS front end, the
+	// provider's bigtable_custom_endpoint: its Bigtable client sends a
+	// credential only over TLS.
+	bigtableEndpoint string
+	// grpcTrustDir holds the authority the gRPC port's certificate chains to;
+	// SSL_CERT_DIR adds it to the roots the provider trusts.
+	grpcTrustDir string
 	tfEndpoint   string
 	// accessToken is the bootstrap service account's access token the
 	// harness's own raw HTTP calls present; set once in TestMain.
@@ -129,14 +136,32 @@ func TestMain(m *testing.M) {
 	}
 	simPort = ln.Addr().(*net.TCPAddr).Port
 	grpcPort := ln2.Addr().(*net.TCPAddr).Port
-	grpcEndpoint = fmt.Sprintf("127.0.0.1:%d", grpcPort)
+	bigtableEndpoint = fmt.Sprintf("https://127.0.0.1:%d", grpcPort)
 	ln.Close()
 	ln2.Close()
+
+	grpcTLSDir, err := os.MkdirTemp("", "gcp-tf-grpc-tls-*")
+	if err != nil {
+		log.Fatalf("Failed to create the gRPC certificate directory: %v", err)
+	}
+	grpcTLS, err := loopbacktls.Write(grpcTLSDir)
+	if err != nil {
+		log.Fatalf("Failed to issue the gRPC port's certificate: %v", err)
+	}
+	grpcTrustDir = filepath.Join(grpcTLSDir, "trust")
+	if err := os.MkdirAll(grpcTrustDir, 0o700); err != nil {
+		log.Fatalf("Failed to create the gRPC trust directory: %v", err)
+	}
+	if err := os.Link(grpcTLS.CA, filepath.Join(grpcTrustDir, "sockerless-grpc-ca.pem")); err != nil {
+		log.Fatalf("Failed to place the gRPC authority: %v", err)
+	}
 
 	simCmd = exec.Command(binaryPath)
 	simCmd.Env = append(os.Environ(),
 		fmt.Sprintf("SIM_LISTEN_ADDR=:%d", simPort),
 		fmt.Sprintf("SIM_GCP_GRPC_PORT=%d", grpcPort),
+		"SIM_GCP_GRPC_TLS_CERT="+grpcTLS.Cert,
+		"SIM_GCP_GRPC_TLS_KEY="+grpcTLS.Key,
 	)
 	simCmd.Stdout = os.Stdout
 	if err := simready.Start(simCmd, os.Stderr); err != nil {
@@ -236,6 +261,7 @@ func TestMain(m *testing.M) {
 	}
 	simCmd.Process.Kill()
 	simCmd.Wait()
+	os.RemoveAll(grpcTLSDir)
 	os.Exit(code)
 }
 
@@ -310,16 +336,29 @@ func terraformCmd(args ...string) *exec.Cmd {
 	// grandchildren with one kill(-pgid); otherwise a timed-out command leaves
 	// orphaned, spinning plugins that starve later runs into cascading timeouts.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Env = append(os.Environ(),
-		fmt.Sprintf("BIGTABLE_EMULATOR_HOST=%s", grpcEndpoint),
+	cmd.Env = append(append(os.Environ(),
 		fmt.Sprintf("TF_VAR_endpoint=%s", tfEndpoint),
 		"TF_VAR_credentials="+credentialsFile,
 		"TF_VAR_debian_image_family="+debianImageFamily(),
-	)
+	), bigtableEnv()...)
 	if caCertFile != "" {
 		cmd.Env = append(cmd.Env, fmt.Sprintf("SSL_CERT_FILE=%s", caCertFile))
 	}
 	return cmd
+}
+
+// bigtableEnv points a terraform process's Bigtable client at the gRPC port's
+// TLS front end and adds its authority to the directories of roots Go trusts,
+// beside the system ones.
+func bigtableEnv() []string {
+	dirs := os.Getenv("SSL_CERT_DIR")
+	if dirs == "" {
+		dirs = "/etc/ssl/certs:/etc/pki/tls/certs"
+	}
+	return []string{
+		"TF_VAR_bigtable_endpoint=" + bigtableEndpoint,
+		"SSL_CERT_DIR=" + grpcTrustDir + ":" + dirs,
+	}
 }
 
 // runTimed runs a terraform command, capturing combined output, with a

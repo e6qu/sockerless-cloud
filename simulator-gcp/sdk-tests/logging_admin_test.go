@@ -22,7 +22,6 @@ import (
 	loggingrpc "google.golang.org/api/logging/v2"
 	"google.golang.org/api/option"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 )
 
 // These round-trips drive the Cloud Logging admin families (sinks, exclusions,
@@ -327,7 +326,7 @@ func TestLogging_EntriesCopy(t *testing.T) {
 	requireProject(t, project)
 	require.NoError(t, dest.Create(ctx, project, nil))
 
-	conn, err := grpc.NewClient(grpcAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.NewClient(grpcAddr, simGRPCDialOptions(simTokenSource())...)
 	require.NoError(t, err)
 	t.Cleanup(func() { conn.Close() })
 	writer, err := logging.NewClient(ctx, project, option.WithGRPCConn(conn))

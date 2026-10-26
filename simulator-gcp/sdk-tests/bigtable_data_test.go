@@ -12,10 +12,9 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// TestBigtable_DataPlane exercises the Cloud Bigtable data API (BUG-2159) via the
-// official `cloud.google.com/go/bigtable` client over gRPC (reached through
-// BIGTABLE_EMULATOR_HOST — the same coordinate the client uses for the real
-// emulator): MutateRow, ReadRow/ReadRows with a RowFilter, ReadModifyWrite
+// TestBigtable_DataPlane exercises the Cloud Bigtable data API via the
+// official `cloud.google.com/go/bigtable` client over gRPC, at the simulator's
+// endpoint with the bootstrap credential: MutateRow, ReadRow/ReadRows with a RowFilter, ReadModifyWrite
 // increment, CheckAndMutateRow, a row-range scan, and DeleteFromRow.
 func TestBigtable_DataPlane(t *testing.T) {
 	t.Parallel()
@@ -26,7 +25,7 @@ func TestBigtable_DataPlane(t *testing.T) {
 		family   = "cf"
 	)
 
-	iac, err := bigtable.NewInstanceAdminClient(ctx, project)
+	iac, err := bigtable.NewInstanceAdminClient(ctx, project, simGRPCClientOptions()...)
 	require.NoError(t, err)
 	defer iac.Close()
 	require.NoError(t, iac.CreateInstance(ctx, &bigtable.InstanceConf{
@@ -37,13 +36,13 @@ func TestBigtable_DataPlane(t *testing.T) {
 		NumNodes:    1,
 	}))
 
-	ac, err := bigtable.NewAdminClient(ctx, project, instance)
+	ac, err := bigtable.NewAdminClient(ctx, project, instance, simGRPCClientOptions()...)
 	require.NoError(t, err)
 	defer ac.Close()
 	require.NoError(t, ac.CreateTable(ctx, table))
 	require.NoError(t, ac.CreateColumnFamily(ctx, table, family))
 
-	client, err := bigtable.NewClient(ctx, project, instance)
+	client, err := bigtable.NewClientWithConfig(ctx, project, instance, bigtableClientConfig, simGRPCClientOptions()...)
 	require.NoError(t, err)
 	defer client.Close()
 	tbl := client.Open(table)
@@ -133,14 +132,13 @@ func bigEndian(b []byte) uint64 {
 var btFilterCounter int
 
 // btSetupDataPlane provisions a fresh instance + table with the named column
-// families against the running simulator's gRPC endpoint (reached through
-// BIGTABLE_EMULATOR_HOST — the same coordinate a real client uses for the real
-// emulator), and returns the opened *Table. The instance/table names are
+// families against the running simulator's gRPC endpoint, and returns the
+// opened *Table. The instance/table names are
 // caller-supplied so every test owns a private keyspace.
 func btSetupDataPlane(t *testing.T, project, instance, table string, families ...string) *bigtable.Table {
 	t.Helper()
 
-	iac, err := bigtable.NewInstanceAdminClient(ctx, project)
+	iac, err := bigtable.NewInstanceAdminClient(ctx, project, simGRPCClientOptions()...)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = iac.Close() })
 	require.NoError(t, iac.CreateInstance(ctx, &bigtable.InstanceConf{
@@ -151,7 +149,7 @@ func btSetupDataPlane(t *testing.T, project, instance, table string, families ..
 		NumNodes:    1,
 	}))
 
-	ac, err := bigtable.NewAdminClient(ctx, project, instance)
+	ac, err := bigtable.NewAdminClient(ctx, project, instance, simGRPCClientOptions()...)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = ac.Close() })
 	require.NoError(t, ac.CreateTable(ctx, table))
@@ -159,7 +157,7 @@ func btSetupDataPlane(t *testing.T, project, instance, table string, families ..
 		require.NoError(t, ac.CreateColumnFamily(ctx, table, fam))
 	}
 
-	client, err := bigtable.NewClient(ctx, project, instance)
+	client, err := bigtable.NewClientWithConfig(ctx, project, instance, bigtableClientConfig, simGRPCClientOptions()...)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = client.Close() })
 	return client.Open(table)

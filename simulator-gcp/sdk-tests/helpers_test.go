@@ -22,6 +22,7 @@ import (
 
 	"github.com/e6qu/sockerless-cloud/testutil/freeports"
 	"github.com/e6qu/sockerless-cloud/testutil/gcpbootstrap"
+	"github.com/e6qu/sockerless-cloud/testutil/loopbacktls"
 	"github.com/e6qu/sockerless-cloud/testutil/scratchimage"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
@@ -139,12 +140,23 @@ func TestMain(m *testing.M) {
 		log.Fatalf("Failed to find a free DNS port: %v", err)
 	}
 
+	tlsDir, err := os.MkdirTemp("", "gcp-sdk-grpc-tls-*")
+	if err != nil {
+		log.Fatalf("Failed to create the gRPC certificate directory: %v", err)
+	}
+	if grpcTLS, err = loopbacktls.Write(tlsDir); err != nil {
+		log.Fatalf("Failed to issue the gRPC port's certificate: %v", err)
+	}
+	if grpcRoots, err = grpcTLS.Pool(); err != nil {
+		log.Fatalf("Failed to load the gRPC port's authority: %v", err)
+	}
+
 	simCmd = exec.Command(binaryPath)
-	simCmd.Env = append(os.Environ(),
+	simCmd.Env = append(append(os.Environ(),
 		fmt.Sprintf("SIM_LISTEN_ADDR=:%d", port),
 		fmt.Sprintf("SIM_GCP_GRPC_PORT=%d", grpcPort),
 		fmt.Sprintf("SIM_DNS_PORT=%d", dnsPort),
-	)
+	), simGRPCEnv()...)
 	simCmd.Stdout = os.Stdout
 	if err := simready.Start(simCmd, os.Stderr); err != nil {
 		simCmd.Process.Kill()
@@ -155,17 +167,13 @@ func TestMain(m *testing.M) {
 	grpcAddr = fmt.Sprintf("127.0.0.1:%d", grpcPort)
 	dnsAddr = fmt.Sprintf("127.0.0.1:%d", dnsPort)
 
-	// The Cloud Storage, Bigtable and Spanner clients read their endpoint from
-	// these variables. Set them once for the process, since every test talks to
-	// the same simulator and a test that sets one cannot run in parallel.
-	for name, value := range map[string]string{
-		"STORAGE_EMULATOR_HOST":  strings.TrimPrefix(baseURL, "http://"),
-		"BIGTABLE_EMULATOR_HOST": grpcAddr,
-		"SPANNER_EMULATOR_HOST":  grpcAddr,
-	} {
-		if err := os.Setenv(name, value); err != nil {
-			log.Fatalf("set %s: %v", name, err)
-		}
+	// The Cloud Storage client reads its endpoint from this variable. Set it
+	// once for the process, since every test talks to the same simulator and a
+	// test that sets one cannot run in parallel. The Bigtable and Spanner
+	// clients take the gRPC endpoint as an option instead: their emulator
+	// variables make them send no credential.
+	if err := os.Setenv("STORAGE_EMULATOR_HOST", strings.TrimPrefix(baseURL, "http://")); err != nil {
+		log.Fatalf("set STORAGE_EMULATOR_HOST: %v", err)
 	}
 
 	// The data plane now verifies an OAuth2 access token on every request, so
@@ -191,6 +199,7 @@ func TestMain(m *testing.M) {
 	code := m.Run()
 	simCmd.Process.Kill()
 	simCmd.Wait()
+	os.RemoveAll(tlsDir)
 	os.Exit(code)
 }
 

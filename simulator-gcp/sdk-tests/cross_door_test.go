@@ -24,7 +24,6 @@ import (
 	secretmanager "google.golang.org/api/secretmanager/v1"
 	mrpb "google.golang.org/genproto/googleapis/api/monitoredres"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 )
 
 // Several Google Cloud services are reached over two protocols, and this
@@ -90,7 +89,7 @@ func TestCrossDoor_BigtableAdminAndData(t *testing.T) {
 
 	// Rows written over gRPC, dropped over REST, gone over gRPC. This is the
 	// crossing the REST no-op survived: both doors address one row store.
-	client, err := bigtable.NewClient(ctx, project, instanceID)
+	client, err := bigtable.NewClientWithConfig(ctx, project, instanceID, bigtableClientConfig, simGRPCClientOptions()...)
 	require.NoError(t, err)
 	defer client.Close()
 	tbl := client.Open("events")
@@ -325,7 +324,7 @@ func TestCrossDoor_PubSubSchemas(t *testing.T) {
 	require.NoError(t, err)
 
 	// Read over gRPC, carrying the definition the REST create stored.
-	conn, err := grpc.NewClient(grpcAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.NewClient(grpcAddr, simGRPCDialOptions(simTokenSource())...)
 	require.NoError(t, err)
 	t.Cleanup(func() { conn.Close() })
 	schemaClient := pubsubpb.NewSchemaServiceClient(conn)
@@ -393,7 +392,7 @@ func TestCrossDoor_Spanner(t *testing.T) {
 	// Written over the REST session surface.
 	spannerWriteRows(t, rest, database, `INSERT INTO crossing (id, who) VALUES (1, "rest")`)
 
-	conn, err := grpc.NewClient(grpcAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.NewClient(grpcAddr, simGRPCDialOptions(simTokenSource())...)
 	require.NoError(t, err)
 	defer conn.Close()
 	grpcClient := sppb.NewSpannerClient(conn)
