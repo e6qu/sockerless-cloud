@@ -63,9 +63,12 @@ func TestEC2_NatGatewayConnectivityType(t *testing.T) {
 	assert.Equal(t, types.AvailabilityModeZonal, descDef.NatGateways[0].AvailabilityMode)
 
 	_, err = c.CreateNatGateway(ctx, &ec2.CreateNatGatewayInput{
-		VpcId: vpc.Vpc.VpcId, AvailabilityMode: types.AvailabilityModeRegional,
+		SubnetId: aws.String(subID),
+		AvailabilityZoneAddresses: []types.AvailabilityZoneAddress{{
+			AvailabilityZone: aws.String("us-east-1a"), AllocationIds: []string{"eipalloc-0000000000000000"},
+		}},
 	})
 	var apiErr smithy.APIError
-	require.ErrorAs(t, err, &apiErr, "a regional NAT gateway is refused, not created as a zonal one")
-	assert.Equal(t, "UnsupportedOperation", apiErr.ErrorCode())
+	require.ErrorAs(t, err, &apiErr, "a zonal NAT gateway takes no per-zone addresses")
+	assert.Equal(t, "InvalidParameterCombination", apiErr.ErrorCode())
 }

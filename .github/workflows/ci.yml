@@ -1483,7 +1483,7 @@ jobs:
             timeout_minutes: 12
           - suite: aws Amazon EC2 network interface
             cloud: aws
-            tf_packages: "./network-interface"
+            tf_packages: "./network-interface ./nat-gateway-regional"
             timeout_minutes: 12
           - suite: aws tutorial
             cloud: aws

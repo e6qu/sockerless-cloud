@@ -72,6 +72,13 @@ type EC2NatGateway struct {
 	Tags                []EC2Tag
 	NatGatewayAddresses []EC2NatGatewayAddress
 	CreateTime          string
+	FailureCode         string
+	FailureMessage      string
+	AutoProvisionZones  string
+	AutoScalingIps      string
+	// Zones holds where a regional gateway carries each covered zone's
+	// traffic on the VPC's network.
+	Zones []EC2NatGatewayZone
 }
 
 type EC2NatGatewayAddress struct {
@@ -82,6 +89,21 @@ type EC2NatGatewayAddress struct {
 	AssociationId      string
 	IsPrimary          bool
 	Status             string
+	AvailabilityZone   string
+	AvailabilityZoneId string
+	// AmazonProvided marks an address a regional gateway in automatic mode
+	// allocated itself; the gateway releases it when it leaves the zone.
+	AmazonProvided bool
+}
+
+// EC2NatGatewayZone is a regional NAT gateway's presence in one Availability
+// Zone: its network interface at a private address in one of the zone's
+// subnets, where the zone's traffic leaves the VPC.
+type EC2NatGatewayZone struct {
+	AvailabilityZone   string
+	SubnetId           string
+	PrivateIp          string
+	NetworkInterfaceId string
 }
 
 type EC2ElasticIP struct {
@@ -517,6 +539,11 @@ func ec2AllocatedSubnetIPv4(subnetID string) map[string]struct{} {
 	}
 	if ec2NatGateways != nil {
 		for _, gateway := range ec2NatGateways.List() {
+			for _, zone := range gateway.Zones {
+				if zone.SubnetId == subnetID {
+					add(zone.PrivateIp)
+				}
+			}
 			if gateway.SubnetId != subnetID {
 				continue
 			}

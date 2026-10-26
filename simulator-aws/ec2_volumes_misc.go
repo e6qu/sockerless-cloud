@@ -725,6 +725,7 @@ func handleCreateDefaultSubnet(w http.ResponseWriter, r *http.Request) {
 	}
 	subnet := ec2NewDefaultSubnet(ec2ID("subnet"), defVpc.VpcId, zone, cidr, true)
 	ec2Subnets.Put(subnet.SubnetId, subnet)
+	ec2ReconcileRegionalNatGatewaysLogged(r.Context(), subnet.VpcId)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<CreateDefaultSubnetResponse %s><requestId>%s</requestId><subnet>%s</subnet></CreateDefaultSubnetResponse>`,
 		ec2Xmlns(), sim.NewUUID(), subnetItemBodyXML(subnet))
