@@ -15,24 +15,21 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// The instance metadata service answers an EC2 instance and nothing else:
-// a request is the instance's when it comes from the address the instance
-// holds, and everything it answers is that instance's own.
+// The metadata service answers only instances: a request belongs to the
+// instance holding its source address, and gets only that instance's data.
 
-// imdsToken is an IMDSv2 session token: the instance it was issued to and
-// when its TTL ends.
 type imdsToken struct {
 	instanceID string
 	expires    time.Time
 }
 
-var imdsTokens sync.Map // token -> imdsToken
+var imdsTokens sync.Map
 
-// imdsMaxTokenTTL is the longest TTL a token request may ask for, six hours.
+// Six hours.
 const imdsMaxTokenTTL = 21600
 
-// imdsInstanceFor is the instance a request comes from, as the record holds
-// it now: metadata options and tags change while the instance runs.
+// Read the record fresh: metadata options and tags change while the instance
+// runs.
 func imdsInstanceFor(r *http.Request) (EC2Instance, bool) {
 	indexed, ok := imdsInstancesByIP.ForRequest(r)
 	if !ok {
@@ -42,9 +39,8 @@ func imdsInstanceFor(r *http.Request) (EC2Instance, bool) {
 	return inst, ok
 }
 
-// imdsNotFound is the service's answer to a path it does not serve, and to
-// any request from an address no instance holds, which the link-local
-// service is not reachable from.
+// Also the answer to an address no instance holds; the link-local service is
+// unreachable from there.
 func imdsNotFound(w http.ResponseWriter) {
 	w.Header().Set("Content-Type", "text/html")
 	w.WriteHeader(http.StatusNotFound)
@@ -79,9 +75,8 @@ func imdsUnauthorized(w http.ResponseWriter) {
 `)
 }
 
-// imdsRequest admits a metadata read: from an instance whose metadata
-// endpoint is enabled, carrying a token issued to it and still live, or none
-// when the instance's metadata options leave IMDSv1 on.
+// Admit a read from an instance whose endpoint is enabled, with a live token
+// issued to it, or with none when its options leave IMDSv1 on.
 func imdsRequest(w http.ResponseWriter, r *http.Request) (EC2Instance, bool) {
 	inst, ok := imdsInstanceFor(r)
 	if !ok || strings.EqualFold(inst.MetadataHttpEndpoint, "disabled") {
@@ -120,7 +115,6 @@ func imdsJSON(w http.ResponseWriter, v any) {
 	_, _ = w.Write(body)
 }
 
-// ec2InstanceAvailabilityZone is the zone the instance's subnet lies in.
 func ec2InstanceAvailabilityZone(inst EC2Instance) string {
 	if subnet, ok := ec2Subnets.Get(inst.SubnetId); ok && subnet.AvailabilityZone != "" {
 		return subnet.AvailabilityZone
@@ -128,8 +122,6 @@ func ec2InstanceAvailabilityZone(inst EC2Instance) string {
 	return awsAvailabilityZone()
 }
 
-// ec2InstanceProfileRole is the role the instance's profile names, if the
-// instance has a profile with a role.
 func ec2InstanceProfileRole(inst EC2Instance) (IAMInstanceProfile, string, bool) {
 	name := inst.IamInstanceProfileName
 	if name == "" && inst.IamInstanceProfileArn != "" {
@@ -149,8 +141,6 @@ func ec2InstanceTagsEnabled(inst EC2Instance) bool {
 	return strings.EqualFold(inst.MetadataInstanceTags, "enabled")
 }
 
-// imdsListing is the meta-data directory an instance sees: the categories it
-// has, each served.
 func imdsListing(inst EC2Instance) string {
 	entries := []string{"ami-id", "ami-launch-index", "block-device-mapping/", "hostname", "instance-action",
 		"instance-id", "instance-life-cycle", "instance-type", "local-hostname", "local-ipv4", "mac", "network/",
@@ -174,7 +164,7 @@ func imdsListing(inst EC2Instance) string {
 	return strings.Join(entries, "\n")
 }
 
-// imdsInterfaces are the instance's network interfaces in device order.
+// In device order.
 func imdsInterfaces(inst EC2Instance) []EC2NetworkInterface {
 	var out []EC2NetworkInterface
 	for _, eni := range ec2NetworkInterfaces.List() {
@@ -186,7 +176,6 @@ func imdsInterfaces(inst EC2Instance) []EC2NetworkInterface {
 	return out
 }
 
-// imdsInterfaceByMAC is the instance's interface with the MAC a path names.
 func imdsInterfaceByMAC(inst EC2Instance, mac string) (EC2NetworkInterface, bool) {
 	for _, eni := range imdsInterfaces(inst) {
 		if ec2InterfaceMAC(eni.NetworkInterfaceId) == strings.ToLower(mac) {
@@ -196,7 +185,6 @@ func imdsInterfaceByMAC(inst EC2Instance, mac string) (EC2NetworkInterface, bool
 	return EC2NetworkInterface{}, false
 }
 
-// imdsGroupNames names security groups by their ids.
 func imdsGroupNames(ids []string) []string {
 	names := make([]string, 0, len(ids))
 	for _, id := range ids {
@@ -207,9 +195,8 @@ func imdsGroupNames(ids []string) []string {
 	return names
 }
 
-// imdsInterfaceKeys are the keys an interface's directory holds, each with
-// its value; the primary interface of an instance with a public address
-// carries that address too.
+// The primary interface of an instance with a public address carries that
+// address too.
 func imdsInterfaceKeys(inst EC2Instance, eni EC2NetworkInterface) map[string]string {
 	keys := map[string]string{
 		"device-number":      strconv.Itoa(eni.DeviceIndex),
@@ -242,10 +229,8 @@ func imdsInterfaceKeys(inst EC2Instance, eni EC2NetworkInterface) map[string]str
 	return keys
 }
 
-// imdsPublicAddresses maps each public IPv4 address of the interface to the
-// private address it is associated with: the address the instance's primary
-// interface got at launch, and the Elastic IP addresses associated with the
-// interface or with the instance.
+// Each public IPv4 maps to its private address: the launch-time public address
+// of the primary interface, and the Elastic IPs of the interface or instance.
 func imdsPublicAddresses(inst EC2Instance, eni EC2NetworkInterface) map[string]string {
 	associations := map[string]string{}
 	primary := eni.NetworkInterfaceId == inst.NetworkInterfaceId
@@ -268,8 +253,7 @@ func imdsPublicAddresses(inst EC2Instance, eni EC2NetworkInterface) map[string]s
 	return associations
 }
 
-// ec2MetadataHttpProtocolIpv6 is the instance's HttpProtocolIpv6 metadata
-// option, disabled unless the instance enabled it.
+// Disabled unless the instance enabled it.
 func ec2MetadataHttpProtocolIpv6(inst EC2Instance) string {
 	if inst.MetadataHttpProtocolIpv6 == "" {
 		return "disabled"
@@ -277,9 +261,8 @@ func ec2MetadataHttpProtocolIpv6(inst EC2Instance) string {
 	return inst.MetadataHttpProtocolIpv6
 }
 
-// imdsBlockDevices maps the instance's block devices to their device names:
-// the AMI's root device as ami and root, and each further Amazon EBS volume
-// attached as ebsN in attachment order.
+// The AMI's root device appears as ami and root, each further Amazon EBS
+// volume as ebsN in attachment order.
 func imdsBlockDevices(inst EC2Instance) map[string]string {
 	devices := map[string]string{"ami": inst.RootDeviceName, "root": inst.RootDeviceName}
 	var attached []EC2VolumeAttachment
@@ -307,8 +290,8 @@ func sortedKeys(m map[string]string) []string {
 }
 
 func registerEC2IMDS(srv *sim.Server) {
-	// An IMDSv2 token is issued to the instance asking, for the TTL it asks
-	// for; a request without a TTL, or one a proxy forwarded, is refused.
+	// Issue a token to the asking instance for its TTL; refuse a request without
+	// a TTL or one a proxy forwarded.
 	srv.HandleFunc("PUT /latest/api/token", func(w http.ResponseWriter, r *http.Request) {
 		inst, ok := imdsInstanceFor(r)
 		if !ok || strings.EqualFold(inst.MetadataHttpEndpoint, "disabled") {
@@ -391,8 +374,7 @@ func registerEC2IMDS(srv *sim.Server) {
 	registerEC2IMDSIdentity(srv)
 }
 
-// imdsLeaf serves path with the value the asking instance settles, or 404
-// where it settles none.
+// 404 where the asking instance settles no value.
 func imdsLeaf(srv *sim.Server, path string, value func(EC2Instance) (string, bool)) {
 	srv.HandleFunc("GET "+path, func(w http.ResponseWriter, r *http.Request) {
 		inst, ok := imdsRequest(w, r)
@@ -412,7 +394,6 @@ func imdsAlways(f func(EC2Instance) string) func(EC2Instance) (string, bool) {
 	return func(inst EC2Instance) (string, bool) { return f(inst), true }
 }
 
-// registerEC2IMDSNetwork serves the instance's network interfaces by MAC.
 func registerEC2IMDSNetwork(srv *sim.Server) {
 	imdsLeaf(srv, "/latest/meta-data/network/{$}", imdsAlways(func(EC2Instance) string { return "interfaces/" }))
 	imdsLeaf(srv, "/latest/meta-data/network/interfaces/{$}", imdsAlways(func(EC2Instance) string { return "macs/" }))
@@ -490,8 +471,8 @@ func registerEC2IMDSNetwork(srv *sim.Server) {
 	imdsLeaf(srv, "/latest/meta-data/placement/region", imdsAlways(func(EC2Instance) string { return awsRegion() }))
 	imdsLeaf(srv, "/latest/meta-data/placement/availability-zone", imdsAlways(ec2InstanceAvailabilityZone))
 
-	// An instance launched with a key pair lists it under public-keys, as
-	// index=name, with its OpenSSH public key beneath the index.
+	// A key pair lists under public-keys as index=name, with its OpenSSH key
+	// beneath the index.
 	keyPair := func(inst EC2Instance) (EC2KeyPair, bool) {
 		if inst.KeyName == "" {
 			return EC2KeyPair{}, false
@@ -513,11 +494,8 @@ func registerEC2IMDSNetwork(srv *sim.Server) {
 	})
 }
 
-// registerEC2IMDSIdentity serves the instance profile's credentials, the
-// instance's tags and its identity document.
 func registerEC2IMDSIdentity(srv *sim.Server) {
-	// An instance with a profile reads its profile and its role's
-	// credentials, a session of the role named for the instance.
+	// The role's credentials are a session named for the instance.
 	imdsLeaf(srv, "/latest/meta-data/iam/{$}", func(inst EC2Instance) (string, bool) {
 		_, _, ok := ec2InstanceProfileRole(inst)
 		return "info\nsecurity-credentials/", ok
@@ -566,8 +544,7 @@ func registerEC2IMDSIdentity(srv *sim.Server) {
 		})
 	})
 
-	// An instance whose metadata options allow tags in the metadata reads
-	// its tag keys and values.
+	// Only when the metadata options allow tags in metadata.
 	imdsLeaf(srv, "/latest/meta-data/tags/{$}", func(inst EC2Instance) (string, bool) {
 		return "instance", ec2InstanceTagsEnabled(inst)
 	})
@@ -598,8 +575,7 @@ func registerEC2IMDSIdentity(srv *sim.Server) {
 		imdsNotFound(w)
 	})
 
-	// The instance identity document describes the instance; the AWS SDKs
-	// read the region from it.
+	// The AWS SDKs read the Region from the identity document.
 	srv.HandleFunc("GET /latest/dynamic/instance-identity/document", func(w http.ResponseWriter, r *http.Request) {
 		inst, ok := imdsRequest(w, r)
 		if !ok {

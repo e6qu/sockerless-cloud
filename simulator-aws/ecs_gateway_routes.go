@@ -16,13 +16,12 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
-// A gateway route is one service's connection to one gateway. A deployment of
-// a service with a gateway connector decides which gateways the service
-// connects to and records the routes it adds, keeps, changes and removes;
-// the work behind each route then runs after the request, as Amazon ECS does
-// it during the deployment, through the Elastic Load Balancing, Amazon EC2,
-// AWS Certificate Manager and AWS WAF APIs as the gateway's infrastructure
-// role.
+// A gateway route is one service's connection to one gateway. A deployment
+// decides which gateways a service with a gateway connector connects to and
+// records the routes it adds, keeps, changes and removes; each route's work
+// then runs after the request, as the gateway's infrastructure role, through
+// the Elastic Load Balancing, Amazon EC2, AWS Certificate Manager and AWS WAF
+// APIs.
 
 const (
 	ecsGatewayRouteActive           = "ACTIVE"
@@ -66,8 +65,7 @@ type ecsGatewayConnector struct {
 	Filters     *ecsGatewayConnectorFilters     `json:"filters,omitempty"`
 }
 
-// ecsGatewayTargetGroupSpec is what a route's target group is created with;
-// a deployment that changes it replaces the target group.
+// A deployment that changes it replaces the target group.
 type ecsGatewayTargetGroupSpec struct {
 	Port            int                             `json:"port"`
 	ProtocolVersion string                          `json:"protocolVersion,omitempty"`
@@ -85,12 +83,11 @@ type ECSGatewayRoute struct {
 	Status          string `json:"status"`
 	Hostname        string `json:"hostname,omitempty"`
 	AccessType      string `json:"accessType"`
-	// ServiceRevisionArns are the service revisions whose deployments carried
-	// this connection.
+	// The service revisions whose deployments carried this connection.
 	ServiceRevisionArns []string `json:"serviceRevisionArns,omitempty"`
 
-	// Desired is what the latest deployment asked for; Applied is what the
-	// target group was created with.
+	// Desired is what the latest deployment asked for; Applied is what the target
+	// group was created with.
 	Desired           ecsGatewayTargetGroupSpec    `json:"desired"`
 	Applied           *ecsGatewayTargetGroupSpec   `json:"applied,omitempty"`
 	DesiredTestHeader *ecsGatewayTestTrafficHeader `json:"desiredTestHeader,omitempty"`
@@ -154,8 +151,6 @@ func ecsServiceCurrentGatewayConnectors(serviceArn string) []ecsGatewayConnector
 	return connectors
 }
 
-// ecsGatewayServicePort resolves a connector's port name to the container and
-// port mapping that carries it.
 func ecsGatewayServicePort(td ECSTaskDefinition, portName string) (string, ECSPortMapping, bool) {
 	for _, container := range td.ContainerDefinitions {
 		for _, mapping := range container.PortMappings {
@@ -182,9 +177,7 @@ func ecsServiceAwsvpcConfiguration(service ECSService) ecsServiceAwsvpc {
 	return config.AwsvpcConfiguration
 }
 
-// ecsSubnetsPlacement returns the VPC a set of subnets is in and the
-// Availability Zones they cover; vpc is "" when they span VPCs or one does not
-// exist.
+// vpc is "" when the subnets span VPCs or one does not exist.
 func ecsSubnetsPlacement(subnets []string) (vpc string, zones map[string]bool) {
 	zones = map[string]bool{}
 	for _, id := range subnets {
@@ -201,10 +194,9 @@ func ecsSubnetsPlacement(subnets []string) (vpc string, zones map[string]bool) {
 	return vpc, zones
 }
 
-// ecsGatewayEligible returns the gateways a service's connector connects it
-// to: every gateway with an ACTIVE association with the cluster that matches
-// the connector's access types, is in the service's VPC and has subnets in
-// every Availability Zone the service's subnets are in.
+// Every gateway with an ACTIVE association with the cluster that matches the
+// connector's access types, is in the service's VPC and has subnets in every
+// zone the service's subnets are in.
 func ecsGatewayEligible(cluster ECSCluster, service ECSService, connector ecsGatewayConnector) ([]ECSGateway, string) {
 	var associated []ECSGateway
 	for _, association := range ecsGatewayAssociations.List() {
@@ -252,9 +244,8 @@ func ecsGatewayEligible(cluster ECSCluster, service ECSService, connector ecsGat
 	return eligible, ""
 }
 
-// ecsGatewayDeployment is what a service deployment does to the service's
-// gateway connections, decided before the deployment is recorded so a request
-// that cannot connect is refused whole.
+// Decided before the deployment is recorded, so a request that cannot connect
+// is refused whole.
 type ecsGatewayDeployment struct {
 	connectors    []ecsGatewayConnector
 	gateways      []ECSGateway
@@ -275,8 +266,6 @@ func ecsDeploymentStrategy(service ECSService) string {
 	return config.Strategy
 }
 
-// ecsPlanGatewayDeployment validates a deployment's gateway connectors against
-// the service it deploys and the gateways associated with its cluster.
 func ecsPlanGatewayDeployment(cluster ECSCluster, service ECSService, connectors []ecsGatewayConnector) (*ecsGatewayDeployment, string) {
 	plan := &ecsGatewayDeployment{connectors: connectors}
 	if len(connectors) == 0 {
@@ -298,8 +287,8 @@ func ecsPlanGatewayDeployment(cluster ECSCluster, service ECSService, connectors
 	if problem != "" {
 		return nil, problem
 	}
-	// "A health check change replaces the target group, so you cannot make one
-	// on a service that uses the ROLLING deployment strategy."
+	// "A health check change replaces the target group, so you cannot make one on
+	// a service that uses the ROLLING deployment strategy."
 	if previous := ecsServiceCurrentGatewayConnectors(service.ServiceArn); len(previous) > 0 &&
 		!reflect.DeepEqual(previous[0].HealthCheck, connector.HealthCheck) &&
 		ecsDeploymentStrategy(service) == "ROLLING" &&
@@ -327,10 +316,8 @@ func ecsGatewayProtocolVersion(appProtocol string) string {
 	}
 }
 
-// ecsApplyGatewayDeployment records the deployment's connectors and changes
-// the service's routes to match: a route to each gateway the plan names that
-// the service has none to, the routes it keeps brought up to date, and the
-// rest removed.
+// Adds a route to each planned gateway the service lacks one to, updates the
+// routes it keeps and removes the rest.
 func ecsApplyGatewayDeployment(service ECSService, plan *ecsGatewayDeployment, revisionArn string) {
 	ecsGatewayMu.Lock()
 	defer ecsGatewayMu.Unlock()
@@ -401,14 +388,12 @@ func ecsApplyGatewayDeployment(service ECSService, plan *ecsGatewayDeployment, r
 	}
 }
 
-// ecsServiceUsesGateways reports whether a service has a gateway connector or
-// a route left from one.
+// A connector, or a route left from one.
 func ecsServiceUsesGateways(serviceArn string) bool {
 	return len(ecsServiceCurrentGatewayConnectors(serviceArn)) > 0 ||
 		len(ecsGatewayRoutes.Filter(func(route ECSGatewayRoute) bool { return route.ServiceArn == serviceArn })) > 0
 }
 
-// ecsDisconnectServiceFromGateways removes every route of a deleted service.
 func ecsDisconnectServiceFromGateways(service ECSService) {
 	if ecsServiceUsesGateways(service.ServiceArn) {
 		ecsApplyGatewayDeployment(service, &ecsGatewayDeployment{}, "")
@@ -424,8 +409,7 @@ func ecsGatewayTestHeader(gateway ECSGateway) *ecsGatewayTestTrafficHeader {
 	return nil
 }
 
-// ecsGatewayCompleteDisassociation removes a DISASSOCIATING association once
-// the cluster has no route through the gateway left.
+// Once the cluster has no route through the gateway left.
 func ecsGatewayCompleteDisassociation(gatewayArn, clusterArn string) {
 	key := ecsGatewayAssociationKey(gatewayArn, clusterArn)
 	association, ok := ecsGatewayAssociations.Get(key)
@@ -440,8 +424,7 @@ func ecsGatewayCompleteDisassociation(gatewayArn, clusterArn string) {
 	ecsGatewayAssociations.Delete(key)
 }
 
-// ecsServiceGatewayBindings are the target groups the service's routes
-// register its tasks in, beside the ones its loadBalancers name.
+// Beside the target groups the service's loadBalancers name.
 func ecsServiceGatewayBindings(service ECSService) []ecsServiceLoadBalancer {
 	var bindings []ecsServiceLoadBalancer
 	for _, route := range ecsGatewayRoutes.Filter(func(route ECSGatewayRoute) bool { return route.ServiceArn == service.ServiceArn }) {
@@ -457,8 +440,6 @@ func ecsServiceGatewayBindings(service ECSService) []ecsServiceLoadBalancer {
 	return bindings
 }
 
-// ecsServiceTargetBindings is every target group the service's tasks belong
-// in.
 func ecsServiceTargetBindings(service ECSService) ([]ecsServiceLoadBalancer, error) {
 	bindings, err := ecsServiceLoadBalancers(service.LoadBalancers)
 	if err != nil {
@@ -559,8 +540,7 @@ func ecsGatewayRouteLoadBalancerSecurityGroups(route ECSGatewayRoute) []ecsGatew
 	return groups
 }
 
-// ecsGatewayConnectionsJSON is a service revision's gatewayConnections: the
-// routes its deployment carried that still exist.
+// The routes the revision's deployment carried that still exist.
 func ecsGatewayConnectionsJSON(revisionArn string) []map[string]any {
 	routes := ecsGatewayRoutes.Filter(func(route ECSGatewayRoute) bool {
 		return slices.Contains(route.ServiceRevisionArns, revisionArn)
@@ -620,8 +600,6 @@ func ecsGatewayScheduleUpdate(gatewayArn string) {
 	bg.Go(func() { ecsGatewayRunUpdate(gatewayArn) })
 }
 
-// recoverECSGatewayWork resumes the route and gateway work a previous process
-// left in progress.
 func recoverECSGatewayWork() {
 	for _, route := range ecsGatewayRoutes.List() {
 		switch route.Status {
@@ -636,8 +614,7 @@ func recoverECSGatewayWork() {
 	}
 }
 
-// ecsGatewayCallFailure is one call to another service that failed, named as
-// the gateway's failures and route events name it.
+// Named as the gateway's failures and route events name it.
 type ecsGatewayCallFailure struct {
 	Operation string
 	Code      string
@@ -648,7 +625,6 @@ func (f *ecsGatewayCallFailure) Error() string {
 	return f.Operation + ": " + f.Code + ": " + f.Message
 }
 
-// ecsGatewayClient makes the calls a gateway's infrastructure role makes.
 type ecsGatewayClient struct {
 	actor awsActor
 }
@@ -657,8 +633,6 @@ func ecsGatewayClientFor(gateway ECSGateway) ecsGatewayClient {
 	return ecsInfrastructureClient(gateway.GatewayArn, gateway.InfrastructureRoleArn)
 }
 
-// ecsInfrastructureClient makes the calls Amazon ECS makes as an
-// infrastructure role on behalf of the resource sourceArn names.
 func ecsInfrastructureClient(sourceArn, roleArn string) ecsGatewayClient {
 	return ecsGatewayClient{actor: awsActor{
 		Service: "ecs.amazonaws.com",
@@ -709,7 +683,6 @@ func (c ecsGatewayClient) json(signing, prefix, target, operation string, input 
 	return body, nil
 }
 
-// awsXMLTexts returns the character data of every element named name.
 func awsXMLTexts(body []byte, name string) []string {
 	decoder := xml.NewDecoder(bytes.NewReader(body))
 	var out []string
@@ -734,9 +707,8 @@ func awsXMLText(body []byte, name string) string {
 	return ""
 }
 
-// ecsGatewayManagedTags are the tags a gateway puts on what it creates: its
-// own system tags, the route's when the resource is the route's, and the
-// gateway's tags unless it propagates none.
+// Its own system tags, the route's on the route's resources, and the gateway's
+// tags unless it propagates none.
 func ecsGatewayManagedTags(gateway ECSGateway, routeArn string) [][2]string {
 	tags := [][2]string{{"AmazonECSManaged", "true"}, {"aws:ecs:gateway-arn", gateway.GatewayArn}}
 	if routeArn != "" {
@@ -840,9 +812,8 @@ func ecsGatewayRunRoute(routeArn string) {
 	ecsRequestServiceReconcile(route.ServiceKey)
 }
 
-// ecsGatewayProvisionRoute brings a route's infrastructure to what its latest
-// deployment asked for. Every step records what it created before the next
-// one runs, so a step that fails leaves the route holding exactly what exists.
+// Each step records what it created before the next runs, so a failure leaves
+// the route holding exactly what exists.
 func ecsGatewayProvisionRoute(client ecsGatewayClient, gateway ECSGateway, route *ECSGatewayRoute) *ecsGatewayCallFailure {
 	if route.LoadBalancerArn == "" {
 		if failure := ecsGatewayPlaceRoute(client, gateway, route); failure != nil {
@@ -930,8 +901,7 @@ func ecsGatewayProvisionRoute(client ecsGatewayClient, gateway ECSGateway, route
 	return ecsGatewayAdmitLoadBalancer(client, route, lb)
 }
 
-// ecsGatewayPlaceRoute puts a route on a load balancer of its gateway with a
-// free place, or on a new one while the gateway is under its maxAlbCount.
+// A load balancer with a free place, or a new one while under maxAlbCount.
 func ecsGatewayPlaceRoute(client ecsGatewayClient, gateway ECSGateway, route *ECSGatewayRoute) *ecsGatewayCallFailure {
 	others := ecsGatewayRoutes.Filter(func(other ECSGatewayRoute) bool {
 		return other.GatewayArn == gateway.GatewayArn && other.GatewayRouteArn != route.GatewayRouteArn
@@ -963,8 +933,7 @@ func ecsGatewayPlaceRoute(client ecsGatewayClient, gateway ECSGateway, route *EC
 				gateway.Name, ecsGatewayRoutesPerLoadBalancer, *gateway.Configuration.MaxAlbCount),
 		}
 	}
-	// A load balancer created before a later step failed is the route's, so
-	// removing the route removes it.
+	// A load balancer created before a later step failed is the route's.
 	lb, failure := ecsGatewayCreateLoadBalancer(client, gateway)
 	if lb.LoadBalancerArn != "" {
 		route.LoadBalancerArn = lb.LoadBalancerArn
@@ -974,8 +943,7 @@ func ecsGatewayPlaceRoute(client ecsGatewayClient, gateway ECSGateway, route *EC
 	return failure
 }
 
-// ecsGatewayCreateLoadBalancer creates a shared Application Load Balancer with
-// its security group, and applies the gateway's load balancer settings to it.
+// With its security group and the gateway's load balancer settings.
 func ecsGatewayCreateLoadBalancer(client ecsGatewayClient, gateway ECSGateway) (ECSGatewayLoadBalancer, *ecsGatewayCallFailure) {
 	config := gateway.Configuration
 	network := config.NetworkConfiguration
@@ -1041,8 +1009,8 @@ func ecsGatewayCreateLoadBalancer(client ecsGatewayClient, gateway ECSGateway) (
 	return lb, nil
 }
 
-// ecsGatewayAuthorizeHTTPS opens port 443 to every address, which is what the
-// gateway's own security group admits while it manages its inbound rules.
+// The gateway's own security group admits 443 from everywhere while it manages
+// its inbound rules.
 func ecsGatewayAuthorizeHTTPS(client ecsGatewayClient, groupID, ipAddressType string) ([]string, *ecsGatewayCallFailure) {
 	form := url.Values{
 		"GroupId":                           {groupID},
@@ -1061,8 +1029,7 @@ func ecsGatewayAuthorizeHTTPS(client ecsGatewayClient, groupID, ipAddressType st
 	return awsXMLTexts(body, "securityGroupRuleId"), nil
 }
 
-// ecsGatewayAbandonSecurityGroup deletes the security group a load balancer
-// that failed to come up would have used, and says so when it cannot.
+// Reports a failure when it cannot delete the group.
 func ecsGatewayAbandonSecurityGroup(client ecsGatewayClient, groupID string, failure *ecsGatewayCallFailure) *ecsGatewayCallFailure {
 	if cleanup := ecsGatewayDeleteSecurityGroup(client, groupID); cleanup != nil {
 		failure.Message += "; the security group " + groupID + " it created was left behind: " + cleanup.Error()
@@ -1075,8 +1042,6 @@ func ecsGatewayDeleteSecurityGroup(client ecsGatewayClient, groupID string) *ecs
 	return failure
 }
 
-// ecsGatewayApplyLoadBalancerAttributes sets the attributes a gateway's
-// settings name on one of its load balancers.
 func ecsGatewayApplyLoadBalancerAttributes(client ecsGatewayClient, gateway ECSGateway, lb ECSGatewayLoadBalancer) *ecsGatewayCallFailure {
 	config := gateway.Configuration
 	attributes := [][2]string{
@@ -1100,14 +1065,12 @@ func ecsGatewayApplyLoadBalancerAttributes(client ecsGatewayClient, gateway ECSG
 	return failure
 }
 
-// ecsGatewayIssueCertificate requests the route's certificate. The hostname
-// is in a domain AWS owns, so AWS validates it as soon as it is requested.
+// The hostname is in a domain AWS owns, so AWS validates it on request.
 func ecsGatewayIssueCertificate(client ecsGatewayClient, gateway ECSGateway, route *ECSGatewayRoute) (string, *ecsGatewayCallFailure) {
 	return ecsIssueManagedCertificate(client, route.Hostname, ecsGatewayManagedTags(gateway, route.GatewayRouteArn))
 }
 
-// ecsIssueManagedCertificate requests a certificate for a hostname in a domain
-// AWS owns, which AWS validates as soon as it is requested.
+// AWS validates a hostname in its own domain on request.
 func ecsIssueManagedCertificate(client ecsGatewayClient, hostname string, managedTags [][2]string) (string, *ecsGatewayCallFailure) {
 	var tags []acmTag
 	for _, tag := range managedTags {
@@ -1138,8 +1101,7 @@ func ecsIssueManagedCertificate(client ecsGatewayClient, hostname string, manage
 	return out.CertificateArn, nil
 }
 
-// ecsGatewayReplaceTargetGroup creates a target group for the route's desired
-// settings, points the route's rules at it and deletes the one it replaced.
+// Points the route's rules at a new target group and deletes the old one.
 func ecsGatewayReplaceTargetGroup(client ecsGatewayClient, gateway ECSGateway, route *ECSGatewayRoute, lb ECSGatewayLoadBalancer) *ecsGatewayCallFailure {
 	spec := route.Desired
 	vpc, _ := ecsSubnetsPlacement(gateway.Configuration.NetworkConfiguration.Subnets)
@@ -1150,9 +1112,8 @@ func ecsGatewayReplaceTargetGroup(client ecsGatewayClient, gateway ECSGateway, r
 		"Port":            {strconv.Itoa(spec.Port)},
 		"VpcId":           {vpc},
 		"TargetType":      {"ip"},
-		// "By default, a gateway sends an HTTP request to / on the port that
-		// portName names, every 30 seconds, and expects a 200 response within
-		// 5 seconds."
+		// "By default, a gateway sends an HTTP request to / on the port that portName
+		// names, every 30 seconds, and expects a 200 response within 5 seconds."
 		"HealthCheckProtocol":        {"HTTP"},
 		"HealthCheckPath":            {"/"},
 		"HealthCheckIntervalSeconds": {"30"},
@@ -1219,9 +1180,8 @@ func ecsGatewayReplaceTargetGroup(client ecsGatewayClient, gateway ECSGateway, r
 	return nil
 }
 
-// ecsGatewayCreateRule creates a route's listener rule: the production rule
-// matches the route's hostname, and a test rule also the gateway's test
-// traffic header, at a priority ahead of the production rule.
+// The production rule matches the hostname; a test rule also matches the
+// test traffic header, at a priority ahead of production.
 func ecsGatewayCreateRule(client ecsGatewayClient, gateway ECSGateway, route *ECSGatewayRoute, priority int, header *ecsGatewayTestTrafficHeader) (string, *ecsGatewayCallFailure) {
 	form := url.Values{
 		"ListenerArn":               {route.ListenerArn},
@@ -1246,8 +1206,7 @@ func ecsGatewayCreateRule(client ecsGatewayClient, gateway ECSGateway, route *EC
 	return awsXMLText(body, "RuleArn"), nil
 }
 
-// ecsGatewayAdmitLoadBalancer manages the ingress rule that lets the load
-// balancer's security group reach the route's port in the service's security
+// Lets the load balancer's group reach the route's port in the service's
 // group.
 func ecsGatewayAdmitLoadBalancer(client ecsGatewayClient, route *ECSGatewayRoute, lb ECSGatewayLoadBalancer) *ecsGatewayCallFailure {
 	port := route.Applied.Port
@@ -1304,8 +1263,7 @@ func ecsGatewayAdmitLoadBalancer(client ecsGatewayClient, route *ECSGatewayRoute
 	return nil
 }
 
-// ecsGatewayRevokeServiceRule revokes the route's ingress rule unless another
-// route admits the same load balancer to the same port through it.
+// Unless another route admits the same load balancer to the same port.
 func ecsGatewayRevokeServiceRule(client ecsGatewayClient, route *ECSGatewayRoute) *ecsGatewayCallFailure {
 	shared := len(ecsGatewayRoutes.Filter(func(other ECSGatewayRoute) bool {
 		return other.GatewayRouteArn != route.GatewayRouteArn && other.ServiceSecurityGroupRuleID == route.ServiceSecurityGroupRuleID
@@ -1325,9 +1283,8 @@ func ecsGatewayRevokeServiceRule(client ecsGatewayClient, route *ECSGatewayRoute
 	return nil
 }
 
-// ecsGatewayTeardownRoute removes a route's own resources, and its load
-// balancer with that load balancer's listener and security group when the
-// route was the last one on it.
+// The last route on a load balancer also takes the load balancer, its
+// listener and its security group.
 func ecsGatewayTeardownRoute(client ecsGatewayClient, route *ECSGatewayRoute) *ecsGatewayCallFailure {
 	for len(route.TestListenerRuleArns) > 0 {
 		if _, failure := client.elb("DeleteRule", url.Values{"RuleArn": {route.TestListenerRuleArns[0]}}); failure != nil {
@@ -1382,9 +1339,7 @@ func ecsGatewayTeardownRoute(client ecsGatewayClient, route *ECSGatewayRoute) *e
 	return nil
 }
 
-// ecsGatewayDetachCertificate takes a leaving route's certificate off its
-// listener; when it is the listener's default, another route's certificate
-// takes its place.
+// When it is the listener's default, another route's certificate replaces it.
 func ecsGatewayDetachCertificate(client ecsGatewayClient, route *ECSGatewayRoute, lb ECSGatewayLoadBalancer, remaining []ECSGatewayRoute) *ecsGatewayCallFailure {
 	listener, ok := elbv2Listeners.Get(lb.ListenerArn)
 	if ok && slices.Contains(listener.Certificates, route.CertificateArn) {
@@ -1420,9 +1375,8 @@ func ecsGatewayDetachCertificate(client ecsGatewayClient, route *ECSGatewayRoute
 	return nil
 }
 
-// ecsGatewayDeleteLoadBalancer removes a load balancer its last route left:
-// its listener, the deletion protection the gateway gave it, the load
-// balancer itself and then its security group.
+// The listener, the deletion protection, the load balancer, then its security
+// group.
 func ecsGatewayDeleteLoadBalancer(client ecsGatewayClient, gatewayArn string, lb ECSGatewayLoadBalancer) *ecsGatewayCallFailure {
 	if lb.ListenerArn != "" {
 		if _, failure := client.elb("DeleteListener", url.Values{"ListenerArn": {lb.ListenerArn}}); failure != nil {
@@ -1452,9 +1406,8 @@ func ecsGatewayDeleteLoadBalancer(client ecsGatewayClient, gatewayArn string, lb
 	return nil
 }
 
-// ecsGatewayRunUpdate applies a gateway's settings to each of its load
-// balancers, records the ones it could not update, and reports the outcome
-// the gateway's status and statusReason carry.
+// Records the load balancers it could not update and the outcome for status
+// and statusReason.
 func ecsGatewayRunUpdate(gatewayArn string) {
 	ecsGatewayMu.Lock()
 	defer ecsGatewayMu.Unlock()
@@ -1498,9 +1451,8 @@ func ecsGatewayRunUpdate(gatewayArn string) {
 	})
 }
 
-// ecsGatewayApplyInboundSecurityGroup attaches the gateway's inbound security
-// group to a load balancer and stops managing inbound rules, or, without one,
-// returns the load balancer to the gateway's own group and its rules.
+// Without an inbound security group, the load balancer returns to the
+// gateway's own group and managed rules.
 func ecsGatewayApplyInboundSecurityGroup(client ecsGatewayClient, gateway ECSGateway, lb *ECSGatewayLoadBalancer) *ecsGatewayCallFailure {
 	network := gateway.Configuration.NetworkConfiguration
 	groups := []string{lb.SecurityGroupID}

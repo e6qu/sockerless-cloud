@@ -10,23 +10,10 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// Amazon EC2 Transit Gateway family — faithful ec2Query (XML) CRUD.
-//
-// Resources modeled, each persisted in its own sim.Store:
-//   - Transit gateways (tgw-…), with two implicit default route tables
-//     (association + propagation), as real AWS auto-creates.
-//   - Transit gateway route tables (tgw-rtb-…).
-//   - VPC attachments (tgw-attach-…): pending → available, accept/reject.
-//   - Peering attachments (tgw-attach-…): pendingAcceptance → available.
-//   - Connect attachments (tgw-attach-…) over a transport VPC attachment.
-//   - Multicast domains (tgw-mcast-domain-…).
-//   - Route-table associations and propagations, keyed per
-//     (route-table, attachment).
-//   - Static routes and prefix-list references on a route table.
-//
-// XML element names match the ec2QueryName/xmlName traits in
-// specs/cloud-api/aws/ec2.smithy.json.gz exactly (the spec-shape validator
-// rejects any unknown or mis-cased field).
+// A transit gateway gets two default route tables (association and
+// propagation), as AWS creates them. Element names match the
+// ec2QueryName / xmlName traits in specs/cloud-api/aws/ec2.smithy.json.gz
+// exactly; the spec-shape validator rejects anything else.
 
 type EC2TransitGateway struct {
 	TransitGatewayId               string
@@ -56,20 +43,19 @@ type EC2TransitGatewayRouteTable struct {
 	DefaultPropagationRouteTable bool
 	CreationTime                 string
 	Tags                         []EC2Tag
-	// Routes are the static + propagated routes held by this route table.
-	Routes []EC2TransitGatewayRoute
-	// Associations and Propagations are keyed by attachment id.
+	Routes                       []EC2TransitGatewayRoute
+	// Keyed by attachment id.
 	Associations []EC2TGWRouteTableAssociation
 	Propagations []EC2TGWRouteTablePropagation
-	// PrefixListRefs holds prefix-list references keyed by prefix-list id.
+	// Keyed by prefix-list id.
 	PrefixListRefs []EC2TGWPrefixListReference
 }
 
 type EC2TransitGatewayRoute struct {
 	DestinationCidrBlock string
 	PrefixListId         string
-	Type                 string // static | propagated
-	State                string // active | blackhole | pending | deleted
+	Type                 string
+	State                string
 	AttachmentIds        []string
 	ResourceId           string
 	ResourceType         string
@@ -112,8 +98,7 @@ type EC2TransitGatewayVpcAttachment struct {
 	ApplianceModeSupport            string
 	SecurityGroupReferencingSupport string
 	Tags                            []EC2Tag
-	// Association tracks the route table this attachment is associated with,
-	// surfaced via DescribeTransitGatewayAttachments.
+	// DescribeTransitGatewayAttachments reports the associated route table.
 	AssociationRouteTableId string
 	AssociationState        string
 }
@@ -174,18 +159,15 @@ func registerEC2TransitGateway(r *AWSQueryRouter, srv *sim.Server) {
 	ec2TGWConnects = sim.MakeStore[EC2TransitGatewayConnect](srv.DB(), "ec2_tgw_connects")
 	ec2TGWMulticastDomains = sim.MakeStore[EC2TransitGatewayMulticastDomain](srv.DB(), "ec2_tgw_multicast_domains")
 
-	// Transit gateway
 	r.Register("CreateTransitGateway", handleCreateTransitGateway)
 	r.Register("DescribeTransitGateways", handleDescribeTransitGateways)
 	r.Register("ModifyTransitGateway", handleModifyTransitGateway)
 	r.Register("DeleteTransitGateway", handleDeleteTransitGateway)
 
-	// Route tables
 	r.Register("CreateTransitGatewayRouteTable", handleCreateTransitGatewayRouteTable)
 	r.Register("DescribeTransitGatewayRouteTables", handleDescribeTransitGatewayRouteTables)
 	r.Register("DeleteTransitGatewayRouteTable", handleDeleteTransitGatewayRouteTable)
 
-	// VPC attachments
 	r.Register("CreateTransitGatewayVpcAttachment", handleCreateTransitGatewayVpcAttachment)
 	r.Register("DescribeTransitGatewayVpcAttachments", handleDescribeTransitGatewayVpcAttachments)
 	r.Register("ModifyTransitGatewayVpcAttachment", handleModifyTransitGatewayVpcAttachment)
@@ -194,7 +176,6 @@ func registerEC2TransitGateway(r *AWSQueryRouter, srv *sim.Server) {
 	r.Register("RejectTransitGatewayVpcAttachment", handleRejectTransitGatewayVpcAttachment)
 	r.Register("DescribeTransitGatewayAttachments", handleDescribeTransitGatewayAttachments)
 
-	// Associations + propagations
 	r.Register("AssociateTransitGatewayRouteTable", handleAssociateTransitGatewayRouteTable)
 	r.Register("DisassociateTransitGatewayRouteTable", handleDisassociateTransitGatewayRouteTable)
 	r.Register("GetTransitGatewayRouteTableAssociations", handleGetTransitGatewayRouteTableAssociations)
@@ -203,32 +184,27 @@ func registerEC2TransitGateway(r *AWSQueryRouter, srv *sim.Server) {
 	r.Register("GetTransitGatewayRouteTablePropagations", handleGetTransitGatewayRouteTablePropagations)
 	r.Register("GetTransitGatewayAttachmentPropagations", handleGetTransitGatewayAttachmentPropagations)
 
-	// Routes
 	r.Register("CreateTransitGatewayRoute", handleCreateTransitGatewayRoute)
 	r.Register("DeleteTransitGatewayRoute", handleDeleteTransitGatewayRoute)
 	r.Register("ReplaceTransitGatewayRoute", handleReplaceTransitGatewayRoute)
 	r.Register("SearchTransitGatewayRoutes", handleSearchTransitGatewayRoutes)
 	r.Register("ExportTransitGatewayRoutes", handleExportTransitGatewayRoutes)
 
-	// Prefix list references
 	r.Register("CreateTransitGatewayPrefixListReference", handleCreateTransitGatewayPrefixListReference)
 	r.Register("GetTransitGatewayPrefixListReferences", handleGetTransitGatewayPrefixListReferences)
 	r.Register("ModifyTransitGatewayPrefixListReference", handleModifyTransitGatewayPrefixListReference)
 	r.Register("DeleteTransitGatewayPrefixListReference", handleDeleteTransitGatewayPrefixListReference)
 
-	// Peering attachments
 	r.Register("CreateTransitGatewayPeeringAttachment", handleCreateTransitGatewayPeeringAttachment)
 	r.Register("DescribeTransitGatewayPeeringAttachments", handleDescribeTransitGatewayPeeringAttachments)
 	r.Register("AcceptTransitGatewayPeeringAttachment", handleAcceptTransitGatewayPeeringAttachment)
 	r.Register("RejectTransitGatewayPeeringAttachment", handleRejectTransitGatewayPeeringAttachment)
 	r.Register("DeleteTransitGatewayPeeringAttachment", handleDeleteTransitGatewayPeeringAttachment)
 
-	// Multicast domains
 	r.Register("CreateTransitGatewayMulticastDomain", handleCreateTransitGatewayMulticastDomain)
 	r.Register("DescribeTransitGatewayMulticastDomains", handleDescribeTransitGatewayMulticastDomains)
 	r.Register("DeleteTransitGatewayMulticastDomain", handleDeleteTransitGatewayMulticastDomain)
 
-	// Connect attachments
 	r.Register("CreateTransitGatewayConnect", handleCreateTransitGatewayConnect)
 	r.Register("DescribeTransitGatewayConnects", handleDescribeTransitGatewayConnects)
 	r.Register("DeleteTransitGatewayConnect", handleDeleteTransitGatewayConnect)
@@ -314,8 +290,7 @@ func tgwVpcAttachmentBodyXML(a EC2TransitGatewayVpcAttachment) string {
 		a.ApplianceModeSupport, writeTagSetXML(a.Tags))
 }
 
-// tgwGenericAttachmentItemXML renders a TransitGatewayAttachment item for
-// DescribeTransitGatewayAttachments (the cross-type attachment listing).
+// The cross-type attachment listing item.
 func tgwGenericAttachmentItemXML(attachID, tgwID, resourceType, resourceID, state, assocRtID, assocState, creationTime string, tags []EC2Tag) string {
 	assoc := ""
 	if assocRtID != "" {
@@ -412,9 +387,8 @@ func handleCreateTransitGateway(w http.ResponseWriter, r *http.Request) {
 			asn = parsed
 		}
 	}
-	// Real AWS auto-creates the default association + propagation route tables
-	// (the same one by default) when DefaultRouteTableAssociation/Propagation
-	// are enabled. Model that so the IDs round-trip through Describe.
+	// With default association or propagation enabled, AWS creates the default
+	// route table (the same one for both by default).
 	assoc := tgwOptOrDefault(r.FormValue("Options.DefaultRouteTableAssociation"), "enable")
 	prop := tgwOptOrDefault(r.FormValue("Options.DefaultRouteTablePropagation"), "enable")
 	tgw := EC2TransitGateway{
@@ -500,7 +474,7 @@ func handleDeleteTransitGateway(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	tgw.State = "deleted"
-	// Cascade: drop the transit gateway's owned default route tables.
+	// The gateway's default route tables go with it.
 	for _, rt := range ec2TransitGatewayRouteTables.List() {
 		if rt.TransitGatewayId == id {
 			ec2TransitGatewayRouteTables.Delete(rt.TransitGatewayRouteTableId)
@@ -568,10 +542,9 @@ func handleCreateTransitGatewayVpcAttachment(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	id := ec2ID("tgw-attach")
-	// Real AWS auto-accepts attachments to a transit gateway you own; the
-	// attachment goes straight to "available". Cross-account attachments to a
-	// gateway with AutoAcceptSharedAttachments=disable land in
-	// "pendingAcceptance" — modeled via AcceptTransitGatewayVpcAttachment.
+	// AWS auto-accepts attachments to a gateway you own; cross-account ones to a
+	// gateway with AutoAcceptSharedAttachments=disable wait in
+	// pendingAcceptance.
 	state := "available"
 	att := EC2TransitGatewayVpcAttachment{
 		TransitGatewayAttachmentId: id,
@@ -586,7 +559,6 @@ func handleCreateTransitGatewayVpcAttachment(w http.ResponseWriter, r *http.Requ
 		ApplianceModeSupport:       tgwOptOrDefault(r.FormValue("Options.ApplianceModeSupport"), "disable"),
 		Tags:                       parseTags(r),
 	}
-	// Default route table association + propagation, as the gateway dictates.
 	if tgw.DefaultRouteTableAssociation == "enable" && tgw.AssociationDefaultRouteTableId != "" {
 		att.AssociationRouteTableId = tgw.AssociationDefaultRouteTableId
 		att.AssociationState = "associated"
@@ -768,8 +740,7 @@ func tgwAddPropagation(rtID, attachID, resourceID, resourceType string) {
 	})
 }
 
-// tgwRemoveAttachmentRefs drops every association/propagation that references a
-// now-deleted attachment, across all route tables.
+// Across all route tables.
 func tgwRemoveAttachmentRefs(attachID string) {
 	for _, rt := range ec2TransitGatewayRouteTables.List() {
 		ec2TransitGatewayRouteTables.Update(rt.TransitGatewayRouteTableId, func(rt *EC2TransitGatewayRouteTable) {
@@ -1049,8 +1020,7 @@ func handleSearchTransitGatewayRoutes(w http.ResponseWriter, r *http.Request) {
 	tgwResponse(w, "SearchTransitGatewayRoutes", b.String())
 }
 
-// tgwRouteItemInnerXML renders the inner body of a single <route> element (no
-// wrapping <item>), used by Create/Delete/ReplaceTransitGatewayRoute.
+// The <route> body without <item>, for the route mutations.
 func tgwRouteItemInnerXML(rt EC2TransitGatewayRoute) string {
 	inner := tgwRouteItemXML(rt)
 	inner = strings.TrimPrefix(inner, "<item>")

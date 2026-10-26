@@ -10,14 +10,8 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// This file completes the Amazon EC2 Transit Gateway multicast, policy-table,
-// metering-policy, and route-table-announcement families. The transit gateway
-// core (gateways, route tables, attachments, multicast-domain CRUD) lives in
-// ec2_transit_gateway.go; the stores declared there (ec2TransitGateways,
-// ec2TGWVpcAttachments, ec2TGWMulticastDomains) are referenced read-only here.
+// The transit gateway core and its stores live in ec2_transit_gateway.go.
 
-// EC2TGWMulticastAssociation records a transit gateway multicast domain
-// association: a TGW attachment plus the subnets associated with the domain.
 type EC2TGWMulticastAssociation struct {
 	TransitGatewayMulticastDomainId string
 	TransitGatewayAttachmentId      string
@@ -28,8 +22,7 @@ type EC2TGWMulticastAssociation struct {
 	State                           string
 }
 
-// EC2TGWMulticastGroup records a registered multicast group member or source,
-// keyed by group IP address + network interface.
+// Keyed by group IP address and network interface.
 type EC2TGWMulticastGroup struct {
 	TransitGatewayMulticastDomainId string
 	GroupIpAddress                  string
@@ -45,7 +38,6 @@ type EC2TGWMulticastGroup struct {
 	SourceType                      string
 }
 
-// EC2TGWPolicyTable records a transit gateway policy table (tgw-pt-…).
 type EC2TGWPolicyTable struct {
 	TransitGatewayPolicyTableId string
 	TransitGatewayId            string
@@ -54,7 +46,6 @@ type EC2TGWPolicyTable struct {
 	Tags                        []EC2Tag
 }
 
-// EC2TGWPolicyTableAssociation records a policy-table↔attachment association.
 type EC2TGWPolicyTableAssociation struct {
 	TransitGatewayPolicyTableId string
 	TransitGatewayAttachmentId  string
@@ -63,7 +54,6 @@ type EC2TGWPolicyTableAssociation struct {
 	State                       string
 }
 
-// EC2TGWMeteringPolicy records a transit gateway metering policy (tgw-mp-…).
 type EC2TGWMeteringPolicy struct {
 	TransitGatewayMeteringPolicyId string
 	TransitGatewayId               string
@@ -73,34 +63,29 @@ type EC2TGWMeteringPolicy struct {
 	Tags                           []EC2Tag
 }
 
-// EC2TGWPolicyTableEntry records one policy rule in a transit gateway policy
-// table. A rule matches traffic on the five-tuple and carries metadata that
-// selects the route table the matched traffic is forwarded to; the rule number
-// identifies the entry within its table.
+// A rule matches the five-tuple and its metadata selects the route table the
+// traffic goes to; the rule number identifies it within the table.
 type EC2TGWPolicyTableEntry struct {
 	TransitGatewayPolicyTableId string
 	PolicyRuleNumber            string
 	TargetRouteTableId          string
 	State                       string
-	// Policy rule criteria.
-	SourceCidrBlock      string
-	SourcePortRange      string
-	DestinationCidrBlock string
-	DestinationPortRange string
-	Protocol             string
-	MetaDataKey          string
-	MetaDataValue        string
+	SourceCidrBlock             string
+	SourcePortRange             string
+	DestinationCidrBlock        string
+	DestinationPortRange        string
+	Protocol                    string
+	MetaDataKey                 string
+	MetaDataValue               string
 }
 
-// EC2TGWMeteringPolicyEntry records a metering policy entry (a metering rule).
 type EC2TGWMeteringPolicyEntry struct {
-	TransitGatewayMeteringPolicyId string
-	PolicyRuleNumber               string
-	MeteredAccount                 string
-	State                          string
-	UpdatedAt                      string
-	UpdateEffectiveAt              string
-	// Metering policy rule criteria.
+	TransitGatewayMeteringPolicyId        string
+	PolicyRuleNumber                      string
+	MeteredAccount                        string
+	State                                 string
+	UpdatedAt                             string
+	UpdateEffectiveAt                     string
 	SourceCidrBlock                       string
 	DestinationCidrBlock                  string
 	SourceTransitGatewayAttachmentId      string
@@ -110,7 +95,6 @@ type EC2TGWMeteringPolicyEntry struct {
 	DestinationPortRange                  string
 }
 
-// EC2TGWRouteTableAnnouncement records a route table announcement (tgw-rta-…).
 type EC2TGWRouteTableAnnouncement struct {
 	TransitGatewayRouteTableAnnouncementId string
 	TransitGatewayId                       string
@@ -143,7 +127,6 @@ func registerEC2TGWMulticast(r *AWSQueryRouter, srv *sim.Server) {
 	ec2TGWMeteringPolicyEntries = sim.MakeStore[EC2TGWMeteringPolicyEntry](srv.DB(), "ec2_tgw_metering_policy_entries")
 	ec2TGWRouteTableAnnouncement = sim.MakeStore[EC2TGWRouteTableAnnouncement](srv.DB(), "ec2_tgw_route_table_announcements")
 
-	// Multicast domain associations + groups.
 	r.Register("AssociateTransitGatewayMulticastDomain", handleAssociateTransitGatewayMulticastDomain)
 	r.Register("DisassociateTransitGatewayMulticastDomain", handleDisassociateTransitGatewayMulticastDomain)
 	r.Register("AcceptTransitGatewayMulticastDomainAssociations", handleAcceptTransitGatewayMulticastDomainAssociations)
@@ -155,7 +138,6 @@ func registerEC2TGWMulticast(r *AWSQueryRouter, srv *sim.Server) {
 	r.Register("DeregisterTransitGatewayMulticastGroupSources", handleDeregisterTransitGatewayMulticastGroupSources)
 	r.Register("SearchTransitGatewayMulticastGroups", handleSearchTransitGatewayMulticastGroups)
 
-	// Policy tables.
 	r.Register("CreateTransitGatewayPolicyTable", handleCreateTransitGatewayPolicyTable)
 	r.Register("DescribeTransitGatewayPolicyTables", handleDescribeTransitGatewayPolicyTables)
 	r.Register("DeleteTransitGatewayPolicyTable", handleDeleteTransitGatewayPolicyTable)
@@ -167,7 +149,6 @@ func registerEC2TGWMulticast(r *AWSQueryRouter, srv *sim.Server) {
 	r.Register("ModifyTransitGatewayPolicyTableEntry", handleModifyTransitGatewayPolicyTableEntry)
 	r.Register("DeleteTransitGatewayPolicyTableEntry", handleDeleteTransitGatewayPolicyTableEntry)
 
-	// Metering policies.
 	r.Register("CreateTransitGatewayMeteringPolicy", handleCreateTransitGatewayMeteringPolicy)
 	r.Register("ModifyTransitGatewayMeteringPolicy", handleModifyTransitGatewayMeteringPolicy)
 	r.Register("DeleteTransitGatewayMeteringPolicy", handleDeleteTransitGatewayMeteringPolicy)
@@ -175,13 +156,10 @@ func registerEC2TGWMulticast(r *AWSQueryRouter, srv *sim.Server) {
 	r.Register("DeleteTransitGatewayMeteringPolicyEntry", handleDeleteTransitGatewayMeteringPolicyEntry)
 	r.Register("GetTransitGatewayMeteringPolicyEntries", handleGetTransitGatewayMeteringPolicyEntries)
 
-	// Route table announcements.
 	r.Register("CreateTransitGatewayRouteTableAnnouncement", handleCreateTransitGatewayRouteTableAnnouncement)
 	r.Register("DescribeTransitGatewayRouteTableAnnouncements", handleDescribeTransitGatewayRouteTableAnnouncements)
 	r.Register("DeleteTransitGatewayRouteTableAnnouncement", handleDeleteTransitGatewayRouteTableAnnouncement)
 }
-
-// Multicast domain associations
 
 func handleAssociateTransitGatewayMulticastDomain(w http.ResponseWriter, r *http.Request) {
 	domainID := r.FormValue("TransitGatewayMulticastDomainId")
@@ -221,7 +199,7 @@ func handleDisassociateTransitGatewayMulticastDomain(w http.ResponseWriter, r *h
 			"association not found for domain "+domainID+" attachment "+attID, http.StatusBadRequest)
 		return
 	}
-	// Restrict to the subnets named on the disassociate call, if any.
+	// Restrict to the subnets the call names, if any.
 	if reqSubnets := ec2ParamList(r, "SubnetIds"); len(reqSubnets) > 0 {
 		assoc.SubnetIds = reqSubnets
 	}
@@ -270,7 +248,7 @@ func handleGetTransitGatewayMulticastDomainAssociations(w http.ResponseWriter, r
 		if domainID != "" && a.TransitGatewayMulticastDomainId != domainID {
 			continue
 		}
-		// Each subnet is its own item in the flattened association list.
+		// Each subnet is its own item.
 		for _, sn := range a.SubnetIds {
 			fmt.Fprintf(&b, "<item>%s</item>", tgwMulticastDomainAssociationItemXML(a, sn))
 		}
@@ -368,8 +346,6 @@ func multicastGroupKey(domainID, groupIP, eni string, member bool) string {
 	}
 	return strings.Join([]string{domainID, groupIP, eni, role}, "/")
 }
-
-// Policy tables
 
 func handleCreateTransitGatewayPolicyTable(w http.ResponseWriter, r *http.Request) {
 	tgwID := r.FormValue("TransitGatewayId")
@@ -492,10 +468,8 @@ func handleGetTransitGatewayPolicyTableEntries(w http.ResponseWriter, r *http.Re
 	tgwResponse(w, "GetTransitGatewayPolicyTableEntries", b.String())
 }
 
-// policyRuleOrder compares two rule numbers the way a policy table evaluates
-// them: numerically, since a rule number is a decimal string and "10" follows
-// "9" rather than preceding it. A value that is not a number sorts after every
-// number, by its own string order.
+// Rule numbers are decimal strings compared numerically; a non-number sorts
+// after every number, by string order.
 func policyRuleOrder(a, b string) bool {
 	an, aErr := strconv.Atoi(a)
 	bn, bErr := strconv.Atoi(b)
@@ -510,9 +484,7 @@ func policyRuleOrder(a, b string) bool {
 	return a < b
 }
 
-// policyTableEntryRule reads the rule criteria a create or modify request
-// carries. The wire flattens TransitGatewayRequestPolicyRule's members under
-// the "PolicyRule." prefix.
+// The wire flattens TransitGatewayRequestPolicyRule under "PolicyRule.".
 func policyTableEntryRule(r *http.Request, e *EC2TGWPolicyTableEntry) {
 	e.SourceCidrBlock = r.FormValue("PolicyRule.SourceCidrBlock")
 	e.SourcePortRange = r.FormValue("PolicyRule.SourcePortRange")
@@ -563,8 +535,7 @@ func handleModifyTransitGatewayPolicyTableEntry(w http.ResponseWriter, r *http.R
 			"policy table entry not found: "+ptID+" rule "+ruleNum, http.StatusBadRequest)
 		return
 	}
-	// TargetRouteTableId is optional on modify: an omitted value leaves the
-	// entry pointing where it already pointed.
+	// An omitted TargetRouteTableId keeps the current target.
 	if targetRT := r.FormValue("TargetRouteTableId"); targetRT != "" {
 		if _, exists := ec2TransitGatewayRouteTables.Get(targetRT); !exists {
 			ec2ErrorXML(w, "InvalidRouteTableID.NotFound", "transit gateway route table not found: "+targetRT, http.StatusBadRequest)
@@ -595,8 +566,6 @@ func handleDeleteTransitGatewayPolicyTableEntry(w http.ResponseWriter, r *http.R
 }
 
 func policyTableEntryKey(ptID, ruleNum string) string { return ptID + "/" + ruleNum }
-
-// Metering policies
 
 func handleCreateTransitGatewayMeteringPolicy(w http.ResponseWriter, r *http.Request) {
 	tgwID := r.FormValue("TransitGatewayId")
@@ -656,7 +625,6 @@ func handleDeleteTransitGatewayMeteringPolicy(w http.ResponseWriter, r *http.Req
 	}
 	mp.State = "deleted"
 	ec2TGWMeteringPolicies.Delete(id)
-	// Cascade-delete its entries.
 	for _, e := range ec2TGWMeteringPolicyEntries.List() {
 		if e.TransitGatewayMeteringPolicyId == id {
 			ec2TGWMeteringPolicyEntries.Delete(meteringEntryKey(id, e.PolicyRuleNumber))
@@ -729,11 +697,9 @@ func handleGetTransitGatewayMeteringPolicyEntries(w http.ResponseWriter, r *http
 
 func meteringEntryKey(mpID, ruleNum string) string { return mpID + "/" + ruleNum }
 
-// parseTagsTGW reads TagSpecifications from the request. Most EC2 ops flatten
-// the tag-specification list under the wire key "TagSpecification" (singular),
-// which the shared parseTags handles; the newer transit gateway metering-policy
-// and policy-table create ops flatten it under "TagSpecifications" (plural), so
-// fall back to that when the singular form yields nothing.
+// Most operations flatten tag specifications under "TagSpecification"; the
+// newer transit gateway policy-table and metering-policy creates use
+// "TagSpecifications", so fall back to that.
 func parseTagsTGW(r *http.Request) []EC2Tag {
 	if tags := parseTags(r); len(tags) > 0 {
 		return tags
@@ -749,8 +715,6 @@ func parseTagsTGW(r *http.Request) []EC2Tag {
 	}
 	return tags
 }
-
-// Route table announcements
 
 func handleCreateTransitGatewayRouteTableAnnouncement(w http.ResponseWriter, r *http.Request) {
 	rtID := r.FormValue("TransitGatewayRouteTableId")
@@ -807,10 +771,7 @@ func handleDeleteTransitGatewayRouteTableAnnouncement(w http.ResponseWriter, r *
 		"<transitGatewayRouteTableAnnouncement>"+tgwRouteTableAnnouncementBodyXML(ann)+"</transitGatewayRouteTableAnnouncement>")
 }
 
-// XML rendering
-
-// tgwMulticastAssociationsBodyXML renders TransitGatewayMulticastDomainAssociations
-// (the Associate/Disassociate/Accept/Reject response shape).
+// The Associate, Disassociate, Accept and Reject response shape.
 func tgwMulticastAssociationsBodyXML(a EC2TGWMulticastAssociation) string {
 	var sub strings.Builder
 	sub.WriteString("<subnets>")
@@ -827,8 +788,7 @@ func tgwMulticastAssociationsBodyXML(a EC2TGWMulticastAssociation) string {
 		a.ResourceId, a.ResourceType, a.ResourceOwnerId, sub.String())
 }
 
-// tgwMulticastDomainAssociationItemXML renders one TransitGatewayMulticastDomainAssociation
-// (the flattened per-subnet item returned by GetTransitGatewayMulticastDomainAssociations).
+// The per-subnet item GetTransitGatewayMulticastDomainAssociations returns.
 func tgwMulticastDomainAssociationItemXML(a EC2TGWMulticastAssociation, subnetID string) string {
 	subnet := ""
 	if subnetID != "" {
@@ -841,8 +801,7 @@ func tgwMulticastDomainAssociationItemXML(a EC2TGWMulticastAssociation, subnetID
 		a.TransitGatewayAttachmentId, a.ResourceId, a.ResourceType, a.ResourceOwnerId, subnet)
 }
 
-// tgwRegisteredGroupBodyXML renders the registered/deregistered group members or
-// sources shape (shared between Register/Deregister Members/Sources).
+// Shared by the Register and Deregister Members and Sources operations.
 func tgwRegisteredGroupBodyXML(domainID, groupIP string, enis []string, idsTag string) string {
 	var ids strings.Builder
 	fmt.Fprintf(&ids, "<%s>", idsTag)
@@ -856,7 +815,6 @@ func tgwRegisteredGroupBodyXML(domainID, groupIP string, enis []string, idsTag s
 		domainID, ids.String(), groupIP)
 }
 
-// tgwMulticastGroupItemXML renders a TransitGatewayMulticastGroup item.
 func tgwMulticastGroupItemXML(g EC2TGWMulticastGroup) string {
 	return fmt.Sprintf(
 		"<groupIpAddress>%s</groupIpAddress>"+

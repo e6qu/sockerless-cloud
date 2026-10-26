@@ -18,17 +18,8 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/lbplane"
 )
 
-// newELBv2DataPlaneServer builds a simulator carrying everything the load
-// balancer data plane reads, not only the load balancers themselves.
-//
-// The data plane consults AWS WAFV2 for a web ACL association and Amazon ECS
-// for a task's published port, both through package-level stores that the
-// owning subsystem's registration populates. A test that registers only
-// Elastic Load Balancing therefore passes on whatever those stores happen to
-// hold — a zero value when the test runs alone, another test's leavings when
-// it does not — so what it proves depends on test ordering rather than on the
-// handler (GitHub issue #907). Registering the subsystems it reads makes the
-// dependency the test's own.
+// The data plane reads AWS WAF and Amazon ECS stores that their registrations
+// populate; registering them makes the test independent of ordering.
 func newELBv2DataPlaneServer(t *testing.T) *sim.Server {
 	t.Helper()
 	t.Setenv("SIM_RUNTIME", "process")
@@ -41,9 +32,8 @@ func newELBv2DataPlaneServer(t *testing.T) *sim.Server {
 	registerWAFv2(jsonRouter, srv)
 	registerECS(jsonRouter, srv)
 	registerELBv2DataPlane(srv)
-	// The Elastic Load Balancing target health checker runs under the
-	// server lifecycle; without this it outlives the test and keeps
-	// checking whatever the next test puts in the package stores.
+	// Stop the health checker with the test, or it keeps checking the next test's
+	// stores.
 	t.Cleanup(srv.StopBackground)
 	return srv
 }
@@ -105,10 +95,8 @@ func TestELBv2DataPlaneRoutesOnlyLoadBalancerHosts(t *testing.T) {
 	}
 	elbv2LoadBalancers.Put(lb.Arn, lb)
 	elbv2TargetGroups.Put(tg.Arn, tg)
-	// A target group is health-checked only once a listener rule forwards to
-	// it, and a load balancer forwards only to targets its health checker has
-	// put in service, so the listener comes first and then the check the
-	// checker would have run by now.
+	// Only a forwarded-to group is health-checked and only in-service targets get
+	// traffic, so add the listener, then the check the checker would have run.
 	elbv2Listeners.Put(listener.Arn, listener)
 	elbv2CheckTargetHealth(context.Background(), time.Now())
 
@@ -161,8 +149,7 @@ func TestELBv2DataPlaneDoesNotInterceptControlPlaneHost(t *testing.T) {
 }
 
 func TestELBv2TargetHostHeaderMatchesALBDefaults(t *testing.T) {
-	// This one exercises the header helper rather than the served path, but it
-	// still reads the load-balancer store the registration populates.
+	// The header helper reads the load-balancer store too.
 	newELBv2DataPlaneServer(t)
 
 	lb := ELBv2LoadBalancer{
@@ -191,16 +178,9 @@ func TestELBv2TargetHostHeaderMatchesALBDefaults(t *testing.T) {
 	}
 }
 
-// A load balancer returns its target's redirect to the client. Following one
-// itself fetches the redirect target and answers with that instead, discarding
-// the Set-Cookie the redirect carried — which is exactly how an OpenID Connect
-// sign-in behind this data plane fails with no error anywhere (issue #883).
-//
-// Every redirect status is covered deliberately. In production the defect looked
-// selective — 307 and 308 reached the browser intact while 301, 302 and 303 did
-// not — but that was only because a request forwarded from a server has no
-// rewindable body for Go to replay. Nothing about the defect is status-specific,
-// and a bodyless request like the one below follows all five.
+// A load balancer returns the target's redirect; following it would drop its
+// Set-Cookie and break an OpenID Connect sign-in. Every redirect status is
+// covered: none is special.
 func TestELBv2DataPlaneReturnsTargetRedirectsInsteadOfFollowingThem(t *testing.T) {
 	srv := newELBv2DataPlaneServer(t)
 
@@ -259,10 +239,8 @@ func TestELBv2DataPlaneReturnsTargetRedirectsInsteadOfFollowingThem(t *testing.T
 	}
 	elbv2LoadBalancers.Put(lb.Arn, lb)
 	elbv2TargetGroups.Put(tg.Arn, tg)
-	// A target group is health-checked only once a listener rule forwards to
-	// it, and a load balancer forwards only to targets its health checker has
-	// put in service, so the listener comes first and then the check the
-	// checker would have run by now.
+	// Only a forwarded-to group is health-checked and only in-service targets get
+	// traffic, so add the listener, then the check the checker would have run.
 	elbv2Listeners.Put(listener.Arn, listener)
 	elbv2CheckTargetHealth(context.Background(), time.Now())
 
@@ -299,15 +277,8 @@ func TestELBv2DataPlaneReturnsTargetRedirectsInsteadOfFollowingThem(t *testing.T
 	}
 }
 
-// A WebSocket is not delivered by relaying its handshake. The data plane used to
-// forward with an ordinary client and copy the response body to the
-// ResponseWriter, which produces a 101 the client accepts and then a one-way pipe:
-// nothing the client sends can reach the target, because a ResponseWriter has no
-// route back. The failure is silent in exactly the wrong way — the peer sees a
-// successful upgrade followed by silence and reports a handshake timeout.
-//
-// This runs over real sockets. httptest.NewRecorder cannot hijack, so a recorder
-// would pass while production fails.
+// A WebSocket must be tunnelled both ways; relaying the handshake yields a 101
+// and a one-way pipe. Real sockets: httptest.NewRecorder cannot hijack.
 func TestELBv2DataPlaneTunnelsUpgradedConnectionsBothWays(t *testing.T) {
 	srv := newELBv2DataPlaneServer(t)
 
@@ -328,9 +299,7 @@ func TestELBv2DataPlaneTunnelsUpgradedConnectionsBothWays(t *testing.T) {
 		defer conn.Close()
 		_, _ = buf.WriteString("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: pinned\r\n\r\n")
 		_ = buf.Flush()
-		// Echo, so a reply proves the CLIENT's bytes arrived — the direction the
-		// old implementation dropped. A target that merely spoke first would pass
-		// against a one-way pipe.
+		// Echo, so a reply proves the client's bytes arrived.
 		for {
 			line, err := buf.ReadString('\n')
 			if err != nil {
@@ -383,10 +352,8 @@ func TestELBv2DataPlaneTunnelsUpgradedConnectionsBothWays(t *testing.T) {
 	}
 	elbv2LoadBalancers.Put(lb.Arn, lb)
 	elbv2TargetGroups.Put(tg.Arn, tg)
-	// A target group is health-checked only once a listener rule forwards to
-	// it, and a load balancer forwards only to targets its health checker has
-	// put in service, so the listener comes first and then the check the
-	// checker would have run by now.
+	// Only a forwarded-to group is health-checked and only in-service targets get
+	// traffic, so add the listener, then the check the checker would have run.
 	elbv2Listeners.Put(listener.Arn, listener)
 	elbv2CheckTargetHealth(context.Background(), time.Now())
 
@@ -429,12 +396,8 @@ func TestELBv2DataPlaneTunnelsUpgradedConnectionsBothWays(t *testing.T) {
 	}
 }
 
-// A browser abandons in-flight requests whenever it navigates, and Next's
-// _rsc= prefetches are abandoned constantly. On a production deployment that made
-// 82 of 83 data-plane 502s client disconnections, which hid the one real
-// failure in eight hours until it landed on a <script> tag and failed the
-// acceptance gate. A client that went away is recorded as 499, not as a bad
-// gateway.
+// Browsers abandon requests constantly; a client that went away is a 499, not
+// a 502 that hides real failures.
 func TestELBv2DataPlaneRecordsAClientDisconnectAsClientClosedRequest(t *testing.T) {
 	srv := newELBv2DataPlaneServer(t)
 
@@ -445,7 +408,7 @@ func TestELBv2DataPlaneRecordsAClientDisconnectAsClientClosedRequest(t *testing.
 			return
 		}
 		close(reached)
-		<-r.Context().Done() // hold until the client gives up
+		<-r.Context().Done() // Hold until the client gives up.
 	}))
 	defer target.Close()
 
@@ -474,12 +437,8 @@ func TestELBv2DataPlaneRecordsAClientDisconnectAsClientClosedRequest(t *testing.
 	}
 }
 
-// The opposite case, and the one that must keep failing loudly: a target that
-// closes a FRESH connection. Go retries a reused connection by itself but
-// declines to replay a fresh one, so this reaches the client as a 502 carrying
-// "EOF" -- the exact shape of the single real failure on a production deployment.
-// Retrying it here would invent a replay the standard library deliberately
-// refuses.
+// A target closing a fresh connection must still 502: Go replays only reused
+// connections, and the data plane must not invent a replay.
 func TestELBv2DataPlaneReportsATargetThatClosesAFreshConnection(t *testing.T) {
 	srv := newELBv2DataPlaneServer(t)
 
@@ -516,10 +475,8 @@ func TestELBv2DataPlaneReportsATargetThatClosesAFreshConnection(t *testing.T) {
 	}
 }
 
-// An HTTPS target group's targets present certificates the load balancer does
-// not validate — "you can use self-signed certificates or certificates that
-// have expired" — so a self-signed target serves traffic, and the escaped path
-// reaches it unchanged.
+// "You can use self-signed certificates or certificates that have expired";
+// the escaped path reaches the target unchanged.
 func TestELBv2DataPlaneForwardsToASelfSignedHTTPSTarget(t *testing.T) {
 	srv := newELBv2DataPlaneServer(t)
 
@@ -552,9 +509,7 @@ func TestELBv2DataPlaneForwardsToASelfSignedHTTPSTarget(t *testing.T) {
 	}
 }
 
-// An AWS WAF web ACL associated with an Application Load Balancer inspects
-// every request the load balancer receives, so a request arriving on an HTTPS
-// listener is blocked exactly as one arriving over HTTP is.
+// A web ACL inspects every request, so HTTPS is blocked as HTTP is.
 func TestELBv2HTTPSListenerAppliesTheAssociatedWebACL(t *testing.T) {
 	newELBv2DataPlaneServer(t)
 	priorACLs, priorAssociations := wafWebACLs, wafAssociations
@@ -595,8 +550,6 @@ func TestELBv2HTTPSListenerAppliesTheAssociatedWebACL(t *testing.T) {
 	}
 }
 
-// elbv2TestTopologyForTarget builds the load balancer, target group and
-// listener that route to an httptest target.
 func elbv2TestTopologyForTarget(t *testing.T, target *httptest.Server, name string) (ELBv2LoadBalancer, ELBv2TargetGroup, ELBv2Listener) {
 	t.Helper()
 	parsed, err := url.Parse(target.URL)

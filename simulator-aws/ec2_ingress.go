@@ -11,15 +11,14 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/placement"
 )
 
-// ec2IngressStages is what an interface in these security groups may
-// receive: one stage of the groups' ingress permissions, expanded to
-// prefixes, which drops what no permission names, as a security group does.
+// One stage of the groups' ingress permissions expanded to prefixes; what no
+// permission names is dropped, as a security group does.
 func ec2IngressStages(groupIDs []string) [][]netrules.PacketRule {
 	return [][]netrules.PacketRule{ec2BuildIngressPacketRules(groupIDs)}
 }
 
-// ec2CreateDefaultSecurityGroup is the group every VPC comes with: named
-// default, admitting all traffic from its own members and sending anything.
+// Every VPC comes with a group named default admitting all traffic from its
+// own members and allowing all egress.
 func ec2CreateDefaultSecurityGroup(vpcID string) {
 	id := ec2ID("sg")
 	sg := EC2SecurityGroup{
@@ -42,8 +41,7 @@ func ec2CreateDefaultSecurityGroup(vpcID string) {
 	createSecurityGroupRules(id, sg.IpPermissionsEgress[0], true)
 }
 
-// ec2DefaultSecurityGroupIDs is the VPC's default group, which an interface
-// launched with no group joins.
+// An interface launched with no group joins the VPC's default group.
 func ec2DefaultSecurityGroupIDs(vpcID string) []string {
 	for _, sg := range ec2SecurityGroups.Filter(func(sg EC2SecurityGroup) bool {
 		return sg.VpcId == vpcID && sg.GroupName == "default"
@@ -53,11 +51,9 @@ func ec2DefaultSecurityGroupIDs(vpcID string) []string {
 	return nil
 }
 
-// ec2ReapplyIngress programs every running instance and awsvpc task of the
-// VPC with what its groups allow now. A rule's change, a group's
-// reassignment and a member's arrival or departure, which the permissions
-// naming a group expand over, each change what a neighbour may receive. A
-// backend that does not filter is left as it is.
+// Rule changes, group reassignments and member arrivals or departures all
+// change what a neighbour may receive. A backend that does not filter is left
+// alone.
 func ec2ReapplyIngress(vpcID string) {
 	if vpcID == "" {
 		return
@@ -98,8 +94,6 @@ func ec2SetIngress(ctx context.Context, what string, handle placement.Handle, st
 	}
 }
 
-// ecsTaskENIGroups reads the security groups and the VPC of a task's awsvpc
-// elastic network interface.
 func ecsTaskENIGroups(taskID string) (groups []string, vpcID string, ok bool) {
 	task, found := ecsTasks.Get(taskID)
 	if !found {
@@ -123,9 +117,7 @@ func ecsTaskENIGroupsOf(task ECSTask) (groups []string, vpcID string, ok bool) {
 	return nil, "", false
 }
 
-// ecsTaskSecurityGroups is the groups a task's elastic network interface
-// joins: those the run named, else the VPC's default group, as Amazon ECS
-// applies it.
+// The run's groups, else the VPC's default group, as Amazon ECS applies it.
 func ecsTaskSecurityGroups(subnetID string, requested []string) []string {
 	if len(requested) > 0 {
 		return requested

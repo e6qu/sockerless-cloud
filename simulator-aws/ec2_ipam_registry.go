@@ -9,25 +9,15 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// Amazon VPC IP Address Manager internet-registry associations and routing
-// policy registrations.
+// An internet registry association names a Regional Internet Registry (ARIN,
+// RIPE or APNIC) outside AWS. The association is stored for real, but enabling
+// it begins verification with the registry, which this simulator cannot reach,
+// so it fails naming that dependency.
 //
-// An internet registry association names a Regional Internet Registry — ARIN,
-// RIPE or APNIC — which is a third-party organisation outside AWS. The
-// association itself is control-plane state and is stored, described and
-// deleted for real. Enabling one begins verification WITH the registry, and
-// there is no registry to reach from this simulator: that path fails loudly,
-// naming the registry as the missing external dependency, rather than
-// pretending a verification the RIR never performed.
-//
-// Routing policy registrations are the caller's own declarations — a CIDR,
-// the ASNs allowed to originate it — and are stored, listed, modified and
-// deleted for real. The reads that would report the registry's side — deltas
-// against RIR state, route origin authorizations from the RPKI repositories —
-// return the truth of an installation whose associations were never enabled:
-// nothing has been imported, so the collections are empty. Discovered routes
-// are different: they come from the account's own route tables, which this
-// simulator holds, so they are derived from that real state.
+// Routing policy registrations are the caller's own declarations and are
+// stored for real. Reads of the registry's side (RIR deltas, RPKI route origin
+// authorizations) are empty because no association was ever enabled.
+// Discovered routes come from the account's own route tables.
 
 type EC2IpamInternetRegistryAssociation struct {
 	OwnerId                            string   `json:"ownerId"`
@@ -53,9 +43,8 @@ type EC2IpamRoutingPolicyRegistration struct {
 	State                           string   `json:"state"`
 }
 
-// EC2IpamRoutingPolicyRegistrationDelta is one batch modification, as the
-// caller submitted it: the deltaJson is the caller's own document, echoed
-// back, and the state records whether it applied.
+// deltaJson is the caller's document, echoed; the state records whether it
+// applied.
 type EC2IpamRoutingPolicyRegistrationDelta struct {
 	AssociationId string `json:"associationId"`
 	DeltaId       string `json:"deltaId"`
@@ -74,7 +63,6 @@ func ec2IpamRoutingRegistrationKey(associationID, cidr string) string {
 	return associationID + "/" + cidr
 }
 
-// ipamRegistryUnreachable is why enabling an association cannot proceed here.
 const ipamRegistryUnreachable = "enabling an internet registry association begins verification with " +
 	"the Regional Internet Registry the association names (ARIN, RIPE or APNIC), which is a " +
 	"third-party organisation outside AWS. This simulator has no connection to a registry and will " +
@@ -141,10 +129,7 @@ func handleCreateIpamInternetRegistryAssociation(w http.ResponseWriter, r *http.
 		Rir:                                rir,
 		OrganizationHandle:                 r.FormValue("OrganizationHandle"),
 		Description:                        r.FormValue("Description"),
-		// Created, and awaiting the enable that would begin verification with
-		// the registry — "pending-enable" per IpamInternetRegistryAssociationState.
-		// Verification is the registry's act, and there is no registry here;
-		// Enable says so loudly.
+		// "pending-enable": verification is the registry's act, and Enable fails.
 		State: "pending-enable",
 		Tags:  parseTags(r),
 	}
@@ -180,8 +165,7 @@ func handleDeleteIpamInternetRegistryAssociation(w http.ResponseWriter, r *http.
 			fmt.Sprintf("The association ID '%s' does not exist", id), http.StatusBadRequest)
 		return
 	}
-	// A deleted association takes its registrations with it: they were scoped
-	// to it and answer through it.
+	// Registrations are scoped to the association and go with it.
 	for _, registration := range ec2IpamRoutingRegistrations.List() {
 		if registration.AssociationId == id {
 			ec2IpamRoutingRegistrations.Delete(ec2IpamRoutingRegistrationKey(id, registration.Cidr))
@@ -206,10 +190,7 @@ func handleEnableIpamInternetRegistryAssociation(w http.ResponseWriter, r *http.
 	ec2ErrorXML(w, "OperationNotPermitted", ipamRegistryUnreachable, http.StatusBadRequest)
 }
 
-// The two imports read what the registry sent back. No association here has
-// ever been enabled — enabling is the loud failure above — so nothing has been
-// imported, and an empty set is this installation's truth rather than a
-// placeholder.
+// No association has been enabled, so nothing was imported.
 func handleGetIpamInternetRegistryAssociationAsns(w http.ResponseWriter, r *http.Request) {
 	ec2RequireIpamRegistryAssociation(w, r, "GetIpamInternetRegistryAssociationAsns", "ipamInternetRegistryAssociationAsnSet")
 }
@@ -274,8 +255,7 @@ func handleCreateIpamRoutingPolicyRegistration(w http.ResponseWriter, r *http.Re
 		PermitMoreSpecificAnnouncements: r.FormValue("PermitMoreSpecificAnnouncements") == "true",
 		MaxLength:                       atoiDefault(r.FormValue("MaxLength"), 0),
 		Description:                     r.FormValue("Description"),
-		// Applied synchronously: "create-complete" per
-		// IpamRoutingPolicyRegistrationState.
+		// Applied synchronously.
 		State: "create-complete",
 	}
 	delta := ec2RecordRoutingRegistrationDelta(associationID, map[string]any{
@@ -291,11 +271,8 @@ func handleCreateIpamRoutingPolicyRegistration(w http.ResponseWriter, r *http.Re
 </CreateIpamRoutingPolicyRegistrationResponse>`, ec2Xmlns(), sim.NewUUID(), ipamRoutingDeltaXML(delta))
 }
 
-// ec2RecordRoutingRegistrationDelta records the single-operation counterpart
-// of the batch document: the model returns an IpamRoutingPolicyRegistrationDelta
-// from Create/Modify/Delete as well, so each mutation authors a one-entry delta
-// document and stores it — the deltas listing must know every delta a response
-// ever named, or the returned record is a phantom nothing can read back.
+// Create, Modify and Delete also return a delta, so each mutation stores a
+// one-entry document the deltas listing can read back.
 func ec2RecordRoutingRegistrationDelta(associationID string, entry map[string]any) EC2IpamRoutingPolicyRegistrationDelta {
 	deltaJSON, err := json.Marshal([]map[string]any{entry})
 	if err != nil {
@@ -305,8 +282,7 @@ func ec2RecordRoutingRegistrationDelta(associationID string, entry map[string]an
 		AssociationId: associationID,
 		DeltaId:       ec2ID("ipam-rpr-delta"),
 		DeltaJson:     string(deltaJSON),
-		// Applied: "published" per IpamRoutingPolicyRegistrationDeltaState
-		// (pending | published | failed).
+		// "published" per IpamRoutingPolicyRegistrationDeltaState.
 		State: "published",
 	}
 	ec2IpamRoutingDeltas.Put(delta.DeltaId, delta)
@@ -363,11 +339,8 @@ func ipamRoutingDeltaXML(delta EC2IpamRoutingPolicyRegistrationDelta) string {
 	return b.String()
 }
 
-// handleBatchModifyIpamRoutingPolicyRegistrations applies a caller-authored
-// delta document. The delta is real state — it gets an identifier, the
-// registrations it changes record it as their latest, and the deltas listing
-// returns it — and it is applied, not just recorded: each entry of the
-// document modifies the registration it names.
+// Each entry of the delta document modifies the registration it names, and
+// the delta becomes the registrations' latest.
 func handleBatchModifyIpamRoutingPolicyRegistrations(w http.ResponseWriter, r *http.Request) {
 	associationID := r.FormValue("IpamInternetRegistryAssociationId")
 	if _, ok := ec2IpamRegistryAssociations.Get(associationID); !ok {
@@ -396,7 +369,7 @@ func handleBatchModifyIpamRoutingPolicyRegistrations(w http.ResponseWriter, r *h
 		AssociationId: associationID,
 		DeltaId:       ec2ID("ipam-rpr-delta"),
 		DeltaJson:     deltaJSON,
-		// Applied: "published" per IpamRoutingPolicyRegistrationDeltaState.
+		// "published" per IpamRoutingPolicyRegistrationDeltaState.
 		State: "published",
 	}
 	for _, entry := range entries {
@@ -443,8 +416,7 @@ func handleDeleteIpamRoutingPolicyRegistration(w http.ResponseWriter, r *http.Re
 	}
 	registration.State = "delete-complete"
 	ec2IpamRoutingRegistrations.Delete(key)
-	// The registration is gone, so nothing carries this delta as latest — the
-	// deltas listing is the record of the removal.
+	// Only the deltas listing records the removal.
 	delta := ec2RecordRoutingRegistrationDelta(associationID, map[string]any{
 		"Cidr":  cidr,
 		"State": registration.State,
@@ -477,10 +449,6 @@ func handleGetIpamRoutingPolicyRegistrations(w http.ResponseWriter, r *http.Requ
 </GetIpamRoutingPolicyRegistrationsResponse>`, ec2Xmlns(), sim.NewUUID(), items.String())
 }
 
-// handleGetIpamRoutingPolicyRegistrationDeltas lists the batch-modification
-// deltas the association has applied — real records, created by
-// BatchModifyIpamRoutingPolicyRegistrations, in the shape the SDK
-// deserialises.
 func handleGetIpamRoutingPolicyRegistrationDeltas(w http.ResponseWriter, r *http.Request) {
 	associationID := r.FormValue("IpamInternetRegistryAssociationId")
 	var items strings.Builder
@@ -497,10 +465,7 @@ func handleGetIpamRoutingPolicyRegistrationDeltas(w http.ResponseWriter, r *http
 </GetIpamRoutingPolicyRegistrationDeltasResponse>`, ec2Xmlns(), sim.NewUUID(), items.String())
 }
 
-// handleGetIpamDiscoveredRoutes reports the routes IPAM's resource discovery
-// finds. The account's route tables are this simulator's own state, so the
-// routes come from them — every route of every table, with the CIDR the route
-// declares.
+// Every route of every table in the account.
 func handleGetIpamDiscoveredRoutes(w http.ResponseWriter, r *http.Request) {
 	var items strings.Builder
 	for _, table := range ec2RouteTables.List() {
@@ -519,9 +484,8 @@ func handleGetIpamDiscoveredRoutes(w http.ResponseWriter, r *http.Request) {
 </GetIpamDiscoveredRoutesResponse>`, ec2Xmlns(), sim.NewUUID(), items.String())
 }
 
-// Route origin authorizations are RPKI objects published by the Regional
-// Internet Registries. That repository is the same external dependency as the
-// registry associations above, and the failure names it.
+// Route origin authorizations live in the RIRs' RPKI repositories, the same
+// unreachable dependency.
 func handleGetIpamRouteOriginAuthorizations(w http.ResponseWriter, r *http.Request) {
 	ec2ErrorXML(w, "OperationNotPermitted",
 		"route origin authorizations are RPKI objects published by the Regional Internet "+
@@ -532,9 +496,8 @@ func handleGetIpamRouteOriginAuthorizations(w http.ResponseWriter, r *http.Reque
 		http.StatusBadRequest)
 }
 
-// A route protection finding compares an announced route against the ROAs
-// covering it. This installation announces nothing to the internet and holds
-// no ROAs, so there is nothing to find, and the empty set is the truth.
+// The simulator announces no route and holds no ROAs, so there is nothing to
+// find.
 func handleGetIpamRouteProtectionFindings(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<GetIpamRouteProtectionFindingsResponse %s>

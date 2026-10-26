@@ -10,14 +10,8 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// ECS daemons — the managed cluster-wide "one task per host" workload (the
-// daemon scheduling strategy, surfaced as its own control-plane resource in the
-// current ECS API: a Daemon, its DaemonDeployments, its DaemonRevisions, and the
-// DaemonTaskDefinition family). The sim models each as a stored control-plane
-// object so the create→describe/list→update→delete cycle round-trips, plus the
-// daemon-task-definition register/describe/list/delete cycle.
+// Daemons, their deployments and revisions, and daemon task definitions.
 
-// ECSDaemon is the stored shape of a daemon.
 type ECSDaemon struct {
 	DaemonArn               string   `json:"daemonArn"`
 	ClusterArn              string   `json:"clusterArn"`
@@ -27,12 +21,10 @@ type ECSDaemon struct {
 	DeploymentArn           string   `json:"deploymentArn,omitempty"`
 	CreatedAt               float64  `json:"createdAt"`
 	UpdatedAt               float64  `json:"updatedAt"`
-	// AWS declares the daemon a taggable resource and CreateDaemon accepts
-	// tags, so they are stored rather than dropped.
+	// The daemon is taggable and CreateDaemon accepts tags.
 	Tags []ECSTag `json:"tags,omitempty"`
 }
 
-// ECSDaemonDeployment is the stored shape of a daemon deployment.
 type ECSDaemonDeployment struct {
 	DaemonDeploymentArn     string  `json:"daemonDeploymentArn"`
 	DaemonArn               string  `json:"daemonArn"`
@@ -44,7 +36,6 @@ type ECSDaemonDeployment struct {
 	FinishedAt              float64 `json:"finishedAt"`
 }
 
-// ECSDaemonRevision is the stored shape of a daemon revision.
 type ECSDaemonRevision struct {
 	DaemonRevisionArn       string  `json:"daemonRevisionArn"`
 	ClusterArn              string  `json:"clusterArn"`
@@ -53,7 +44,6 @@ type ECSDaemonRevision struct {
 	CreatedAt               float64 `json:"createdAt"`
 }
 
-// ECSDaemonTaskDefinition is the stored shape of a daemon task definition.
 type ECSDaemonTaskDefinition struct {
 	DaemonTaskDefinitionArn string          `json:"daemonTaskDefinitionArn"`
 	Family                  string          `json:"family"`
@@ -67,8 +57,7 @@ type ECSDaemonTaskDefinition struct {
 	Status                  string          `json:"status"`
 	RegisteredAt            float64         `json:"registeredAt"`
 	DeleteRequestedAt       *float64        `json:"deleteRequestedAt,omitempty"`
-	// RegisterDaemonTaskDefinition accepts tags and AWS declares the resource
-	// taggable, so they are stored rather than dropped.
+	// The resource is taggable and RegisterDaemonTaskDefinition accepts tags.
 	Tags    []ECSTag `json:"tags,omitempty"`
 	PidMode string   `json:"pidMode,omitempty"`
 	IpcMode string   `json:"ipcMode,omitempty"`
@@ -193,9 +182,8 @@ func handleECSDescribeDaemon(w http.ResponseWriter, r *http.Request) {
 		AWSErrorf(w, "InvalidParameterException", http.StatusBadRequest, "The specified daemon does not exist: %s", req.DaemonArn)
 		return
 	}
-	// DaemonDetail.currentRevisions uses the DaemonRevisionDetail shape, whose
-	// arn member is the daemon revision ARN (distinct from the standalone
-	// DaemonRevision shape returned by DescribeDaemonRevisions).
+	// DaemonRevisionDetail's arn is the revision ARN, unlike the standalone
+	// DaemonRevision shape.
 	var currentRevisions []map[string]any
 	for _, rev := range ecsDaemonRevisions.List() {
 		if rev.DaemonArn == d.DaemonArn {
@@ -343,9 +331,8 @@ func handleECSDescribeDaemonDeployments(w http.ResponseWriter, r *http.Request) 
 			"daemonDeploymentArn": dep.DaemonDeploymentArn,
 			"clusterArn":          dep.ClusterArn,
 			"status":              dep.Status,
-			// targetDaemonRevision is a DaemonDeploymentRevisionDetail (arn +
-			// instance counts), not a DaemonRevision (whose ARN field is
-			// daemonRevisionArn).
+			// A DaemonDeploymentRevisionDetail (arn and instance counts), not a
+			// DaemonRevision (daemonRevisionArn).
 			"targetDaemonRevision": map[string]any{
 				"arn": dep.TargetDaemonRevisionArn,
 			},
@@ -547,8 +534,7 @@ func handleECSListDaemonTaskDefinitions(w http.ResponseWriter, r *http.Request) 
 		if req.FamilyPrefix != "" && !strings.HasPrefix(td.Family, req.FamilyPrefix) {
 			continue
 		}
-		// The status filter had been parsed and ignored, so a caller asking
-		// for ACTIVE definitions was also handed the INACTIVE ones.
+		// Honour the status filter.
 		if req.Status != "" && !strings.EqualFold(td.Status, req.Status) {
 			continue
 		}

@@ -7,41 +7,31 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// Tagging for every Amazon ECS resource type AWS declares taggable.
-//
-// The service reference lists ten for ecs:TagResource — capacity provider,
-// cluster, container instance, daemon, daemon task definition, gateway,
-// service, task, task definition and task set.
-//
-// The three operations resolve the target the same way, through one function,
-// so a type cannot be taggable through TagResource and invisible to
-// ListTagsForResource.
+// ecs:TagResource covers ten resource types: capacity provider, cluster,
+// container instance, daemon, daemon task definition, gateway, service, task,
+// task definition and task set. All three tagging operations resolve through
+// one function, so no type is taggable yet invisible to ListTagsForResource.
 
-// ecsTaggable is a resolved tag target: the tags it carries, and the write
-// that puts them back where they came from.
+// The tags, and the write that puts them back.
 type ecsTaggable struct {
 	tags    []ECSTag
 	replace func([]ECSTag)
 }
 
-// ecsTagFault is the error a resolution failed with, in the service's own
-// vocabulary — each ECS resource type has its own not-found exception.
+// Each resource type has its own not-found exception.
 type ecsTagFault struct {
 	code    string
 	message string
 }
 
-// ecsResolveTaggable resolves the resource an ARN names. A nil fault with a nil
-// resource cannot happen: either the ARN names a resource that exists, or the
-// fault says why not.
+// Either the resource exists or the fault says why not.
 func ecsResolveTaggable(resourceArn string) (*ecsTaggable, *ecsTagFault) {
 	notFound := func(code, kind string) (*ecsTaggable, *ecsTagFault) {
 		return nil, &ecsTagFault{code: code, message: kind + " not found: " + resourceArn}
 	}
 	switch {
-	// Checked before ":task-definition/" and ":service/" would match: a daemon
-	// task definition's type ends in the same word, and a task set's ARN names
-	// the service it belongs to.
+	// Check before ":task-definition/" and ":service/": a daemon task definition
+	// ends in the same word, and a task set's ARN names its service.
 	case strings.Contains(resourceArn, ":daemon-task-definition/"):
 		key := ecsDaemonTDRefKey(resourceArn)
 		td, ok := ecsDaemonTaskDefinitions.Get(key)
@@ -62,8 +52,8 @@ func ecsResolveTaggable(resourceArn string) (*ecsTaggable, *ecsTagFault) {
 			ecsDaemons.Put(resourceArn, daemon)
 		}}, nil
 	case strings.Contains(resourceArn, ":task-set/"):
-		// task-set/<cluster>/<service>/<id>: the cluster and service scope the
-		// lookup, and ecsLookupTaskSet reduces the ARN to its id itself.
+		// task-set/<cluster>/<service>/<id>; ecsLookupTaskSet reduces the ARN to its
+		// id.
 		rest := resourceArn[strings.Index(resourceArn, ":task-set/")+len(":task-set/"):]
 		segments := strings.SplitN(rest, "/", 3)
 		if len(segments) < 3 {
@@ -152,10 +142,8 @@ func ecsResolveTaggable(resourceArn string) (*ecsTaggable, *ecsTagFault) {
 	}
 }
 
-// ecsRejectTaggingAStoppedTask reproduces the one rule that is about the
-// operation rather than the resource: real Amazon ECS refuses to tag or untag
-// a task that has stopped, and says so with InvalidParameterException. Reading
-// a stopped task's tags is still allowed, so ListTagsForResource does not ask.
+// Amazon ECS refuses to tag or untag a stopped task with
+// InvalidParameterException; reading its tags is still allowed.
 func ecsRejectTaggingAStoppedTask(resourceArn string) *ecsTagFault {
 	if !strings.Contains(resourceArn, ":task/") {
 		return nil
@@ -163,7 +151,7 @@ func ecsRejectTaggingAStoppedTask(resourceArn string) *ecsTagFault {
 	parts := strings.Split(resourceArn, "/")
 	task, ok := ecsTasks.Get(parts[len(parts)-1])
 	if !ok {
-		return nil // absence is the resolver's to report, in its own words
+		return nil // The resolver reports absence in its own words.
 	}
 	if task.LastStatus == ECSTaskStatusStopped || task.LastStatus == ECSTaskStatusDeprovisioning {
 		return &ecsTagFault{
@@ -174,17 +162,12 @@ func ecsRejectTaggingAStoppedTask(resourceArn string) *ecsTagFault {
 	return nil
 }
 
-// ecsWriteTagFault answers with the fault's own exception, which is what a
-// client's error handling switches on.
+// Clients switch on the exception.
 func ecsWriteTagFault(w http.ResponseWriter, fault *ecsTagFault) {
 	AWSError(w, fault.code, fault.message, http.StatusBadRequest)
 }
 
-// handleECSTagResource implements `AmazonEC2ContainerServiceV20141113.TagResource`.
-// `mergeECSTagsByKey` adds new tags + overwrites existing keys;
-// missing tags persist. Real ECS rejects TagResource on STOPPED
-// tasks; we mirror that behaviour so the recovery.go "skip STOPPED"
-// logic exercises the same gate.
+// New keys are added, existing keys overwritten, others kept.
 func handleECSTagResource(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ResourceArn string   `json:"resourceArn"`
@@ -211,9 +194,6 @@ func handleECSTagResource(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
-// handleECSUntagResource implements `AmazonEC2ContainerServiceV20141113.UntagResource`.
-// Companion to TagResource; removes the named tags. Same STOPPED-task
-// rejection rule.
 func handleECSUntagResource(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ResourceArn string   `json:"resourceArn"`
@@ -240,9 +220,7 @@ func handleECSUntagResource(w http.ResponseWriter, r *http.Request) {
 	for _, key := range req.TagKeys {
 		drop[key] = struct{}{}
 	}
-	// Built fresh rather than filtered in place: the slice belongs to the
-	// stored record, and writing through it would edit the store's own copy
-	// before the replace decides to.
+	// Build a fresh slice: filtering in place would edit the store's own copy.
 	kept := make([]ECSTag, 0, len(target.tags))
 	for _, tag := range target.tags {
 		if _, gone := drop[tag.Key]; gone {
@@ -254,10 +232,8 @@ func handleECSUntagResource(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
-// mergeECSTagsByKey combines `existing` with `incoming`: any key
-// present in both is overwritten by the `incoming` value (matching
-// real ECS TagResource semantics — "If existing tags on a resource
-// are not specified in the request parameters, they aren't changed").
+// "If existing tags on a resource are not specified in the request
+// parameters, they aren't changed."
 func mergeECSTagsByKey(existing, incoming []ECSTag) []ECSTag {
 	byKey := make(map[string]ECSTag, len(existing)+len(incoming))
 	for _, t := range existing {
@@ -281,8 +257,7 @@ func handleECSListTagsForResource(w http.ResponseWriter, r *http.Request) {
 		AWSErrorf(w, "InvalidParameterValue", http.StatusBadRequest, "invalid request body: %v", err)
 		return
 	}
-	// Resolved through the same function TagResource uses, so a type cannot be
-	// taggable and then invisible here.
+	// The same resolver as TagResource.
 	target, fault := ecsResolveTaggable(req.ResourceArn)
 	if fault != nil {
 		ecsWriteTagFault(w, fault)

@@ -14,36 +14,27 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/lbplane"
 )
 
-// A Network Load Balancer stream listener (TCP / TCP_UDP) forwards the raw byte
-// stream to a healthy target without parsing it; a TLS listener does the same
-// after terminating TLS with the listener's certificates; and an Application
-// Load Balancer HTTPS listener terminates TLS and forwards the decrypted HTTP
-// requests. Each binds a real listener at its configured port on the load
-// balancer's stable host, and the load balancer's AWS-shaped DNS name resolves
-// to that host through injected hosts entries (elbv2NLBHostEntries) — the same
-// mechanism the metadata and Cloud Map services use — so
-// "<dnsname>:<listenerPort>" reaches the listener exactly as it reaches a real
-// load balancer. Plain HTTP listeners are served by the simulator's own HTTP
-// front end (elbv2_dataplane.go) instead.
+// A Network Load Balancer TCP / TCP_UDP listener forwards the raw byte stream,
+// a TLS listener does so after terminating TLS, and an Application Load
+// Balancer HTTPS listener terminates TLS and forwards HTTP. Each binds a real
+// listener on the load balancer's stable host, and injected hosts entries
+// (elbv2NLBHostEntries) resolve the DNS name there, so
+// "<dnsname>:<listenerPort>" works as on AWS. Plain HTTP listeners are served
+// by the simulator's front end (elbv2_dataplane.go).
 var (
 	elbv2ListenerProxyMu sync.Mutex
 	elbv2ListenerProxies = map[string]*elbv2ListenerProxy{}
-	// elbv2LoadBalancerHosts gives every listener of one load balancer the same
-	// bind host.
+	// Every listener of one load balancer shares a bind host.
 	elbv2LoadBalancerHosts = lbplane.NewHostLeases()
 )
 
-// elbv2ListenerProxy is one running listener and the load balancer whose host
-// lease it holds.
 type elbv2ListenerProxy struct {
 	lbArn   string
 	address string
 	closer  interface{ Close() error }
 }
 
-// elbv2ListenerIsStream reports whether a listener forwards a raw byte stream
-// (NLB TCP / TCP_UDP) rather than HTTP. UDP is not a stream, so it is not a
-// raw-TCP byte proxy.
+// UDP is not a stream.
 func elbv2ListenerIsStream(listener ELBv2Listener) bool {
 	switch strings.ToUpper(listener.Protocol) {
 	case "TCP", "TCP_UDP":
@@ -53,8 +44,7 @@ func elbv2ListenerIsStream(listener ELBv2Listener) bool {
 	}
 }
 
-// elbv2ListenerIsTLS reports whether a listener terminates TLS at the load
-// balancer (HTTPS for an ALB, TLS for an NLB).
+// HTTPS for an Application Load Balancer, TLS for a Network Load Balancer.
 func elbv2ListenerIsTLS(listener ELBv2Listener) bool {
 	switch strings.ToUpper(listener.Protocol) {
 	case "HTTPS", "TLS":
@@ -64,10 +54,9 @@ func elbv2ListenerIsTLS(listener ELBv2Listener) bool {
 	}
 }
 
-// elbv2StartListenerProxy binds the real listener behind a stream, TLS or HTTPS
-// listener, choosing the target per connection (or per request) so target
-// registration and health apply as they change. Idempotent per listener ARN;
-// a no-op for a listener the HTTP front end serves.
+// Chooses the target per connection or request, so registration and health
+// changes apply. Idempotent per listener ARN; a no-op for HTTP front-end
+// listeners.
 func elbv2StartListenerProxy(listener ELBv2Listener) error {
 	if !elbv2ListenerIsStream(listener) && !elbv2ListenerIsTLS(listener) {
 		return nil
@@ -77,8 +66,8 @@ func elbv2StartListenerProxy(listener ELBv2Listener) error {
 		if _, err := elbv2ListenerTLSConfig(listener); err != nil {
 			return err
 		}
-		// Each handshake takes the certificates the listener holds then, so
-		// ModifyListener and AddListenerCertificates reach a running listener.
+		// Each handshake reads the current certificates, so ModifyListener and
+		// AddListenerCertificates reach a running listener.
 		arn := listener.Arn
 		tlsConfig = &tls.Config{MinVersion: tls.VersionTLS12, GetConfigForClient: func(*tls.ClientHelloInfo) (*tls.Config, error) {
 			current, ok := elbv2Listeners.Get(arn)
@@ -99,8 +88,7 @@ func elbv2StartListenerProxy(listener ELBv2Listener) error {
 	}
 	bindAddr := net.JoinHostPort(host, strconv.Itoa(listener.Port))
 	listenerArn := listener.Arn
-	// admissions remembers, per target address the resolver chose, what the
-	// target's security groups admit, for the proxy's admission of the flow.
+	// What each chosen target's security groups admit, per target address.
 	var admissions sync.Map
 	resolver := func(context.Context) (string, error) {
 		current, ok := elbv2Listeners.Get(listenerArn)
@@ -160,9 +148,7 @@ func elbv2StartListenerProxy(listener ELBv2Listener) error {
 	return nil
 }
 
-// elbv2StopListenerProxy closes and forgets the listener's proxy (on
-// DeleteListener, DeleteLoadBalancer, or a ModifyListener restart). A no-op if
-// none is running.
+// A no-op when none is running.
 func elbv2StopListenerProxy(listenerArn string) {
 	elbv2ListenerProxyMu.Lock()
 	entry := elbv2ListenerProxies[listenerArn]
@@ -175,10 +161,8 @@ func elbv2StopListenerProxy(listenerArn string) {
 	elbv2LoadBalancerHosts.Release(entry.lbArn)
 }
 
-// elbv2ListenerProxyAddress returns the host:port a client connects to in
-// order to reach a stream, TLS or HTTPS listener, read back from the bound
-// socket so the advertised address can never drift from where the proxy
-// really listens. Empty if no proxy is running for the listener.
+// Read back from the bound socket so the advertised address cannot drift.
+// Empty when no proxy runs.
 func elbv2ListenerProxyAddress(listenerArn string) string {
 	elbv2ListenerProxyMu.Lock()
 	defer elbv2ListenerProxyMu.Unlock()
@@ -189,12 +173,8 @@ func elbv2ListenerProxyAddress(listenerArn string) string {
 	return entry.address
 }
 
-// elbv2NLBHostEntries returns the hosts entries that make a load balancer's
-// AWS-shaped DNS name resolve to its stream / TLS proxy's stable host, for
-// every load balancer that has a running stream or TLS listener. A workload
-// that resolves the LB's DNS name (the value DescribeLoadBalancers returns) and
-// connects on the listener port therefore reaches the proxy — the faithful
-// analogue of a real LB's DNS name resolving to its addresses.
+// Resolves each load balancer's DNS name, as DescribeLoadBalancers returns it,
+// to its running stream or TLS proxy's host.
 func elbv2NLBHostEntries() []sim.HostEntry {
 	var entries []sim.HostEntry
 	for _, lb := range elbv2LoadBalancers.List() {
@@ -210,9 +190,7 @@ func elbv2NLBHostEntries() []sim.HostEntry {
 	return entries
 }
 
-// elbv2NLBHostForReporting returns the host a load balancer's AWS-shaped DNS
-// name resolves to: the host of an actually-running stream or TLS proxy for one
-// of the load balancer's listeners, or empty if it has none.
+// Empty when no stream or TLS listener runs.
 func elbv2NLBHostForReporting(lbArn string) string {
 	for _, listener := range elbv2Listeners.Filter(func(l ELBv2Listener) bool {
 		return l.LoadBalancerArn == lbArn && (elbv2ListenerIsStream(l) || elbv2ListenerIsTLS(l))
@@ -226,10 +204,7 @@ func elbv2NLBHostForReporting(lbArn string) string {
 	return ""
 }
 
-// elbv2WorkloadExtraHosts renders elbv2NLBHostEntries as Docker `--add-host`
-// (name:ip) entries, merged onto a workload container's ExtraHosts so it can
-// resolve every NLB's AWS-shaped DNS name to that NLB's stream proxy and connect
-// on the listener port — the same shape the metadata/Cloud Map host entries use.
+// As Docker `--add-host` name:ip entries for workload containers.
 func elbv2WorkloadExtraHosts() []string {
 	entries := elbv2NLBHostEntries()
 	if len(entries) == 0 {

@@ -12,37 +12,21 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// ECR types
-
-// ECRRepository represents an Elastic Container Registry repository.
-//
-// RepositoryUri is the canonical AWS registry URL
-// (`<account>.dkr.ecr.<region>.amazonaws.com/<repo>`) that consumers
-// follow with `docker pull` / `docker push`. The sim's actual ECR
-// Docker-registry surface is served at the documented endpoint URL
-// (the same listener that serves the AWS API), NOT at the
-// repositoryUri. Operators using the sim must override the registry
-// resolver (e.g., via `docker daemon --insecure-registry`) or
-// configure their tooling to recognize the sim's endpoint as the
-// registry host. Marked as external per the
-// `sim-emitted-url-roundtrip` skill's "document external" branch —
-// the URL points at real AWS by shape; the sim provides the same
-// registry surface at a different host.
+// RepositoryUri has the canonical `<account>.dkr.ecr.<region>.amazonaws.com/<repo>`
+// shape; the simulator serves the registry API at its own endpoint, so clients
+// must treat that endpoint as the registry host.
 type ECRRepository struct {
 	RepositoryArn  string `json:"repositoryArn"`
 	RepositoryName string `json:"repositoryName"`
-	RepositoryUri  string `json:"repositoryUri"` // external: canonical <account>.dkr.ecr.<region>.amazonaws.com/<repo>; sim serves the registry API at its own endpoint
+	RepositoryUri  string `json:"repositoryUri"` // external: the simulator serves the registry at its own endpoint
 	RegistryId     string `json:"registryId"`
 	CreatedAt      int64  `json:"createdAt"`
-	// Configuration the aws_ecr_repository Terraform provider reads back on
-	// refresh; the sim must echo what CreateRepository received (or the AWS
-	// defaults) or the provider shows perpetual drift.
+	// The aws_ecr_repository resource reads these back on refresh; echo the
+	// request or the AWS defaults, or the plan drifts forever.
 	ImageTagMutability         string                        `json:"imageTagMutability"`
 	EncryptionConfiguration    ECREncryptionConfiguration    `json:"encryptionConfiguration"`
 	ImageScanningConfiguration ECRImageScanningConfiguration `json:"imageScanningConfiguration"`
-	// imageTagMutabilityExclusionFilters round-trips through the
-	// aws_ecr_repository Terraform provider and PutImageTagMutability;
-	// omitted from DescribeRepositories when unset (AWS does the same).
+	// Omitted from DescribeRepositories when unset, as AWS does.
 	ImageTagMutabilityExclusionFilters []ECRImageTagMutabilityExclusionFilter `json:"imageTagMutabilityExclusionFilters,omitempty"`
 	Tags                               []SMTag                                `json:"-"`
 }
@@ -71,34 +55,21 @@ type ECRLifecyclePolicy struct {
 	LifecyclePolicyText string `json:"lifecyclePolicyText"`
 }
 
-// ECRPullThroughCacheRule models an ECR pull-through cache rule. The
-// simulator stores these so callers (sockerless ECS backend, aws CLI,
-// terraform) can register, list, and delete them just like real ECR.
-// The rule is consulted when a container image URI's registry path
-// starts with `<account>.dkr.ecr.<region>.amazonaws.com/<prefix>/…`
-// and `<prefix>` matches a registered `EcrRepositoryPrefix`.
-//
-// UpstreamRegistryUrl is EXTERNAL by design — it's the third-party
-// registry the pull-through cache pulls from (`registry-1.docker.io`,
-// `public.ecr.aws`, `ghcr.io`, etc.). The sim doesn't service the
-// upstream itself; real ECR fetches the upstream image when an
-// authenticated pull arrives, and the sim's image-resolver does the
-// same for backends pointed at the sim's registry surface.
+// A rule maps an Amazon ECR repository prefix onto an upstream registry; a pull
+// under `<account>.dkr.ecr.<region>.amazonaws.com/<prefix>/…` fetches from it.
 type ECRPullThroughCacheRule struct {
 	EcrRepositoryPrefix string `json:"ecrRepositoryPrefix"`
-	UpstreamRegistryUrl string `json:"upstreamRegistryUrl"` // external: operator-supplied upstream registry (docker.io / ghcr.io / public.ecr.aws / etc.)
+	UpstreamRegistryUrl string `json:"upstreamRegistryUrl"` // external: the upstream registry the rule pulls from
 	UpstreamRegistry    string `json:"upstreamRegistry,omitempty"`
 	RegistryId          string `json:"registryId"`
 	CreatedAt           int64  `json:"createdAt"`
 	UpdatedAt           int64  `json:"updatedAt,omitempty"`
-	// CredentialArn / CustomRoleArn are set by UpdatePullThroughCacheRule when
-	// the upstream registry requires authentication; echoed back by
-	// ValidatePullThroughCacheRule.
+	// Set by UpdatePullThroughCacheRule when the upstream requires
+	// authentication; ValidatePullThroughCacheRule echoes them.
 	CredentialArn string `json:"credentialArn,omitempty"`
 	CustomRoleArn string `json:"customRoleArn,omitempty"`
 }
 
-// State stores
 var (
 	ecrRepositories          sim.Store[ECRRepository]
 	ecrImages                sim.Store[ECRImageDetail]
@@ -106,10 +77,8 @@ var (
 	ecrPullThroughCacheRules sim.Store[ECRPullThroughCacheRule]
 )
 
-// ecrRegistryId() returns the registry ID — same as the AWS account ID.
-// Real ECR uses the caller's account; the sim defers to awsAccountID
-// so a SOCKERLESS_AWS_ACCOUNT_ID override propagates through every ECR
-// ARN, repository URI, and authorization-token endpoint.
+// Follows awsAccountID(), so an account override reaches every ARN, URI and
+// token endpoint.
 func ecrRegistryId() string { return awsAccountID() }
 
 func ecrArn(resourceType, name string) string {
@@ -140,12 +109,6 @@ func registerECR(r *AWSRouter, srv *sim.Server) {
 	r.Register("AmazonEC2ContainerRegistry_V20150921.TagResource", handleECRTagResource)
 	r.Register("AmazonEC2ContainerRegistry_V20150921.UntagResource", handleECRUntagResource)
 
-	// Pull-through cache rules. Used by sockerless image resolvers
-	// and by terraform's aws_ecr_pull_through_cache_rule resource.
-	// Backend caller builds URIs like
-	// `<account>.dkr.ecr.<region>.amazonaws.com/<prefix>/<repo>:<tag>`
-	// which the simulator's ResolveLocalImage recognizes as a cache
-	// hit and rewrites to the upstream registry on first pull.
 	r.Register("AmazonEC2ContainerRegistry_V20150921.CreatePullThroughCacheRule", handleECRCreatePullThroughCacheRule)
 	r.Register("AmazonEC2ContainerRegistry_V20150921.DescribePullThroughCacheRules", handleECRDescribePullThroughCacheRules)
 	r.Register("AmazonEC2ContainerRegistry_V20150921.DeletePullThroughCacheRule", handleECRDeletePullThroughCacheRule)
@@ -156,10 +119,6 @@ func registerECR(r *AWSRouter, srv *sim.Server) {
 	registerECROCI(srv)
 }
 
-// handleECRCreatePullThroughCacheRule registers a pull-through cache
-// rule. Returns PullThroughCacheRuleAlreadyExistsException if the
-// prefix is already in use — matches real AWS behaviour so sockerless
-// and terraform's `aws_ecr_pull_through_cache_rule` see the same errors.
 func handleECRCreatePullThroughCacheRule(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		EcrRepositoryPrefix string `json:"ecrRepositoryPrefix"`
@@ -196,9 +155,7 @@ func handleECRCreatePullThroughCacheRule(w http.ResponseWriter, r *http.Request)
 	}
 	ecrPullThroughCacheRules.Put(req.EcrRepositoryPrefix, rule)
 
-	// upstreamRegistry names which upstream this rule caches, from a closed
-	// set — a rule created without one is answered without it rather than with
-	// an empty string the enum does not declare.
+	// upstreamRegistry is a closed enum; omit it rather than send an empty string.
 	created := map[string]any{
 		"ecrRepositoryPrefix": rule.EcrRepositoryPrefix,
 		"upstreamRegistryUrl": rule.UpstreamRegistryUrl,
@@ -211,10 +168,7 @@ func handleECRCreatePullThroughCacheRule(w http.ResponseWriter, r *http.Request)
 	sim.WriteJSON(w, http.StatusOK, created)
 }
 
-// handleECRDescribePullThroughCacheRules returns rules matching the
-// requested prefixes, or all rules when the request is empty. Matches
-// the real API's pagination-less response shape for the test-sized
-// rule sets the simulator supports.
+// Answers without pagination.
 func handleECRDescribePullThroughCacheRules(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		EcrRepositoryPrefixes []string `json:"ecrRepositoryPrefixes"`
@@ -243,9 +197,6 @@ func handleECRDescribePullThroughCacheRules(w http.ResponseWriter, r *http.Reque
 	})
 }
 
-// handleECRDeletePullThroughCacheRule removes a rule. Returns
-// PullThroughCacheRuleNotFoundException when the prefix isn't
-// registered — matches real AWS.
 func handleECRDeletePullThroughCacheRule(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		EcrRepositoryPrefix string `json:"ecrRepositoryPrefix"`
@@ -268,8 +219,7 @@ func handleECRDeletePullThroughCacheRule(w http.ResponseWriter, r *http.Request)
 	}
 	ecrPullThroughCacheRules.Delete(req.EcrRepositoryPrefix)
 
-	// Unlike the create/describe shapes, DeletePullThroughCacheRuleResponse
-	// has no upstreamRegistry member.
+	// DeletePullThroughCacheRuleResponse has no upstreamRegistry member.
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
 		"ecrRepositoryPrefix": rule.EcrRepositoryPrefix,
 		"upstreamRegistryUrl": rule.UpstreamRegistryUrl,
@@ -277,13 +227,6 @@ func handleECRDeletePullThroughCacheRule(w http.ResponseWriter, r *http.Request)
 		"createdAt":           rule.CreatedAt,
 	})
 }
-
-// Pull-through-cache URI → local docker ref resolution is handled by
-// `sim.ResolveLocalImage` in simulator-aws/shared/container.go, which
-// already strips `docker-hub/` + `library/` prefixes from ECR URIs
-// before the simulator pulls. The handlers above are what sockerless's
-// image-resolver + terraform's aws_ecr_pull_through_cache_rule need;
-// the launch-time URI mapping lives in the shared helper.
 
 func handleECRCreateRepository(w http.ResponseWriter, r *http.Request) {
 	var req struct {
@@ -316,11 +259,11 @@ func handleECRCreateRepository(w http.ResponseWriter, r *http.Request) {
 		CreatedAt:                  time.Now().Unix(),
 		ImageTagMutability:         req.ImageTagMutability,
 		ImageScanningConfiguration: ECRImageScanningConfiguration{},
-		// Real ECR defaults to AES256 server-side encryption.
+		// Amazon ECR defaults to AES256 server-side encryption.
 		EncryptionConfiguration: ECREncryptionConfiguration{EncryptionType: "AES256"},
 	}
 	if repo.ImageTagMutability == "" {
-		repo.ImageTagMutability = "MUTABLE" // AWS default
+		repo.ImageTagMutability = "MUTABLE" // The AWS default.
 	}
 	if req.EncryptionConfiguration != nil && req.EncryptionConfiguration.EncryptionType != "" {
 		repo.EncryptionConfiguration = *req.EncryptionConfiguration
@@ -328,8 +271,7 @@ func handleECRCreateRepository(w http.ResponseWriter, r *http.Request) {
 	if req.ImageScanningConfiguration != nil {
 		repo.ImageScanningConfiguration = *req.ImageScanningConfiguration
 	}
-	// Tags set at create round-trip through ListTagsForResource; real ECR
-	// accepts tags on CreateRepository and dropping them drifts every plan.
+	// Store create-time tags; dropping them drifts every plan.
 	repo.Tags = req.Tags
 	ecrRepositories.Put(req.RepositoryName, repo)
 
@@ -415,10 +357,9 @@ func handleECRDeleteRepository(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// ecrDeleteRepositoryContents removes what a repository holds along with it, so
-// a repository created again under the same name starts empty, as on Amazon ECR.
-// Image and manifest keys are "<repository>:…" and blob and layer keys
-// "<repository>@…"; a repository name contains neither separator.
+// A repository created again under the same name starts empty. Image and
+// manifest keys are "<repository>:…", blob and layer keys "<repository>@…";
+// a repository name contains neither separator.
 func ecrDeleteRepositoryContents(repo string) {
 	for _, row := range ecrImages.ListPrefix(repo + ":") {
 		ecrImages.Delete(row.ID)
@@ -461,9 +402,7 @@ func handleECRGetAuthorizationToken(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// ecrRepoImages returns the distinct images in a repository, read as the key
-// range "<repository>:" (a repository name cannot contain a colon). The store
-// holds each image under its digest and under each tag, so it deduplicates by
+// The store holds each image under its digest and each tag, so deduplicate by
 // digest.
 func ecrRepoImages(repo string) []ECRImageDetail {
 	seen := map[string]bool{}
@@ -495,8 +434,7 @@ func handleECRListImages(w http.ResponseWriter, r *http.Request) {
 		AWSErrorf(w, "RepositoryNotFoundException", http.StatusBadRequest, "The repository with name '%s' does not exist", req.RepositoryName)
 		return
 	}
-	// filter.tagStatus ∈ TAGGED | UNTAGGED | ANY (default ANY). Real ECR
-	// restricts the returned imageIds to the requested tag presence.
+	// tagStatus is TAGGED, UNTAGGED or ANY (the default).
 	tagStatus := strings.ToUpper(req.Filter.TagStatus)
 	imageIds := []map[string]string{}
 	for _, img := range ecrRepoImages(req.RepositoryName) {
@@ -562,7 +500,7 @@ func handleECRDescribeImages(w http.ResponseWriter, r *http.Request) {
 		images = ecrRepoImages(req.RepositoryName)
 	}
 
-	// filter.tagStatus ∈ TAGGED | UNTAGGED | ANY (default ANY).
+	// tagStatus is TAGGED, UNTAGGED or ANY (the default).
 	if tagStatus := strings.ToUpper(req.Filter.TagStatus); tagStatus == "TAGGED" || tagStatus == "UNTAGGED" {
 		var f []ECRImageDetail
 		for _, img := range images {
@@ -694,7 +632,6 @@ func handleECRPutImage(w http.ResponseWriter, r *http.Request) {
 
 	key := req.RepositoryName + ":" + req.ImageTag
 	ecrImages.Put(key, img)
-	// Also store by digest
 	ecrImages.Put(req.RepositoryName+":"+digest, img)
 
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
@@ -739,16 +676,14 @@ func handleECRBatchDeleteImage(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if img, ok := ecrImages.Get(key); ok {
-			// Each image is stored under its digest key and one key per tag —
-			// delete every alias for the content, or DescribeImages/ListImages
-			// (which dedup by digest) would still surface a "deleted" image.
+			// Delete every alias of the content, or DescribeImages and ListImages would
+			// still list the image.
 			ecrImages.Delete(req.RepositoryName + ":" + img.ImageDigest)
 			for _, tag := range img.ImageTags {
 				ecrImages.Delete(req.RepositoryName + ":" + tag)
 			}
 			ecrImages.Delete(key)
-			// Deleted entries are bare ImageIdentifier objects. Real ECR
-			// resolves the digest even when the request deleted by tag.
+			// Amazon ECR resolves the digest even when the request deleted by tag.
 			imgId := map[string]any{"imageDigest": img.ImageDigest}
 			if imageId.ImageTag != "" {
 				imgId["imageTag"] = imageId.ImageTag
@@ -885,8 +820,6 @@ func handleECRDeleteLifecyclePolicy(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// ecrRepoByArn resolves a repository ARN (arn:aws:ecr:…:repository/<name>) to
-// its stored name.
 func ecrRepoByArn(arn string) (string, bool) {
 	const sep = ":repository/"
 	idx := strings.Index(arn, sep)
@@ -899,7 +832,6 @@ func ecrRepoByArn(arn string) (string, bool) {
 }
 
 func handleECRListTagsForResource(w http.ResponseWriter, r *http.Request) {
-	// Terraform uses this to read tags for ECR repositories
 	var req struct {
 		ResourceArn string `json:"resourceArn"`
 	}
@@ -976,11 +908,9 @@ func handleECRUntagResource(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
-// ecrImageSize is DescribeImages' imageSizeInBytes: the compressed sizes of the
-// blobs the image's manifest references — its layers and its config — and for
-// a manifest list the largest of the manifests it lists (ImageDetail, Amazon ECR
-// API Reference). The manifest document itself does not count: the AWS CLI's
-// describe-images and batch-get-image examples for cluster-autoscaler v1.13.6
+// The compressed sizes of the blobs the manifest references (layers and
+// config), and for a manifest list the largest listed manifest; the manifest
+// itself does not count. The AWS CLI examples for cluster-autoscaler v1.13.6
 // show 48318255 bytes for four layers of 48315478 and a 2777-byte config.
 func ecrImageSize(img ECRImageDetail) (int64, error) {
 	var manifest struct {

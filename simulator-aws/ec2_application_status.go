@@ -15,17 +15,10 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/lbplane"
 )
 
-// Amazon EC2 application status checks: operator-defined health checks the
-// platform runs against instances, and the per-instance application status
-// they produce.
-//
-// The check and its associations are control-plane state, stored and returned
-// as the API defines them. The status is measured on the check's own
-// schedule: a checker probes each associated instance over the check's
-// protocol, port and path every Interval once the instance's initialization
-// grace period has passed, and moves the check to passed or failed after
-// SuccessThreshold or FailureThreshold consecutive results. DescribeApplicationStatus
-// reports what the latest checks recorded; a suppressed instance reports its
+// A checker probes each associated instance over the check's protocol, port
+// and path every Interval once the instance's initialization grace period has
+// passed, and moves the check to passed or failed after SuccessThreshold or
+// FailureThreshold consecutive results. A suppressed instance reports its
 // suppression, not a verdict.
 
 type EC2ApplicationStatusCheck struct {
@@ -43,9 +36,8 @@ type EC2ApplicationStatusCheck struct {
 	Tags                      []EC2Tag `json:"tags,omitempty"`
 }
 
-// EC2ApplicationStatusCheckAssociation binds a check to one instance. The
-// model assigns associations no identifier of their own — disassociation
-// names the check and the instance — so the store key is that pair.
+// The model gives associations no identifier; disassociation names the check
+// and the instance, so that pair is the key.
 type EC2ApplicationStatusCheckAssociation struct {
 	ApplicationStatusCheckId string  `json:"applicationStatusCheckId"`
 	InstanceId               string  `json:"instanceId"`
@@ -81,8 +73,7 @@ func registerEC2ApplicationStatus(r *AWSQueryRouter, srv *sim.Server) {
 	})
 }
 
-// ec2AppStatusSweep is how often the checker looks for checks that have come
-// due; each check runs on its own Interval.
+// Each check still runs on its own Interval.
 const ec2AppStatusSweep = time.Second
 
 var ec2AppStatusTracker = lbplane.NewHealthTracker[string]()
@@ -119,8 +110,6 @@ func appStatusCheckXML(check EC2ApplicationStatusCheck) string {
 	return b.String()
 }
 
-// ec2ValidateAppStatusCheck applies the constraints the Amazon EC2 model
-// documents for a check's schedule and thresholds.
 func ec2ValidateAppStatusCheck(check EC2ApplicationStatusCheck) string {
 	switch {
 	case check.Aggregation != "included" && check.Aggregation != "excluded":
@@ -143,8 +132,7 @@ func ec2ValidateAppStatusCheck(check EC2ApplicationStatusCheck) string {
 }
 
 func handleCreateApplicationStatusCheck(w http.ResponseWriter, r *http.Request) {
-	// The model's NetworkProtocolEnum admits exactly http and https: an
-	// application status check is an HTTP check by definition.
+	// NetworkProtocolEnum admits only http and https.
 	protocol := strings.ToLower(r.FormValue("Protocol"))
 	if protocol == "" {
 		protocol = "http"
@@ -274,8 +262,7 @@ func handleDeleteApplicationStatusCheck(w http.ResponseWriter, r *http.Request) 
 			fmt.Sprintf("The application status check ID '%s' does not exist", id), http.StatusBadRequest)
 		return
 	}
-	// The check's associations go with it: they bind to a check that no
-	// longer exists.
+	// The check's associations go with it.
 	for _, association := range ec2AppStatusAssociations.List() {
 		if association.ApplicationStatusCheckId == id {
 			ec2AppStatusAssociations.Delete(
@@ -377,9 +364,6 @@ func handleDescribeApplicationStatusCheckAssociations(w http.ResponseWriter, r *
 </DescribeApplicationStatusCheckAssociationsResponse>`, ec2Xmlns(), sim.NewUUID(), items.String())
 }
 
-// ec2CheckApplicationStatus is one sweep of the checker: every association
-// past its instance's initialization grace period whose check has come due at
-// now is probed, and the result folded into the association's record.
 func ec2CheckApplicationStatus(ctx context.Context, now time.Time) {
 	var targets []lbplane.HealthTarget[string]
 	for _, association := range ec2AppStatusAssociations.List() {
@@ -404,8 +388,6 @@ func ec2CheckApplicationStatus(ctx context.Context, now time.Time) {
 	ec2AppStatusTracker.Sweep(ctx, now, targets)
 }
 
-// ec2AppStatusInGracePeriod reports whether the check still waits out its
-// InitializationGracePeriodSeconds after the instance launched.
 func ec2AppStatusInGracePeriod(instanceID string, check EC2ApplicationStatusCheck, now time.Time) bool {
 	if check.InitializationGracePeriod <= 0 {
 		return false
@@ -421,8 +403,7 @@ func ec2AppStatusInGracePeriod(instanceID string, check EC2ApplicationStatusChec
 	return now.Before(launched.Add(time.Duration(check.InitializationGracePeriod) * time.Second))
 }
 
-// ec2AppStatusReasonXML renders the reason the latest check recorded, in the
-// codes the ApplicationStatusReason shape documents.
+// The codes the ApplicationStatusReason shape documents.
 func ec2AppStatusReasonXML(health lbplane.Health, protocol string) string {
 	var code string
 	status := health.LastStatus
@@ -454,10 +435,7 @@ func ec2AppStatusReasonXML(health lbplane.Health, protocol string) string {
 	return b.String()
 }
 
-// handleDescribeApplicationStatus reports what the checker last recorded for
-// each associated instance, in the response shape the SDK deserialises:
-// instanceSet → applicationStatus → detailSet. A check the checker has not yet
-// run, or that has not reached a threshold, is initializing.
+// A check not yet run, or below its thresholds, is initializing.
 func handleDescribeApplicationStatus(w http.ResponseWriter, r *http.Request) {
 	instanceIDs := ec2ParamList(r, "InstanceId")
 	byInstance := map[string][]EC2ApplicationStatusCheckAssociation{}
@@ -535,9 +513,7 @@ func handleDescribeApplicationStatus(w http.ResponseWriter, r *http.Request) {
 </DescribeApplicationStatusResponse>`, ec2Xmlns(), sim.NewUUID(), instances.String())
 }
 
-// ec2ProbeApplicationCheck performs the check against the instance and
-// returns the HTTP status it read. An instance that is not running has no
-// address to probe.
+// An instance that is not running has no address to probe.
 func ec2ProbeApplicationCheck(ctx context.Context, instanceID string, check EC2ApplicationStatusCheck) (int, error) {
 	instance, ok := ec2Instances.Get(instanceID)
 	if !ok || instance.State != "running" || instance.PrivateIpAddress == "" {

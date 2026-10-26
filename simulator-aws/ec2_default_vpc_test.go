@@ -12,14 +12,11 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
-// CreateDefaultVpc "Creates a default VPC with a size /16 IPv4 CIDR block and
-// a default subnet in each Availability Zone", and CreateDefaultSubnet
-// "Creates a default subnet with a size /20 IPv4 CIDR block in the specified
-// Availability Zone in your default VPC" once the zone's default subnet is
-// gone, taking the next /20 the VPC has free.
+// A default VPC is /16 with a /20 default subnet per zone, and
+// CreateDefaultSubnet takes the next free /20 once a zone's default subnet is
+// gone.
 func TestEC2DefaultVpcGetsADefaultSubnetPerZone(t *testing.T) {
-	// Background work from an earlier test must finish before the stores
-	// it is reading are replaced.
+	// Let earlier background work finish before replacing its stores.
 	bg.Await()
 	ec2Vpcs = sim.MakeStore[EC2Vpc](nil, "ec2_vpcs")
 	ec2Subnets = sim.MakeStore[EC2Subnet](nil, "ec2_subnets")
@@ -62,8 +59,7 @@ func TestEC2DefaultVpcGetsADefaultSubnetPerZone(t *testing.T) {
 			ec2Subnets.Delete(s.SubnetId)
 		}
 	}
-	// A subnet that is not the zone's default holds the freed /20, so the
-	// new default subnet takes the next one.
+	// A non-default subnet holds the freed /20, so the new default takes the next.
 	ec2Subnets.Put("subnet-held", EC2Subnet{SubnetId: "subnet-held", VpcId: vpcID, CidrBlock: "172.31.16.0/24", AvailabilityZone: "us-east-1a", State: "available"})
 	code, body = call(handleCreateDefaultSubnet, url.Values{"Action": {"CreateDefaultSubnet"}, "AvailabilityZoneId": {ec2AvailabilityZoneId("us-east-1b")}})
 	if code != http.StatusOK {

@@ -16,7 +16,6 @@ import (
 	dockerclient "github.com/moby/moby/client"
 )
 
-// ecsExecSessions tracks active ECS exec sessions for WebSocket handlers.
 var ecsExecSessions sync.Map // map[sessionID]ecsExecSession
 
 type ecsExecSession struct {
@@ -26,10 +25,8 @@ type ecsExecSession struct {
 	tokenValue        string
 }
 
-// ssmStreamWriter wraps chunks in an SSM output_stream_data AgentMessage
-// frame before sending over the WebSocket. The backend's decoder
-// parses these frames to reconstruct the Docker-mux'd stream;
-// sending raw bytes silently produces empty exec output.
+// Each chunk must be an SSM output_stream_data AgentMessage frame; clients
+// decode raw bytes as empty output.
 type ssmStreamWriter struct {
 	conn        *websocket.Conn
 	payloadType uint32 // 1 = stdout, 11 = stderr
@@ -53,9 +50,8 @@ var wsUpgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool { return true },
 }
 
-// resolveECSContainerSecrets resolves a container definition's `secrets` array
-// (`[{"name","valueFrom"}]`) to name→value pairs by fetching each `valueFrom`
-// from Secrets Manager or SSM Parameter Store, as real ECS does at task launch.
+// Fetch each valueFrom from Secrets Manager or Parameter Store at task launch,
+// as Amazon ECS does.
 func resolveECSContainerSecrets(raw json.RawMessage) map[string]string {
 	out := map[string]string{}
 	if len(raw) == 0 {
@@ -79,9 +75,8 @@ func resolveECSContainerSecrets(raw json.RawMessage) map[string]string {
 	return out
 }
 
-// resolveECSSecretValue resolves a single ECS secret `valueFrom` reference.
-// Secrets Manager: arn:aws:secretsmanager:…:secret:name-suffix[:jsonKey:stage:id]
-// — an optional jsonKey selects a field from a JSON SecretString. SSM:
+// Secrets Manager: arn:aws:secretsmanager:…:secret:name-suffix[:jsonKey:stage:id],
+// where jsonKey selects a field of a JSON SecretString. Parameter Store:
 // arn:aws:ssm:…:parameter/name or a bare /name.
 func resolveECSSecretValue(valueFrom string) (string, bool) {
 	if strings.Contains(valueFrom, ":secretsmanager:") {
@@ -105,7 +100,6 @@ func resolveECSSecretValue(valueFrom string) (string, bool) {
 		}
 		return val, true
 	}
-	// SSM Parameter Store (ARN or bare name).
 	name := valueFrom
 	if i := strings.Index(valueFrom, ":parameter"); i >= 0 {
 		name = valueFrom[i+len(":parameter"):]
@@ -116,8 +110,6 @@ func resolveECSSecretValue(valueFrom string) (string, bool) {
 	return "", false
 }
 
-// handleECSExecuteCommand returns a handler that implements ECS ExecuteCommand.
-// It creates a session and registers a WebSocket handler for command execution.
 func handleECSExecuteCommand(srv *sim.Server) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
@@ -146,7 +138,6 @@ func handleECSExecuteCommand(srv *sim.Server) http.HandlerFunc {
 			return
 		}
 
-		// Extract task ID from ARN
 		taskID := req.Task
 		if strings.HasPrefix(taskID, "arn:") {
 			parts := strings.Split(taskID, "/")
@@ -155,7 +146,6 @@ func handleECSExecuteCommand(srv *sim.Server) http.HandlerFunc {
 			}
 		}
 
-		// Verify task exists and is RUNNING
 		task, ok := ecsTasks.Get(taskID)
 		if !ok {
 			AWSErrorf(w, "InvalidParameterException", http.StatusBadRequest,
@@ -184,8 +174,7 @@ func handleECSExecuteCommand(srv *sim.Server) http.HandlerFunc {
 			}
 			return
 		}
-		// Real ECS rejects exec unless the task was started with
-		// enableExecuteCommand=true (the SSM exec agent is only injected then).
+		// Exec requires enableExecuteCommand=true, which injects the SSM agent.
 		if !task.EnableExecuteCommand {
 			AWSError(w, "InvalidParameterException",
 				"The execute command failed because execute command was not enabled when the task was run or the execute command agent isn't running. Wait and try again or run a new task with execute command enabled and try again.",
@@ -219,14 +208,13 @@ func handleECSExecuteCommand(srv *sim.Server) http.HandlerFunc {
 			tokenValue:        tokenValue,
 		})
 
-		// Determine host from the incoming request
 		host := r.Host
 		if host == "" {
 			host = "localhost:4566"
 		}
 		streamURL := fmt.Sprintf("ws://%s/ecs-exec/%s", host, sessionID)
 
-		// WebSocket endpoint is registered statically as /ecs-exec/{sessionId}
+		// /ecs-exec/{sessionId} is registered statically.
 
 		sim.WriteJSON(w, http.StatusOK, map[string]any{
 			"clusterArn":    task.ClusterArn,
@@ -258,8 +246,6 @@ func ecsExecTargetContainer(task ECSTask, containerName string) *ECSTaskContaine
 	return nil
 }
 
-// handleECSExecWebSocket returns a handler for an ECS exec WebSocket session.
-// It upgrades the connection and bridges stdin/stdout/stderr of the command.
 func handleECSExecWebSocket(sessionID string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		sessVal, ok := ecsExecSessions.LoadAndDelete(sessionID)
@@ -279,15 +265,9 @@ func handleECSExecWebSocket(sessionID string) http.HandlerFunc {
 		}
 		defer conn.Close() //nolint:errcheck
 
-		// SSM Session Manager data-channel handshake. A real client
-		// (session-manager-plugin, or any faithful client like the ECS
-		// backend's exec_cloud.go) sends an OpenDataChannel message as the
-		// FIRST WebSocket frame — a JSON document carrying the TokenValue
-		// returned by ECS.ExecuteCommand. The service validates the token
-		// before any AgentMessage streaming begins. Consume and validate it
-		// here so a coordinate-only consumer drives the sim exactly as it
-		// drives real AWS; without this the token is never checked and the
-		// first frame would be mis-read as input_stream_data.
+		// A Session Manager client sends OpenDataChannel, carrying the
+		// ExecuteCommand TokenValue, as the first frame; validate it before any
+		// AgentMessage streaming.
 		if !validateSSMOpenDataChannel(conn, sess.tokenValue) {
 			_ = conn.WriteMessage(websocket.CloseMessage,
 				websocket.FormatCloseMessage(websocket.ClosePolicyViolation,
@@ -295,23 +275,12 @@ func handleECSExecWebSocket(sessionID string) http.HandlerFunc {
 			return
 		}
 
-		// Execute command inside the real Docker container
 		if sess.dockerContainerID != "" {
 			cli := sim.DockerClient()
 			if cli != nil {
-				// Always wrap the entire received string as a shell script.
-				// Backends now wrap commands in `sh -c '<script>'` before
-				// sending to ECS.ExecuteCommand (real AWS exec()s argv[0]
-				// and rejects shell builtins / pipes / env-expansion). The
-				// previous "unwrap if it starts with sh -c " path stripped
-				// `-c ` then handed the remaining bytes to Docker exec
-				// verbatim, which left the surrounding single quotes
-				// intact — `'echo …'` was then exec()'d as a single
-				// command name and produced "sh: 'echo …': not found".
-				// Treat the whole received string as one shell script
-				// regardless of whether the backend already wrapped it;
-				// double-wrapping is correct (the inner shell parses the
-				// outer script and dispatches the inner shell itself).
+				// Always run the received string as one shell script: Amazon ECS exec()s
+				// argv[0], so clients wrap commands in `sh -c '…'` themselves, and wrapping
+				// again is harmless.
 				execCmd := []string{"sh", "-c", sess.command}
 				execCfg := dockerclient.ExecCreateOptions{
 					Cmd:          execCmd,
@@ -333,12 +302,8 @@ func handleECSExecWebSocket(sessionID string) http.HandlerFunc {
 				}
 				defer attach.Close()
 
-				// Bridge: WebSocket → Docker exec stdin. The backend wraps
-				// stdin in SSM `input_stream_data` AgentMessage frames; real
-				// ssm-agent decodes the frame, forwards only the payload to
-				// the user process, and closes the user's stdin when the
-				// frame's FIN flag is set so readers like `cat`, `tar`, and
-				// `gzip` see EOF. Match that contract.
+				// Forward only frame payloads to stdin and close stdin on the FIN flag, as
+				// ssm-agent does, so `cat`, `tar` and `gzip` see EOF.
 				bg.Go(func() {
 					defer attach.CloseWrite() //nolint:errcheck
 					for {
@@ -348,8 +313,7 @@ func handleECSExecWebSocket(sessionID string) http.HandlerFunc {
 						}
 						payload, mt, fin, perr := decodeSSMInputFrame(msg)
 						if perr != nil {
-							// Not a parseable SSM frame — skip silently.
-							// Real ssm-agent ignores unrecognized frames.
+							// ssm-agent ignores unrecognized frames.
 							continue
 						}
 						if mt != ssmMTInputStreamData {
@@ -366,20 +330,14 @@ func handleECSExecWebSocket(sessionID string) http.HandlerFunc {
 					}
 				})
 
-				// Bridge: Docker exec → WebSocket wrapped in SSM
-				// AgentMessage frames. The backend's SSM decoder
-				// (backends/ecs/exec_cloud.go, will only see
-				// output if each chunk arrives as a proper
-				// output_stream_data frame.
+				// Clients see output only as output_stream_data frames.
 				writeMu := &sync.Mutex{}
 				stdoutWriter := &ssmStreamWriter{conn: conn, payloadType: ssmPayloadStdout, mu: writeMu}
 				stderrWriter := &ssmStreamWriter{conn: conn, payloadType: ssmPayloadStderr, mu: writeMu}
 				_, _ = stdcopy.StdCopy(stdoutWriter, stderrWriter, attach.Reader)
 
-				// Real AWS Session Manager sends an output_stream_data
-				// frame with PayloadType=12 carrying the exec process's
-				// exit code before the channel is closed. Match that so
-				// the backend decoder sees the true exit status.
+				// Session Manager sends the exit code in a PayloadType=12 frame before closing
+				// the channel.
 				exitCode := 0
 				if inspect, err := cli.ExecInspect(r.Context(), execResp.ID, dockerclient.ExecInspectOptions{}); err == nil {
 					exitCode = inspect.ExitCode
@@ -387,7 +345,6 @@ func handleECSExecWebSocket(sessionID string) http.HandlerFunc {
 				writeMu.Lock()
 				_ = conn.WriteMessage(websocket.BinaryMessage,
 					buildSSMOutputFrame(ssmPayloadExitCode, []byte(strconv.Itoa(exitCode))))
-				// Then signal channel close so the decoder unwinds cleanly.
 				_ = conn.WriteMessage(websocket.BinaryMessage, buildSSMChannelClosed())
 				writeMu.Unlock()
 
@@ -400,22 +357,16 @@ func handleECSExecWebSocket(sessionID string) http.HandlerFunc {
 			}
 		}
 
-		// No fallback: ExecuteCommand requires the task's Docker
-		// container. The sim never `os/exec`s the command on the sim
-		// host — that would run against the wrong "host" entirely
-		// (sim-binary host, not the Fargate-shaped task container).
-		// See feedback_sim_host_model.md.
+		// Never run the command on the simulator host: the task's container is the
+		// host.
 		_ = conn.WriteMessage(websocket.CloseMessage,
 			websocket.FormatCloseMessage(websocket.CloseInternalServerErr,
 				"ECS ExecuteCommand requires a running Docker container for the task"))
 	}
 }
 
-// ssmOpenDataChannelInput is the JSON body a client sends as the first
-// WebSocket frame to open an SSM Session Manager data channel. Mirrors
-// the session-manager-plugin's service.OpenDataChannelInput; only
-// TokenValue is load-bearing for the sim (it validates the token issued
-// by ECS.ExecuteCommand). Extra fields are tolerated.
+// Mirrors session-manager-plugin's OpenDataChannelInput; only TokenValue
+// matters here.
 type ssmOpenDataChannelInput struct {
 	MessageSchemaVersion string `json:"MessageSchemaVersion"`
 	RequestId            string `json:"RequestId"`
@@ -423,18 +374,13 @@ type ssmOpenDataChannelInput struct {
 	ClientId             string `json:"ClientId"`
 }
 
-// validateSSMOpenDataChannel reads the first WebSocket frame, parses it as
-// an OpenDataChannel message, and reports whether its TokenValue matches
-// the token issued for this session. A short read deadline bounds a client
-// that connects but never sends the handshake (real AWS times such
-// connections out rather than streaming).
+// A short deadline bounds a client that never sends the handshake.
 func validateSSMOpenDataChannel(conn *websocket.Conn, expectedToken string) bool {
 	_ = conn.SetReadDeadline(time.Now().Add(10 * time.Second))
 	_, msg, err := conn.ReadMessage()
 	if err != nil {
 		return false
 	}
-	// Clear the deadline so subsequent stdin frames aren't bounded.
 	_ = conn.SetReadDeadline(time.Time{})
 
 	var in ssmOpenDataChannelInput

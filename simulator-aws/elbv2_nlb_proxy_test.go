@@ -12,9 +12,7 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// elbv2InitStoresForTest initializes the ELBv2 stores (registerELBv2 calls
-// MakeStore), so a test can Put directly into them without going through the
-// HTTP control plane.
+// Lets a test Put into the stores directly.
 func elbv2InitStoresForTest(t *testing.T) {
 	t.Helper()
 	srv, err := sim.NewServer(sim.Config{Provider: "aws", LogLevel: "disabled"})
@@ -22,17 +20,13 @@ func elbv2InitStoresForTest(t *testing.T) {
 		t.Fatalf("new server: %v", err)
 	}
 	registerELBv2(NewAWSQueryRouter(), srv)
-	// The Elastic Load Balancing target health checker runs under the
-	// server lifecycle; without this it outlives the test and keeps
-	// checking whatever the next test puts in the package stores.
+	// Stop the health checker with the test, or it keeps checking the next test's
+	// stores.
 	t.Cleanup(srv.StopBackground)
 }
 
-// elbv2TestNLBEndpoint resolves a load balancer's stable AWS-shaped DNSName to
-// its stream proxy host through the production hosts-entry mapping
-// (elbv2NLBHostEntries), then joins the listener port — the faithful path an
-// in-network client uses (resolve the DNS name, connect on the listener port),
-// never a host:port read out of DNSName.
+// Resolve the DNS name through the production hosts entries, then join the
+// listener port, as an in-network client does.
 func elbv2TestNLBEndpoint(t *testing.T, lb ELBv2LoadBalancer, listenerPort int) string {
 	t.Helper()
 	for _, entry := range elbv2NLBHostEntries() {
@@ -44,14 +38,12 @@ func elbv2TestNLBEndpoint(t *testing.T, lb ELBv2LoadBalancer, listenerPort int) 
 	return ""
 }
 
-// TestELBv2NLBProxyForwardsRawTCP proves the NLB stream data plane forwards a
-// raw byte stream (not HTTP) to a healthy registered target, both directions,
-// like a real Network Load Balancer — the path SSH-through-NLB relies on.
+// Raw bytes both ways, the path SSH through a Network Load Balancer relies on.
 func TestELBv2NLBProxyForwardsRawTCP(t *testing.T) {
 	t.Setenv("SIM_RUNTIME", "process")
 	elbv2InitStoresForTest(t)
 
-	// A raw-TCP echo backend: reads a line, writes "echo:<line>" back. No HTTP.
+	// Reads a line and writes "echo:<line>" back.
 	backend, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen backend: %v", err)
@@ -93,7 +85,7 @@ func TestELBv2NLBProxyForwardsRawTCP(t *testing.T) {
 
 	elbv2LoadBalancers.Put(lbArn, ELBv2LoadBalancer{Arn: lbArn, Name: "nlb-raw", Type: "network",
 		DNSName: "nlb-raw-abc123.elb.us-east-1.amazonaws.com"})
-	// TCP target group with a TCP health check (dial succeeds → healthy).
+	// A TCP health check: a successful dial is healthy.
 	elbv2TargetGroups.Put(tgArn, ELBv2TargetGroup{
 		Arn: tgArn, Protocol: "TCP", Port: backendPort,
 		HealthCheckProtocol: "TCP", HealthCheckTimeout: 2, TargetType: "ip",
@@ -105,8 +97,8 @@ func TestELBv2NLBProxyForwardsRawTCP(t *testing.T) {
 		DefaultActions: []ELBv2Action{{Type: "forward", TargetGroupArn: tgArn}},
 	}
 	elbv2Listeners.Put(listenerArn, listener)
-	// A load balancer forwards only to targets its health checker has put in
-	// service, so run the check the checker would have run by now.
+	// Only in-service targets get traffic; run the check the checker would have
+	// run by now.
 	elbv2CheckTargetHealth(context.Background(), time.Now())
 
 	if err := elbv2StartListenerProxy(listener); err != nil {
@@ -114,10 +106,8 @@ func TestELBv2NLBProxyForwardsRawTCP(t *testing.T) {
 	}
 	defer elbv2StopListenerProxy(listenerArn)
 
-	// Discover the endpoint the way an in-network client does: resolve the
-	// stable AWS-shaped DNSName (what DescribeLoadBalancers returns) to the
-	// proxy host through the injected hosts entries, then connect on the
-	// listener port — never a host:port read from DNSName.
+	// Resolve the DNS name through the hosts entries, as an in-network client
+	// does.
 	lb, ok := elbv2LoadBalancers.Get(lbArn)
 	if !ok {
 		t.Fatal("load balancer not found")
@@ -143,9 +133,7 @@ func TestELBv2NLBProxyForwardsRawTCP(t *testing.T) {
 	}
 }
 
-// TestELBv2NLBProxyNoHealthyTargets proves a connection through an NLB stream
-// listener with no healthy target is closed without data (like a real NLB
-// dropping the connection), not answered with an HTTP error.
+// The connection is closed without data, not answered with an HTTP error.
 func TestELBv2NLBProxyNoHealthyTargets(t *testing.T) {
 	t.Setenv("SIM_RUNTIME", "process")
 	elbv2InitStoresForTest(t)
@@ -156,7 +144,7 @@ func TestELBv2NLBProxyNoHealthyTargets(t *testing.T) {
 
 	elbv2LoadBalancers.Put(lbArn, ELBv2LoadBalancer{Arn: lbArn, Name: "nlb-empty", Type: "network",
 		DNSName: "nlb-empty-abc123.elb.us-east-1.amazonaws.com"})
-	// No registered targets → no healthy target.
+	// No registered target means no healthy target.
 	elbv2TargetGroups.Put(tgArn, ELBv2TargetGroup{Arn: tgArn, Protocol: "TCP", Port: 443,
 		HealthCheckProtocol: "TCP", HealthCheckTimeout: 1, TargetType: "ip"})
 	listener := ELBv2Listener{Arn: listenerArn, LoadBalancerArn: lbArn, Protocol: "TCP", Port: 2022,

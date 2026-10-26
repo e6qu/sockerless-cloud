@@ -8,15 +8,9 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// ECS container instances — the EC2 hosts an ECS agent registers into a
-// cluster for EC2-launch-type placement. The agent calls RegisterContainerInstance
-// (and the agent-poll trio SubmitContainerStateChange / SubmitTaskStateChange /
-// SubmitAttachmentStateChanges / DiscoverPollEndpoint); the control plane offers
-// Describe/List/UpdateContainerInstancesState/UpdateContainerAgent /
-// DeregisterContainerInstance. The sim stores each instance keyed by its id
-// within a cluster so the full lifecycle round-trips.
+// The agent registers instances and reports state through the submit
+// operations; the control plane describes, updates and deregisters them.
 
-// ECSContainerInstance is the stored shape of a container instance.
 type ECSContainerInstance struct {
 	ContainerInstanceArn string          `json:"containerInstanceArn"`
 	Ec2InstanceId        string          `json:"ec2InstanceId,omitempty"`
@@ -36,18 +30,16 @@ type ECSContainerInstance struct {
 	Attachments          json.RawMessage `json:"attachments,omitempty"`
 	Tags                 []ECSTag        `json:"tags,omitempty"`
 	HealthStatus         json.RawMessage `json:"healthStatus,omitempty"`
-	// ClusterName is the store-key prefix; never on the wire.
+	// The store-key prefix; never on the wire.
 	ClusterName string `json:"-"`
 }
 
-// ECSAttribute is a name/value attribute attached to a container instance.
 type ECSAttribute struct {
 	Name       string `json:"name"`
 	Value      string `json:"value,omitempty"`
 	TargetType string `json:"targetType,omitempty"`
 	TargetId   string `json:"targetId,omitempty"`
-	// Cluster scopes a stored attribute to its cluster for ListAttributes; it
-	// is never on the wire (the Attribute shape has no cluster field).
+	// Scopes the attribute for ListAttributes; the Attribute shape has no cluster.
 	Cluster string `json:"-"`
 }
 
@@ -70,8 +62,7 @@ func registerECSContainerInstances(r *AWSRouter, srv *sim.Server) {
 
 func ecsContainerInstanceKey(cluster, id string) string { return cluster + "/" + id }
 
-// ecsContainerInstanceID extracts the instance id from an id or ARN
-// (...:container-instance/<cluster>/<id>).
+// Accepts an id or …:container-instance/<cluster>/<id>.
 func ecsContainerInstanceID(ref string) string {
 	if !strings.HasPrefix(ref, "arn:") {
 		return ref
@@ -98,11 +89,8 @@ func handleECSRegisterContainerInstance(w http.ResponseWriter, r *http.Request) 
 		AWSErrorf(w, "ClusterNotFoundException", http.StatusBadRequest, "Cluster not found: %s", req.Cluster)
 		return
 	}
-	// The instance identity document is how an EC2 instance identifies itself
-	// to Amazon ECS, and its instanceId is what the container instance reports
-	// as ec2InstanceId. It had been parsed and dropped, and the id invented,
-	// so a caller could not correlate a container instance with the EC2
-	// instance it runs on — the join every autoscaling integration makes.
+	// The identity document's instanceId is the ec2InstanceId; callers join a
+	// container instance to its EC2 instance on it.
 	ec2InstanceID, identityRegion := ecsInstanceIdentity(req.InstanceIdentityDoc)
 	_ = identityRegion
 	id := sim.NewUUID()
@@ -284,9 +272,8 @@ func handleECSDeregisterContainerInstance(w http.ResponseWriter, r *http.Request
 			"Could not find container instance '%s'.", req.ContainerInstance)
 		return
 	}
-	// Without force, Amazon ECS refuses to deregister an instance that is
-	// still running tasks. The flag had been parsed and ignored, so the
-	// instance went away underneath its own tasks.
+	// Without force, Amazon ECS refuses to deregister an instance still running
+	// tasks.
 	if !req.Force {
 		if running := ecsRunningTasksOnContainerInstance(ci.ContainerInstanceArn); running > 0 {
 			AWSErrorf(w, "InvalidParameterException", http.StatusBadRequest,
@@ -306,16 +293,11 @@ func handleECSDeregisterContainerInstance(w http.ResponseWriter, r *http.Request
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"containerInstance": ci})
 }
 
-// The agent-poll submit operations acknowledge a state change without exposing
-// a control-plane resource. Real ECS returns an "acknowledgment" string (the
-// reported status) so the agent knows the change was recorded.
+// The submit operations answer with an "acknowledgment" of the reported
+// status.
 
-// handleECSSubmitContainerStateChange records what the agent reports about one
-// container: its status, its exit code and the network bindings it obtained.
-// Amazon ECS applies the report to the task record, which is what
-// DescribeTasks then returns; acknowledging without applying it would leave the
-// control plane's view of the container permanently at whatever the scheduler
-// last assumed.
+// Apply the container's status, exit code and network bindings to the task
+// record DescribeTasks returns.
 func handleECSSubmitContainerStateChange(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Cluster         string `json:"cluster"`
@@ -379,12 +361,8 @@ func handleECSSubmitContainerStateChange(w http.ResponseWriter, r *http.Request)
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"acknowledgment": "ACK"})
 }
 
-// handleECSSubmitTaskStateChange records the task lifecycle transition the
-// agent reports. Amazon ECS moves the task's lastStatus to what the agent says
-// it reached, stamps the time it reached it, and keeps the stop reason a
-// stopping task carries; DescribeTasks and the service scheduler both read
-// that record, so acknowledging without applying it would strand the task at
-// its previous status forever.
+// Move lastStatus to what the agent reached, stamp the time and keep a
+// stopping task's reason; DescribeTasks and the scheduler read the record.
 func handleECSSubmitTaskStateChange(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Cluster            string   `json:"cluster"`
@@ -429,8 +407,7 @@ func handleECSSubmitTaskStateChange(w http.ResponseWriter, r *http.Request) {
 				stopped := now
 				task.StoppedAt = &stopped
 			}
-			// The agent's reason is the operator-visible one; a reason the
-			// scheduler already recorded is not overwritten by an empty report.
+			// An empty report does not overwrite a reason the scheduler recorded.
 			if req.Reason != "" {
 				task.StoppedReason = req.Reason
 			}
@@ -445,8 +422,7 @@ func handleECSSubmitTaskStateChange(w http.ResponseWriter, r *http.Request) {
 	if req.ExecutionStoppedAt != nil {
 		task.ExecutionStoppedAt = req.ExecutionStoppedAt
 	}
-	// A task-level report carries its containers' states, so a caller need not
-	// send SubmitContainerStateChange for each of them.
+	// A task report carries its containers' states.
 	for _, reported := range req.Containers {
 		for i := range task.Containers {
 			if task.Containers[i].Name != reported.ContainerName {
@@ -464,19 +440,13 @@ func handleECSSubmitTaskStateChange(w http.ResponseWriter, r *http.Request) {
 		ecsApplyAttachmentStatus(&task, reported.AttachmentArn, reported.Status)
 	}
 	ecsTasks.Put(taskID, task)
-	// The service scheduler reacts to its tasks' states, and a task the agent
-	// has just stopped is exactly what it must react to.
+	// The scheduler must react to a task the agent stopped.
 	ecsRequestServiceReconcileForTask(task)
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"acknowledgment": "ACK"})
 }
 
-// ecsTaskFromAgentReference resolves the task an agent names, within the
-// cluster the report is scoped to. The agent sends either the task ARN or its
-// bare id, and the store is keyed by the id.
-//
-// The cluster is checked rather than ignored: task ids are unique, but a
-// report naming one cluster must not reach a task in another, which is what
-// scoping the report means.
+// The agent sends an ARN or a bare id. A report scoped to one cluster must not
+// reach a task in another.
 func ecsTaskFromAgentReference(ref, cluster string) (string, ECSTask, bool) {
 	id := ref
 	if i := strings.LastIndex(ref, "/"); i >= 0 {
@@ -492,8 +462,7 @@ func ecsTaskFromAgentReference(ref, cluster string) (string, ECSTask, bool) {
 	return id, task, true
 }
 
-// ecsApplyAttachmentStatus moves one of a task's attachments to the status the
-// agent reports, matching on the attachment id or the ARN that ends with it.
+// Matches the attachment id or an ARN ending with it.
 func ecsApplyAttachmentStatus(task *ECSTask, attachmentRef, status string) bool {
 	if attachmentRef == "" || status == "" {
 		return false
@@ -512,11 +481,8 @@ func ecsApplyAttachmentStatus(task *ECSTask, attachmentRef, status string) bool 
 	return false
 }
 
-// handleECSSubmitAttachmentStateChanges records the elastic network interface
-// attachment states the agent reports. An awsvpc task's attachment moves to
-// ATTACHED when its interface is provisioned, and DescribeTasks reports that
-// status; acknowledging without applying it would leave every attachment at
-// the status it was created with.
+// An awsvpc task's attachment moves to ATTACHED once its interface is
+// provisioned, which DescribeTasks reports.
 func handleECSSubmitAttachmentStateChanges(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Cluster     string `json:"cluster"`
@@ -533,9 +499,7 @@ func handleECSSubmitAttachmentStateChanges(w http.ResponseWriter, r *http.Reques
 		AWSError(w, "InvalidParameterException", "attachments is required", http.StatusBadRequest)
 		return
 	}
-	// An attachment names no task, so the task that owns it is the one holding
-	// it. The scan is over the cluster's tasks, which is what the report is
-	// scoped to.
+	// An attachment names no task; scan the cluster's tasks for its owner.
 	applied := 0
 	for _, reported := range req.Attachments {
 		for _, task := range ecsTasks.List() {
@@ -559,15 +523,11 @@ func handleECSSubmitAttachmentStateChanges(w http.ResponseWriter, r *http.Reques
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"acknowledgment": "ACK"})
 }
 
-// ecsTaskInCluster reports whether a task belongs to the cluster named by a
-// name or an ARN.
 func ecsTaskInCluster(task ECSTask, cluster string) bool {
 	return ecsClusterNameFromRef(task.ClusterArn) == ecsClusterNameFromRef(cluster)
 }
 
-// handleECSDiscoverPollEndpoint returns the agent-communication endpoints. The
-// agent uses these to poll for tasks and report telemetry; the sim points them
-// at its own base so the agent contract round-trips.
+// The agent polls these endpoints, so point them at this simulator.
 func handleECSDiscoverPollEndpoint(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ContainerInstance string `json:"containerInstance"`
@@ -577,10 +537,6 @@ func handleECSDiscoverPollEndpoint(w http.ResponseWriter, r *http.Request) {
 		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
-	// The agent polls whatever this returns, so it has to be this simulator.
-	// It had returned real Amazon hostnames — ecs-a-1.<region>.amazonaws.com —
-	// which point an agent at AWS rather than here, and the comment above
-	// claimed the opposite.
 	base := "http://" + r.Host + "/"
 	if r.TLS != nil {
 		base = "https://" + r.Host + "/"
@@ -592,8 +548,7 @@ func handleECSDiscoverPollEndpoint(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// ecsRunningTasksOnContainerInstance counts the tasks the instance is still
-// running, which is what decides whether deregistering it needs force.
+// Decides whether deregistering needs force.
 func ecsRunningTasksOnContainerInstance(containerInstanceArn string) int {
 	running := 0
 	for _, task := range ecsTasks.List() {
@@ -608,11 +563,8 @@ func ecsRunningTasksOnContainerInstance(containerInstanceArn string) int {
 	return running
 }
 
-// ecsInstanceIdentity reads the EC2 instance identity document an agent
-// presents when it registers. The document is the JSON that EC2's instance
-// metadata service serves at /latest/dynamic/instance-identity/document; a
-// caller that sends none leaves both values empty rather than being given an
-// invented instance id.
+// The document /latest/dynamic/instance-identity/document serves; none leaves
+// both values empty.
 func ecsInstanceIdentity(document string) (instanceID, region string) {
 	if strings.TrimSpace(document) == "" {
 		return "", ""

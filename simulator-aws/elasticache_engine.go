@@ -18,22 +18,16 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/placement"
 )
 
-// The Amazon ElastiCache data plane.
-//
-// A cache cluster, replication group or serverless cache is a real engine on
-// sim/cacheengine: Valkey or Redis OSS nodes, or Memcached nodes, each a
-// workload on the backend the elasticache service is configured onto, on the
-// platform network, behind listeners this process owns on loopback addresses
-// of their own. The address and port a resource reports are the listener's,
-// as an Amazon RDS endpoint's are. The engine starts in the background while
-// the resource reports creating, and the resource turns available once every
-// node answers.
+// Each cache cluster, replication group or serverless cache is a real engine
+// on sim/cacheengine: Valkey, Redis OSS or Memcached nodes on the configured
+// backend, on the platform network, behind loopback listeners this process
+// owns. The reported address and port are the listener's. The resource
+// reports creating until every node answers.
 
 const (
 	ecRedisPort     = cacheengine.Port
 	ecMemcachedPort = cacheengine.MemcachedPort
-	// A serverless cache serves reads from replicas on the port after its
-	// endpoint's.
+	// A serverless cache serves reads on the port after its endpoint's.
 	ecServerlessReaderOffset = 1
 	ecEnginePlatform         = "linux/amd64"
 	ecAWSOwnedKMSKeyID       = "aws-owned-elasticache"
@@ -41,15 +35,12 @@ const (
 
 var ecPlacementService = placement.Service{Name: "elasticache"}
 
-// ecEngineVersion is one engine version the simulator runs, and the image it
-// runs it from.
 type ecEngineVersion struct {
 	Engine, Version, Family, Description, Image string
 }
 
-// ecEngineVersions are the engine versions DescribeCacheEngineVersions lists
-// and a create can name. Redis OSS 7.1 is ElastiCache's own release on the
-// Redis 7.0 line, so it runs Redis 7.0.
+// Redis OSS 7.1 is ElastiCache's release on the Redis 7.0 line, so it runs
+// Redis 7.0.
 var ecEngineVersions = []ecEngineVersion{
 	{"redis", "7.1", "redis7", "Redis", "mirror.gcr.io/library/redis:7.0-alpine"},
 	{"redis", "7.0", "redis7", "Redis", "mirror.gcr.io/library/redis:7.0-alpine"},
@@ -58,9 +49,8 @@ var ecEngineVersions = []ecEngineVersion{
 	{"memcached", "1.6.22", "memcached1.6", "memcached", "mirror.gcr.io/library/memcached:1.6.22-alpine"},
 }
 
-// ecResolveEngineVersion is the version of engine a create runs: the default
-// when none is named, and otherwise the listed version the named one is, or
-// whose major.minor it shares.
+// The default when none is named, else the listed version it is or shares a
+// major.minor with.
 func ecResolveEngineVersion(engine, version string) (ecEngineVersion, bool) {
 	if version == "" {
 		version = ecDefaultEngineVersion(engine)
@@ -82,8 +72,6 @@ func ecResolveEngineVersion(engine, version string) (ecEngineVersion, bool) {
 	return ecEngineVersion{}, false
 }
 
-// ecServerlessEngineVersion is the version a serverless cache of a major
-// engine version runs.
 func ecServerlessEngineVersion(engine, major string) (ecEngineVersion, bool) {
 	if major == "" {
 		return ecResolveEngineVersion(engine, "")
@@ -102,8 +90,7 @@ const (
 	ecKindServerless       = "serverlesscache"
 )
 
-// ecEngineRecord is what a control-plane restart needs to serve a resource's
-// engine again.
+// What a restart needs to serve the engine again.
 type ecEngineRecord struct {
 	cacheengine.Record
 	Kind    string `json:"kind"`
@@ -112,22 +99,19 @@ type ecEngineRecord struct {
 	Image   string `json:"image"`
 	Cluster bool   `json:"cluster,omitempty"`
 	TLS     bool   `json:"tls,omitempty"`
-	// TLSPreferred accepts unencrypted clients beside encrypted ones.
+	// Also accepts unencrypted clients.
 	TLSPreferred bool `json:"tlsPreferred,omitempty"`
-	// Token is the AUTH token the engine requires, sealed under the AWS
-	// owned ElastiCache key.
+	// The AUTH token, sealed under the AWS owned ElastiCache key.
 	Token []byte `json:"token,omitempty"`
 }
 
 var ecEngineRecords sim.Store[ecEngineRecord]
 
-// ecEngine is a resource's running data plane: Redis-protocol nodes or
-// Memcached nodes.
 type ecEngine struct {
 	key       string
 	redis     *cacheengine.Plane
 	memcached *cacheengine.Memcached
-	// opMu serialises the operations that change the engine's topology.
+	// Serializes topology changes.
 	opMu sync.Mutex
 }
 
@@ -148,17 +132,14 @@ func ecRunsEngines() bool {
 	return sim.RequireContainerRuntime("the Amazon ElastiCache data plane") == nil
 }
 
-// ecScopedName names a resource's engine objects after it and the simulator
-// that owns it.
+// Named after the resource and the owning simulator.
 func ecScopedName(key string) string {
 	digest := sha256.Sum256([]byte(sim.WorkloadScope() + "\x00" + key))
 	return "sockerless-elasticache-" + hex.EncodeToString(digest[:8])
 }
 
-// ecServerTLS is the TLS configuration every encrypting endpoint serves, from
-// a certificate authority this process creates on first use. ElastiCache
-// reports no CA of its own: a real endpoint presents a certificate a public
-// root signs.
+// From a CA this process creates on first use; ElastiCache reports no CA, as
+// a real endpoint's certificate chains to a public root.
 var ecServerTLS = sync.OnceValues(func() (*tls.Config, error) {
 	authority, err := cacheengine.NewAuthority(pkix.Name{
 		Organization: []string{"Amazon ElastiCache simulator"},
@@ -205,7 +186,6 @@ func ecEngineNetwork(ctx context.Context) (string, []string, error) {
 
 func ecEngineBackend() (placement.Backend, error) { return awsPlacement.For(ecPlacementService) }
 
-// ecNewEngine builds the data plane a record describes.
 func ecNewEngine(key string, record ecEngineRecord) (*ecEngine, error) {
 	scoped := ecScopedName(key)
 	labels := map[string]string{"sockerless-elasticache": scoped}
@@ -259,9 +239,7 @@ func ecNewEngine(key string, record ecEngineRecord) (*ecEngine, error) {
 	return engine, nil
 }
 
-// ecInstallEngine binds a new resource's endpoints and records its engine.
-// It returns the endpoints as bound, or none when this simulator runs no
-// engines.
+// Returns the bound endpoints, or none when the simulator runs no engines.
 func ecInstallEngine(record ecEngineRecord, wanted []cacheengine.Endpoint) (*ecEngine, []cacheengine.Endpoint, error) {
 	if !ecRunsEngines() {
 		return nil, nil, nil
@@ -291,8 +269,8 @@ func (e *ecEngine) serve(listeners map[string]net.Listener) {
 	e.redis.ServeEndpoints(listeners)
 }
 
-// start brings the engine up. A volume an earlier engine left under the
-// resource's name is not this resource's, so it goes first.
+// A volume an earlier engine left under the name is not this resource's, so
+// remove it first.
 func (e *ecEngine) start() error {
 	if e.memcached != nil {
 		return e.memcached.Ensure()
@@ -315,7 +293,6 @@ func (e *ecEngine) adopt() error {
 	return e.redis.Adopt()
 }
 
-// save records where the engine's topology now stands.
 func (e *ecEngine) save() {
 	ecEngineRecords.Update(e.key, func(record *ecEngineRecord) {
 		if e.memcached != nil {
@@ -326,8 +303,6 @@ func (e *ecEngine) save() {
 	})
 }
 
-// ecRemoveEngine stops a deleted resource's engine, closes its endpoints and
-// removes its volume.
 func ecRemoveEngine(key string) {
 	ecEngineRecords.Delete(key)
 	value, ok := ecEngines.LoadAndDelete(key)
@@ -345,8 +320,7 @@ func ecRemoveEngine(key string) {
 	engine.redis.Remove()
 }
 
-// ecRecoverEngines rebinds every recorded endpoint after a control-plane
-// restart and re-adopts the engine workloads an earlier process left.
+// Rebind every recorded endpoint and re-adopt earlier workloads.
 func ecRecoverEngines() error {
 	for _, record := range ecEngineRecords.List() {
 		key := ecEngineKey(record.Kind, record.ID)
@@ -367,8 +341,7 @@ func ecRecoverEngines() error {
 	return nil
 }
 
-// ecEndpointOf is the address and port of the endpoint of role, and of node
-// for a node endpoint.
+// node applies to node endpoints.
 func ecEndpointOf(endpoints []cacheengine.Endpoint, role cacheengine.Role, node int) (string, int) {
 	for _, endpoint := range endpoints {
 		if endpoint.Role == role && (role != cacheengine.NodeEndpoint || endpoint.Node == node) {
@@ -378,7 +351,6 @@ func ecEndpointOf(endpoints []cacheengine.Endpoint, role cacheengine.Role, node 
 	return "", 0
 }
 
-// ecLogEngineFailure says why a resource's engine did not come up.
 func ecLogEngineFailure(key string, err error) {
 	log.Printf("Amazon ElastiCache %s: the engine did not start: %v", key, err)
 }

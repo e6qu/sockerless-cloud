@@ -9,9 +9,8 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// ec2DescribeEach answers a Describe call with the resources the request names
-// under param, refusing one that does not exist, or with every resource when
-// it names none, sorted by ID.
+// Refuse a named resource that does not exist; with none named, answer every
+// resource sorted by ID.
 func ec2DescribeEach[T any](w http.ResponseWriter, r *http.Request, store sim.Store[T], param, notFoundCode, notFoundFormat string, id, fieldsXML func(T) string, action, set string) {
 	ids := ec2ParamList(r, param)
 	results := make([]T, 0)
@@ -31,9 +30,7 @@ func ec2DescribeEach[T any](w http.ResponseWriter, r *http.Request, store sim.St
 	ec2WriteResponse(w, action, "<"+set+">"+ec2ItemsXML(results, fieldsXML)+"</"+set+">")
 }
 
-// ec2DescribeMatching answers a Describe call with the resources, sorted by
-// ID, that the request names under param (or all of them) and that match its
-// filters, refusing a named resource that does not exist.
+// Sorted by ID; a named resource that does not exist is refused.
 func ec2DescribeMatching[T any](w http.ResponseWriter, r *http.Request, store sim.Store[T], param, notFoundCode, notFoundFormat string, id func(T) string, matches func(T, map[string][]string) bool, fieldsXML func(T) string, action, set string) {
 	ids := ec2ParamList(r, param)
 	for _, want := range ids {
@@ -57,8 +54,6 @@ func ec2DescribeMatching[T any](w http.ResponseWriter, r *http.Request, store si
 	ec2WriteResponse(w, action, "<"+set+">"+ec2ItemsXML(results, fieldsXML)+"</"+set+">")
 }
 
-// ec2DescribePaged answers a Describe call with the resources the request
-// names under param, or all of them, a NextToken page at a time.
 func ec2DescribePaged[T any](w http.ResponseWriter, r *http.Request, store sim.Store[T], param string, id, fieldsXML func(T) string, action, set string) {
 	ids := ec2ParamList(r, param)
 	results := make([]T, 0)
@@ -85,9 +80,7 @@ func ec2ItemsXML[T any](items []T, fieldsXML func(T) string) string {
 	return b.String()
 }
 
-// ec2NamedOrMatching returns the resources the request names under param,
-// refusing one that does not exist, or every resource that matches its filters
-// when it names none.
+// Refuse a named resource that does not exist; with none named, filter all.
 func ec2NamedOrMatching[T any](w http.ResponseWriter, r *http.Request, store sim.Store[T], param, notFoundCode, notFoundFormat string, matches func(T, map[string][]string) bool) ([]T, bool) {
 	ids := ec2ParamList(r, param)
 	var out []T

@@ -9,20 +9,17 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// ecsVPCNetworkName is the engine network realizing a VPC.
 func ecsVPCNetworkName(vpcID string) string { return "sockerless-sim-vpc-" + vpcID }
 
-// ec2VPCResolverAddress is the address of the Amazon Route 53 Resolver inside
-// a VPC: the VPC's base plus two, which the VPC reserves for it.
+// The VPC base plus two, which the VPC reserves for the Resolver.
 func ec2VPCResolverAddress(cidr netip.Prefix) netip.Addr {
 	return cidr.Masked().Addr().Next().Next()
 }
 
-// ec2EnsureVPCNetwork creates the engine network realizing a VPC over the
-// VPC's own CIDR, at the first workload attached to it, with the sidecar
-// that answers the Resolver and the instance metadata service at the VPC's
-// reserved address, and returns the network. A live engine network already
-// holding an overlapping range fails with sim.ErrAddressRangeInUse.
+// Created over the VPC's CIDR at its first workload, with the sidecar
+// answering the Resolver and metadata service at the reserved address. A live
+// engine network over an overlapping range fails with
+// sim.ErrAddressRangeInUse.
 func ec2EnsureVPCNetwork(ctx context.Context, vpcID string) (awsWorkloadNetwork, error) {
 	vpc, ok := ec2Vpcs.Get(vpcID)
 	if !ok {
@@ -63,13 +60,11 @@ func ec2EnsureVPCNetwork(ctx context.Context, vpcID string) (awsWorkloadNetwork,
 	return network, nil
 }
 
-// ec2VPCNetworksUp holds the engine network of every VPC this process has
-// realized, by VPC id.
+// Keyed by VPC id, for networks this process realized.
 var ec2VPCNetworksUp sync.Map
 
-// ec2VPCNetworkUp is the VPC's engine network when this process realized
-// it: a NAT gateway created afterwards starts its data plane on it at once,
-// one created before gets it with the network.
+// A NAT gateway created afterwards starts its data plane on it at once; one
+// created before gets it with the network.
 func ec2VPCNetworkUp(vpcID string) (awsWorkloadNetwork, bool) {
 	v, ok := ec2VPCNetworksUp.Load(vpcID)
 	if !ok {
@@ -79,7 +74,6 @@ func ec2VPCNetworkUp(vpcID string) (awsWorkloadNetwork, bool) {
 	return network, ok
 }
 
-// ec2RemoveVPCNetwork removes a deleted VPC's sidecar and engine network.
 func ec2RemoveVPCNetwork(ctx context.Context, vpcID string) error {
 	name := ecsVPCNetworkName(vpcID)
 	for _, natgw := range ec2NatGateways.Filter(func(n EC2NatGateway) bool { return n.VpcId == vpcID }) {

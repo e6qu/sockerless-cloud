@@ -15,48 +15,22 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// A pull through a cache rule fetches the image from the upstream registry.
-//
 // "When you use a pull through cache rule, Amazon ECR creates the repository
 // the first time an image is pulled through it, and then pulls and caches the
-// upstream image in that repository" — the rule maps an Amazon ECR repository
-// prefix onto an external registry, and the pull is what populates it. Amazon
-// ECR calls this the cache being *hydrated*, and until it happens the
-// repository does not exist.
+// upstream image in that repository."
 //
-// The simulator registered rules and served them to the control plane —
-// CreatePullThroughCacheRule, DescribePullThroughCacheRules,
-// ValidatePullThroughCacheRule — and then refused every pull through one,
-// because the repository the rule names had never been created. That is a
-// registry that accepts the configuration for a feature and does not implement
-// it, and the refusal was `NAME_UNKNOWN`: the caller was told the repository
-// does not exist, when creating it is precisely what the rule asks for.
-//
-// The upstream image is fetched through the container engine the simulator
-// already runs its workloads on. The bytes served are the upstream registry's
-// own: the engine pulls the image the rule points at, the image is read back
-// out of it, and its config and layers are stored as the repository's blobs.
-// That is what makes this a cache rather than a stand-in — a pull through
-// `docker-hub/library/alpine` serves the Docker Hub `library/alpine` a client
-// would have got directly, and a repository the upstream does not hold fails
-// the way a miss fails.
+// The container engine pulls the upstream image, and its config and layers
+// become the repository's blobs, so a pull through
+// `docker-hub/library/alpine` serves Docker Hub's own `library/alpine`, and an
+// upstream miss fails as a miss.
 
-// ecrTemplateAppliedForPullThroughCache is the appliedFor value that puts a
-// repository creation template in the path of a pull through a cache rule:
 // "The supported scenarios are PULL_THROUGH_CACHE, REPLICATION, and
-// CREATE_ON_PUSH" (Amazon ECR API Reference,
-// CreateRepositoryCreationTemplate.appliedFor).
+// CREATE_ON_PUSH".
 const ecrTemplateAppliedForPullThroughCache = "PULL_THROUGH_CACHE"
 
-// ecrPullThroughCacheRuleFor returns the rule covering a repository, and the
-// upstream image path the rule maps it to.
-//
-// A rule's `ecrRepositoryPrefix` is the first segment (or segments) of the
-// Amazon ECR repository name, and what follows is the repository as the
-// upstream registry names it: with a `docker-hub` rule for
-// `registry-1.docker.io`, `docker-hub/library/alpine` is Docker Hub's
-// `library/alpine`. The longest matching prefix wins, so a rule for a narrower
-// prefix is not shadowed by a broader one.
+// After the rule's ecrRepositoryPrefix comes the upstream's own name: a
+// `docker-hub` rule maps `docker-hub/library/alpine` to Docker Hub's
+// `library/alpine`. The longest matching prefix wins.
 func ecrPullThroughCacheRuleFor(repo string) (ECRPullThroughCacheRule, string, bool) {
 	var (
 		match     ECRPullThroughCacheRule
@@ -79,14 +53,8 @@ func ecrPullThroughCacheRuleFor(repo string) (ECRPullThroughCacheRule, string, b
 	return match, remainder, true
 }
 
-// ecrUpstreamImageRef is the image reference the engine pulls for a repository
-// covered by a rule.
-//
-// Docker Hub is named `registry-1.docker.io` in a rule's upstreamRegistryUrl —
-// that is the endpoint the API is served on — while an engine canonicalises
-// Docker Hub to `docker.io`. They are the same registry under two names, and
-// the engine only resolves credentials and mirrors correctly for the
-// canonical one.
+// A rule names Docker Hub `registry-1.docker.io`, its API endpoint, but the
+// engine resolves credentials and mirrors only for the canonical `docker.io`.
 func ecrUpstreamImageRef(rule ECRPullThroughCacheRule, remainder, reference string) string {
 	host := strings.TrimSuffix(strings.TrimPrefix(strings.TrimPrefix(
 		rule.UpstreamRegistryUrl, "https://"), "http://"), "/")
@@ -94,18 +62,14 @@ func ecrUpstreamImageRef(rule ECRPullThroughCacheRule, remainder, reference stri
 	case "registry-1.docker.io", "index.docker.io", "":
 		host = "docker.io"
 	}
-	// A registry reference is either a tag or a digest, and the two are
-	// separated differently. A client pulling by digest asks for the same
-	// upstream content by digest.
+	// A digest reference asks the upstream for the same digest.
 	if strings.HasPrefix(reference, "sha256:") {
 		return host + "/" + remainder + "@" + reference
 	}
 	return host + "/" + remainder + ":" + reference
 }
 
-// ecrHydrateFromPullThroughCache fetches the upstream image a rule points at
-// and stores it as the repository's content, which is what makes the following
-// manifest read succeed. It reports whether the cache was hydrated.
+// Reports whether the cache was hydrated.
 func ecrHydrateFromPullThroughCache(reg *sim.OCIRegistry, scope, repo, reference string) bool {
 	rule, remainder, ok := ecrPullThroughCacheRuleFor(repo)
 	if !ok {
@@ -155,11 +119,8 @@ func ecrCacheUpstreamImage(reg *sim.OCIRegistry, scope string, rule ECRPullThrou
 		return fmt.Errorf("image config %q is missing from the engine's export", image.Config)
 	}
 
-	// The image is served as an OCI image: the engine's config blob is
-	// byte-compatible with the OCI image-config schema, so it carries the OCI
-	// media type rather than the Docker v2s2 one. A manifest that mixes the two
-	// is rejected by a `docker build` FROM ("invalid mixed OCI image with
-	// Docker v2s2 config").
+	// The engine's config blob is OCI-compatible, so carry the OCI media type; a
+	// `docker build` FROM rejects a manifest mixing OCI and Docker v2s2 types.
 	configDigest := ecrDigestOf(configData)
 	reg.PutBlob(scope, repo, configDigest, "application/vnd.oci.image.config.v1+json", configData)
 
@@ -200,8 +161,7 @@ func ecrCacheUpstreamImage(reg *sim.OCIRegistry, scope string, rule ECRPullThrou
 	return nil
 }
 
-// ecrReadImageSave reads an engine image export, returning its manifest and
-// every file in it by name.
+// Returns the export's manifest and every file in it by name.
 func ecrReadImageSave(r io.Reader) ([]byte, map[string][]byte, error) {
 	reader := tar.NewReader(r)
 	files := map[string][]byte{}
@@ -236,12 +196,8 @@ func ecrDigestOf(data []byte) string {
 	return fmt.Sprintf("sha256:%x", sha256.Sum256(data))
 }
 
-// ecrCreateRepositoryForPullThroughCache creates the repository a rule covers,
-// which Amazon ECR does on the first pull through it. A repository creation
-// template applied for PULL_THROUGH_CACHE governs the settings when one matches
-// — "Templates to control repositories created during a pull through cache,
-// create on push, or replication action" — and the repository is created with
-// the same defaults CreateRepository applies when none does.
+// A PULL_THROUGH_CACHE template governs the settings when one matches;
+// otherwise CreateRepository's defaults apply.
 func ecrCreateRepositoryForPullThroughCache(repo string) {
 	if template, matched := ecrCreationTemplateFor(repo, ecrTemplateAppliedForPullThroughCache); matched {
 		ecrCreateRepositoryFromTemplate(repo, template)

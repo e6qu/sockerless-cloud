@@ -10,11 +10,9 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
-// ecrOCITestStores re-seeds the ECR control-plane stores the registry data
-// plane consults, so each case starts from a registry holding nothing.
+// Each case starts from an empty registry.
 func ecrOCITestStores() {
-	// Work started by whatever ran before this must finish before the
-	// stores it is reading are replaced.
+	// Let earlier background work finish before replacing its stores.
 	bg.Await()
 	ecrRepositories = sim.MakeStore[ECRRepository](nil, "ecr_repositories")
 	ecrRepoCreationTemplates = sim.MakeStore[ECRRepositoryCreationTemplate](nil, "ecr_repo_creation_templates")
@@ -23,8 +21,7 @@ func ecrOCITestStores() {
 	ecrPullThroughCacheRules = sim.MakeStore[ECRPullThroughCacheRule](nil, "ecr_pull_through_cache_rules")
 }
 
-// ecrAdmitProbe runs one repository through the data plane's admission and
-// reports whether it was let through, together with the refusal it wrote.
+// Reports whether admission let the repository through, and the refusal.
 func ecrAdmitProbe(t *testing.T, repo string, push bool) (bool, *http.Response, string) {
 	t.Helper()
 	req := httptest.NewRequest(http.MethodGet, "/v2/"+repo+"/manifests/v1", nil)
@@ -33,8 +30,6 @@ func ecrAdmitProbe(t *testing.T, repo string, push bool) (bool, *http.Response, 
 	return admitted, rec.Result(), rec.Body.String()
 }
 
-// ecrRefusalEnvelope reads the code and message out of a Docker Registry HTTP
-// API v2 error body.
 func ecrRefusalEnvelope(t *testing.T, body string) (code, message string) {
 	t.Helper()
 	var envelope struct {
@@ -52,8 +47,7 @@ func ecrRefusalEnvelope(t *testing.T, body string) (code, message string) {
 	return envelope.Errors[0].Code, envelope.Errors[0].Message
 }
 
-// A repository that does not exist is refused with the registry's NAME_UNKNOWN
-// 404, naming the repository and the registry it was asked of.
+// The refusal is NAME_UNKNOWN 404 naming the repository and the registry.
 func TestECRRegistryRefusesAnAbsentRepository(t *testing.T) {
 	ecrOCITestStores()
 
@@ -81,8 +75,7 @@ func TestECRRegistryRefusesAnAbsentRepository(t *testing.T) {
 	}
 }
 
-// A push covered by a repository creation template applied for CREATE_ON_PUSH
-// creates the repository from that template; a pull for the same name does not.
+// A pull for the same name is still refused.
 func TestECRRegistryCreatesOnPushFromItsTemplate(t *testing.T) {
 	ecrOCITestStores()
 	const lifecycle = `{"rules":[]}`
@@ -138,9 +131,8 @@ func TestECRRegistryCreatesOnPushFromItsTemplate(t *testing.T) {
 	}
 }
 
-// The template a push is created from is the most specific one that matches,
-// with ROOT applying only where no other template does, and a template applied
-// for another scenario never applying to a push at all.
+// The most specific template wins, ROOT applies only where nothing else does,
+// and a template for another scenario never applies to a push.
 func TestECRCreateOnPushTemplateSelection(t *testing.T) {
 	ecrOCITestStores()
 	ecrRepoCreationTemplates.Put("prod", ECRRepositoryCreationTemplate{
@@ -173,7 +165,7 @@ func TestECRCreateOnPushTemplateSelection(t *testing.T) {
 		}
 	}
 
-	// ROOT covers the repositories no other template matches, and only those.
+	// ROOT covers only repositories no other template matches.
 	ecrRepoCreationTemplates.Put("ROOT", ECRRepositoryCreationTemplate{
 		Prefix: "ROOT", AppliedFor: []string{"CREATE_ON_PUSH"}, Description: "root",
 	})

@@ -15,23 +15,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// A rollout that reached steady state is finished: "When a service deployment
-// is started, it begins in an IN_PROGRESS state. When the service reaches a
-// steady state, the deployment transitions to a COMPLETED state." A task
-// failing a health check afterwards is not a rollout going backwards — it is a
-// task the scheduler replaces: "The service scheduler also replaces tasks
-// determined to be unhealthy after a container health check or a load balancer
-// target group health check fails", "by starting replacement tasks first and
-// then stopping the unhealthy tasks".
+// A completed rollout stays completed: a task failing a health check
+// afterwards is replaced, "by starting replacement tasks first and then
+// stopping the unhealthy tasks".
 
 const ecsHealthTestTargetGroupArn = "arn:aws:elasticloadbalancing:us-east-1:000000000000:targetgroup/svc-health-tg/0123456789abcdef"
 
-// ecsHealthTestTargetGroup registers the target group an Amazon ECS service
-// binds to, holding one target per task address on the container port, and the
-// listener that forwards to it. An Amazon ECS service's target group is one a
-// load balancer listener forwards to; that is what has its targets
-// health-checked in the first place, and therefore what gives the scheduler a
-// load balancer target group health verdict to react to.
+// A target group is health-checked only when a listener forwards to it, so
+// register both.
 func ecsHealthTestTargetGroup(t *testing.T, containerPort int, addresses ...string) {
 	t.Helper()
 	targets := make([]ELBv2TargetDescription, 0, len(addresses))
@@ -67,11 +58,8 @@ func ecsHealthTestTargetGroup(t *testing.T, containerPort int, addresses ...stri
 	})
 }
 
-// ecsHealthTestRecordTargetHealth runs the Elastic Load Balancing health
-// checker until it reaches the given verdict for each address, with each
-// target's check answering the way its verdict needs. The checker's own tests
-// cover probing a real target; these tests are about what the Amazon ECS
-// service scheduler does once the checker has reached a verdict.
+// Drives the checker to the given verdicts; the checker's own tests cover
+// probing real targets.
 func ecsHealthTestRecordTargetHealth(t *testing.T, containerPort int, verdicts map[string]string) {
 	t.Helper()
 	tg, ok := elbv2TargetGroups.Get(ecsHealthTestTargetGroupArn)
@@ -99,8 +87,7 @@ func ecsHealthTestRecordTargetHealth(t *testing.T, containerPort int, verdicts m
 	}
 }
 
-// ecsHealthTestService stores an Amazon ECS service whose rollout has already
-// completed and whose tasks are registered in the target group.
+// The rollout has completed and the tasks are registered.
 func ecsHealthTestService(
 	t *testing.T,
 	cluster ECSCluster,
@@ -136,8 +123,7 @@ func ecsHealthTestService(
 	return key
 }
 
-// ecsHealthTestTaskAged stores one RUNNING service task with a chosen age, so a
-// test can control which task the scheduler considers oldest.
+// A chosen age controls which task the scheduler considers oldest.
 func ecsHealthTestTaskAged(
 	cluster ECSCluster,
 	serviceName, taskDefinitionArn, containerIP string,
@@ -170,9 +156,8 @@ func ecsHealthTestTaskAged(
 	return task
 }
 
-// ecsLaunchRecorder records, for each task put into the task store for the
-// first time, how many of the service's other tasks were still in flight — not
-// STOPPED — at that moment, leaving out the tasks the test names.
+// For each task first stored, how many of the service's other tasks were not
+// STOPPED, leaving out the named ones.
 type ecsLaunchRecorder struct {
 	sim.Store[ECSTask]
 	group  string
@@ -199,15 +184,10 @@ func (r *ecsLaunchRecorder) Put(id string, task ECSTask) {
 	r.Store.Put(id, task)
 }
 
-// TestCompletedDeploymentSurvivesAFailedTargetHealthCheck proves the scheduler
-// answers a failed health check by replacing the task rather than by reopening
-// a finished rollout. Reporting IN_PROGRESS again is a state the service never
-// reports, and it hides the replacement the service is supposed to perform.
-//
-// The replacement's start fails here, because no server serves the metadata
-// callback it needs, and a replacement that stops is itself replaced. Each
-// launch is therefore recorded with the replacements still in flight when it
-// was made: one replacement per failed task means none.
+// Reopening a finished rollout as IN_PROGRESS is a state the service never
+// reports. The replacement's start fails here, and a stopped replacement is
+// itself replaced, so each launch records the replacements in flight: one per
+// failed task means none.
 func TestCompletedDeploymentSurvivesAFailedTargetHealthCheck(t *testing.T) {
 	ecsSchedulerTestStores()
 	cluster, taskDefinitionArn := ecsSchedulerTestCluster("health-cluster", "health-task")
@@ -247,10 +227,8 @@ func TestCompletedDeploymentSurvivesAFailedTargetHealthCheck(t *testing.T) {
 	}
 }
 
-// TestSchedulerStopsTheUnhealthyTaskOnceItsReplacementIsInService proves the
-// second half of the replacement: the scheduler starts the replacement first
-// and stops the unhealthy task once the replacement is in service, and it stops
-// the unhealthy task rather than whichever task is newest.
+// The replacement starts first; the unhealthy task, not the newest, stops once
+// the replacement is in service.
 func TestSchedulerStopsTheUnhealthyTaskOnceItsReplacementIsInService(t *testing.T) {
 	ecsSchedulerTestStores()
 	cluster, taskDefinitionArn := ecsSchedulerTestCluster("replace-cluster", "replace-task")
@@ -263,8 +241,7 @@ func TestSchedulerStopsTheUnhealthyTaskOnceItsReplacementIsInService(t *testing.
 	ecsHealthTestTargetGroup(t, containerPort, failingAddress, healthyAddress)
 	key := ecsHealthTestService(t, cluster, serviceName, taskDefinitionArn, containerPort)
 
-	// The replacement is the newer task, so a scheduler that trims by age
-	// instead of by health stops the wrong one.
+	// The replacement is newer, so trimming by age would stop the wrong task.
 	failing := ecsHealthTestTaskAged(cluster, serviceName, taskDefinitionArn, failingAddress, 10*time.Minute)
 	replacement := ecsHealthTestTaskAged(cluster, serviceName, taskDefinitionArn, healthyAddress, time.Minute)
 	ecsHealthTestRecordTargetHealth(t, containerPort, map[string]string{
@@ -274,16 +251,14 @@ func TestSchedulerStopsTheUnhealthyTaskOnceItsReplacementIsInService(t *testing.
 
 	ecsReconcileService(key)
 
-	// The scheduler asks the unhealthy task to stop; like StopTask, that does
-	// not wait for its containers, so the task reads as stopping first.
+	// Like StopTask, the stop does not wait for containers.
 	stopping, ok := ecsTasks.Get(failing.TaskID())
 	require.True(t, ok)
 	require.Equal(t, ECSTaskStatusStopped, stopping.DesiredStatus,
 		"the task whose health check failed was not asked to stop")
 	require.Equal(t, ecsUnhealthyTaskReplacedReason, stopping.StoppedReason)
 
-	// Once it has stopped, the reconciliation its stop requests settles the
-	// deployment.
+	// The reconciliation the stop requests settles the deployment.
 	awaitECSTaskStop(t, failing.TaskID())
 	bg.Await()
 

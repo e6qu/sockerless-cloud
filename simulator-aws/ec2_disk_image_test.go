@@ -67,9 +67,8 @@ func TestEC2ConvertRawAndFixedVHD(t *testing.T) {
 	}
 }
 
-// TestEC2ConvertDynamicVHD maps allocated blocks through the block allocation
-// table, reads only the sectors a block's bitmap marks present, and leaves
-// unallocated blocks zero.
+// Only sectors a block's bitmap marks present are read; unallocated blocks
+// stay zero.
 func TestEC2ConvertDynamicVHD(t *testing.T) {
 	const blockSize, blocks = 4096, 4
 	diskSize := blockSize * blocks
@@ -133,8 +132,6 @@ func ec2PadSector(b []byte) []byte {
 	return b
 }
 
-// TestEC2ConvertStreamOptimizedVMDK reads compressed grains through the grain
-// directory the footer header names.
 func TestEC2ConvertStreamOptimizedVMDK(t *testing.T) {
 	const grainSectors, grains = 8, 4
 	grainBytes := grainSectors * ec2Sector

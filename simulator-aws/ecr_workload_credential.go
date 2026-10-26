@@ -7,12 +7,9 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/workloadhost"
 )
 
-// imageOnSimulatorRegistry reports whether an image reference names this
-// simulator's own registry: a host whose port is the simulator's, at which
-// a coordinate that relocates Amazon ECR reaches it. A reference that names
+// A host on the simulator's port relocates Amazon ECR. A reference naming
 // `<account>.dkr.ecr.<region>.amazonaws.com` is Amazon ECR by shape and is
-// reached where it points, as a pull-through-cache reference is resolved
-// through its rule.
+// reached where it points, as a pull-through-cache rule resolves it.
 func imageOnSimulatorRegistry(image string) (bool, error) {
 	port, err := workloadhost.ListenPort(simListenAddr)
 	if err != nil {
@@ -21,10 +18,8 @@ func imageOnSimulatorRegistry(image string) (bool, error) {
 	return sim.ImageOnPort(image, port), nil
 }
 
-// ecrWorkloadRegistryAuth is the credential an AWS workload host presents when
-// it pulls image from this simulator's registry: an authorization token this
-// registry issues, as the `AWS` user's Basic credential — what an ECR pull
-// presents after `aws ecr get-login-password | docker login --username AWS`.
+// A token this registry issues, as the `AWS` user's Basic credential, the way
+// `aws ecr get-login-password | docker login --username AWS` presents it.
 // Empty for any other registry, which the host reaches anonymously.
 func ecrWorkloadRegistryAuth(image string) (string, error) {
 	onSimulator, err := imageOnSimulatorRegistry(image)

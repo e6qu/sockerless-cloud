@@ -8,15 +8,13 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/netrules"
 )
 
-// ec2BuildIngressPacketRules expands the ingress side of the supplied security
-// groups into one packet rule per source. A permission naming no source means
-// every source, as it does in Amazon EC2. A referenced group expands to the
-// addresses of its members, since the rules match on prefixes, not on group
-// IDs.
+// One packet rule per source. A permission naming no source means every
+// source; a referenced group expands to its members' addresses, since rules
+// match prefixes, not group IDs.
 func ec2BuildIngressPacketRules(securityGroupIDs []string) []netrules.PacketRule {
 	var rules []netrules.PacketRule
-	// A group's members are read once per expansion: every rule that names
-	// the group walks the whole ENI, instance and task stores otherwise.
+	// Read each group's members once per expansion; otherwise every rule naming
+	// the group walks the whole ENI, instance and task stores.
 	members := map[string][]string{}
 	membersOf := func(groupID string) []string {
 		if cidrs, ok := members[groupID]; ok {
@@ -72,9 +70,8 @@ func ec2BuildIngressPacketRules(securityGroupIDs []string) []netrules.PacketRule
 	return rules
 }
 
-// ec2SGMemberCIDRs returns the IPv4 /32 prefixes of the group's members: every
-// elastic network interface, instance and live Amazon ECS task whose security
-// groups include groupID.
+// The /32s of every network interface, instance and live Amazon ECS task in
+// the group.
 func ec2SGMemberCIDRs(groupID string) []string {
 	seen := map[string]bool{}
 	add := func(ip string) {
@@ -100,8 +97,8 @@ func ec2SGMemberCIDRs(groupID string) []string {
 		}
 	}
 	for _, task := range ecsTasks.List() {
-		// A stopped task holds no address any more: its ENI went with it, and
-		// the store keeps the task for an hour for DescribeTasks.
+		// A stopped task's address went with its ENI; the store keeps the task an hour
+		// for DescribeTasks.
 		if task.LastStatus == ECSTaskStatusStopped {
 			continue
 		}
@@ -119,9 +116,8 @@ func ec2SGMemberCIDRs(groupID string) []string {
 			}
 		}
 	}
-	// A load balancer's nodes are members of its groups, and a target sees
-	// them at the address the simulator forwards from: its network's
-	// gateway.
+	// A load balancer's nodes are members of its groups, and a target sees them at
+	// the address the simulator forwards from: the network's gateway.
 	if elbv2LoadBalancers != nil && ec2Vpcs != nil {
 		for _, lb := range elbv2LoadBalancers.List() {
 			if !slices.Contains(lb.SecurityGroups, groupID) {
@@ -142,8 +138,7 @@ func ec2SGMemberCIDRs(groupID string) []string {
 	return out
 }
 
-// ecsTaskUsesSecurityGroup reads the groups of the task's elastic network
-// interface, which carries the VPC's default group when the run named none.
+// The task's ENI carries the VPC's default group when the run named none.
 func ecsTaskUsesSecurityGroup(task ECSTask, groupID string) bool {
 	groups, _, ok := ecsTaskENIGroupsOf(task)
 	if !ok {

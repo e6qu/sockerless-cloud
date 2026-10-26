@@ -14,18 +14,14 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
-// RunTask is asynchronous on real ECS: it returns while the task is still
-// PROVISIONING and the managed-EBS volume hydrates behind an ATTACHING
-// attachment. Amazon EC2 answers CreateVolume with the volume creating and
-// fills it from the snapshot behind the response, so preparing the volume
-// records the hydration the task waits for on its transition path and never
-// copies the snapshot's data itself.
+// Amazon EC2 answers CreateVolume with the volume creating and fills it behind
+// the response, so preparing the volume only records the hydration the task
+// waits for.
 func TestPrepareManagedEBSVolumesDefersSnapshotRestore(t *testing.T) {
 	t.Setenv("SIM_EBS_DATA_DIR", t.TempDir())
 	t.Setenv("SIM_RUNTIME", "process")
 	t.Setenv("SIM_DNS_PORT", "0")
-	// Background work from an earlier test must finish before the stores
-	// it is reading are replaced.
+	// Let earlier background work finish before replacing its stores.
 	bg.Await()
 	server, _, _, err := buildSimulator(sim.Config{Provider: "aws", ListenAddr: ":0", LogLevel: "error"})
 	require.NoError(t, err)
@@ -66,7 +62,7 @@ func TestPrepareManagedEBSVolumesDefersSnapshotRestore(t *testing.T) {
 	destination := hosts["workspace"]
 	require.NotEmpty(t, destination)
 
-	// The transition path waits for the hydration and only then reports ATTACHED.
+	// The transition waits for the hydration, then reports ATTACHED.
 	ecsTasks.Put("task-defer", ECSTask{TaskArn: taskArn, Attachments: attachments})
 	require.NoError(t, ecsRunPendingEBSRestores(context.Background(), "task-defer", restores))
 

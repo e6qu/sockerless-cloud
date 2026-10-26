@@ -10,10 +10,9 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// Amazon ElastiCache — awsQuery protocol. Cache clusters, replication
-// groups and serverless caches run real engines (elasticache_engine.go).
+// Amazon ElastiCache speaks awsQuery. Cache clusters, replication groups and
+// serverless caches run real engines (elasticache_engine.go).
 
-// ECSubnetGroup models the CacheSubnetGroup shape.
 type ECSubnetGroup struct {
 	Name        string
 	Description string
@@ -23,10 +22,8 @@ type ECSubnetGroup struct {
 	Tags        map[string]string
 }
 
-// ECParameterGroup models the CacheParameterGroup shape. Params holds
-// the user-modified parameter values (DescribeCacheParameters returns
-// these merged over the engine defaults; ResetCacheParameterGroup
-// clears them).
+// Params holds user-modified values, which DescribeCacheParameters merges over
+// the defaults and ResetCacheParameterGroup clears.
 type ECParameterGroup struct {
 	Name        string
 	Family      string
@@ -36,9 +33,7 @@ type ECParameterGroup struct {
 	Tags        map[string]string
 }
 
-// ECSnapshot models the Snapshot shape created from a cache cluster or
-// replication group. NodeSnapshots carry the per-node backup metadata
-// the SDK + CLI read back.
+// NodeSnapshots carry per-node backup metadata.
 type ECSnapshot struct {
 	SnapshotName           string
 	ReplicationGroupId     string
@@ -57,7 +52,7 @@ type ECSnapshot struct {
 	Tags                   map[string]string
 }
 
-// ECUser models the User shape (ElastiCache RBAC for Redis/Valkey).
+// ElastiCache RBAC for Redis OSS and Valkey.
 type ECUser struct {
 	UserId               string
 	UserName             string
@@ -72,7 +67,6 @@ type ECUser struct {
 	Tags                 map[string]string
 }
 
-// ECUserGroup models the UserGroup shape.
 type ECUserGroup struct {
 	UserGroupId          string
 	Status               string
@@ -92,14 +86,11 @@ var (
 	ecSnapshots   sim.Store[ECSnapshot]
 	ecUsers       sim.Store[ECUser]
 	ecUserGroups  sim.Store[ECUserGroup]
-	// The reservations this account has bought, keyed by reserved-node id.
+	// Keyed by reserved-node id.
 	ecReservedNodes sim.Store[ECReservedCacheNode]
 )
 
-// ECReservedCacheNode is one purchased reservation. What it costs and what it
-// reserves are the offering's terms, carried over at purchase rather than
-// restated: a reservation whose price did not come from the offering it was
-// bought against would be a number this simulator made up.
+// Price and terms come from the offering at purchase.
 type ECReservedCacheNode struct {
 	ReservedCacheNodeId string            `json:"reservedCacheNodeId"`
 	OfferingId          string            `json:"offeringId"`
@@ -117,21 +108,9 @@ type ECReservedCacheNode struct {
 	Tags                map[string]string `json:"tags,omitempty"`
 }
 
-// ecReservedCacheNodesOffering is one purchasable offering.
-//
-// The offerings the simulator answers with are the ones a purchase can be made
-// against — the two are the same table, so a reservation's terms are the
-// offering's terms and a purchase against an id that is not here is refused the
-// way the service refuses one. Before that, the purchase ignored the offering
-// it was handed and answered with terms of its own, which is a receipt for
-// something nobody sold.
-//
-// The table is a transcription, the way the AWS Lambda runtime images and the
-// ElastiCache engine versions are: what AWS actually sells is a per-region
-// price list that changes, and it is not in the vendored model. Keeping one
-// row is what lets a purchase mean anything at all — declining the catalogue
-// outright would leave PurchaseReservedCacheNodesOffering unreachable, an
-// operation served but impossible to succeed at.
+// Purchases resolve against this same table, so a reservation carries an
+// offering's terms and an unknown id is refused. AWS's per-Region price list
+// is not in the vendored model, so the table is a one-row transcription.
 type ecReservedCacheNodesOffering struct {
 	Id                 string
 	CacheNodeType      string
@@ -156,9 +135,7 @@ var ecReservedCacheNodesOfferings = []ecReservedCacheNodesOffering{{
 	RecurringFrequency: "Hourly",
 }}
 
-// ecAPIVersion is the canonical AWS ElastiCache API version (Query
-// Protocol). Used to disambiguate Action names from other awsQuery
-// services in the AWSQueryRouter dispatch.
+// Disambiguates Action names from other awsQuery services.
 const ecAPIVersion = "2015-02-02"
 
 func registerElastiCache(r *AWSQueryRouter, srv *sim.Server) {
@@ -213,9 +190,8 @@ func registerElastiCache(r *AWSQueryRouter, srv *sim.Server) {
 	r.RegisterVersioned(ecAPIVersion, "DescribeCacheSecurityGroups", handleECDescribeCacheSecurityGroups)
 	registerElastiCacheServerless(r, srv)
 	ecEngineRecords = sim.MakeStore[ecEngineRecord](srv.DB(), "elasticache_engines")
-	// A persistent control-plane restart rebinds every endpoint, re-adopts the
-	// engine workloads the earlier process left and resumes the transitions
-	// it left unfinished. The API-only tier runs no engines.
+	// A persistent restart rebinds endpoints, re-adopts engine workloads and
+	// resumes unfinished transitions. The API-only tier runs no engines.
 	if ecRunsEngines() {
 		if err := ecRecoverEngines(); err != nil {
 			panic(fmt.Sprintf("recover Amazon ElastiCache data planes: %v", err))
@@ -430,7 +406,6 @@ func handleECDeleteParamGroup(w http.ResponseWriter, r *http.Request) {
 	ecXMLResponse(w, "DeleteCacheParameterGroup", "", sim.RequestID(r.Context()))
 }
 
-// ecTaggedResource is one ElastiCache resource a tagging call can name.
 type ecTaggedResource struct {
 	tags   map[string]string
 	mutate func(fn func(map[string]string)) map[string]string
@@ -462,8 +437,7 @@ func ecFindTagged[T any](store sim.Store[T], arn string, arnOf, idOf func(T) str
 	return ecTaggedResource{}, false
 }
 
-// ecFindTaggedResource resolves an ARN to the resource it names, among every
-// type the ElastiCache tagging operations accept.
+// Among every type the tagging operations accept.
 func ecFindTaggedResource(arn string) (ecTaggedResource, bool) {
 	finders := []func() (ecTaggedResource, bool){
 		func() (ecTaggedResource, bool) {
@@ -529,8 +503,7 @@ func ecFindTaggedResource(arn string) (ecTaggedResource, bool) {
 	return ecTaggedResource{}, false
 }
 
-// ecMutateTags applies fn to the tag map of the resource an ARN names,
-// persisting the change, and returns the resulting map.
+// Persists the change and returns the resulting map.
 func ecMutateTags(arn string, fn func(map[string]string)) (map[string]string, bool) {
 	resource, ok := ecFindTaggedResource(arn)
 	if !ok {
@@ -578,8 +551,6 @@ func handleECListTags(w http.ResponseWriter, r *http.Request) {
 	ecXMLResponse(w, "ListTagsForResource", ecRenderTagList(tags), sim.RequestID(r.Context()))
 }
 
-// ecLookupTags resolves an ElastiCache ARN to its tag map without
-// mutating it.
 func ecLookupTags(arn string) (map[string]string, bool) {
 	resource, ok := ecFindTaggedResource(arn)
 	return resource.tags, ok
@@ -603,11 +574,8 @@ func handleECRemoveTags(w http.ResponseWriter, r *http.Request) {
 	ecXMLResponse(w, "RemoveTagsFromResource", ecRenderTagList(tags), sim.RequestID(r.Context()))
 }
 
-// ecDefaultEngineVersion returns the engine's current GA major
-// version when CreateCacheCluster omits EngineVersion. Real
-// ElastiCache populates the default server-side; the
-// terraform-provider-aws resource captures the resolved value into
-// state, so an empty echo produces drift on next plan.
+// ElastiCache resolves the default server-side and the provider stores it, so
+// an empty echo drifts.
 func ecDefaultEngineVersion(engine string) string {
 	switch engine {
 	case "redis":
@@ -619,8 +587,6 @@ func ecDefaultEngineVersion(engine string) string {
 	}
 	return ""
 }
-
-// Snapshots
 
 func renderECSnapshot(s ECSnapshot) string {
 	var b strings.Builder
@@ -775,12 +741,8 @@ func handleECCopySnapshot(w http.ResponseWriter, r *http.Request) {
 	ecXMLResponse(w, "CopySnapshot", renderECSnapshot(s), sim.RequestID(r.Context()))
 }
 
-// Users + User Groups (ElastiCache RBAC)
-
-// renderECUserBody emits the User shape's members without any wrapper
-// element. CreateUser / ModifyUser / DeleteUser return the User shape
-// flattened directly into their Result; DescribeUsers wraps each entry
-// in a UserList <member> element.
+// Create, Modify and Delete flatten the User shape into their Result;
+// DescribeUsers wraps each in a <member>.
 func renderECUserBody(u ECUser) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "<UserId>%s</UserId>", xmlEscape(u.UserId))
@@ -903,10 +865,8 @@ func handleECDeleteUser(w http.ResponseWriter, r *http.Request) {
 	ecXMLResponse(w, "DeleteUser", renderECUserBody(u), sim.RequestID(r.Context()))
 }
 
-// renderECUserGroupBody emits the UserGroup shape's members without any
-// wrapper. CreateUserGroup / ModifyUserGroup / DeleteUserGroup return
-// the UserGroup shape flattened directly into their Result;
-// DescribeUserGroups wraps each entry in a UserGroupList <member>.
+// Create, Modify and Delete flatten the UserGroup shape into their Result;
+// DescribeUserGroups wraps each in a <member>.
 func renderECUserGroupBody(g ECUserGroup) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "<UserGroupId>%s</UserGroupId>", xmlEscape(g.UserGroupId))
@@ -1044,11 +1004,8 @@ func handleECDeleteUserGroup(w http.ResponseWriter, r *http.Request) {
 	ecXMLResponse(w, "DeleteUserGroup", renderECUserGroupBody(g), sim.RequestID(r.Context()))
 }
 
-// Parameter detail
-
-// ecDefaultParameters returns a representative slice of engine-default
-// parameters keyed by name. Real ElastiCache exposes hundreds; the sim
-// returns the small, stable subset clients commonly read back.
+// ElastiCache exposes hundreds of defaults; this is the small, stable subset
+// clients read back.
 func ecDefaultParameters() []struct {
 	Name, Value, DataType, Description, Source, ChangeType string
 } {
@@ -1183,8 +1140,6 @@ func handleECDescribeEngineDefaultParameters(w http.ResponseWriter, r *http.Requ
 	ecXMLResponse(w, "DescribeEngineDefaultParameters", b.String(), sim.RequestID(r.Context()))
 }
 
-// Events
-
 func handleECDescribeEvents(w http.ResponseWriter, r *http.Request) {
 	sourceType := r.FormValue("SourceType")
 	if sourceType == "" {
@@ -1222,8 +1177,6 @@ func handleECDescribeEvents(w http.ResponseWriter, r *http.Request) {
 	ecXMLResponse(w, "DescribeEvents", b.String(), sim.RequestID(r.Context()))
 }
 
-// Cache engine versions
-
 func handleECDescribeCacheEngineVersions(w http.ResponseWriter, r *http.Request) {
 	wantEngine := strings.ToLower(r.FormValue("Engine"))
 	var b strings.Builder
@@ -1244,11 +1197,8 @@ func handleECDescribeCacheEngineVersions(w http.ResponseWriter, r *http.Request)
 	ecXMLResponse(w, "DescribeCacheEngineVersions", b.String(), sim.RequestID(r.Context()))
 }
 
-// Reserved cache nodes + offerings
-
 func handleECDescribeReservedCacheNodes(w http.ResponseWriter, r *http.Request) {
-	// An account that has bought nothing has an empty list, which is what AWS
-	// answers — not an error. One that has bought gets what it bought back.
+	// An account that bought nothing gets an empty list, not an error.
 	var b strings.Builder
 	b.WriteString("<ReservedCacheNodes>")
 	if id := r.FormValue("ReservedCacheNodeId"); id != "" {
@@ -1304,7 +1254,6 @@ func handleECDescribeReservedCacheNodesOfferings(w http.ResponseWriter, r *http.
 	ecXMLResponse(w, "DescribeReservedCacheNodesOfferings", b.String(), sim.RequestID(r.Context()))
 }
 
-// ecReservedNodeXML renders one purchased reservation.
 func ecReservedNodeXML(b *strings.Builder, n ECReservedCacheNode) {
 	b.WriteString("<ReservedCacheNode>")
 	fmt.Fprintf(b, "<ReservedCacheNodeId>%s</ReservedCacheNodeId>", xmlEscape(n.ReservedCacheNodeId))
@@ -1324,8 +1273,6 @@ func ecReservedNodeXML(b *strings.Builder, n ECReservedCacheNode) {
 	b.WriteString("</ReservedCacheNode>")
 }
 
-// Service updates
-
 func handleECDescribeServiceUpdates(w http.ResponseWriter, r *http.Request) {
 	var b strings.Builder
 	b.WriteString("<ServiceUpdates>")
@@ -1344,10 +1291,7 @@ func handleECDescribeServiceUpdates(w http.ResponseWriter, r *http.Request) {
 	ecXMLResponse(w, "DescribeServiceUpdates", b.String(), sim.RequestID(r.Context()))
 }
 
-// Cache security groups (EC2-Classic; empty in a VPC-only sim)
-
 func handleECDescribeCacheSecurityGroups(w http.ResponseWriter, r *http.Request) {
-	// CacheSecurityGroups are an EC2-Classic concept. New accounts are
-	// VPC-only and hold none; AWS returns an empty list.
+	// Cache security groups are EC2-Classic; VPC-only accounts hold none.
 	ecXMLResponse(w, "DescribeCacheSecurityGroups", "<CacheSecurityGroups></CacheSecurityGroups>", sim.RequestID(r.Context()))
 }

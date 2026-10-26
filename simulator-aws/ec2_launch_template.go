@@ -10,18 +10,10 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// EC2 Launch Templates. A launch template is a versioned,
-// reusable description of instance launch parameters that an Auto Scaling
-// group (or RunInstances) references. The fck-nat NAT-instance Terraform
-// module uses aws_launch_template as the ASG's launch config, so the full
-// create/read/delete lifecycle must round-trip through terraform-provider-aws.
-//
-// State is modeled like the other EC2 control-plane resources: a store keyed
-// by the generated lt-… ID, each template holding an append-only slice of
-// versions with a separately-tracked default. The launch-template *data* is
-// echoed back at the exact XML locationNames the aws-sdk-go-v2 ec2 query
-// deserializers expect (verified against service/ec2@v1.305.2), so the SDK,
-// CLI, and Terraform provider all read back what they submitted with no drift.
+// A launch template holds an append-only list of versions and a separately
+// tracked default. Launch template data echoes at the XML locationNames the
+// aws-sdk-go-v2 ec2 deserializers expect (service/ec2@v1.305.2), so every
+// client reads back what it submitted.
 
 type EC2LaunchTemplate struct {
 	LaunchTemplateId     string
@@ -43,9 +35,8 @@ type EC2LaunchTemplateVersion struct {
 	Data               EC2LaunchTemplateData
 }
 
-// EC2LaunchTemplateData mirrors RequestLaunchTemplateData. Scalars are stored
-// in their submitted string form ("" means the field was absent and is omitted
-// from the response, so unset fields never round-trip as a forced default).
+// Scalars keep their submitted string form; "" means absent and is omitted
+// from the response, so unset fields never read back as a forced default.
 type EC2LaunchTemplateData struct {
 	ImageId                           string
 	InstanceType                      string
@@ -139,10 +130,8 @@ func registerEC2LaunchTemplates(r *AWSQueryRouter, srv *sim.Server) {
 	r.Register("ModifyLaunchTemplate", handleModifyLaunchTemplate)
 }
 
-// handleCreateLaunchTemplateVersion appends a new version to an existing
-// template (the aws_launch_template in-place update path). The new version
-// becomes the latest but NOT the default — real EC2 keeps the default pinned
-// until ModifyLaunchTemplate moves it.
+// The new version becomes the latest but not the default; Amazon EC2 keeps the
+// default until ModifyLaunchTemplate moves it.
 func handleCreateLaunchTemplateVersion(w http.ResponseWriter, r *http.Request) {
 	lt, ok := lookupLaunchTemplate(r.FormValue("LaunchTemplateId"), r.FormValue("LaunchTemplateName"))
 	if !ok {
@@ -173,9 +162,7 @@ func handleCreateLaunchTemplateVersion(w http.ResponseWriter, r *http.Request) {
 </CreateLaunchTemplateVersionResponse>`, ec2Xmlns(), sim.NewUUID(), ltVersionFieldsXML(lt, version))
 }
 
-// handleModifyLaunchTemplate moves the default version (the second half of an
-// aws_launch_template in-place update). DefaultVersion accepts a numeric
-// version or the $Latest/$Default aliases.
+// DefaultVersion accepts a number or the $Latest / $Default aliases.
 func handleModifyLaunchTemplate(w http.ResponseWriter, r *http.Request) {
 	lt, ok := lookupLaunchTemplate(r.FormValue("LaunchTemplateId"), r.FormValue("LaunchTemplateName"))
 	if !ok {
@@ -193,7 +180,7 @@ func handleModifyLaunchTemplate(w http.ResponseWriter, r *http.Request) {
 		case "$Latest":
 			target = lt.LatestVersionNumber
 		case "$Default":
-			// no-op: already the default
+			// Already the default.
 		default:
 			n := parseInt64(sel)
 			if !ltHasVersion(lt, n) {
@@ -225,12 +212,10 @@ func ltHasVersion(lt EC2LaunchTemplate, n int64) bool {
 	return false
 }
 
-// ec2HasFormPrefix reports whether any submitted form key belongs to a
-// flattened list/struct member at the given prefix — the reliable way to
-// detect the presence of a nested item like NetworkInterface.2 whose only set
-// field might legitimately be a zero-valued scalar ("0").
+// Detect a nested item like NetworkInterface.2 whose only set field may be a
+// zero-valued scalar ("0").
 func ec2HasFormPrefix(r *http.Request, prefix string) bool {
-	_ = r.FormValue("") // force ParseForm
+	_ = r.FormValue("") // Force ParseForm.
 	for k := range r.Form {
 		if k == prefix || strings.HasPrefix(k, prefix+".") {
 			return true
@@ -471,8 +456,7 @@ func ltDataXML(d EC2LaunchTemplateData) string {
 	return b.String()
 }
 
-// ltSummaryXML renders the inner LaunchTemplate fields (no wrapper), shared by
-// Create/Delete (wrapped in <launchTemplate>) and Describe (wrapped in <item>).
+// Create and Delete wrap these fields in <launchTemplate>, Describe in <item>.
 func ltSummaryXML(lt EC2LaunchTemplate) string {
 	return fmt.Sprintf(`<launchTemplateId>%s</launchTemplateId>`+
 		`<launchTemplateName>%s</launchTemplateName>`+
@@ -484,9 +468,8 @@ func ltSummaryXML(lt EC2LaunchTemplate) string {
 		lt.DefaultVersionNumber, lt.LatestVersionNumber, writeTagSetXML(lt.Tags))
 }
 
-// ltVersionFieldsXML renders the inner LaunchTemplateVersion fields (no
-// wrapper), shared by DescribeLaunchTemplateVersions (wrapped in <item>) and
-// CreateLaunchTemplateVersion (wrapped in <launchTemplateVersion>).
+// DescribeLaunchTemplateVersions wraps these fields in <item>,
+// CreateLaunchTemplateVersion in <launchTemplateVersion>.
 func ltVersionFieldsXML(lt EC2LaunchTemplate, v EC2LaunchTemplateVersion) string {
 	return fmt.Sprintf(`<launchTemplateId>%s</launchTemplateId>`+
 		`<launchTemplateName>%s</launchTemplateName>`+
@@ -561,8 +544,7 @@ func handleDescribeLaunchTemplates(w http.ResponseWriter, r *http.Request) {
 		}
 		matched = append(matched, lt)
 	}
-	// A caller naming a specific ID/name that doesn't exist gets the AWS
-	// NotFound, not a silent empty set.
+	// A named template that does not exist is NotFound, not an empty set.
 	for _, id := range ids {
 		if _, ok := ec2LaunchTemplates.Get(id); !ok {
 			ec2ErrorXML(w, "InvalidLaunchTemplateId.NotFound",
@@ -649,10 +631,8 @@ func lookupLaunchTemplate(id, name string) (EC2LaunchTemplate, bool) {
 	return EC2LaunchTemplate{}, false
 }
 
-// launchTemplateVersionWanted applies the DescribeLaunchTemplateVersions
-// selectors: an explicit version list (numbers plus the $Latest/$Default
-// aliases) takes precedence; otherwise every version in the [MinVersion,
-// MaxVersion] range is returned (real default behaviour).
+// An explicit version list (numbers and $Latest / $Default) wins; otherwise
+// every version in [MinVersion, MaxVersion].
 func launchTemplateVersionWanted(v EC2LaunchTemplateVersion, lt EC2LaunchTemplate, wanted []string, minV, maxV int64) bool {
 	if len(wanted) > 0 {
 		for _, sel := range wanted {

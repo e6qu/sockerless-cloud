@@ -10,23 +10,16 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// This file implements the EC2 EBS-encryption-by-default, fast-snapshot-restore,
-// snapshot-tiering, snapshot Recycle Bin, snapshot block-public-access and volume
-// attribute families. EC2 speaks the ec2Query protocol: actions are registered by
-// name and respond with XML whose element/list casing matches the smithy model's
-// ec2QueryName / xmlName traits exactly.
+// Response element and list casing follows the Smithy model's ec2QueryName
+// and xmlName traits exactly.
 
-// ebsEncryptionState is the account+Region-level EBS encryption-by-default
-// singleton: a flag plus the default KMS key id. Real EC2 returns the AWS-managed
-// key (alias/aws/ebs) when no customer key is set; ResetEbsDefaultKmsKeyId clears
-// any customer key and reverts to that managed default.
+// Account- and Region-level. With no customer key, Amazon EC2 reports the
+// AWS-managed alias/aws/ebs key; ResetEbsDefaultKmsKeyId reverts to it.
 type ebsEncryptionState struct {
 	EnabledByDefault     bool
 	CustomerDefaultKeyID string
 }
 
-// awsManagedEBSKeyARN is the ARN of the AWS-managed KMS key (alias/aws/ebs) used
-// for EBS encryption by default when no customer-managed key is configured.
 func awsManagedEBSKeyARN() string {
 	return fmt.Sprintf("arn:aws:kms:%s:%s:key/aws/ebs", awsRegion(), awsAccountID())
 }
@@ -40,10 +33,9 @@ func (s *ebsEncryptionState) defaultKeyID() string {
 
 var ec2EBSEncryption sim.Store[ebsEncryptionState]
 
-// fastSnapshotRestore is one (snapshot, AvailabilityZone) fast-snapshot-restore
-// association. Real EC2 transitions enabling -> optimizing -> enabled; the sim
-// reports enabling on creation and lets DescribeFastSnapshotRestores settle it to
-// enabled so a poll-until-enabled client succeeds without synthetic timers.
+// Amazon EC2 moves enabling → optimizing → enabled. The simulator reports
+// enabling on creation and DescribeFastSnapshotRestores settles it to
+// enabled.
 type fastSnapshotRestore struct {
 	SnapshotID            string
 	AvailabilityZone      string
@@ -56,9 +48,8 @@ type fastSnapshotRestore struct {
 	DisabledTime          time.Time
 }
 
-// snapshotTierState tracks the storage tier (standard|archive) and, for
-// temporarily restored archived snapshots, the restore expiry. It is keyed by
-// snapshot id and lives alongside the main ec2Snapshots store.
+// For a temporarily restored archived snapshot, also the restore expiry.
+// Keyed by snapshot id.
 type snapshotTierState struct {
 	StorageTier      string
 	TieringStartTime time.Time
@@ -66,22 +57,19 @@ type snapshotTierState struct {
 	RestoreExpiry    time.Time
 }
 
-// snapshotBlockPublicAccess is the account+Region-level snapshot
-// block-public-access singleton: block-all-sharing | block-new-sharing | unblocked.
+// Account- and Region-level: block-all-sharing, block-new-sharing or
+// unblocked.
 var ec2SnapshotBPA sim.Store[string]
 
-// volumeAttributeState holds the autoEnableIO attribute per volume id. Real EC2
-// defaults autoEnableIO to false on a fresh volume.
+// autoEnableIO defaults to false on a fresh volume.
 var (
-	// ec2FSR is keyed by "<snapshotId>|<az>".
 	ec2FSR             sim.Store[fastSnapshotRestore]
 	ec2SnapTier        sim.Store[snapshotTierState]
 	ec2VolAutoEnableIO sim.Store[bool]
 )
 
-// ec2RecycledSnapshots holds snapshots in the Recycle Bin (state "recoverable").
-// Real EC2 moves a deleted snapshot here when a Recycle Bin retention rule covers
-// it; RestoreSnapshotFromRecycleBin pulls it back into ec2Snapshots.
+// A deleted snapshot covered by a Recycle Bin retention rule lands here as
+// "recoverable"; RestoreSnapshotFromRecycleBin moves it back.
 var ec2RecycledSnapshots sim.Store[EC2Snapshot]
 
 func registerEC2EBSSnapshot(r *AWSQueryRouter, srv *sim.Server) {
@@ -92,7 +80,6 @@ func registerEC2EBSSnapshot(r *AWSQueryRouter, srv *sim.Server) {
 	ec2SnapTier = sim.MakeStore[snapshotTierState](srv.DB(), "ec2_snapshot_tiers")
 	ec2VolAutoEnableIO = sim.MakeStore[bool](srv.DB(), "ec2_volume_auto_enable_io")
 
-	// EBS encryption by default
 	r.Register("EnableEbsEncryptionByDefault", handleEnableEbsEncryptionByDefault)
 	r.Register("DisableEbsEncryptionByDefault", handleDisableEbsEncryptionByDefault)
 	r.Register("GetEbsEncryptionByDefault", handleGetEbsEncryptionByDefault)
@@ -100,29 +87,22 @@ func registerEC2EBSSnapshot(r *AWSQueryRouter, srv *sim.Server) {
 	r.Register("GetEbsDefaultKmsKeyId", handleGetEbsDefaultKmsKeyId)
 	r.Register("ResetEbsDefaultKmsKeyId", handleResetEbsDefaultKmsKeyId)
 
-	// Fast snapshot restores
 	r.Register("EnableFastSnapshotRestores", handleEnableFastSnapshotRestores)
 	r.Register("DisableFastSnapshotRestores", handleDisableFastSnapshotRestores)
 	r.Register("DescribeFastSnapshotRestores", handleDescribeFastSnapshotRestores)
 
-	// Snapshot tiering
 	r.Register("ModifySnapshotTier", handleModifySnapshotTier)
 	r.Register("RestoreSnapshotTier", handleRestoreSnapshotTier)
 
-	// Snapshot Recycle Bin
 	r.Register("RestoreSnapshotFromRecycleBin", handleRestoreSnapshotFromRecycleBin)
 
-	// Snapshot block public access
 	r.Register("EnableSnapshotBlockPublicAccess", handleEnableSnapshotBlockPublicAccess)
 	r.Register("DisableSnapshotBlockPublicAccess", handleDisableSnapshotBlockPublicAccess)
 	r.Register("GetSnapshotBlockPublicAccessState", handleGetSnapshotBlockPublicAccessState)
 
-	// Volume attributes
 	r.Register("DescribeVolumeAttribute", handleDescribeVolumeAttribute)
 	r.Register("ModifyVolumeAttribute", handleModifyVolumeAttribute)
 }
-
-// EBS encryption by default
 
 func handleEnableEbsEncryptionByDefault(w http.ResponseWriter, r *http.Request) {
 	ec2EBSEncryption.Upsert("account", func(state *ebsEncryptionState) {
@@ -184,14 +164,10 @@ func handleResetEbsDefaultKmsKeyId(w http.ResponseWriter, r *http.Request) {
 		ec2Xmlns(), sim.NewUUID(), xmlEscape(out))
 }
 
-// Fast snapshot restores
-
 func fsrKey(snapID, az string) string { return snapID + "|" + az }
 
-// ec2SettleFSR advances an enabling/disabling association to its terminal state,
-// matching real EC2's enabling -> optimizing -> enabled progression (the sim
-// collapses optimizing). No synthetic timer: the transition completes on the next
-// read, like the snapshot pending -> completed settle.
+// The simulator collapses optimizing: the next read completes the transition,
+// like the snapshot pending → completed settle.
 func ec2SettleFSR(f *fastSnapshotRestore) {
 	switch f.State {
 	case "enabling", "optimizing":
@@ -379,8 +355,6 @@ func fsrItemXML(f fastSnapshotRestore) string {
 	return b.String()
 }
 
-// Snapshot tiering
-
 func handleModifySnapshotTier(w http.ResponseWriter, r *http.Request) {
 	snapID := r.FormValue("SnapshotId")
 	if snapID == "" {
@@ -440,17 +414,13 @@ func handleRestoreSnapshotTier(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte(b.String()))
 }
 
-// Snapshot Recycle Bin
-
 func handleRestoreSnapshotFromRecycleBin(w http.ResponseWriter, r *http.Request) {
 	snapID := r.FormValue("SnapshotId")
 	if snapID == "" {
 		ec2ErrorXML(w, "MissingParameter", "The request must contain the parameter SnapshotId", http.StatusBadRequest)
 		return
 	}
-	// A snapshot is restorable only if it is in the Recycle Bin (state
-	// "recoverable"). Restore it to the live store as "completed" and emit the
-	// restored snapshot's metadata, matching real EC2.
+	// Only a recoverable snapshot restores, as "completed".
 	if snap, ok := ec2RecycledSnapshots.Get(snapID); ok {
 		snap.State = "completed"
 		snap.Progress = "100%"
@@ -466,8 +436,7 @@ func handleRestoreSnapshotFromRecycleBin(w http.ResponseWriter, r *http.Request)
 		writeRestoreSnapshotFromRecycleBinXML(w, snap)
 		return
 	}
-	// Live or non-existent snapshot: not in the Recycle Bin. Real EC2 returns
-	// InvalidSnapshot.NotFound for a snapshot that isn't recoverable.
+	// A live or unknown snapshot is InvalidSnapshot.NotFound.
 	ec2ErrorXML(w, "InvalidSnapshot.NotFound", fmt.Sprintf("The snapshot %q is not in the Recycle Bin", snapID), http.StatusBadRequest)
 }
 
@@ -477,8 +446,6 @@ func writeRestoreSnapshotFromRecycleBinXML(w http.ResponseWriter, snap EC2Snapsh
 		ec2Xmlns(), sim.NewUUID(), snap.SnapshotId, xmlEscape(snap.Description), snap.Encrypted,
 		snap.OwnerId, snap.Progress, snap.StartTime, snap.State, snap.VolumeId, snap.VolumeSize)
 }
-
-// Snapshot block public access
 
 func handleEnableSnapshotBlockPublicAccess(w http.ResponseWriter, r *http.Request) {
 	state := r.FormValue("State")
@@ -508,8 +475,6 @@ func handleGetSnapshotBlockPublicAccessState(w http.ResponseWriter, r *http.Requ
 	fmt.Fprintf(w, `<GetSnapshotBlockPublicAccessStateResponse %s><requestId>%s</requestId><state>%s</state><managedBy>account</managedBy></GetSnapshotBlockPublicAccessStateResponse>`,
 		ec2Xmlns(), sim.NewUUID(), state)
 }
-
-// Volume attributes
 
 func handleDescribeVolumeAttribute(w http.ResponseWriter, r *http.Request) {
 	volID := r.FormValue("VolumeId")

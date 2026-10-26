@@ -10,14 +10,9 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// ECS task sets — the blue/green deployment primitive within an EXTERNAL
-// (or CODE_DEPLOY) service. A service can carry multiple task sets, each a
-// distinct task-definition rollout with its own scale; one is the PRIMARY.
-// Backed by aws_ecs_task_set. The sim models each task set as a control-plane
-// object keyed by its service + id; it reaches a STEADY_STATE stability
-// immediately so create/describe/update/delete round-trip.
+// A task set is the blue/green primitive of an EXTERNAL or CODE_DEPLOY
+// service, keyed by service and id. It reports STEADY_STATE at once.
 
-// ECSTaskSet is the stored shape of a task set.
 type ECSTaskSet struct {
 	Id                       string          `json:"id"`
 	TaskSetArn               string          `json:"taskSetArn"`
@@ -58,8 +53,7 @@ func registerECSTaskSets(r *AWSRouter, srv *sim.Server) {
 
 func ecsTaskSetKey(serviceArn, id string) string { return serviceArn + "/" + id }
 
-// ecsResolveService resolves a cluster + service name-or-ARN to its stored
-// service, returning the cluster name used as the store-key prefix.
+// Returns the cluster name used as the store-key prefix.
 func ecsResolveService(cluster, service string) (clusterName string, svc ECSService, ok bool) {
 	clusterName = ecsClusterNameFromRef(cluster)
 	if strings.HasPrefix(service, "arn:") {
@@ -114,10 +108,7 @@ func handleECSCreateTaskSet(w http.ResponseWriter, r *http.Request) {
 	now := ecsEpochSeconds()
 	ts := ECSTaskSet{
 		Id: id,
-		// The published format is task-set/<cluster>/<service>/<id>. It had
-		// been built as the service's own ARN with the id appended, which is a
-		// service-shaped ARN: anything dispatching on the ARN's resource type
-		// — tagging, for one — would have read it as the service.
+		// The published format is task-set/<cluster>/<service>/<id>.
 		TaskSetArn:               ecsArn("task-set", ecsClusterNameFromRef(svc.ClusterArn)+"/"+svc.ServiceName+"/"+id),
 		ServiceArn:               svc.ServiceArn,
 		ClusterArn:               svc.ClusterArn,
@@ -229,7 +220,7 @@ func handleECSUpdateServicePrimaryTaskSet(w http.ResponseWriter, r *http.Request
 			"The specified task set does not exist.")
 		return
 	}
-	// Mark this set PRIMARY; demote any sibling that was PRIMARY to ACTIVE.
+	// Make this set PRIMARY and demote any PRIMARY sibling to ACTIVE.
 	for _, sib := range ecsTaskSets.List() {
 		if sib.ServiceArn == ts.ServiceArn && sib.Id != ts.Id && sib.Status == "PRIMARY" {
 			sib.Status = "ACTIVE"
@@ -263,8 +254,7 @@ func handleECSDeleteTaskSet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Without force, Amazon ECS refuses to delete a task set that still carries
-	// scale: the caller scales it to zero first. The flag had been parsed and
-	// ignored.
+	// scale.
 	if !req.Force && ecsTaskSetScaleValue(ts) > 0 {
 		AWSErrorf(w, "InvalidParameterException", http.StatusBadRequest,
 			"The task set cannot be deleted while it is scaled above 0.")
@@ -275,8 +265,6 @@ func handleECSDeleteTaskSet(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"taskSet": ts})
 }
 
-// ecsLookupTaskSet resolves a task set by cluster + service + id/ARN, returning
-// the stored set and its store key.
 func ecsLookupTaskSet(cluster, service, taskSet string) (ECSTaskSet, string, bool) {
 	_, svc, ok := ecsResolveService(cluster, service)
 	if !ok {
@@ -288,9 +276,7 @@ func ecsLookupTaskSet(cluster, service, taskSet string) (ECSTaskSet, string, boo
 	return ts, key, ok
 }
 
-// ecsTaskSetID extracts the task-set id from an id or a taskSetArn
-// (...:task-set/<cluster>/<service>/ecs-svc/<n>). The id form is
-// "ecs-svc/<numeric>", so we keep the last two path segments.
+// The id is "ecs-svc/<numeric>", the ARN's last two segments.
 func ecsTaskSetID(ref string) string {
 	if !strings.HasPrefix(ref, "arn:") {
 		return ref
@@ -302,15 +288,13 @@ func ecsTaskSetID(ref string) string {
 	return ref
 }
 
-// generateNumericID returns a numeric-ish id for ECS task-set / deployment ids,
-// matching the real "ecs-svc/<19-digit>" shape closely enough for round-trips.
+// The real "ecs-svc/<19-digit>" shape.
 func generateNumericID() string {
 	return fmt.Sprintf("%019d", time.Now().UnixNano())
 }
 
-// ecsTaskSetScaleValue reads a task set's scale value. The scale is stored as
-// the wire document the caller sent — {"value":N,"unit":"PERCENT"} — so an
-// absent or unparsable scale is zero, which is what an unscaled task set is.
+// The scale is stored as sent ({"value":N,"unit":"PERCENT"}); absent or
+// unparsable is zero, an unscaled set.
 func ecsTaskSetScaleValue(ts ECSTaskSet) float64 {
 	if len(ts.Scale) == 0 {
 		return 0

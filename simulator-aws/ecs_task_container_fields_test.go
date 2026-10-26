@@ -24,7 +24,7 @@ func TestRunTaskReportsContainerTaskImageSizingAndDefaultGroup(t *testing.T) {
 	require.Len(t, tasks, 1)
 	task := tasks[0]
 
-	// Amazon ECS's documented default when RunTask names no group.
+	// The documented default when RunTask names no group.
 	require.Equal(t, "family:percontainer", task.Group)
 
 	require.Len(t, task.Containers, 2)

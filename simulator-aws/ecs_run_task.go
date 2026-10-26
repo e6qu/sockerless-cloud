@@ -14,12 +14,10 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
-// ecsTaskCloudWatchSink prepares CloudWatch Logs resources for a task and
-// returns a log sink for containers using the awslogs driver. The log stream is
-// created before the container starts so it is observable as soon as the task
-// reports RUNNING. The awslogs driver creates the log group only when
-// awslogs-create-group is "true"; otherwise a missing group fails the start with
-// the ResourceInitializationError Amazon ECS reports.
+// Create the log stream before the container starts so it exists once the
+// task is RUNNING. The awslogs driver creates the group only with
+// awslogs-create-group "true"; a missing group fails the start with
+// ResourceInitializationError.
 func ecsTaskCloudWatchSink(td ECSTaskDefinition, taskID string) (sim.LogSink, error) {
 	var sink sim.LogSink = discardLogSink{}
 	for _, cd := range td.ContainerDefinitions {
@@ -49,10 +47,8 @@ func ecsTaskCloudWatchSink(td ECSTaskDefinition, taskID string) (sim.LogSink, er
 		logStreamName := fmt.Sprintf("%s/%s/%s", streamPrefix, cd.Name, taskID)
 		key := cwEventsKey(logGroup, logStreamName)
 		if _, exists := cwLogStreams.Get(key); !exists {
-			// First/last event timestamps stay unset until the container
-			// writes; the sink stamps them on its first line, as CloudWatch
-			// does. Amazon ECS writes nothing to the stream until the
-			// container itself writes.
+			// Event timestamps stay unset until the container writes; the sink stamps them
+			// on the first line.
 			cwLogStreams.Put(key, CWLogStream{
 				LogStreamName:       logStreamName,
 				LogGroupName:        logGroup,
@@ -67,9 +63,7 @@ func ecsTaskCloudWatchSink(td ECSTaskDefinition, taskID string) (sim.LogSink, er
 	return sink, nil
 }
 
-// ecsRunTaskInput is the parsed RunTask request — extracted so the in-process
-// service scheduler can launch tasks through the same code path as the
-// RunTask API handler.
+// The service scheduler launches through the same path as RunTask.
 type ecsRunTaskInput struct {
 	Cluster              string
 	TaskDefinition       string
@@ -91,8 +85,7 @@ func ecsTaskArn(clusterName, taskID string) string {
 	return "arn:aws:ecs:" + awsRegion() + ":" + awsAccountID() + ":task/" + clusterName + "/" + taskID
 }
 
-// ecsTaskRoles returns the task role and the execution role a task runs with:
-// its overrides', else its task definition's.
+// The overrides' roles, else the task definition's.
 func ecsTaskRoles(td ECSTaskDefinition, overrides *ECSTaskOverride) (taskRole, executionRole string) {
 	taskRole, executionRole = td.TaskRoleArn, td.ExecutionRoleArn
 	if overrides != nil {
@@ -106,9 +99,8 @@ func ecsTaskRoles(td ECSTaskDefinition, overrides *ECSTaskOverride) (taskRole, e
 	return taskRole, executionRole
 }
 
-// ecsRefuseUnassumableTaskRoles refuses to launch a task whose task role or
-// execution role names no role or does not trust ecs-tasks.amazonaws.com.
-// Amazon ECS checks when it launches the task, not at RegisterTaskDefinition.
+// A role must exist and trust ecs-tasks.amazonaws.com; Amazon ECS checks at
+// launch, not at RegisterTaskDefinition.
 func ecsRefuseUnassumableTaskRoles(td ECSTaskDefinition, overrides *ECSTaskOverride, taskArn string) *ecsRequestError {
 	taskRole, executionRole := ecsTaskRoles(td, overrides)
 	for _, role := range []string{taskRole, executionRole} {
@@ -178,7 +170,7 @@ func handleECSRunTask(w http.ResponseWriter, r *http.Request) {
 	if req.Count == 0 {
 		req.Count = 1
 	}
-	// RunTask accepts up to 10 tasks per call (documented max).
+	// RunTask launches at most 10 tasks per call.
 	if req.Count > 10 {
 		AWSError(w, "InvalidParameterException",
 			"count cannot be greater than 10.", http.StatusBadRequest)
@@ -209,19 +201,14 @@ func handleECSRunTask(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// runECSTasks launches `in.Count` tasks for the named cluster / task
-// definition, performing the same validation, placement, ENI allocation, and
-// async PROVISIONING → PENDING → RUNNING lifecycle transitions as the RunTask
-// API. A task the host cannot fit is not launched: it comes back as a
-// `failures[]` entry (never nil — the wire shape is `[]`), while the tasks
-// that did fit are launched, exactly as Amazon ECS places what it can. Used by
-// handleECSRunTask, StartTask and the in-process ECS service scheduler.
+// A task the host cannot fit comes back as a `failures[]` entry (never nil:
+// the wire shape is `[]`) while the rest launch, as Amazon ECS places what it
+// can. RunTask, StartTask and the service scheduler share this.
 func runECSTasks(ctx context.Context, in ecsRunTaskInput) ([]ECSTask, []ecsFailure, *ecsRequestError) {
 	if in.Cluster == "" {
 		in.Cluster = "default"
 	}
 
-	// Resolve cluster name
 	clusterName := in.Cluster
 	if strings.HasPrefix(clusterName, "arn:") {
 		parts := strings.Split(clusterName, "/")
@@ -236,7 +223,6 @@ func runECSTasks(ctx context.Context, in ecsRunTaskInput) ([]ECSTask, []ecsFailu
 			fmt.Sprintf("Cluster not found: %s", in.Cluster), http.StatusBadRequest}
 	}
 
-	// Resolve task definition
 	tdKey := ecsTaskDefinitionKey(in.TaskDefinition)
 	td, ok := ecsTaskDefinitions.Get(tdKey)
 	if !ok {
@@ -244,7 +230,7 @@ func runECSTasks(ctx context.Context, in ecsRunTaskInput) ([]ECSTask, []ecsFailu
 			fmt.Sprintf("Unable to describe task definition: %s", in.TaskDefinition), http.StatusBadRequest}
 	}
 
-	// Validate security groups exist
+	// Security groups must exist.
 	if in.NetworkConfiguration != nil && in.NetworkConfiguration.AwsvpcConfiguration != nil {
 		for _, sgID := range in.NetworkConfiguration.AwsvpcConfiguration.SecurityGroups {
 			if _, sgOK := ec2SecurityGroups.Get(sgID); !sgOK {
@@ -254,11 +240,8 @@ func runECSTasks(ctx context.Context, in ecsRunTaskInput) ([]ECSTask, []ecsFailu
 		}
 	}
 
-	// networkConfiguration is required for awsvpc task definitions — that is
-	// what allocates the task its own elastic network interface — and is not
-	// supported for any other network mode, where the task shares the container
-	// instance's networking. Rejecting both mismatches keeps a caller from
-	// silently getting networking it did not ask for.
+	// awsvpc requires networkConfiguration, which allocates the task's ENI; other
+	// network modes share the instance's networking and refuse it.
 	networkMode := ecsEffectiveNetworkMode(td)
 	if strings.EqualFold(in.LaunchType, "FARGATE") && networkMode != ecsNetworkModeAwsvpc {
 		return nil, nil, &ecsRequestError{"ClientException",
@@ -277,10 +260,8 @@ func runECSTasks(ctx context.Context, in ecsRunTaskInput) ([]ECSTask, []ecsFailu
 			http.StatusBadRequest}
 	}
 
-	// Real ECS validates the subnet exists in EC2 and uses its CIDR for
-	// task IP assignment. Pull the requested subnet up front; surface a
-	// clean InvalidParameterException when the caller passes one we
-	// don't know about (matches real AWS InvalidSubnetID.NotFound).
+	// An unknown subnet is an InvalidParameterException; its CIDR supplies the
+	// task's address.
 	var requestedSubnet string
 	if hasAwsvpcConfig {
 		requestedSubnet = in.NetworkConfiguration.AwsvpcConfiguration.Subnets[0]
@@ -302,15 +283,13 @@ func runECSTasks(ctx context.Context, in ecsRunTaskInput) ([]ECSTask, []ecsFailu
 	for _, taskID := range taskIDs {
 		taskArn := ecsTaskArn(clusterName, taskID)
 
-		// Placement comes first: nothing below — the ENI, the managed volume,
-		// the stored record — is allocated for a task the host cannot fit.
+		// Nothing below is allocated for a task the host cannot fit.
 		if short, committed, ceiling, fits := ecsReservePlacement(taskID, requested); !fits {
 			failures = append(failures, ecsPlacementFailure(in, cluster.ClusterArn, short, requested, committed, ceiling))
 			continue
 		}
-		// A reservation is given back on every path that leaves without
-		// storing the task — an allocation error below, or a panic — so a task
-		// that never existed can never hold capacity.
+		// Return the reservation on every path that leaves without storing the task,
+		// panics included.
 		placed := false
 		defer func(id string) {
 			if !placed {
@@ -318,9 +297,7 @@ func runECSTasks(ctx context.Context, in ecsRunTaskInput) ([]ECSTask, []ecsFailu
 			}
 		}(taskID)
 
-		// Only an awsvpc task is allocated an elastic network interface. A
-		// bridge/host/none task shares the container instance's networking and
-		// carries no ENI attachment and no per-container networkInterfaces.
+		// Only awsvpc tasks get an ENI and per-container networkInterfaces.
 		eniID := sim.NewUUID()
 		var privateIP, subnetID string
 		if networkMode == ecsNetworkModeAwsvpc {
@@ -352,7 +329,7 @@ func runECSTasks(ctx context.Context, in ecsRunTaskInput) ([]ECSTask, []ecsFailu
 			containers = append(containers, c)
 		}
 
-		// Merge tags: request tags take priority, then inherited from task def
+		// Request tags win over those inherited from the task definition.
 		var taskTags []ECSTag
 		if in.PropagateTags == "TASK_DEFINITION" && len(td.Tags) > 0 {
 			taskTags = append(taskTags, td.Tags...)
@@ -392,7 +369,6 @@ func runECSTasks(ctx context.Context, in ecsRunTaskInput) ([]ECSTask, []ecsFailu
 		}
 		task.Attachments = append(task.Attachments, ebsAttachments...)
 
-		// Store VPC network configuration from request
 		if in.NetworkConfiguration != nil && in.NetworkConfiguration.AwsvpcConfiguration != nil {
 			vpc := in.NetworkConfiguration.AwsvpcConfiguration
 			task.NetworkConfiguration = &ECSTaskNetworkConfig{
@@ -422,11 +398,9 @@ func runECSTasks(ctx context.Context, in ecsRunTaskInput) ([]ECSTask, []ecsFailu
 	return tasks, failures, nil
 }
 
-// ecsStartTask runs a task's PROVISIONING → PENDING → RUNNING lifecycle. It
-// reports RUNNING only once the task's containers have started and their
-// handles are stored, so a caller that sees RUNNING (ExecuteCommand, task
-// metadata) finds the containers. It reads durable stores while it provisions
-// them, so it runs under the server lifecycle and is drained before SQLite
+// RUNNING is reported only once container handles are stored, so
+// ExecuteCommand and task metadata find the containers. It reads durable
+// stores, so it runs under the server lifecycle and drains before SQLite
 // closes.
 func ecsStartTask(ctx context.Context, id string, td ECSTaskDefinition, taskTags []ECSTag, overrides *ECSTaskOverride, taskVolumeHosts map[string]string, launchType, containerInstanceKey string, pendingRestores []ecsPendingEBSRestore) {
 	lifecycleLock := ecsTaskLifecycleLock(id)
@@ -439,7 +413,6 @@ func ecsStartTask(ctx context.Context, id string, td ECSTaskDefinition, taskTags
 		return
 	}
 
-	// PROVISIONING → PENDING
 	ecsTasks.Update(id, func(t *ECSTask) {
 		t.LastStatus = ECSTaskStatusPending
 		for j := range t.Containers {
@@ -453,11 +426,9 @@ func ecsStartTask(ctx context.Context, id string, td ECSTaskDefinition, taskTags
 	})
 	phases := newECSPhaseTimer(time.Now)
 
-	// Hydrate any snapshot-backed managed-EBS volume before starting the
-	// containers that mount it. A failure here is a resource problem, not
-	// an exited container, so it stops the task the way real ECS does —
-	// with TaskFailedToStart and a ResourceInitializationError reason the
-	// caller can read from DescribeTasks.
+	// A hydration failure is a resource problem: stop the task with
+	// TaskFailedToStart and a ResourceInitializationError reason, as Amazon ECS
+	// does.
 	if len(pendingRestores) > 0 {
 		if err := ecsRunPendingEBSRestores(ctx, id, pendingRestores); err != nil {
 			if ctx.Err() != nil {
@@ -489,12 +460,10 @@ func ecsStartTask(ctx context.Context, id string, td ECSTaskDefinition, taskTags
 
 	phases.Mark("ebs-restore")
 
-	// Prepare CloudWatch logs before the container starts, so the log
-	// group/stream are observable as soon as the task reports RUNNING.
+	// The log group and stream exist once the task reports RUNNING.
 	sink, err := ecsTaskCloudWatchSink(td, id)
 	phases.Mark("log-stream")
 
-	// Start containers. This is the real work that RUNNING must wait for.
 	var processes *ecsTaskProcesses
 	if err == nil {
 		processes, err = startECSTaskContainers(ctx, id, td, taskTags, overrides, taskVolumeHosts, sink, launchType, phases)
@@ -504,10 +473,7 @@ func ecsStartTask(ctx context.Context, id string, td ECSTaskDefinition, taskTags
 		return
 	}
 	if err != nil {
-		// Surface the start failure: it's otherwise only recorded in
-		// the task's StoppedReason, so an intermittent VPC network or
-		// image-pull failure reads as an opaque container ExitCode -1
-		// with no diagnosable cause in logs.
+		// Log the cause; otherwise only StoppedReason records it.
 		fmt.Fprintf(os.Stderr, "[sim-ecs] task %s: container start failed: %v\n", id, err)
 		stoppedAt := ecsEpochSeconds()
 		var doomedVolumes []string
@@ -540,9 +506,7 @@ func ecsStartTask(ctx context.Context, id string, td ECSTaskDefinition, taskTags
 		return
 	}
 
-	// Containers are actually running. Report RUNNING and wire up
-	// lifecycle waits. Store handles before marking RUNNING so any
-	// concurrent observer that sees RUNNING also sees handles.
+	// Store handles before RUNNING so an observer of RUNNING sees them.
 	if processes != nil {
 		ecsProcessHandles.Store(id, processes)
 	}
@@ -558,8 +522,7 @@ func ecsStartTask(ctx context.Context, id string, td ECSTaskDefinition, taskTags
 			t.Attachments[j].Status = "ATTACHED"
 		}
 	})
-	// One line per task naming where its start went: the pull is the
-	// only phase the ECS API exposes, and it is rarely the slow one.
+	// The pull is the only phase the API exposes, and rarely the slow one.
 	fmt.Fprintf(os.Stderr, "[sim-ecs] task %s: RUNNING %s\n", id, phases.Summary())
 	ecsUpdateContainerInstanceTaskCounts(containerInstanceKey, -1, 1)
 	if processes != nil {
@@ -570,15 +533,9 @@ func ecsStartTask(ctx context.Context, id string, td ECSTaskDefinition, taskTags
 	}
 }
 
-// ecsScheduleTaskStart runs one task's PROVISIONING→RUNNING lifecycle under the
-// server's background-worker lifecycle when the ECS service has registered one,
-// so orderly shutdown drains it before SQLite is closed. Package tests that call
-// runECSTasks without building a server run it on a goroutine of its own.
-//
-// Either way the start is counted for the test drain barrier before it is
-// handed over. The goroutine of its own was uncounted altogether, and the
-// server's was counted only once it ran; both let a drain return while a start
-// was about to read the control-plane stores the next test rebuilt.
+// Runs under the server's background-worker lifecycle when registered, so
+// shutdown drains it; package tests without a server get a goroutine. Either
+// way the start counts for the test drain barrier before hand-over.
 func ecsScheduleTaskStart(
 	start func(context.Context, string, ECSTaskDefinition, []ECSTag, *ECSTaskOverride, map[string]string, string, string),
 	id string, td ECSTaskDefinition, taskTags []ECSTag, overrides *ECSTaskOverride,
@@ -589,13 +546,11 @@ func ecsScheduleTaskStart(
 	}, ecsTaskStartBegins(id))
 }
 
-// ecsTaskStarts holds, for each task whose start is under way, a channel that
-// closes once the start settles: its containers' handles are stored, or the
-// start failed or was dropped.
+// Closes once the start settles: handles stored, or the start failed or was
+// dropped.
 var ecsTaskStarts sync.Map
 
-// ecsTaskStartBegins records that the task's start is under way and returns
-// what settles it.
+// Returns what settles the start.
 func ecsTaskStartBegins(id string) func() {
 	settled := make(chan struct{})
 	ecsTaskStarts.Store(id, settled)
@@ -605,8 +560,7 @@ func ecsTaskStartBegins(id string) func() {
 	}
 }
 
-// ecsAwaitTaskStart waits for the task's start under way, if any, to settle,
-// so a container that reads its metadata at once finds its task's containers.
+// So a container reading its metadata at once finds its task's containers.
 func ecsAwaitTaskStart(ctx context.Context, id string) {
 	v, ok := ecsTaskStarts.Load(id)
 	if !ok {
@@ -623,15 +577,9 @@ func ecsAwaitTaskStart(ctx context.Context, id string) {
 	}
 }
 
-// ecsHandOffTaskLifecycle runs one step of a task's lifecycle off the request
-// path, the way ecsScheduleTaskStart describes, and then calls after whether
-// the step ran, was refused, or was dropped by a test drain. after must not
-// read the control-plane stores: it can run once a drain has returned.
-//
-// work receives the server's background context and must return promptly once
-// it is done, because a stopping simulator waits for every step. A step the
-// shutdown interrupts leaves the task where the next process's recovery picks
-// it up.
+// after runs whether the step ran, was refused or was dropped by a test drain,
+// and must not read control-plane stores. work must return promptly once done;
+// a step shutdown interrupts is left for the next process's recovery.
 func ecsHandOffTaskLifecycle(work func(context.Context), after func()) {
 	server := ecsBackgroundServer
 	var workerCtx context.Context
@@ -660,8 +608,7 @@ func ecsHandOffTaskLifecycle(work func(context.Context), after func()) {
 	})
 }
 
-// errECSTaskStartInterrupted is a task start the simulator's shutdown cut
-// short. It is not a task failure: the task stays PENDING for the next process.
+// Not a task failure: the task stays PENDING for the next process.
 var errECSTaskStartInterrupted = errors.New("task start interrupted by simulator shutdown")
 
 func ecsLogInterruptedStart(taskID string) {
@@ -694,9 +641,8 @@ func ecsWatchTaskProcesses(taskID, containerInstanceKey string, processes *ecsTa
 				transitioned = true
 				t.LastStatus = ECSTaskStatusStopped
 				t.StoppedAt = &stoppedAt
-				// A container that exits while the task is already stopping
-				// does not change why the task stopped: the stop request's
-				// code and reason stand, as they do on Amazon ECS.
+				// A container exiting while the task stops does not change the stop's code and
+				// reason.
 				if t.DesiredStatus != ECSTaskStatusStopped {
 					t.DesiredStatus = ECSTaskStatusStopped
 					t.StopCode = "EssentialContainerExited"

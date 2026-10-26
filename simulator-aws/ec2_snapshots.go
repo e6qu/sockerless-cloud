@@ -44,19 +44,11 @@ func handleCreateSnapshot(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	// The data is captured behind the response, not inside it. CreateSnapshot
-	// returns as soon as the snapshot is registered on real EC2 -- that is what
-	// the pending state and the Progress field are for -- and callers poll
-	// DescribeSnapshots until it reports completed. Copying in the handler
-	// instead held the simulator's HTTP server for the length of the copy: an
-	// EDD workspace volume took about eight minutes, and for that whole window
-	// every request went unanswered, including /health, so callers timed out
-	// against a simulator that looked dead but was only busy.
-	//
-	// Completion is driven by the capture goroutine rather than the elapsed
-	// CompletionDue clock, so the due time is pushed out of reach: a lazy settle
-	// from DescribeSnapshots must never report completed while bytes are still
-	// being copied, or a restore would read a half-written snapshot.
+	// Capture behind the response, as on Amazon EC2, where callers poll
+	// DescribeSnapshots; copying in the handler would stall every request for the
+	// length of the copy. The capture goroutine, not CompletionDue, completes the
+	// snapshot, so push CompletionDue out of reach: a settle must never report a
+	// half-written snapshot completed.
 	snap.CompletionDue = now.Add(ec2SnapshotCaptureNotBefore).Format(time.RFC3339Nano)
 	ec2Volumes.Put(vol.VolumeId, vol)
 	ec2Snapshots.Put(snap.SnapshotId, snap)
@@ -68,13 +60,8 @@ func handleCreateSnapshot(w http.ResponseWriter, r *http.Request) {
 		ec2Xmlns(), sim.NewUUID(), ec2SnapshotFieldsXML(snap))
 }
 
-// handleCopySnapshot copies an existing snapshot into a new snapshot id,
-// duplicating its backing data so a restore from the copy yields the source's
-// bytes. Real CopySnapshot is the cross-region DR primitive (snapshot → copy
-// to another region → restore); the destination-region endpoint receives the
-// request with SourceRegion + SourceSnapshotId, and the sim — single-account,
-// single-store — realizes the copy locally against the source snapshot. The
-// response carries only the new snapshotId (not the full snapshot fields).
+// CopySnapshot is the cross-Region DR primitive; the simulator copies locally
+// against the source. The response carries only the new snapshotId.
 func handleCopySnapshot(w http.ResponseWriter, r *http.Request) {
 	srcID := r.FormValue("SourceSnapshotId")
 	if srcID == "" {
@@ -107,8 +94,7 @@ func handleCopySnapshot(w http.ResponseWriter, r *http.Request) {
 	} else if src.HostPath != "" {
 		snap.HostPath = ebsSnapshotHostDirPath(snap.SnapshotId)
 	}
-	// Asynchronous for the same reason as CreateSnapshot: copying a snapshot's
-	// bytes inside the handler stalls every other request for the duration.
+	// Asynchronous for the same reason as CreateSnapshot.
 	snap.CompletionDue = now.Add(ec2SnapshotCaptureNotBefore).Format(time.RFC3339Nano)
 	ec2Snapshots.Put(snap.SnapshotId, snap)
 	go ec2CaptureSnapshotData(snap.SnapshotId, src.DockerVolumeName, snap.DockerVolumeName, src.HostPath, snap.HostPath)
@@ -117,20 +103,14 @@ func handleCopySnapshot(w http.ResponseWriter, r *http.Request) {
 		ec2Xmlns(), sim.NewUUID(), snap.SnapshotId)
 }
 
-// ec2SnapshotCaptureNotBefore parks a capturing snapshot's CompletionDue far
-// enough ahead that no lazy settle can declare it completed. The capture
-// goroutine completes it explicitly once the bytes are actually there.
+// Far enough ahead that no settle completes a capturing snapshot.
 const ec2SnapshotCaptureNotBefore = 100 * 365 * 24 * time.Hour
 
-// ec2CaptureSnapshotData copies a source's contents into a snapshot and then
-// completes it. It runs off the request path: see handleCreateSnapshot for why
-// the copy must not happen inside the handler. The source is a volume for
-// CreateSnapshot and another snapshot for CopySnapshot; both are asynchronous
-// on real EC2.
-// ec2SnapshotCaptureStarting runs at the start of each capture; a test holds
-// the capture there to observe the snapshot before any byte moves.
+// A test holds the capture here to observe the snapshot before any byte moves.
 var ec2SnapshotCaptureStarting = func(snapshotID string) {}
 
+// The source is a volume for CreateSnapshot and a snapshot for CopySnapshot;
+// it runs off the request path, then completes the snapshot.
 func ec2CaptureSnapshotData(snapshotID, dockerSrc, dockerDst, hostSrc, hostDst string) {
 	ec2SnapshotCaptureStarting(snapshotID)
 	var err error
@@ -141,9 +121,8 @@ func ec2CaptureSnapshotData(snapshotID, dockerSrc, dockerDst, hostSrc, hostDst s
 		err = sparse.CopyTree(hostDst, hostSrc)
 	}
 	if err != nil {
-		// Real EC2 reports a snapshot that could not be captured as error, and
-		// leaves it discoverable; failing silently would let a later restore
-		// mount an empty volume and call it success.
+		// Amazon EC2 reports an uncapturable snapshot as error and leaves it
+		// discoverable; a silent failure would let a restore mount an empty volume.
 		fmt.Fprintf(os.Stderr, "[sim-ec2] snapshot %s: could not capture volume data: %v\n", snapshotID, err)
 		ec2Snapshots.Update(snapshotID, func(s *EC2Snapshot) {
 			s.State = "error"
@@ -199,8 +178,7 @@ func handleDescribeSnapshots(w http.ResponseWriter, r *http.Request) {
 			ec2SettleSnapshot(snap.SnapshotId)
 		}
 		filters := ec2Filters(r)
-		// OwnerIds (`--owner-ids self`/<account>) scopes to the snapshot owner;
-		// the sim is single-account so a literal account id or "self" matches.
+		// The simulator is single-account, so "self" or the account id matches.
 		owners := ec2ParamList(r, "Owner")
 		self := ec2Owner()
 		for _, snap := range ec2Snapshots.List() {
@@ -221,9 +199,8 @@ func handleDescribeSnapshots(w http.ResponseWriter, r *http.Request) {
 			snapshots = append(snapshots, snap)
 		}
 	}
-	// MaxResults/NextToken pagination applies only to the list form (not when
-	// explicit SnapshotIds are requested), matching real EC2. Sort by id for a
-	// stable offset cursor across pages.
+	// Paginate only the list form, not explicit SnapshotIds; sort by id for a
+	// stable cursor.
 	nextToken := ""
 	if len(ids) == 0 {
 		paged, pageNext, pageOK := awsKeyPage(w, ec2BadToken, snapshots, func(it EC2Snapshot) string { return it.SnapshotId }, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0), 0)

@@ -8,14 +8,9 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// ECR repository policy + image-layer data plane.
-//
-// Repository policy backs the Terraform `aws_ecr_repository_policy` resource.
-// The layer ops are the real (awsJson) image-transfer pipeline used by the
-// SDK/CLI: InitiateLayerUpload → UploadLayerPart → CompleteLayerUpload stores
-// a content-addressed blob; GetDownloadUrlForLayer serves it back; and
-// BatchCheckLayerAvailability now reports real availability from this store
-// instead of unconditional AVAILABLE.
+// InitiateLayerUpload → UploadLayerPart → CompleteLayerUpload stores a
+// content-addressed blob; GetDownloadUrlForLayer serves it back;
+// BatchCheckLayerAvailability reports from this store.
 
 type ecrLayer struct {
 	RepositoryName string `json:"repositoryName"`
@@ -32,7 +27,7 @@ type ecrLayerUpload struct {
 var (
 	ecrRepoPolicies sim.Store[string]         // repositoryName -> policy JSON
 	ecrLayers       sim.Store[ecrLayer]       // repositoryName@digest -> blob
-	ecrLayerUploads sim.Store[ecrLayerUpload] // uploadId -> in-progress session
+	ecrLayerUploads sim.Store[ecrLayerUpload] // uploadId -> upload session
 )
 
 func registerECRLayers(r *AWSRouter, srv *sim.Server) {
@@ -143,7 +138,7 @@ func handleECRInitiateLayerUpload(w http.ResponseWriter, r *http.Request) {
 	ecrLayerUploads.Put(uploadId, ecrLayerUpload{UploadId: uploadId, RepositoryName: req.RepositoryName})
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
 		"uploadId": uploadId,
-		"partSize": 10485760, // 10 MiB recommended part size, as real ECR returns
+		"partSize": 10485760, // Amazon ECR's recommended 10 MiB part size.
 	})
 }
 
@@ -230,10 +225,8 @@ func handleECRGetDownloadUrlForLayer(w http.ResponseWriter, r *http.Request) {
 			"Layer '%s' is not available in the repository with name '%s'", req.LayerDigest, req.RepositoryName)
 		return
 	}
-	// Real ECR returns a presigned S3 URL. The sim holds layer blobs in its own
-	// store, so it returns a reference to its registry endpoint for the layer;
-	// the URL is honest only insofar as the layer actually exists (checked
-	// above) — it is not an S3 presign.
+	// Amazon ECR returns a presigned Amazon S3 URL; the simulator returns its
+	// registry's blob URL for the layer.
 	url := fmt.Sprintf("http://%s.dkr.ecr.%s.amazonaws.com/v2/%s/blobs/%s",
 		ecrRegistryId(), awsRegion(), req.RepositoryName, req.LayerDigest)
 	sim.WriteJSON(w, http.StatusOK, map[string]any{

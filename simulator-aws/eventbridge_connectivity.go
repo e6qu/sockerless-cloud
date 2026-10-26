@@ -10,17 +10,11 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// EventBridge connectivity slice: API destinations, connections, global
-// endpoints, partner event sources, and the consumer-side event sources they
-// offer. These are real control-plane CRUD resources, modeled at the same
-// AWS-JSON (X-Amz-Target: AWSEvents.<Op>) fidelity as the rule/target/archive
-// slice in eventbridge.go.
+// API destinations, connections, global endpoints, partner event sources and
+// the event sources they offer.
 
-// EBConnection models an EventBridge connection. The authorization parameters
-// carry secrets (API key value, basic password, OAuth client secret); these are
-// stored so the connection is functional but never echoed on read, matching real
-// EventBridge — DescribeConnection returns only the non-secret descriptors
-// (ApiKeyName, Username) plus a SecretArn referencing the stored secret.
+// The authorization parameters carry secrets; DescribeConnection returns only
+// ApiKeyName, Username and the SecretArn of the stored secret.
 type EBConnection struct {
 	Name              string `json:"Name"`
 	Arn               string `json:"Arn"`
@@ -30,16 +24,15 @@ type EBConnection struct {
 	Description       string `json:"Description,omitempty"`
 	KmsKeyIdentifier  string `json:"KmsKeyIdentifier,omitempty"`
 	SecretArn         string `json:"SecretArn,omitempty"`
-	// AuthParameters holds credentials not yet moved into the connection's
-	// Secrets Manager secret; startup moves them there.
+	// Credentials not yet moved into the connection's Secrets Manager secret;
+	// startup moves them.
 	AuthParameters   json.RawMessage `json:"-"`
 	CreationTime     int64           `json:"CreationTime"`
 	LastModifiedTime int64           `json:"LastModifiedTime"`
 	LastAuthorized   int64           `json:"LastAuthorizedTime"`
 }
 
-// EBApiDestination models an EventBridge API destination — the HTTP invocation
-// target (endpoint + method + rate limit) bound to a connection.
+// The HTTP target bound to a connection: endpoint, method and rate limit.
 type EBApiDestination struct {
 	Name                string `json:"Name"`
 	Arn                 string `json:"Arn"`
@@ -53,10 +46,7 @@ type EBApiDestination struct {
 	LastModifiedTime    int64  `json:"LastModifiedTime"`
 }
 
-// EBEndpoint models an EventBridge global endpoint. EventBuses / RoutingConfig /
-// ReplicationConfig round-trip byte-exact as raw JSON so the describe/list shapes
-// return exactly what create/update received (the terraform/SDK reader keys on
-// the nested FailoverConfig / Primary / Secondary sub-objects).
+// Stored raw so describe and list return what create and update received.
 type EBEndpoint struct {
 	Name              string          `json:"Name"`
 	Arn               string          `json:"Arn"`
@@ -73,10 +63,8 @@ type EBEndpoint struct {
 	LastModifiedTime  int64           `json:"LastModifiedTime"`
 }
 
-// EBPartnerEventSource models a partner event source created by a SaaS partner
-// (PartnerName/namespace/name) offered to a customer account. Creating one also
-// offers it to that account as a consumer-side event source (PENDING) until the
-// account creates a matching partner event bus (ACTIVE) or it is deleted.
+// Creating one offers it to the account as a PENDING event source until a
+// matching partner event bus makes it ACTIVE or it is deleted.
 type EBPartnerEventSource struct {
 	Name         string `json:"Name"`
 	Arn          string `json:"Arn"`
@@ -145,9 +133,7 @@ func ebEndpointArn(name string) string {
 	return fmt.Sprintf("arn:aws:events:%s:%s:endpoint/%s", awsRegion(), awsAccountID(), name)
 }
 
-// ebCreateConnectionSecret stores a connection's authorization parameters in
-// the Secrets Manager secret EventBridge creates for it and returns the
-// secret's ARN.
+// Returns the ARN of the secret EventBridge creates for the connection.
 func ebCreateConnectionSecret(connection string, params json.RawMessage) string {
 	region := awsRegion()
 	name := "events!connection/" + connection + "/" + sim.NewUUID()
@@ -165,8 +151,6 @@ func ebCreateConnectionSecret(connection string, params json.RawMessage) string 
 	return secret.ARN
 }
 
-// ebConnectionParameters reads a connection's authorization parameters from
-// its Secrets Manager secret.
 func ebConnectionParameters(connection EBConnection) (json.RawMessage, error) {
 	secret, ok := resolveSMSecret(connection.SecretArn)
 	if !ok || secret.DeletedDate != 0 {
@@ -201,8 +185,7 @@ func ebDeleteConnectionSecret(connection EBConnection) {
 	smSecrets.Delete(smStoreKey(smSecretRegion(secret), secret.Name))
 }
 
-// ebMoveConnectionSecrets moves credentials a connection still holds itself
-// into a Secrets Manager secret.
+// Moves credentials a connection still holds itself into Secrets Manager.
 func ebMoveConnectionSecrets() {
 	for _, connection := range ebConnections.List() {
 		if len(connection.AuthParameters) == 0 {
@@ -465,10 +448,8 @@ func handleEBCreateConnection(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// ebConnectionAuthResponse projects the stored AuthParameters onto the
-// DescribeConnection response shape: only the non-secret descriptors are echoed
-// (the API key header name, the basic username, the OAuth client id + endpoint),
-// never the secret value/password/client-secret, matching real EventBridge.
+// Only the API key header name, basic username and OAuth client id and
+// endpoint; never the secret values.
 func ebConnectionAuthResponse(authType string, raw json.RawMessage) map[string]any {
 	var params struct {
 		ApiKeyAuthParameters *struct {
@@ -899,8 +880,7 @@ func handleEBDeleteEndpoint(w http.ResponseWriter, r *http.Request) {
 	writeEBJSON(w, http.StatusOK, map[string]any{})
 }
 
-// ebPartnerExpiry is the offered-but-unclaimed lifetime of a partner event
-// source — real EventBridge expires an unmatched offer after a fixed window.
+// An unclaimed offer expires after a fixed window.
 const ebPartnerExpiry = 14 * 24 * 60 * 60
 
 func handleEBCreatePartnerEventSource(w http.ResponseWriter, r *http.Request) {
@@ -916,7 +896,7 @@ func handleEBCreatePartnerEventSource(w http.ResponseWriter, r *http.Request) {
 		AWSError(w, "ValidationException", "Name and Account are required", http.StatusBadRequest)
 		return
 	}
-	// Partner event source names must be partner_name/event_namespace/event_name.
+	// partner_name/event_namespace/event_name.
 	if strings.Count(req.Name, "/") < 2 {
 		AWSError(w, "ValidationException", "Event source name must be in the format partner_name/event_namespace/event_name.", http.StatusBadRequest)
 		return
@@ -944,8 +924,7 @@ func handleEBCreatePartnerEventSource(w http.ResponseWriter, r *http.Request) {
 	writeEBJSON(w, http.StatusOK, map[string]any{"EventSourceArn": source.Arn})
 }
 
-// ebFindPartnerSource locates a partner event source by name. A partner-side op
-// (DescribePartnerEventSource) keys on name only; a consumer-side op keys the
+// Partner-side operations key on name only; consumer-side ones key on the
 // offer made to this account.
 func ebFindPartnerSource(name string) (EBPartnerEventSource, bool) {
 	for _, s := range ebPartnerSources.List() {
@@ -1110,8 +1089,7 @@ func handleEBPutPartnerEvents(w http.ResponseWriter, r *http.Request) {
 	entries := make([]map[string]string, 0, len(req.Entries))
 	failed := 0
 	for _, entry := range req.Entries {
-		// Detail, DetailType, and Source are all required for a partner event;
-		// a missing one fails that entry (the rest of the batch still succeeds).
+		// A missing Source, DetailType or Detail fails only that entry.
 		if entry.Source == "" || entry.DetailType == "" || entry.Detail == "" {
 			failed++
 			entries = append(entries, map[string]string{
@@ -1134,10 +1112,8 @@ func handleEBPutPartnerEvents(w http.ResponseWriter, r *http.Request) {
 	writeEBJSON(w, http.StatusOK, map[string]any{"FailedEntryCount": failed, "Entries": entries})
 }
 
-// handleEBActivateEventSource transitions a consumer-side event source from
-// PENDING to ACTIVE — the account has accepted the partner's offer (in real
-// EventBridge by creating a matching partner event bus). DeactivateEventSource
-// is the inverse.
+// EventBridge activates the source when the account creates a matching partner
+// event bus.
 func handleEBActivateEventSource(w http.ResponseWriter, r *http.Request) {
 	ebSetEventSourceState(w, r, "ACTIVE")
 }

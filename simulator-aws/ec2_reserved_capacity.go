@@ -11,19 +11,12 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// This file implements three EC2 commitment families: Reserved Instances
-// (ri-…, purchased from a real-shaped offering catalog, settling "active"; plus
-// marketplace listings, modifications, and Convertible-RI exchange quotes),
-// Capacity Reservation billing / topology / splitting (operating on the
-// existing ec2CapacityReservations store from ec2_capacity_fleet.go), and
-// Capacity Blocks for ML (cb-…, time-bounded reservations purchased from a
-// deterministic offering catalog). Every stateful resource is backed by a real
-// sim.Store and settles into the state the real EC2 service returns. The
-// read-only describe-offering ops return a small honest, deterministic catalog.
+// Reserved Instances (with Marketplace listings, modifications and
+// Convertible exchanges), Capacity Reservation billing, topology and
+// splitting, and Capacity Blocks for ML. Offerings come from small
+// deterministic catalogs.
 
-// EC2ReservedInstances is a purchased Reserved Instance commitment (ri-…). It
-// settles "active" with the count, type, AZ/scope, and a deterministic fixed
-// price drawn from the offering it was purchased from.
+// Settles active with a fixed price from the offering it was purchased from.
 type EC2ReservedInstances struct {
 	ReservedInstancesId string
 	InstanceType        string
@@ -45,8 +38,6 @@ type EC2ReservedInstances struct {
 	Tags                []EC2Tag
 }
 
-// EC2ReservedInstancesListing offers purchased RIs for resale on the Reserved
-// Instance Marketplace.
 type EC2ReservedInstancesListing struct {
 	ReservedInstancesListingId string
 	ReservedInstancesId        string
@@ -61,15 +52,13 @@ type EC2ReservedInstancesListing struct {
 	Tags                       []EC2Tag
 }
 
-// EC2PriceSchedule is one (term, price) point of a listing's resale schedule.
 type EC2PriceSchedule struct {
 	Term   int64
 	Price  float64
 	Active bool
 }
 
-// EC2ReservedInstancesModification records an in-place RI modification request,
-// producing new RI ids per target configuration.
+// Produces new RI ids per target configuration.
 type EC2ReservedInstancesModification struct {
 	ReservedInstancesModificationId string
 	ClientToken                     string
@@ -82,8 +71,7 @@ type EC2ReservedInstancesModification struct {
 	ResultReservedInstancesIds      []string
 }
 
-// EC2CapacityBlock is a time-bounded ML capacity reservation purchased from a
-// Capacity Block offering. It is backed by a capacity reservation.
+// Backed by a capacity reservation.
 type EC2CapacityBlock struct {
 	CapacityBlockId       string
 	UltraserverType       string
@@ -99,7 +87,6 @@ type EC2CapacityBlock struct {
 	Tags                  []EC2Tag
 }
 
-// EC2CapacityBlockExtension records a purchased Capacity Block extension.
 type EC2CapacityBlockExtension struct {
 	CapacityReservationId               string
 	InstanceType                        string
@@ -116,8 +103,7 @@ type EC2CapacityBlockExtension struct {
 	CurrencyCode                        string
 }
 
-// EC2CapacityReservationCancellationQuote is a persisted cancellation quote for
-// a capacity reservation, readable back by its quote id.
+// Readable back by its quote id.
 type EC2CapacityReservationCancellationQuote struct {
 	CapacityReservationCancellationQuoteId string
 	CapacityReservationId                  string
@@ -128,8 +114,7 @@ type EC2CapacityReservationCancellationQuote struct {
 	ReservationState                       string
 }
 
-// EC2CapacityReservationBillingRequest records a request to transfer the unused
-// capacity billing of a shared capacity reservation to another account.
+// Transfers a shared reservation's unused-capacity billing to another account.
 type EC2CapacityReservationBillingRequest struct {
 	CapacityReservationId           string
 	RequestedBy                     string
@@ -152,7 +137,6 @@ var (
 	ec2CapResCancellationQuotes       sim.Store[EC2CapacityReservationCancellationQuote]
 )
 
-// registerEC2ReservedCapacity registers this EC2 sub-service's ec2Query actions.
 func registerEC2ReservedCapacity(r *AWSQueryRouter, srv *sim.Server) {
 	ec2ReservedInstances = sim.MakeStore[EC2ReservedInstances](srv.DB(), "ec2_reserved_instances")
 	ec2ReservedInstancesListings = sim.MakeStore[EC2ReservedInstancesListing](srv.DB(), "ec2_reserved_instances_listings")
@@ -162,9 +146,6 @@ func registerEC2ReservedCapacity(r *AWSQueryRouter, srv *sim.Server) {
 	ec2CapResBillingRequests = sim.MakeStore[EC2CapacityReservationBillingRequest](srv.DB(), "ec2_capres_billing_requests")
 	ec2CapResCancellationQuotes = sim.MakeStore[EC2CapacityReservationCancellationQuote](srv.DB(), "ec2_capres_cancellation_quotes")
 
-	// Reserved Instances
-	// Reserved Instances, Capacity Reservation billing/topology/splitting, and
-	// Capacity Blocks for ML.
 	for action, h := range map[string]http.HandlerFunc{
 		"DescribeReservedInstances":                     handleDescribeReservedInstances,
 		"DescribeReservedInstancesOfferings":            handleDescribeReservedInstancesOfferings,
@@ -200,21 +181,18 @@ func registerEC2ReservedCapacity(r *AWSQueryRouter, srv *sim.Server) {
 	}
 }
 
-// ec2WriteResponse writes an ec2Query XML response with the standard envelope.
 func ec2WriteResponse(w http.ResponseWriter, action, body string) {
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<%sResponse %s><requestId>%s</requestId>%s</%sResponse>`,
 		action, ec2Xmlns(), sim.NewUUID(), body, action)
 }
 
-// ec2WriteReturnTrue writes the standard <return>true</return> ec2Query reply.
 func ec2WriteReturnTrue(w http.ResponseWriter, action string) {
 	ec2WriteResponse(w, action, "<return>true</return>")
 }
 
-// ec2RIOffering describes one entry of the deterministic Reserved Instance
-// offering catalog. Offering ids are derived from the instance type + term so a
-// purchase can recover the offering's terms.
+// The offering id derives from instance type and term so a purchase recovers
+// the terms.
 type ec2RIOffering struct {
 	OfferingId         string
 	InstanceType       string
@@ -230,9 +208,8 @@ type ec2RIOffering struct {
 	Marketplace        bool
 }
 
-// ec2RICatalog returns the deterministic Reserved Instance offering catalog: a
-// 1-year and a 3-year offering for each of a few common instance types, in both
-// Region and Availability Zone scope.
+// A 1-year and a 3-year offering for a few common instance types, in Region
+// and Availability Zone scope.
 func ec2RICatalog() []ec2RIOffering {
 	var out []ec2RIOffering
 	types := []struct {
@@ -285,7 +262,6 @@ func ec2RICatalog() []ec2RIOffering {
 	return out
 }
 
-// ec2RIOfferingID derives a deterministic, recoverable offering id.
 func ec2RIOfferingID(instanceType string, duration int64, scope string) string {
 	scopeTag := "r"
 	if scope == "Availability Zone" {
@@ -294,7 +270,6 @@ func ec2RIOfferingID(instanceType string, duration int64, scope string) string {
 	return fmt.Sprintf("%s-%d-%s-aaaaaaaaaaaaaaaaa", instanceType, duration, scopeTag)
 }
 
-// ec2FindRIOffering looks an offering up by id in the catalog.
 func ec2FindRIOffering(id string) (ec2RIOffering, bool) {
 	for _, o := range ec2RICatalog() {
 		if o.OfferingId == id {
@@ -314,7 +289,7 @@ func ec2RIOfferingFieldsXML(o ec2RIOffering) string {
 		o.ProductDescription, o.OfferingType, ec2RecurringChargesXML(o.RecurringAmount), o.Marketplace, o.OfferingClass, o.Scope)
 }
 
-// ec2RecurringChargesXML renders a recurringCharges list (empty if amount==0).
+// Empty when amount is 0.
 func ec2RecurringChargesXML(amount float64) string {
 	if amount == 0 {
 		return ""
@@ -472,8 +447,7 @@ func handleModifyReservedInstances(w http.ResponseWriter, r *http.Request) {
 		Status:                          "processing",
 		SourceReservedInstancesIds:      srcIDs,
 	}
-	// Each target configuration yields a new Reserved Instance derived from the
-	// first source RI's terms.
+	// Each target configuration yields a new RI from the first source RI's terms.
 	var src EC2ReservedInstances
 	if ri, ok := ec2ReservedInstances.Get(srcIDs[0]); ok {
 		src = ri
@@ -639,7 +613,7 @@ func handleDeleteQueuedReservedInstances(w http.ResponseWriter, r *http.Request)
 	var success, failed strings.Builder
 	for _, id := range ids {
 		ri, ok := ec2ReservedInstances.Get(id)
-		// Only RIs in the "queued" state can be deleted.
+		// Only queued RIs can be deleted.
 		if !ok || ri.State != "queued" {
 			fmt.Fprintf(&failed, "<item><reservedInstancesId>%s</reservedInstancesId><error><code>InvalidState</code><message>The Reserved Instance %s is not in the queued state</message></error></item>", id, id)
 			continue
@@ -670,7 +644,6 @@ func handleGetReservedInstancesExchangeQuote(w http.ResponseWriter, r *http.Requ
 		fmt.Fprintf(&riValueSet, "<item><reservedInstanceId>%s</reservedInstanceId><reservationValue><remainingTotalValue>%s</remainingTotalValue><remainingUpfrontValue>%s</remainingUpfrontValue><hourlyPrice>0.000</hourlyPrice></reservationValue></item>",
 			id, ec2FloatStr(val), ec2FloatStr(val))
 	}
-	// Target configurations form the exchange's target value rollup.
 	var targetValueSet strings.Builder
 	var targetTotal float64
 	for i := 1; ; i++ {
@@ -705,8 +678,8 @@ func handleAcceptReservedInstancesExchangeQuote(w http.ResponseWriter, r *http.R
 		ec2ErrorXML(w, "MissingParameter", "The request must contain the parameter ReservedInstanceId", http.StatusBadRequest)
 		return
 	}
-	// Settle the exchange: the source convertible RIs become retired and a new RI
-	// is created for each target configuration.
+	// The source Convertible RIs retire and each target configuration becomes a
+	// new RI.
 	for _, id := range riIDs {
 		if ri, ok := ec2ReservedInstances.Get(id); ok {
 			ri.State = "retired"
@@ -829,9 +802,9 @@ func handleDescribeCapacityReservationBillingRequests(w http.ResponseWriter, r *
 		if len(ids) > 0 && !ec2StrInValues(br.CapacityReservationId, ids) {
 			continue
 		}
-		// odcr_owner sees requests it initiated; unused_reservation_billing_owner
-		// sees requests targeted at it. The sim's single account owns both ends, so
-		// either role surfaces the request.
+		// odcr_owner sees requests it initiated, unused_reservation_billing_owner
+		// those targeted at it; one account owns both ends here, so either role sees
+		// the request.
 		_ = role
 		results = append(results, br)
 	}
@@ -885,7 +858,7 @@ func handleCreateCapacityReservationBySplitting(w http.ResponseWriter, r *http.R
 		ec2ErrorXML(w, "InvalidParameterValue", "InstanceCount must be a positive value no greater than the source reservation's available instance count", http.StatusBadRequest)
 		return
 	}
-	// Reduce the source and create a destination reservation holding the split.
+	// Shrink the source and create a destination reservation holding the split.
 	src.TotalInstanceCount -= count
 	src.AvailableInstanceCount -= count
 	ec2CapacityReservations.Put(srcID, src)
@@ -979,8 +952,6 @@ func handleDescribeCapacityReservationCancellationQuotes(w http.ResponseWriter, 
 		}, ec2CapResCancellationQuoteXML, "DescribeCapacityReservationCancellationQuotes", "capacityReservationCancellationQuoteSet")
 }
 
-// ec2CapacityBlockOffering describes one entry of the deterministic Capacity
-// Block offering catalog.
 type ec2CapacityBlockOffering struct {
 	OfferingId       string
 	InstanceType     string
@@ -992,8 +963,7 @@ type ec2CapacityBlockOffering struct {
 	UpfrontFee       string
 }
 
-// ec2CapacityBlockCatalog returns the deterministic Capacity Block offering
-// catalog for the requested instance count / duration / start window.
+// Offerings for the requested count, duration and start window.
 func ec2CapacityBlockCatalog(instanceType string, instanceCount, durationHours int, start time.Time) []ec2CapacityBlockOffering {
 	if instanceType == "" {
 		instanceType = "p5.48xlarge"
@@ -1006,7 +976,7 @@ func ec2CapacityBlockCatalog(instanceType string, instanceCount, durationHours i
 	}
 	az := awsAvailabilityZone()
 	var out []ec2CapacityBlockOffering
-	// Offer two start dates within the requested window.
+	// Offer two start dates within the window.
 	for d := 0; d < 2; d++ {
 		s := start.AddDate(0, 0, d)
 		e := s.Add(time.Duration(durationHours) * time.Hour)
@@ -1026,8 +996,7 @@ func ec2CapacityBlockCatalog(instanceType string, instanceCount, durationHours i
 }
 
 func ec2FindCapacityBlockOffering(id string) (ec2CapacityBlockOffering, bool) {
-	// The offering id encodes the instance type, duration, count, and index;
-	// reparse it back into the catalog terms. Format:
+	// The id encodes the catalog terms:
 	// cbo-<type>-<dur>h-<count>n-<idx>-aaaaaaaaaaa.
 	parts := strings.SplitN(id, "-", 2)
 	if len(parts) != 2 || parts[0] != "cbo" {
@@ -1249,7 +1218,7 @@ func handlePurchaseCapacityBlockExtension(w http.ResponseWriter, r *http.Request
 		CurrencyCode:                        "USD",
 	}
 	ec2CapacityBlockExtensions.Put(crID, ext)
-	// Extend the underlying capacity block + reservation end date.
+	// Extend the block and its reservation's end date.
 	cb.EndDate = ext.CapacityBlockExtensionEndDate
 	ec2CapacityBlocks.Put(cb.CapacityBlockId, cb)
 	if cr, ok := ec2CapacityReservations.Get(crID); ok {

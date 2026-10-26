@@ -8,10 +8,8 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// EC2FpgaImage models an Amazon FPGA Image (AFI). CreateFpgaImage records a
-// deterministic metadata record (afi-… global id agfi-…) that DescribeFpgaImages
-// echoes back; the attribute set (description / name / loadPermissions) is
-// mutated by ModifyFpgaImageAttribute and read by DescribeFpgaImageAttribute.
+// CreateFpgaImage records metadata (afi-… with global id agfi-…) that
+// DescribeFpgaImages echoes; ModifyFpgaImageAttribute mutates the attributes.
 type EC2FpgaImage struct {
 	FpgaImageId       string
 	FpgaImageGlobalId string
@@ -28,31 +26,25 @@ type EC2FpgaImage struct {
 	Tags              []EC2Tag
 }
 
-// EC2LoadPermission is one (UserId | Group) grant on an FPGA image.
 type EC2LoadPermission struct {
 	UserId string
 	Group  string
 }
 
-// EC2AllowedImagesSettings is the account-level Allowed AMIs settings singleton:
-// the enablement state (enabled / audit-mode / disabled) plus the image-criteria
-// allow-list. Stored under a fixed key because it is account-wide state.
+// Account-wide, stored under a fixed key.
 type EC2AllowedImagesSettings struct {
-	State    string // enabled | audit-mode | disabled
+	State    string
 	Criteria []EC2ImageCriterion
 }
 
-// EC2ImageCriterion is one allow-list entry (image providers / marketplace
-// product codes / image names) within the Allowed AMIs settings.
 type EC2ImageCriterion struct {
 	ImageProviders          []string
 	MarketplaceProductCodes []string
 	ImageNames              []string
 }
 
-// EC2StoreImageTask records a CreateStoreImageTask: an AMI store to an S3 bucket
-// that DescribeStoreImageTasks reads back. The sim has no live S3-export backend,
-// so the task is recorded as completed.
+// The simulator writes nothing to Amazon S3, so the task is recorded as
+// completed.
 type EC2StoreImageTask struct {
 	AmiId         string
 	Bucket        string
@@ -72,8 +64,6 @@ var (
 	ec2StoreImageTasks        sim.Store[EC2StoreImageTask]
 )
 
-// registerEC2ImagesFpga registers the FPGA-image, AMI access-control, and
-// bundle/conversion/store-image-task ec2Query actions.
 func registerEC2ImagesFpga(r *AWSQueryRouter, srv *sim.Server) {
 	ec2FpgaImages = sim.MakeStore[EC2FpgaImage](srv.DB(), "ec2_fpga_images")
 	ec2AllowedImagesSettings = sim.MakeStore[EC2AllowedImagesSettings](srv.DB(), "ec2_allowed_images_settings")
@@ -81,8 +71,6 @@ func registerEC2ImagesFpga(r *AWSQueryRouter, srv *sim.Server) {
 	ec2ImageDeregProtection = sim.MakeStore[string](srv.DB(), "ec2_image_dereg_protection")
 	ec2StoreImageTasks = sim.MakeStore[EC2StoreImageTask](srv.DB(), "ec2_store_image_tasks")
 
-	// FPGA images, AMI access-control (allowed-images settings, block-public-
-	// access, deregistration protection), and bundle/conversion/store-image tasks.
 	for action, h := range map[string]http.HandlerFunc{
 		"CreateFpgaImage":                             handleCreateFpgaImage,
 		"DescribeFpgaImages":                          handleDescribeFpgaImages,
@@ -111,8 +99,7 @@ func registerEC2ImagesFpga(r *AWSQueryRouter, srv *sim.Server) {
 	}
 }
 
-// ec2FpgaTagsXML renders an FPGA image's tags. The FpgaImage shape names the
-// element <tags> (not <tagSet>), so it cannot reuse writeTagSetXML.
+// FpgaImage names the element <tags>, not <tagSet>.
 func ec2FpgaTagsXML(tags []EC2Tag) string {
 	if len(tags) == 0 {
 		return "<tags/>"
@@ -287,8 +274,7 @@ func handleDeleteFpgaImage(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<DeleteFpgaImageResponse %s><requestId>%s</requestId><return>true</return></DeleteFpgaImageResponse>`, ec2Xmlns(), sim.NewUUID())
 }
 
-// ec2FpgaImageAttributeXML renders the FpgaImageAttribute structure scoped to
-// the requested attribute name (description / name / loadPermission).
+// Scoped to the requested attribute.
 func ec2FpgaImageAttributeXML(img EC2FpgaImage, attr string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "<fpgaImageId>%s</fpgaImageId>", img.FpgaImageId)
@@ -334,7 +320,6 @@ func handleModifyFpgaImageAttribute(w http.ResponseWriter, r *http.Request) {
 	if v := r.FormValue("Description"); v != "" {
 		img.Description = v
 	}
-	// LoadPermission add/remove (mirrors the EBS-snapshot/AMI loadPermission model).
 	op := r.FormValue("OperationType")
 	switch op {
 	case "add":
@@ -418,7 +403,7 @@ func handleResetFpgaImageAttribute(w http.ResponseWriter, r *http.Request) {
 		ec2ErrorXML(w, "InvalidFpgaImageID.NotFound", fmt.Sprintf("The FPGA image id %q does not exist", id), http.StatusBadRequest)
 		return
 	}
-	// The only resettable attribute is loadPermission: clears all grants.
+	// loadPermission is the only resettable attribute.
 	img.LoadPermissions = nil
 	img.Public = false
 	img.UpdateTime = ec2NowRFC3339Milli()
@@ -497,7 +482,6 @@ func handleGetAllowedImagesSettings(w http.ResponseWriter, r *http.Request) {
 		ec2Xmlns(), sim.NewUUID(), s.State, crit.String())
 }
 
-// ec2ParseImageCriteria reads the indexed ImageCriterion.N request params.
 func ec2ParseImageCriteria(r *http.Request) []EC2ImageCriterion {
 	var out []EC2ImageCriterion
 	for i := 1; ; i++ {
@@ -517,7 +501,6 @@ func ec2ParseImageCriteria(r *http.Request) []EC2ImageCriterion {
 	return out
 }
 
-// ec2IndexedList reads prefix.1, prefix.2, … into a slice.
 func ec2IndexedList(r *http.Request, prefix string) []string {
 	var out []string
 	for j := 1; ; j++ {
@@ -530,10 +513,8 @@ func ec2IndexedList(r *http.Request, prefix string) []string {
 	return out
 }
 
-// ec2CriterionValues reads a criterion's string list, accepting both wire
-// shapes EC2 clients emit for the same list: aws-sdk-go-v2 serializes the
-// nested list as prefix.Item.N, while botocore (the aws CLI) flattens it as
-// prefix.N.
+// aws-sdk-go-v2 serializes the nested list as prefix.Item.N; botocore
+// flattens it as prefix.N.
 func ec2CriterionValues(r *http.Request, prefix string) []string {
 	if v := ec2IndexedList(r, prefix+".Item"); len(v) > 0 {
 		return v
@@ -619,8 +600,7 @@ func handleDisableImageDeregistrationProtection(w http.ResponseWriter, r *http.R
 		ec2Xmlns(), sim.NewUUID())
 }
 
-// handleDescribeBundleTasks returns an honest-empty list: the sim has no live
-// instance-store bundling backend, so no bundle tasks ever exist.
+// The simulator has no bundling backend, so no bundle task exists.
 func handleDescribeBundleTasks(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DescribeBundleTasksResponse %s><requestId>%s</requestId><bundleInstanceTasksSet/></DescribeBundleTasksResponse>`,
@@ -633,12 +613,11 @@ func handleCancelBundleTask(w http.ResponseWriter, r *http.Request) {
 		ec2ErrorXML(w, "MissingParameter", "The request must contain the parameter BundleId", http.StatusBadRequest)
 		return
 	}
-	// No bundle tasks exist in the sim, so any id is unknown.
+	// No bundle task exists, so any id is unknown.
 	ec2ErrorXML(w, "InvalidBundleID.NotFound", fmt.Sprintf("The bundle task id %q does not exist", id), http.StatusBadRequest)
 }
 
-// handleDescribeConversionTasks returns an honest-empty list: the sim has no
-// live import/export conversion backend.
+// The simulator has no conversion backend.
 func handleDescribeConversionTasks(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DescribeConversionTasksResponse %s><requestId>%s</requestId><conversionTasks/></DescribeConversionTasksResponse>`,

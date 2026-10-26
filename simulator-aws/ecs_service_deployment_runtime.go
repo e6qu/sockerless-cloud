@@ -12,9 +12,8 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
-// ECSServiceSchedulerState is the durable scheduler bookkeeping that is not
-// part of the public Amazon ECS Service shape. Keeping it in SQLite makes
-// launch throttling and rollback decisions survive a simulator restart.
+// Scheduler state outside the public Service shape, persisted so launch
+// throttling and rollback decisions survive a restart.
 type ECSServiceSchedulerState struct {
 	ServiceArn          string                        `json:"serviceArn"`
 	DeploymentID        string                        `json:"deploymentId"`
@@ -25,9 +24,8 @@ type ECSServiceSchedulerState struct {
 	RollbackInProgress  bool                          `json:"rollbackInProgress,omitempty"`
 }
 
-// ECSServiceDeploymentSnapshot contains the service fields Amazon ECS restores
-// when it rolls a deployment back to the last completed revision. Desired
-// count and operator-managed service metadata intentionally remain current.
+// The fields a rollback restores; desired count and operator metadata stay
+// current.
 type ECSServiceDeploymentSnapshot struct {
 	TaskDefinition              string          `json:"taskDefinition"`
 	LaunchType                  string          `json:"launchType,omitempty"`
@@ -123,9 +121,8 @@ func ecsMarkServiceDeploymentCompleted(key string, service ECSService) {
 	ecsServiceSchedulerStates.Put(key, state)
 	ecsCancelServiceRetry(key)
 	if wasRollback {
-		// The service event was appended by the same write that published the
-		// rollout as COMPLETED, so a reader cannot observe one without the
-		// other; only the deployment record's own transition is left to do.
+		// The write that published COMPLETED also appended the event; only the
+		// deployment record's transition remains.
 		ecsFinishServiceDeploymentRollback(service.ServiceArn)
 	}
 }
@@ -136,9 +133,7 @@ func ecsAddServiceEvent(key, message string) {
 	})
 }
 
-// ecsAppendServiceEvent records a service event on a service the caller is
-// already writing, so an event can be published by the same store write as the
-// state it describes.
+// Lets an event publish in the same store write as the state it describes.
 func ecsAppendServiceEvent(service *ECSService, message string) {
 	event := ECSServiceEvent{
 		Id:        sim.NewUUID(),
@@ -348,10 +343,8 @@ func ecsCancelServiceRetry(key string) {
 
 func ecsCheckServiceDeploymentAlarms(key string, service ECSService) bool {
 	if scheduler, ok := ecsServiceSchedulerStates.Get(key); ok && scheduler.RollbackInProgress {
-		// The alarm triggered the rollback. Amazon ECS monitors the failed
-		// deployment, not the rollback deployment, against that same alarm;
-		// otherwise an alarm that remains ALARM would recursively roll back the
-		// rollback forever.
+		// Amazon ECS monitors the failed deployment against the alarm, not the
+		// rollback; otherwise a lingering ALARM would roll back the rollback forever.
 		return false
 	}
 	configuration := ecsServiceRuntimeDeploymentConfiguration(service)
@@ -404,11 +397,8 @@ func ecsFailServiceDeployment(key, reason string, rollback bool) {
 	failed.RolloutState = "FAILED"
 	failed.RolloutStateReason = reason
 	failed.UpdatedAt = ecsEpochSeconds()
-	// The event explaining the failure is written by the same store write that
-	// publishes the rollout as FAILED. DescribeServices returns the rollout
-	// state and the events from one service, and real Amazon ECS never reports
-	// a failed rollout with nothing recording why, so the two must not be
-	// separately observable.
+	// Publish the explaining event in the same write as FAILED: Amazon ECS never
+	// reports a failed rollout with nothing recording why.
 	ecsServices.Update(key, func(current *ECSService) {
 		current.PendingCount = 0
 		current.Deployments[0] = failed
@@ -432,9 +422,8 @@ func ecsStartServiceDeploymentRollback(key string, service ECSService, failed EC
 		))
 		return
 	}
-	// ecsFailServiceDeployment persisted the failed rollout and its service
-	// event before entering rollback. Reload that record so restoring the last
-	// completed deployment configuration cannot overwrite those public events.
+	// Reload so restoring the last completed configuration keeps the events
+	// ecsFailServiceDeployment wrote.
 	if current, exists := ecsServices.Get(key); exists {
 		service = current
 	}
@@ -445,9 +434,8 @@ func ecsStartServiceDeploymentRollback(key string, service ECSService, failed EC
 	rollbackDeployment.RolloutStateReason = "Deployment rollback is in progress"
 	failed.Status = "ACTIVE"
 	service.Deployments = []ECSDeployment{rollbackDeployment, failed}
-	// Recorded in the same write that restores the previous task definition:
-	// a client must not see the service pointing back at its last good
-	// revision with nothing saying a rollback began.
+	// Same write as restoring the task definition, so the rollback is never
+	// visible without its event.
 	ecsAppendServiceEvent(&service, fmt.Sprintf(
 		"(service %s) began rolling back to task definition %s.",
 		service.ServiceName, service.TaskDefinition,

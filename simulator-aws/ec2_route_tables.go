@@ -13,8 +13,7 @@ func handleCreateRouteTable(w http.ResponseWriter, r *http.Request) {
 	tags := parseTags(r)
 	id := ec2ID("rtb")
 
-	// The local route's CIDR is the VPC's own CIDR; a missing VPC is a real
-	// InvalidVpcID.NotFound, not a fabricated default block.
+	// The local route's CIDR is the VPC's; a missing VPC is InvalidVpcID.NotFound.
 	v, ok := ec2Vpcs.Get(vpcId)
 	if !ok {
 		ec2ErrorXML(w, "InvalidVpcID.NotFound", fmt.Sprintf("The vpc ID '%s' does not exist", vpcId), http.StatusBadRequest)
@@ -208,8 +207,7 @@ func handleDeleteRouteTable(w http.ResponseWriter, r *http.Request) {
 		ec2ErrorXML(w, "InvalidRouteTableID.NotFound", fmt.Sprintf("The routeTable ID '%s' does not exist", id), http.StatusBadRequest)
 		return
 	}
-	// EC2 refuses to delete the main route table or one still associated with a
-	// subnet or gateway.
+	// Amazon EC2 refuses to delete the main table or one still associated.
 	if len(rt.Associations) > 0 {
 		ec2ErrorXML(w, "DependencyViolation", fmt.Sprintf("The routeTable '%s' has dependencies and cannot be deleted.", id), http.StatusBadRequest)
 		return
@@ -222,9 +220,8 @@ func handleDeleteRouteTable(w http.ResponseWriter, r *http.Request) {
 </DeleteRouteTableResponse>`, ec2Xmlns(), sim.NewUUID())
 }
 
-// parseRouteFromRequest builds an EC2Route from a CreateRoute/ReplaceRoute
-// request, covering every target type the EC2 API accepts (not just
-// gateway/nat/eni — peering, TGW, prefix-list, IPv6, egress-only, etc.).
+// Covers every target type the API accepts: gateway, NAT gateway, network
+// interface, peering, transit gateway, prefix list, IPv6, egress-only and more.
 func parseRouteFromRequest(r *http.Request) EC2Route {
 	return EC2Route{
 		DestinationCidrBlock:        r.FormValue("DestinationCidrBlock"),
@@ -246,8 +243,7 @@ func parseRouteFromRequest(r *http.Request) EC2Route {
 	}
 }
 
-// routeDestMatches reports whether a stored route has the destination the
-// request addresses (IPv4 CIDR, IPv6 CIDR, or prefix list).
+// Matches an IPv4 CIDR, an IPv6 CIDR or a prefix list.
 func routeDestMatches(route EC2Route, cidr, ipv6, prefix string) bool {
 	switch {
 	case cidr != "":
@@ -275,9 +271,8 @@ func handleCreateRoute(w http.ResponseWriter, r *http.Request) {
 </CreateRouteResponse>`, ec2Xmlns(), sim.NewUUID())
 }
 
-// handleReplaceRoute updates the target of an existing route in place (the
-// terraform-provider-aws path for any aws_route target change that keeps the
-// same destination).
+// terraform-provider-aws takes this path for a target change that keeps the
+// destination.
 func handleReplaceRoute(w http.ResponseWriter, r *http.Request) {
 	rtId := r.FormValue("RouteTableId")
 	newRoute := parseRouteFromRequest(r)
@@ -364,7 +359,6 @@ func handleAssociateRouteTable(w http.ResponseWriter, r *http.Request) {
 func handleDisassociateRouteTable(w http.ResponseWriter, r *http.Request) {
 	assocId := r.FormValue("AssociationId")
 
-	// Find and remove association from its route table
 	for _, rt := range ec2RouteTables.List() {
 		for _, a := range rt.Associations {
 			if a.AssociationId == assocId {

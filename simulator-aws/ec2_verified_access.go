@@ -9,20 +9,13 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// This file implements faithful control-plane CRUD for the Amazon EC2 Verified
-// Access and EC2 Traffic Mirroring families. Every resource is backed by a real
-// SQLite-persisted store and rendered as the exact ec2Query XML the AWS SDK for
-// Go v2 and the aws CLI deserialize (member casing taken from ec2.smithy.json).
+// Verified Access: an instance (vai-) contains groups (vagr-), which hold a
+// Cedar policy and contain endpoints (vae-) with their own policies; trust
+// providers (vatp-) attach to instances.
 //
-// Verified Access: an instance (vai-) is the top-level container; trust
-// providers (vatp-) are created standalone and attach/detach to instances;
-// groups (vagr-) live under an instance and hold a Cedar policy document;
-// endpoints (vae-) live under a group and hold their own policy document.
-//
-// Traffic Mirroring: targets (tmt-) point at an ENI / NLB / GWLB endpoint;
-// filters (tmf-) hold ingress/egress rules (tmfr-) and a set of mirrored
-// network services; sessions (tms-) bind a source ENI to a target through a
-// filter.
+// Traffic Mirroring: targets (tmt-) name an ENI, NLB or GWLB endpoint; filters
+// (tmf-) hold rules (tmfr-) and mirrored network services; sessions (tms-) bind
+// a source ENI to a target through a filter.
 
 type EC2VerifiedAccessTrustProvider struct {
 	VerifiedAccessTrustProviderId string
@@ -42,9 +35,7 @@ type EC2VerifiedAccessInstance struct {
 	CreationTime             string
 	LastUpdatedTime          string
 	FipsEnabled              bool
-	// TrustProviderIds holds the ids of the attached trust providers, in
-	// attach order, so the verifiedAccessTrustProviderSet renders the condensed
-	// view real AWS returns.
+	// In attach order, for the condensed set AWS returns.
 	TrustProviderIds []string
 	Tags             []EC2Tag
 }
@@ -82,8 +73,7 @@ type EC2VerifiedAccessEndpoint struct {
 	Tags                     []EC2Tag
 }
 
-// EC2VerifiedAccessLogging is the per-instance access-log configuration set by
-// ModifyVerifiedAccessInstanceLoggingConfiguration. Keyed by instance id.
+// Keyed by instance id.
 type EC2VerifiedAccessLogging struct {
 	VerifiedAccessInstanceId  string
 	S3Enabled                 bool
@@ -174,13 +164,11 @@ func registerEC2VerifiedAccess(r *AWSQueryRouter, srv *sim.Server) {
 	ec2TmFilterRules = sim.MakeStore[EC2TrafficMirrorFilterRule](srv.DB(), "ec2_tm_filter_rules")
 	ec2TmSessions = sim.MakeStore[EC2TrafficMirrorSession](srv.DB(), "ec2_tm_sessions")
 
-	// Verified Access instances
 	r.Register("CreateVerifiedAccessInstance", handleCreateVerifiedAccessInstance)
 	r.Register("DescribeVerifiedAccessInstances", handleDescribeVerifiedAccessInstances)
 	r.Register("ModifyVerifiedAccessInstance", handleModifyVerifiedAccessInstance)
 	r.Register("DeleteVerifiedAccessInstance", handleDeleteVerifiedAccessInstance)
 
-	// Verified Access trust providers
 	r.Register("CreateVerifiedAccessTrustProvider", handleCreateVerifiedAccessTrustProvider)
 	r.Register("DescribeVerifiedAccessTrustProviders", handleDescribeVerifiedAccessTrustProviders)
 	r.Register("ModifyVerifiedAccessTrustProvider", handleModifyVerifiedAccessTrustProvider)
@@ -188,7 +176,6 @@ func registerEC2VerifiedAccess(r *AWSQueryRouter, srv *sim.Server) {
 	r.Register("AttachVerifiedAccessTrustProvider", handleAttachVerifiedAccessTrustProvider)
 	r.Register("DetachVerifiedAccessTrustProvider", handleDetachVerifiedAccessTrustProvider)
 
-	// Verified Access groups
 	r.Register("CreateVerifiedAccessGroup", handleCreateVerifiedAccessGroup)
 	r.Register("DescribeVerifiedAccessGroups", handleDescribeVerifiedAccessGroups)
 	r.Register("ModifyVerifiedAccessGroup", handleModifyVerifiedAccessGroup)
@@ -196,7 +183,6 @@ func registerEC2VerifiedAccess(r *AWSQueryRouter, srv *sim.Server) {
 	r.Register("GetVerifiedAccessGroupPolicy", handleGetVerifiedAccessGroupPolicy)
 	r.Register("ModifyVerifiedAccessGroupPolicy", handleModifyVerifiedAccessGroupPolicy)
 
-	// Verified Access endpoints
 	r.Register("CreateVerifiedAccessEndpoint", handleCreateVerifiedAccessEndpoint)
 	r.Register("DescribeVerifiedAccessEndpoints", handleDescribeVerifiedAccessEndpoints)
 	r.Register("ModifyVerifiedAccessEndpoint", handleModifyVerifiedAccessEndpoint)
@@ -205,17 +191,14 @@ func registerEC2VerifiedAccess(r *AWSQueryRouter, srv *sim.Server) {
 	r.Register("ModifyVerifiedAccessEndpointPolicy", handleModifyVerifiedAccessEndpointPolicy)
 	r.Register("GetVerifiedAccessEndpointTargets", handleGetVerifiedAccessEndpointTargets)
 
-	// Verified Access logging + client config export
 	r.Register("DescribeVerifiedAccessInstanceLoggingConfigurations", handleDescribeVerifiedAccessInstanceLoggingConfigurations)
 	r.Register("ModifyVerifiedAccessInstanceLoggingConfiguration", handleModifyVerifiedAccessInstanceLoggingConfiguration)
 	r.Register("ExportVerifiedAccessInstanceClientConfiguration", handleExportVerifiedAccessInstanceClientConfiguration)
 
-	// Traffic Mirror targets
 	r.Register("CreateTrafficMirrorTarget", handleCreateTrafficMirrorTarget)
 	r.Register("DescribeTrafficMirrorTargets", handleDescribeTrafficMirrorTargets)
 	r.Register("DeleteTrafficMirrorTarget", handleDeleteTrafficMirrorTarget)
 
-	// Traffic Mirror filters + rules
 	r.Register("CreateTrafficMirrorFilter", handleCreateTrafficMirrorFilter)
 	r.Register("DescribeTrafficMirrorFilters", handleDescribeTrafficMirrorFilters)
 	r.Register("DeleteTrafficMirrorFilter", handleDeleteTrafficMirrorFilter)
@@ -225,7 +208,6 @@ func registerEC2VerifiedAccess(r *AWSQueryRouter, srv *sim.Server) {
 	r.Register("DeleteTrafficMirrorFilterRule", handleDeleteTrafficMirrorFilterRule)
 	r.Register("ModifyTrafficMirrorFilterNetworkServices", handleModifyTrafficMirrorFilterNetworkServices)
 
-	// Traffic Mirror sessions
 	r.Register("CreateTrafficMirrorSession", handleCreateTrafficMirrorSession)
 	r.Register("DescribeTrafficMirrorSessions", handleDescribeTrafficMirrorSessions)
 	r.Register("ModifyTrafficMirrorSession", handleModifyTrafficMirrorSession)
@@ -236,7 +218,7 @@ func vaArn(resource string) string {
 	return fmt.Sprintf("arn:aws:ec2:%s:%s:%s", awsRegion(), awsAccountID(), resource)
 }
 
-// ec2FormInt reads an integer form value; ok is false when the param is absent.
+// ok is false when the parameter is absent.
 func ec2FormInt(r *http.Request, key string) (int, bool) {
 	v := r.FormValue(key)
 	if v == "" {
@@ -902,7 +884,7 @@ func vaLoggingFor(instID string) EC2VerifiedAccessLogging {
 	if lc, ok := ec2VaLogging.Get(instID); ok {
 		return lc
 	}
-	// Default: all destinations disabled, like a freshly created instance.
+	// A fresh instance has every destination disabled.
 	return EC2VerifiedAccessLogging{VerifiedAccessInstanceId: instID}
 }
 
@@ -1179,7 +1161,7 @@ func handleDeleteTrafficMirrorFilter(w http.ResponseWriter, r *http.Request) {
 		ec2ErrorXML(w, "InvalidTrafficMirrorFilterId.NotFound", fmt.Sprintf("The Traffic Mirror filter ID '%s' does not exist", id), http.StatusBadRequest)
 		return
 	}
-	// Deleting a filter removes its rules too, as real AWS does.
+	// A filter's rules go with it.
 	for _, rule := range ec2TmFilterRules.List() {
 		if rule.TrafficMirrorFilterId == id {
 			ec2TmFilterRules.Delete(rule.TrafficMirrorFilterRuleId)
@@ -1193,7 +1175,6 @@ func handleDeleteTrafficMirrorFilter(w http.ResponseWriter, r *http.Request) {
 </DeleteTrafficMirrorFilterResponse>`, ec2Xmlns(), sim.NewUUID(), id)
 }
 
-// ec2ParseTmPortRange reads a TrafficMirrorPortRange request param block.
 func ec2ParseTmPortRange(r *http.Request, prefix string) *EC2TrafficMirrorPortRange {
 	from, hasFrom := ec2FormInt(r, prefix+".FromPort")
 	to, hasTo := ec2FormInt(r, prefix+".ToPort")
@@ -1376,7 +1357,7 @@ func handleCreateTrafficMirrorSession(w http.ResponseWriter, r *http.Request) {
 	packetLength, hasPacketLength := ec2FormInt(r, "PacketLength")
 	vni, hasVni := ec2FormInt(r, "VirtualNetworkId")
 	if !hasVni {
-		// Real AWS auto-assigns a VNI in 1..16777215 when omitted.
+		// AWS assigns a VNI in 1..16777215 when omitted.
 		vni = 1
 	}
 	s := EC2TrafficMirrorSession{
@@ -1470,8 +1451,6 @@ func handleDeleteTrafficMirrorSession(w http.ResponseWriter, r *http.Request) {
 </DeleteTrafficMirrorSessionResponse>`, ec2Xmlns(), sim.NewUUID(), id)
 }
 
-// ec2ApplyVerifiedAccessPolicy applies the request's PolicyDocument and
-// PolicyEnabled to a Verified Access group or endpoint.
 func ec2ApplyVerifiedAccessPolicy(r *http.Request, document *string, enabled *bool, updated *string) {
 	if v := r.FormValue("PolicyDocument"); v != "" {
 		*document = v

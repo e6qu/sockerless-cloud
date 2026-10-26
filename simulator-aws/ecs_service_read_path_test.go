@@ -16,31 +16,18 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
-// Amazon ECS answers DescribeServices from the service record its control plane
-// already holds — the sample response in the API reference reports
-// runningCount/pendingCount/deployments as recorded state, and a service created
-// with "desiredCount": 10 answers immediately with "runningCount": 0 and a
-// PRIMARY deployment of "runningCount": 0. Converging that record on to the
-// desired count is the service scheduler's continuous job: "If one of your tasks
-// fails or stops, the Amazon ECS service scheduler launches another instance of
-// your task definition to replace it."
-//
-// These tests hold the simulator to that split. A read must never take the
-// per-service scheduler lock or drive a reconciliation pass, and CreateService /
-// UpdateService must record the requested state, hand the convergence to the
-// scheduler, and return.
+// Amazon ECS answers DescribeServices from its recorded service state (a
+// service created with desiredCount 10 answers runningCount 0), and the
+// scheduler converges it. A read must never take the scheduler lock or
+// reconcile, and CreateService / UpdateService record, hand off and return.
 
-// ecsSchedulerTestStores gives one test its own control-plane stores. The
-// scheduler reads the service, task, deployment, revision, alarm and target
-// group stores on the goroutine it reconciles on, so all of them must be real
-// stores even when a test only exercises a subset.
+// The scheduler reads the service, task, deployment, revision, alarm and
+// target group stores, so all must be real.
 func ecsSchedulerTestStores() {
-	// Reconciliations requested by whatever ran before this must finish before
-	// the stores they read are replaced.
+	// Let earlier reconciliations finish before replacing their stores.
 	bg.Await()
-	// The stores stand in for a simulator nobody serves, so no server owns the
-	// lifecycle steps either: an earlier test's server has stopped and would
-	// hand its steps a cancelled context.
+	// No server owns the lifecycle steps; an earlier test's server would hand them
+	// a cancelled context.
 	ecsBackgroundServer = nil
 	ecsClusters = sim.MakeStore[ECSCluster](nil, "ecs_clusters")
 	ecsTaskDefinitions = sim.MakeStore[ECSTaskDefinition](nil, "ecs_task_definitions")
@@ -53,17 +40,14 @@ func ecsSchedulerTestStores() {
 	ecsServiceRevisions = sim.MakeStore[ECSServiceRevisionRec](nil, "ecs_service_revisions")
 	ecsTaskProtections = sim.MakeStore[ECSTaskProtection](nil, "ecs_task_protections")
 	elbv2TargetGroups = sim.MakeStore[ELBv2TargetGroup](nil, "elbv2_target_groups")
-	// Whether a listener rule forwards to a target group decides whether its
-	// targets are health-checked at all, so a scheduler that reacts to target
-	// health reads these two stores as surely as it reads the target groups.
+	// Whether a listener forwards to a target group decides whether its targets
+	// are health-checked, so the scheduler reads these stores too.
 	elbv2Listeners = sim.MakeStore[ELBv2Listener](nil, "elbv2_listeners")
 	elbv2Rules = sim.MakeStore[ELBv2Rule](nil, "elbv2_rules")
 	cwAlarms = sim.MakeStore[CWAlarm](nil, "cw_alarms")
 	ecsRevisions = map[string]int{}
 }
 
-// ecsSchedulerTestCluster registers a cluster and a one-container task
-// definition family, and returns the cluster and the task definition ARN.
 func ecsSchedulerTestCluster(clusterName, family string) (ECSCluster, string) {
 	cluster := ECSCluster{
 		ClusterName: clusterName,
@@ -85,8 +69,7 @@ func ecsSchedulerTestCluster(clusterName, family string) (ECSCluster, string) {
 	return cluster, definition.TaskDefinitionArn
 }
 
-// ecsSchedulerTestRunningTask stores one RUNNING task the service's deployment
-// startedBy started, long enough ago to be past the steady-state window.
+// Started long enough ago to be past the steady-state window.
 func ecsSchedulerTestRunningTask(cluster ECSCluster, serviceName, startedBy, taskDefinitionArn, containerIP string) ECSTask {
 	startedAt := float64(time.Now().Add(-time.Minute).UnixMilli()) / 1000
 	createdAt := float64(startedAt)
@@ -126,10 +109,8 @@ type ecsHandlerResult struct {
 	elapsed time.Duration
 }
 
-// ecsCallWhileSchedulerHoldsLock runs handler against body while the service's
-// scheduler lock is held, and reports how long the handler took to answer. A
-// handler that reconciles inline blocks on that lock for as long as the
-// scheduler pass runs, which is exactly the coupling being guarded against.
+// A handler reconciling inline blocks on the lock for the whole scheduler
+// pass.
 func ecsCallWhileSchedulerHoldsLock(
 	t *testing.T,
 	key string,
@@ -174,9 +155,8 @@ func ecsCallWhileSchedulerHoldsLock(
 	}
 }
 
-// hangingHealthCheckTarget accepts connections and never replies, so an Elastic
-// Load Balancing health check against it runs its full configured timeout —
-// the shape of a target that is registered but not yet answering.
+// Never replies, so a health check runs its full timeout, like a target that
+// is registered but not yet answering.
 func hangingHealthCheckTarget(t *testing.T) int {
 	t.Helper()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -213,12 +193,8 @@ func decodeECSServices(t *testing.T, body string) []ECSService {
 	return response.Services
 }
 
-// TestDescribeServicesAnswersWhileTheSchedulerHoldsTheServiceLock proves
-// DescribeServices is a read. Reconciling inside the handler would take the
-// per-service scheduler lock, which queues the describe behind whatever
-// reconciliation is already running for that service — a read whose latency is
-// set by the scheduler's pass rather than by the request. Amazon ECS answers a
-// describe from the service record no matter what its scheduler is doing.
+// Reconciling in the handler would queue the describe behind the running
+// pass; Amazon ECS answers regardless of its scheduler.
 func TestDescribeServicesAnswersWhileTheSchedulerHoldsTheServiceLock(t *testing.T) {
 	ecsSchedulerTestStores()
 	cluster, taskDefinitionArn := ecsSchedulerTestCluster("lock-cluster", "lock-task")
@@ -249,10 +225,7 @@ func TestDescribeServicesAnswersWhileTheSchedulerHoldsTheServiceLock(t *testing.
 	require.Equal(t, serviceName, described[0].ServiceName)
 }
 
-// TestDescribeServicesReportsTheRecordedServiceCounts proves the read reports
-// what the control plane holds instead of recomputing it. The counts,
-// deployment record and events on an Amazon ECS service are scheduler-owned
-// state; DescribeServices reports them, and only the scheduler advances them.
+// The read reports recorded state instead of recomputing it.
 func TestDescribeServicesReportsTheRecordedServiceCounts(t *testing.T) {
 	ecsSchedulerTestStores()
 	cluster, taskDefinitionArn := ecsSchedulerTestCluster("record-cluster", "record-task")
@@ -294,12 +267,8 @@ func TestDescribeServicesReportsTheRecordedServiceCounts(t *testing.T) {
 	require.EqualValues(t, now, stored.Deployments[0].UpdatedAt, "the read wrote to the service store")
 }
 
-// TestDescribeServicesDoesNotProbeLoadBalancerTargets measures the read against
-// a service whose registered target does not answer. A scheduler pass surveys
-// the health of every task through its target group, so driving one from the
-// read costs a full Elastic Load Balancing health-check timeout per target per
-// survey — seconds to tens of seconds for a single service. A read reports the
-// recorded state and probes nothing.
+// A scheduler pass surveys target health, so a read driving one would cost a
+// health-check timeout per target.
 func TestDescribeServicesDoesNotProbeLoadBalancerTargets(t *testing.T) {
 	ecsSchedulerTestStores()
 	cluster, taskDefinitionArn := ecsSchedulerTestCluster("probe-cluster", "probe-task")
@@ -358,21 +327,15 @@ func TestDescribeServicesDoesNotProbeLoadBalancerTargets(t *testing.T) {
 			"which costs one health-check timeout per target per pass", elapsed)
 }
 
-// TestCreateServiceReturnsBeforeTheSchedulerConverges proves CreateService
-// records the requested state and hands convergence to the scheduler. Amazon
-// ECS answers a create for ten tasks with the service at "runningCount": 0 and
-// a PRIMARY deployment holding "desiredCount": 10, "runningCount": 0; the
-// scheduler fills those in afterwards.
+// The scheduler fills in the counts after the response.
 func TestCreateServiceReturnsBeforeTheSchedulerConverges(t *testing.T) {
 	ecsSchedulerTestStores()
 	cluster, taskDefinitionArn := ecsSchedulerTestCluster("create-cluster", "create-task")
 	const serviceName = "create-svc"
 	key := ecsServiceKey(cluster.ClusterName, serviceName)
 
-	// The deployment's task is already running by the time the scheduler gets
-	// the lock, as when an earlier simulator process placed it: the scheduler
-	// must find it and record it, and it must do so after the handler has
-	// answered.
+	// The deployment's task is already running, as if an earlier process placed
+	// it; the scheduler must record it after the handler answers.
 	result := ecsCallWhileSchedulerHoldsLock(t, key, handleECSCreateService, map[string]any{
 		"cluster":        cluster.ClusterName,
 		"serviceName":    serviceName,
@@ -400,10 +363,8 @@ func TestCreateServiceReturnsBeforeTheSchedulerConverges(t *testing.T) {
 	requireSchedulerRecordsRunningTask(t, key)
 }
 
-// TestUpdateServiceReturnsBeforeTheSchedulerConverges proves the same for the
-// other control-plane write: Amazon ECS records the new desired state and
-// answers with it, and the scheduler starts and replaces tasks afterwards
-// under the service's deployment configuration.
+// Amazon ECS records the new desired state and answers; the scheduler acts
+// afterwards.
 func TestUpdateServiceReturnsBeforeTheSchedulerConverges(t *testing.T) {
 	ecsSchedulerTestStores()
 	cluster, taskDefinitionArn := ecsSchedulerTestCluster("update-cluster", "update-task")
@@ -441,9 +402,7 @@ func TestUpdateServiceReturnsBeforeTheSchedulerConverges(t *testing.T) {
 	requireSchedulerRecordsRunningTask(t, key)
 }
 
-// requireSchedulerRecordsRunningTask waits for the reconciliation the write
-// handed off to reach the service record. It proves the write scheduled real
-// convergence rather than dropping it.
+// Proves the write scheduled convergence rather than dropping it.
 func requireSchedulerRecordsRunningTask(t *testing.T, key string) {
 	t.Helper()
 	require.Eventuallyf(t, func() bool {
@@ -454,9 +413,8 @@ func requireSchedulerRecordsRunningTask(t *testing.T, key string) {
 	}, 10*time.Second, 20*time.Millisecond,
 		"the service scheduler never converged %s after the write returned", key)
 
-	// The reconciliation goroutine holds the per-service lock for its whole
-	// pass, so acquiring it here returns only once that pass has finished and
-	// the test does not outlive it.
+	// The pass holds the lock throughout, so acquiring it waits for the pass to
+	// finish.
 	lock := ecsServiceLock(key)
 	lock.Lock()
 	defer lock.Unlock()

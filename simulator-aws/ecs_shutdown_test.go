@@ -7,10 +7,8 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// A deployed simulator's stop waits for every background worker, so an Amazon
-// ECS lifecycle step that waits on its task — here a stop queued behind the
-// task's lifecycle lock, which a start still pulling its image holds — must
-// return once the server stops.
+// Shutdown waits for every background worker, so a stop queued behind a start
+// still pulling its image must return once the server stops.
 func TestECSLifecycleStepReturnsWhenTheServerStops(t *testing.T) {
 	srv, _, _ := buildConformanceSimulator(t)
 	ecsClusters.Put("shutdown-cluster", ECSCluster{

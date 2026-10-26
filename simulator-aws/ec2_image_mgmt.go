@@ -9,14 +9,9 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// This file implements the EC2 AMI / image-management family on top of the
-// existing AMI (ec2Images) and instance (ec2Instances) stores. Each feature
-// that carries state the EC2Image record does not (watermarks, deprecation,
-// fast-launch, usage reports, export/import tasks, recycle-bin) gets its own
-// store so DescribeX faithfully echoes what the mutating op recorded, exactly
-// as real EC2 does.
+// State the EC2Image record lacks (watermarks, deprecation, fast launch, usage
+// reports, export and import tasks, Recycle Bin) has its own store.
 
-// EC2ImageWatermark is one watermark attached to an AMI by AttachImageWatermark.
 type EC2ImageWatermark struct {
 	WatermarkKey            string
 	WatermarkName           string
@@ -27,9 +22,8 @@ type EC2ImageWatermark struct {
 	WatermarkCreationTime   string
 }
 
-// EC2ImageUsageReport is an image-usage report resource produced by
-// CreateImageUsageReport over a single AMI. The report settles to "available"
-// and DescribeImageUsageReportEntries enumerates per-resource-type usage counts.
+// The report settles available; DescribeImageUsageReportEntries lists
+// per-resource-type counts.
 type EC2ImageUsageReport struct {
 	ReportId       string
 	ImageId        string
@@ -42,18 +36,13 @@ type EC2ImageUsageReport struct {
 	Tags           []EC2Tag
 }
 
-// EC2ImageUsageResourceType records one resource type the report scans, with the
-// per-account usage count it found, used to render both the report's
-// resourceTypeSet and the report's entries.
 type EC2ImageUsageResourceType struct {
 	ResourceType string
 	UsageCount   int64
 	AccountId    string
 }
 
-// EC2ExportImageTask is an AMI->S3 export task created by ExportImage. The sim
-// has no disk image to write, so the task settles to "completed" immediately,
-// mirroring how a client polls DescribeExportImageTasks until completion.
+// The simulator writes no disk image, so the task completes at once.
 type EC2ExportImageTask struct {
 	ExportImageTaskId string
 	ImageId           string
@@ -68,8 +57,7 @@ type EC2ExportImageTask struct {
 	Tags              []EC2Tag
 }
 
-// EC2ImportImageTask is an S3->AMI import task created by ImportImage. Once
-// every disk has become a snapshot it completes with the AMI it registered.
+// Completes with the registered AMI once every disk is a snapshot.
 type EC2ImportImageTask struct {
 	ImportTaskId  string
 	ImageId       string
@@ -88,8 +76,6 @@ type EC2ImportImageTask struct {
 	Tags          []EC2Tag
 }
 
-// EC2ImportImageDisk is one disk container of an ImportImage task and the
-// snapshot VM Import/Export made from it.
 type EC2ImportImageDisk struct {
 	DeviceName    string
 	Format        string
@@ -103,9 +89,7 @@ type EC2ImportImageDisk struct {
 	StatusMessage string
 }
 
-// EC2FastLaunch is the Windows-AMI fast-launch configuration set by
-// EnableFastLaunch. The sim settles the config straight to "enabled"; disabling
-// removes the row.
+// The simulator enables fast launch at once; disabling removes the row.
 type EC2FastLaunch struct {
 	ImageId               string
 	ResourceType          string
@@ -120,9 +104,7 @@ type EC2FastLaunch struct {
 	StateTransitionTime   string
 }
 
-// EC2RecycleBinImage is an AMI sitting in the Recycle Bin (a retention-rule
-// holding pen a deregistered AMI lands in). The store is honest-empty unless an
-// AMI was sent to the bin.
+// Empty unless an AMI was sent to the bin.
 type EC2RecycleBinImage struct {
 	ImageId             string
 	Name                string
@@ -131,9 +113,7 @@ type EC2RecycleBinImage struct {
 	RecycleBinExitTime  string
 }
 
-// EC2ImageDeprecation records the DeprecationTime EnableImageDeprecation set on
-// an AMI (DisableImageDeprecation clears it). Kept beside ec2Images because the
-// EC2Image record has no deprecation field.
+// EC2Image has no deprecation field.
 type EC2ImageDeprecation struct {
 	ImageId         string
 	DeprecationTime string
@@ -149,8 +129,7 @@ var (
 	ec2ImageDeprecations sim.Store[EC2ImageDeprecation]
 )
 
-// ec2NowMillisXML formats now as the millisecond-precision UTC timestamp EC2
-// emits for MillisecondDateTime members (e.g. 2024-01-01T00:00:00.000Z).
+// MillisecondDateTime members, e.g. 2024-01-01T00:00:00.000Z.
 func ec2NowMillisXML() string { return time.Now().UTC().Format("2006-01-02T15:04:05.000Z") }
 
 func registerEC2ImageMgmt(r *AWSQueryRouter, srv *sim.Server) {
@@ -185,8 +164,7 @@ func registerEC2ImageMgmt(r *AWSQueryRouter, srv *sim.Server) {
 	}
 }
 
-// ec2RequireImage resolves an AMI id from the request, writing the standard
-// InvalidAMIID error and returning ok=false when it is missing or unknown.
+// Writes InvalidAMIID for a missing or unknown id.
 func ec2RequireImage(w http.ResponseWriter, r *http.Request) (EC2Image, bool) {
 	imageID := r.FormValue("ImageId")
 	if imageID == "" {
@@ -227,7 +205,7 @@ func handleDetachImageWatermark(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	key := r.FormValue("WatermarkKey")
-	// A specific key detaches that watermark; otherwise all watermarks on the AMI.
+	// A key detaches that watermark; no key detaches all.
 	for _, wm := range ec2ImageWatermarks.List() {
 		if wm.ImageId != img.ImageId {
 			continue
@@ -242,8 +220,7 @@ func handleDetachImageWatermark(w http.ResponseWriter, r *http.Request) {
 		ec2Xmlns(), sim.NewUUID())
 }
 
-// handleCancelImageLaunchPermission resets an AMI's launch permissions to
-// private (the cancel primitive that revokes shared-account access).
+// Resets launch permissions to private, revoking shared access.
 func handleCancelImageLaunchPermission(w http.ResponseWriter, r *http.Request) {
 	img, ok := ec2RequireImage(w, r)
 	if !ok {
@@ -261,8 +238,7 @@ func handleCreateImageUsageReport(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	// AccountIds serialize as a flat AccountId list whose member is named UserId
-	// (AccountId.UserId.N); the CLI's shorthand emits AccountId.N. Read both.
+	// The SDK sends AccountId.UserId.N; the CLI shorthand sends AccountId.N.
 	accountIds := ec2ParamList(r, "AccountId.UserId")
 	if len(accountIds) == 0 {
 		accountIds = ec2ParamList(r, "AccountId")
@@ -270,9 +246,7 @@ func handleCreateImageUsageReport(w http.ResponseWriter, r *http.Request) {
 	if len(accountIds) == 0 {
 		accountIds = []string{ec2Owner()}
 	}
-	// Each requested resource type is scanned once per account; the sim derives
-	// a real usage count from the instance store (instances launched from this
-	// AMI for ec2:Instance), defaulting to 0 for types with no sim resources.
+	// Only ec2:Instance has simulator resources to count; other types count 0.
 	var resTypes []EC2ImageUsageResourceType
 	for i := 1; ; i++ {
 		rt := r.FormValue(fmt.Sprintf("ResourceType.%d.ResourceType", i))
@@ -313,9 +287,7 @@ func handleCreateImageUsageReport(w http.ResponseWriter, r *http.Request) {
 		ec2Xmlns(), sim.NewUUID(), rep.ReportId)
 }
 
-// ec2ImageUsageCount derives a real usage count for a resource type from the
-// existing stores. ec2:Instance counts non-terminated instances launched from
-// the AMI; other types have no sim resources, so the count is 0.
+// ec2:Instance counts non-terminated instances launched from the AMI.
 func ec2ImageUsageCount(resourceType, imageID string) int64 {
 	if resourceType == "ec2:Instance" {
 		var n int64
@@ -376,7 +348,6 @@ func handleDescribeImageUsageReports(w http.ResponseWriter, r *http.Request) {
 func ec2ImageUsageReportXML(rep EC2ImageUsageReport) string {
 	var rts strings.Builder
 	rts.WriteString("<resourceTypeSet>")
-	// resourceTypeSet enumerates the distinct resource types the report scans.
 	seen := map[string]bool{}
 	for _, rt := range rep.ResourceTypes {
 		if seen[rt.ResourceType] {
@@ -445,15 +416,11 @@ func handleDescribeImageUsageReportEntries(w http.ResponseWriter, r *http.Reques
 		ec2Xmlns(), sim.NewUUID(), items.String(), ec2NextTokenXML(nextToken))
 }
 
-// ExportImage / ImportImage themselves are registered by the AMI host file
-// (ec2_hosts_images_vpc.go); this file owns the DescribeExportImageTasks /
-// DescribeImportImageTasks read side over the export/import task stores.
+// ec2_hosts_images_vpc.go registers ExportImage and ImportImage; this file
+// serves their Describe side.
 
-// ec2ExportImageFieldsXML renders the fields of a DescribeExportImageTasks item
-// (minus the wrapping element). An ExportImageTask carries fewer members than
-// the ExportImage response that started it: the disk image format and the role
-// the export assumes belong to the request and its immediate answer, and Amazon
-// EC2 does not report either back on the task.
+// The task omits the disk image format and the role, which only the request
+// and its immediate answer carry.
 func ec2ExportImageFieldsXML(t EC2ExportImageTask) string {
 	desc := ""
 	if t.Description != "" {
@@ -611,8 +578,7 @@ func handleDescribeFastLaunchImages(w http.ResponseWriter, r *http.Request) {
 		func(it EC2FastLaunch) string { return it.ImageId }, ec2FastLaunchFieldsXML, "DescribeFastLaunchImages", "fastLaunchImageSet")
 }
 
-// handleDescribeImageReferences returns the EC2 resources that reference each
-// requested AMI. The sim derives instance references from the instance store.
+// Instance references derive from the instance store.
 func handleDescribeImageReferences(w http.ResponseWriter, r *http.Request) {
 	imageIDs := ec2ParamList(r, "ImageId")
 	type ref struct {
@@ -651,12 +617,7 @@ func handleDescribeImageReferences(w http.ResponseWriter, r *http.Request) {
 		ec2Xmlns(), sim.NewUUID(), items.String(), ec2NextTokenXML(nextToken))
 }
 
-// DescribeInstanceImageMetadata is registered by the instance-extras file
-// (ec2_instance_extras.go); this file owns the rest of the image-management
-// family.
-
-// handleGetImageAncestry walks an AMI's copy chain (SourceImageId) back to its
-// root, returning one entry per ancestor (newest first).
+// Newest first.
 func handleGetImageAncestry(w http.ResponseWriter, r *http.Request) {
 	img, ok := ec2RequireImage(w, r)
 	if !ok {
@@ -745,7 +706,7 @@ func handleListImagesInRecycleBin(w http.ResponseWriter, r *http.Request) {
 		ec2Xmlns(), sim.NewUUID(), items.String(), ec2NextTokenXML(nextToken))
 }
 
-// ec2NextTokenXML renders an optional <nextToken> element, omitted when empty.
+// Omitted when empty.
 func ec2NextTokenXML(token string) string {
 	if token == "" {
 		return ""

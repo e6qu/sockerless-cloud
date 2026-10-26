@@ -11,11 +11,8 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// ECR OCI Distribution data plane. The ECR control plane
-// (CreateRepository / DescribeImages / layer ops) is awsJson; the actual
-// `docker push` / `docker pull` go over the OCI Distribution `/v2/` API. This
-// mounts the shared OCI data plane and registers each pushed manifest as an ECR
-// image so the control plane sees it.
+// `docker push` and `docker pull` speak the OCI Distribution `/v2/` API; each
+// pushed manifest registers as an ECR image the control plane sees.
 var (
 	ecrOCIManifests sim.Store[sim.OCIManifest]
 	ecrOCIBlobs     sim.Store[sim.OCIBlob]
@@ -28,15 +25,12 @@ func registerECROCI(srv *sim.Server) {
 		Manifests: ecrOCIManifests,
 		Blobs:     ecrOCIBlobs,
 		Uploads:   sim.MakeStore[sim.OCIUpload](srv.DB(), "ecr_oci_uploads"),
-		// Amazon ECR is a private registry: every registry request carries the
-		// authorization token GetAuthorizationToken issued (ecr_dataplane_auth.go).
+		// Every registry request carries a GetAuthorizationToken token
+		// (ecr_dataplane_auth.go).
 		Authorize: ecrAuthorizeV2,
-		// Amazon ECR repositories are explicit resources, so the data plane
-		// only serves the ones the registry holds.
+		// Repositories are explicit resources; serve only those the registry holds.
 		AdmitRepository: ecrAdmitRepository,
-		// A pull for a repository a pull-through cache rule covers fetches the
-		// image from that rule's upstream registry and caches it here, which is
-		// what the rule is for.
+		// A pull a cache rule covers fetches and caches the upstream image.
 		HydrateManifest: ecrHydrateFromPullThroughCache,
 		OnManifestPut: func(_, repo, ref, contentType string, data []byte) {
 			digest := fmt.Sprintf("sha256:%x", sha256.Sum256(data))
@@ -55,44 +49,20 @@ func registerECROCI(srv *sim.Server) {
 	reg.Register(srv)
 }
 
-// Repository existence on the Amazon ECR data plane.
-//
-// A registry request naming a repository the registry does not hold is refused:
-// "If you specify a Docker Hub repository that does not currently exist, Docker
-// Hub creates it automatically. With Amazon ECR, new repositories must be
-// explicitly created before they can be used. This prevents new repositories
-// from being created accidentally (for example, due to typos), and it also
-// ensures that an appropriate security access policy is explicitly assigned to
-// any new repositories." (Amazon ECR User Guide, "Troubleshooting Amazon ECR
-// error messages" § `HTTP 404: "Repository Does Not Exist" error`.)
-//
-// The refusal carries the Docker Registry HTTP API v2 error envelope with the
-// NAME_UNKNOWN code, which is what a client reports back:
+// "With Amazon ECR, new repositories must be explicitly created before they
+// can be used." A request for an absent repository gets the Registry v2
+// NAME_UNKNOWN envelope, which clients print as
 //
 //	name unknown: The repository with name 'dev/app1' does not exist in the
 //	registry with id 'registry host'
 //
-// from `docker push` (aws/containers-roadmap#1299), and, printing the code
-// verbatim as go-containerregistry does,
+// (aws/containers-roadmap#1299) or with the code verbatim (go-containerregistry).
 //
-//	GET https://…/v2/…/tags/list?n=1000: NAME_UNKNOWN: The repository with name
-//	'…/eq-author' does not exist in the registry with id '…'
-//
-// (concourse/registry-image-resource#268) and the same for a manifest GET
-// (GoogleContainerTools/kaniko#3443) and for the blob-upload probe a push
-// permission check makes (GoogleContainerTools/kaniko#1120). The Docker client
-// renders the envelope's code as its lower-cased, space-separated form, which
-// is how one refusal produces both spellings.
-//
-// The one push Amazon ECR does not refuse is the one a repository creation
-// template covers: "When you push an image to a repository that does not yet
-// exist … When there isn't a repository creation template that matches the
-// target repository for an image push, Amazon ECR will not create a repository
-// with default settings." (Amazon ECR User Guide, "Templates to control
-// repositories created during a pull through cache, create on push, or
-// replication action".) So a push whose repository matches a template applied
-// for CREATE_ON_PUSH creates the repository from that template and proceeds,
-// and every other request for a repository that does not exist is refused.
+// The exception is a push a CREATE_ON_PUSH repository creation template
+// covers: "When there isn't a repository creation template that matches the
+// target repository for an image push, Amazon ECR will not create a
+// repository", so a matching template creates the repository and the push
+// proceeds.
 func ecrAdmitRepository(w http.ResponseWriter, _ *http.Request, repo string, push bool) bool {
 	if _, exists := ecrRepositories.Get(repo); exists {
 		return true
@@ -103,11 +73,9 @@ func ecrAdmitRepository(w http.ResponseWriter, _ *http.Request, repo string, pus
 			return true
 		}
 	} else if _, _, covered := ecrPullThroughCacheRuleFor(repo); covered {
-		// The other repository Amazon ECR creates on demand: a pull through a
-		// cache rule creates the repository the rule covers and caches the
-		// upstream image in it. Refusing here would refuse the whole feature,
-		// because the repository a rule names exists only once something has
-		// been pulled through it.
+		// A pull through a cache rule also creates its repository; refusing here
+		// would disable the feature, since the repository exists only after the first
+		// pull.
 		ecrCreateRepositoryForPullThroughCache(repo)
 		return true
 	}
@@ -115,8 +83,6 @@ func ecrAdmitRepository(w http.ResponseWriter, _ *http.Request, repo string, pus
 	return false
 }
 
-// ecrRepositoryNameUnknown writes Amazon ECR's refusal of a registry request
-// naming a repository that does not exist.
 func ecrRepositoryNameUnknown(w http.ResponseWriter, repo string) {
 	sim.WriteJSON(w, http.StatusNotFound, map[string]any{
 		"errors": []map[string]any{{
@@ -127,36 +93,23 @@ func ecrRepositoryNameUnknown(w http.ResponseWriter, repo string) {
 	})
 }
 
-// ecrTemplateAppliedForCreateOnPush is the appliedFor value that puts a
-// repository creation template in the path of an image push: "The supported
-// scenarios are PULL_THROUGH_CACHE, REPLICATION, and CREATE_ON_PUSH"
-// (Amazon ECR API Reference, CreateRepositoryCreationTemplate.appliedFor).
+// "The supported scenarios are PULL_THROUGH_CACHE, REPLICATION, and
+// CREATE_ON_PUSH".
 const ecrTemplateAppliedForCreateOnPush = "CREATE_ON_PUSH"
 
-// ecrTemplateRootPrefix is the prefix that matches every repository without a
-// more specific template: "To apply a template to all repositories in your
-// registry that don't have an associated creation template, you can use ROOT as
-// the prefix."
+// "To apply a template to all repositories in your registry that don't have
+// an associated creation template, you can use ROOT as the prefix."
 const ecrTemplateRootPrefix = "ROOT"
 
-// ecrCreateOnPushTemplate returns the repository creation template Amazon ECR
-// would create a pushed-to repository from.
-//
-// A prefix carries an assumed trailing slash and the most specific one wins:
-// "There is always an assumed / applied to the end of the prefix. If you
-// specify ecr-public as the prefix, Amazon ECR treats that as ecr-public/" and
-// "In a registry containing two templates, if one template has the prefix
-// "prod" and the other has the prefix "prod/team", the template with the prefix
-// "prod/team" will be applied to all repositories whose names start with
-// "prod/team/"". ROOT is the least specific of all — it applies to the
-// repositories no other template matches.
+// A prefix carries an assumed trailing slash and the most specific wins:
+// "prod/team" beats "prod" for "prod/team/…". ROOT applies only where nothing
+// else matches.
 func ecrCreateOnPushTemplate(repo string) (ECRRepositoryCreationTemplate, bool) {
 	return ecrCreationTemplateFor(repo, ecrTemplateAppliedForCreateOnPush)
 }
 
-// ecrCreationTemplateFor is that lookup for any of the scenarios a template can
-// be applied for — a pull through a cache rule creates its repository from one
-// exactly as a push does.
+// A pull-through-cache repository is created from a template exactly as a push
+// is.
 func ecrCreationTemplateFor(repo, appliedFor string) (ECRRepositoryCreationTemplate, bool) {
 	var (
 		match   ECRRepositoryCreationTemplate
@@ -186,14 +139,9 @@ func ecrCreationTemplateFor(repo, appliedFor string) (ECRRepositoryCreationTempl
 	return root, isRoot
 }
 
-// ecrCreateRepositoryFromTemplate creates the repository a push named, with the
-// settings its repository creation template defines: "Use Amazon ECR repository
-// creation templates to define the settings for repositories created by Amazon
-// ECR on your behalf." The template's repository policy, lifecycle policy and
-// resource tags are applied to the new repository alongside its tag mutability
-// and encryption configuration, so GetRepositoryPolicy, GetLifecyclePolicy and
-// ListTagsForResource answer for it exactly as they do for a repository created
-// through CreateRepository.
+// Apply the template's repository policy, lifecycle policy and tags with its
+// tag mutability and encryption, so the Get operations answer as for a
+// CreateRepository repository.
 func ecrCreateRepositoryFromTemplate(repo string, template ECRRepositoryCreationTemplate) {
 	created := ECRRepository{
 		RepositoryArn:                      ecrArn("repository", repo),
@@ -204,8 +152,7 @@ func ecrCreateRepositoryFromTemplate(repo string, template ECRRepositoryCreation
 		ImageTagMutability:                 template.ImageTagMutability,
 		ImageTagMutabilityExclusionFilters: template.ImageTagMutabilityExclusionFilters,
 		// "If this parameter is omitted, the default setting of MUTABLE will be
-		// used", and a repository is AES256-encrypted unless the template says
-		// otherwise — the same defaults CreateRepository applies.
+		// used"; encryption defaults to AES256, as CreateRepository's do.
 		EncryptionConfiguration: ECREncryptionConfiguration{EncryptionType: "AES256"},
 		Tags:                    template.ResourceTags,
 	}

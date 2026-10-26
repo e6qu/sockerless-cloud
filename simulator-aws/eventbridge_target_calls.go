@@ -13,15 +13,11 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/delivery"
 )
 
-// Amazon EventBridge delivers to a target through the target service's API:
-// an Amazon SQS queue, an AWS Lambda function, an Amazon SNS topic and a
-// CloudWatch Logs log group as events.amazonaws.com, which the target's
-// resource policy must admit; an Amazon ECS cluster, an AWS Batch job queue,
-// an Amazon Kinesis data stream, an AWS Step Functions state machine, an AWS
-// CodeBuild project, an Amazon Data Firehose delivery stream, a Systems
-// Manager Run Command document and another event bus as the target's RoleArn.
+// EventBridge calls Amazon SQS, AWS Lambda, Amazon SNS and CloudWatch Logs
+// targets as events.amazonaws.com, which the resource policy must admit; Amazon
+// ECS, AWS Batch, Amazon Kinesis, AWS Step Functions, AWS CodeBuild, Amazon
+// Data Firehose, Run Command and other-bus targets as the target's RoleArn.
 
-// ebTargetActor is who EventBridge calls a target as for the rule.
 func ebTargetActor(ruleArn string, target EBTarget, withRole bool) awsActor {
 	actor := awsActor{Service: "events.amazonaws.com", Source: ruleArn}
 	if withRole {
@@ -30,7 +26,6 @@ func ebTargetActor(ruleArn string, target EBTarget, withRole bool) awsActor {
 	return actor
 }
 
-// ebCallResult reads a target service's answer as a delivery outcome.
 func ebCallResult(status int, body []byte, err error, xmlErrors bool) delivery.Outcome {
 	if err != nil {
 		if callErr, ok := err.(*awsCallError); ok {
@@ -52,8 +47,7 @@ func ebCallResult(status int, body []byte, err error, xmlErrors bool) delivery.O
 	return delivery.Permanent(failure).WithStatus(status)
 }
 
-// ebRequireRole refuses a target whose service EventBridge reaches only as a
-// role when the target names none.
+// Refuses a role-only target that names no role.
 func ebRequireRole(target EBTarget) *delivery.Outcome {
 	if target.RoleArn != "" {
 		return nil
@@ -101,14 +95,13 @@ func ebStartExecution(ctx context.Context, ruleArn string, target EBTarget, reco
 	input := map[string]any{"stateMachineArn": target.Arn, "name": record.ID, "input": body}
 	status, response, err := awsCallJSON(ctx, ebTargetActor(ruleArn, target, true), "states", "AWSStepFunctions.StartExecution", "application/x-amz-json-1.0", input)
 	if code, _ := awsJSONError(response); status >= 400 && code == "ExecutionAlreadyExists" {
-		// A retried delivery of one event starts the execution named for it once.
+		// A retried delivery starts the execution named for the event once.
 		return delivery.Delivered()
 	}
 	return ebCallResult(status, response, err, false)
 }
 
-// ebWriteToLogGroup writes the event to the log group in a stream named for
-// the rule, creating the stream on the first delivery.
+// In a stream named for the rule, created on first delivery.
 func ebWriteToLogGroup(ctx context.Context, ruleArn string, target EBTarget, body string) delivery.Outcome {
 	group := strings.TrimSuffix(strings.SplitN(target.Arn, ":log-group:", 2)[1], ":*")
 	stream := "eventbridge/" + cloudTrailShortName(ruleArn)
@@ -194,9 +187,8 @@ func ebSubmitJob(ctx context.Context, ruleArn string, target EBTarget) delivery.
 	return ebCallResult(status, response, err, false)
 }
 
-// ebStartBuild starts a build of the project the target names. A target with
-// its own input passes it as the StartBuild request, as an Amazon ECS target
-// passes its input as the task override.
+// A target's own input is the StartBuild request, as an Amazon ECS target's is
+// the task override.
 func ebStartBuild(ctx context.Context, ruleArn string, target EBTarget, body string) delivery.Outcome {
 	if refused := ebRequireRole(target); refused != nil {
 		return *refused
@@ -214,7 +206,7 @@ func ebStartBuild(ctx context.Context, ruleArn string, target EBTarget, body str
 	return ebCallResult(status, response, err, false)
 }
 
-// ebPutFirehoseRecord puts the event on the delivery stream as one record.
+// One record per event.
 func ebPutFirehoseRecord(ctx context.Context, ruleArn string, target EBTarget, body string) delivery.Outcome {
 	if refused := ebRequireRole(target); refused != nil {
 		return *refused
@@ -227,9 +219,8 @@ func ebPutFirehoseRecord(ctx context.Context, ruleArn string, target EBTarget, b
 	return ebCallResult(status, response, err, false)
 }
 
-// ebSendCommand sends the document the target names to the instances its
-// RunCommandTargets select. Nothing from the event reaches Run Command; a
-// target with its own input passes it as the document's parameters.
+// Nothing from the event reaches Run Command; a target's own input is the
+// document's parameters.
 func ebSendCommand(ctx context.Context, ruleArn string, target EBTarget, body string) delivery.Outcome {
 	if refused := ebRequireRole(target); refused != nil {
 		return *refused
@@ -255,8 +246,7 @@ func ebSendCommand(ctx context.Context, ruleArn string, target EBTarget, body st
 	return ebCallResult(status, response, err, false)
 }
 
-// ebPutOnBus sends the event to another event bus as it arrived, which that
-// bus's rules then match.
+// The receiving bus's rules match the event as it arrived.
 func ebPutOnBus(ctx context.Context, ruleArn string, target EBTarget, record EBEventRecord) delivery.Outcome {
 	if refused := ebRequireRole(target); refused != nil {
 		return *refused

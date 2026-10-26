@@ -16,14 +16,13 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// efsTestCreationInfo is CreationInfo owned by the test process, which can
-// always chown to itself whether or not it runs as root.
+// The test process can always chown to itself.
 func efsTestCreationInfo(permissions string) *EFSCreationInfo {
 	return &EFSCreationInfo{OwnerUid: int64(os.Getuid()), OwnerGid: int64(os.Getgid()), Permissions: permissions}
 }
 
-// The root directory takes the CreationInfo mode exactly, not the
-// umask-reduced one MkdirAll would leave, and the CreationInfo owner.
+// The exact CreationInfo mode, not MkdirAll's umask-reduced one, and its
+// owner.
 func TestEnsureAccessPointRootDirAppliesCreationInfo(t *testing.T) {
 	base := t.TempDir()
 	for name, c := range map[string]struct {
@@ -57,8 +56,7 @@ func TestEnsureAccessPointRootDirAppliesCreationInfo(t *testing.T) {
 	}
 }
 
-// Amazon EFS creates an access point's missing root directory only from
-// CreationInfo; without it a mount of the missing path fails.
+// Without CreationInfo, mounting a missing path fails.
 func TestEnsureAccessPointRootDirWithoutCreationInfoFailsTheMount(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "missing")
 	for _, rd := range []*EFSRootDirectory{nil, {Path: "/missing"}} {
@@ -73,8 +71,7 @@ func TestEnsureAccessPointRootDirWithoutCreationInfoFailsTheMount(t *testing.T) 
 	}
 }
 
-// A failure to look up, create or chown the directory fails the mount rather than
-// leaving a directory with the wrong owner or mode.
+// A failed lookup, create or chown fails the mount.
 func TestEnsureAccessPointRootDirSurfacesCreationFailures(t *testing.T) {
 	parent := filepath.Join(t.TempDir(), "file")
 	if err := os.WriteFile(parent, []byte("x"), 0o600); err != nil {
@@ -85,7 +82,7 @@ func TestEnsureAccessPointRootDirSurfacesCreationFailures(t *testing.T) {
 		t.Fatalf("err = %v, want the lookup failure (ENOTDIR)", err)
 	}
 	if os.Getuid() == 0 {
-		return // root may chown to anyone; the refused chown needs an unprivileged process
+		return // Root may chown to anyone; the refused chown needs an unprivileged process.
 	}
 	root := filepath.Join(t.TempDir(), "foreign")
 	err = ensureAccessPointRootDir(root, &EFSRootDirectory{CreationInfo: &EFSCreationInfo{OwnerUid: int64(os.Getuid()) + 1, OwnerGid: int64(os.Getgid()), Permissions: "0755"}})
@@ -94,8 +91,7 @@ func TestEnsureAccessPointRootDirSurfacesCreationFailures(t *testing.T) {
 	}
 }
 
-// CreationInfo applies only on creation: a workload that changes the root
-// directory's mode keeps it across later mounts.
+// A workload's change to the root's mode survives later mounts.
 func TestEnsureAccessPointRootDirDoesNotClobberExisting(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "ap")
 	if err := os.MkdirAll(root, 0o700); err != nil {
@@ -116,9 +112,8 @@ func TestEnsureAccessPointRootDirDoesNotClobberExisting(t *testing.T) {
 	}
 }
 
-// An Amazon ECS task mounting an access point whose root directory cannot be
-// created fails to start with a ResourceInitializationError, never falling
-// back to the file system's root.
+// The task fails with ResourceInitializationError, never falling back to the
+// file system's root.
 func TestECSEFSVolumeHostFailsWhereEFSRefusesTheMount(t *testing.T) {
 	t.Setenv("SIM_EFS_DATA_DIR", t.TempDir())
 	efsFileSystems = sim.MakeStore[EFSFileSystem](nil, "efs_file_systems")

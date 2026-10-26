@@ -10,10 +10,7 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// ELBv2 listener rules + ModifyListener. Listeners were read-only
-// after creation; the `aws_alb_listener_rule` resource (host-header /
-// path-pattern routing — the IAP-proxy ALB shape) needs rule CRUD, and
-// updating a listener's default action / certificates needs ModifyListener.
+// Listener rules and ModifyListener.
 
 type ELBv2Rule struct {
 	Arn         string
@@ -76,9 +73,8 @@ func handleELBv2CreateRule(w http.ResponseWriter, r *http.Request) {
 	elbv2XMLResponse(w, "CreateRule", "<Rules>"+elbv2RuleXML(rule)+"</Rules>", sim.RequestID(r.Context()))
 }
 
-// elbv2ReconcileTargetGroupLoadBalancers makes each target group's
-// LoadBalancerArns name the load balancer while a listener default action or
-// a rule of one of its listeners forwards to the group, and not after.
+// A target group names a load balancer only while one of its listeners
+// forwards to the group.
 func elbv2ReconcileTargetGroupLoadBalancers(lbArn string) {
 	forwarded := map[string]bool{}
 	note := func(actions []ELBv2Action) {
@@ -144,8 +140,7 @@ func handleELBv2DescribeRules(w http.ResponseWriter, r *http.Request) {
 		sort.Slice(rules, func(i, j int) bool {
 			return atoiDefault(rules[i].Priority, 1<<30) < atoiDefault(rules[j].Priority, 1<<30)
 		})
-		// The implicit default rule (carrying the listener's default action)
-		// always sorts last, exactly as real ELBv2 reports it.
+		// The implicit default rule always sorts last.
 		rules = append(rules, elbv2DefaultRule(listener))
 	default:
 		elbv2ErrorXML(w, "ValidationError", "Either ListenerArn or RuleArns must be specified",
@@ -233,11 +228,8 @@ func handleELBv2ModifyListener(w http.ResponseWriter, r *http.Request) {
 	if ma := parseELBv2MutualAuth(r); ma != nil {
 		listener.MutualAuth = ma
 	}
-	// A change to the protocol, port, or certificate set on a TLS-terminating
-	// or stream listener re-binds the local realization transactionally. A
-	// failed bind restores both the prior control-plane value and its prior
-	// listener rather than leaving a resource whose advertised data plane is
-	// absent.
+	// Changing protocol, port or certificates on a TLS or stream listener rebinds
+	// it transactionally: a failed bind restores the prior value and listener.
 	if r.FormValue("Port") != "" || r.FormValue("Protocol") != "" || len(parseELBv2Certificates(r)) > 0 {
 		elbv2StopListenerProxy(arn)
 		elbv2Listeners.Put(arn, listener)
@@ -261,8 +253,7 @@ func handleELBv2ModifyListener(w http.ResponseWriter, r *http.Request) {
 	elbv2XMLResponse(w, "ModifyListener", "<Listeners>"+elbv2ListenerXML(listener)+"</Listeners>", sim.RequestID(r.Context()))
 }
 
-// handleELBv2SetRulePriorities reorders non-default rules. The provider uses it
-// when an aws_lb_listener_rule's priority changes.
+// The provider's path when an aws_lb_listener_rule's priority changes.
 func handleELBv2SetRulePriorities(w http.ResponseWriter, r *http.Request) {
 	var updated []ELBv2Rule
 	for i := 1; ; i++ {
@@ -291,9 +282,8 @@ func handleELBv2SetRulePriorities(w http.ResponseWriter, r *http.Request) {
 	elbv2XMLResponse(w, "SetRulePriorities", b.String(), sim.RequestID(r.Context()))
 }
 
-// handleELBv2AddListenerCertificates appends SNI certificates to a listener.
-// These are the extra (non-default) certs the aws_lb_listener_certificate
-// resource manages, distinct from the listener's default certificate.
+// The extra certificates aws_lb_listener_certificate manages, apart from the
+// default.
 func handleELBv2AddListenerCertificates(w http.ResponseWriter, r *http.Request) {
 	arn := r.FormValue("ListenerArn")
 	listener, ok := elbv2Listeners.Get(arn)
@@ -331,9 +321,7 @@ func handleELBv2RemoveListenerCertificates(w http.ResponseWriter, r *http.Reques
 	elbv2XMLResponse(w, "RemoveListenerCertificates", "", sim.RequestID(r.Context()))
 }
 
-// handleELBv2DescribeListenerCertificates returns the default certificate
-// (IsDefault=true) plus the SNI certificates (IsDefault=false). The
-// aws_lb_listener_certificate resource filters to the non-default ones.
+// aws_lb_listener_certificate filters to the non-default ones.
 func handleELBv2DescribeListenerCertificates(w http.ResponseWriter, r *http.Request) {
 	arn := r.FormValue("ListenerArn")
 	listener, ok := elbv2Listeners.Get(arn)
@@ -345,10 +333,8 @@ func handleELBv2DescribeListenerCertificates(w http.ResponseWriter, r *http.Requ
 		elbv2ListenerCertificatesXML(listener, true), sim.RequestID(r.Context()))
 }
 
-// elbv2ListenerCertificatesXML renders the <Certificates> member list. When
-// includeDefault is set, the listener's default cert is emitted first with
-// IsDefault=true (the DescribeListenerCertificates shape); AddListenerCertificates
-// returns only the SNI certs it just added.
+// includeDefault emits the default certificate first with IsDefault=true;
+// AddListenerCertificates returns only what it added.
 func elbv2ListenerCertificatesXML(listener ELBv2Listener, includeDefault bool) string {
 	var b strings.Builder
 	b.WriteString("<Certificates>")
@@ -364,11 +350,8 @@ func elbv2ListenerCertificatesXML(listener ELBv2Listener, includeDefault bool) s
 	return b.String()
 }
 
-// elbv2RuleArn builds a rule ARN from its listener ARN. Real ELBv2 rule ARNs
-// use the `listener-rule/` resource prefix (not `rule/`); terraform-provider-aws
-// reconstructs aws_lb_listener_rule.listener_arn from the rule ARN by requiring
-// exactly the `listener-rule/<type>/<lb>/<lbid>/<listenerid>/<ruleid>` shape, so
-// the wrong prefix nulls listener_arn and forces replacement every plan.
+// The `listener-rule/` prefix: terraform-provider-aws rebuilds listener_arn
+// from exactly `listener-rule/<type>/<lb>/<lbid>/<listenerid>/<ruleid>`.
 func elbv2RuleArn(listenerArn, ruleID string) string {
 	return strings.Replace(listenerArn, ":listener/", ":listener-rule/", 1) + "/" + ruleID
 }
@@ -395,10 +378,8 @@ func parseELBv2Certificates(r *http.Request) []string {
 	return certs
 }
 
-// parseELBv2Conditions parses a rule's match conditions, accepting BOTH the
-// legacy top-level Values (the aws CLI `Field=...,Values=...` shorthand) and
-// the typed *Config blocks (terraform-provider-aws), merging them so either
-// client round-trips.
+// Merge the CLI shorthand's top-level Values and the provider's typed *Config
+// blocks.
 func parseELBv2Conditions(r *http.Request) []ELBv2RuleCondition {
 	var conds []ELBv2RuleCondition
 	for i := 1; ; i++ {

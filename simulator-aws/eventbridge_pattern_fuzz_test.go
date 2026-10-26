@@ -2,11 +2,8 @@ package main
 
 import "testing"
 
-// FuzzEBEventPatternMatches fuzzes the EventBridge event-pattern matcher with a
-// hostile pattern JSON and a hostile event detail. The matcher walks
-// attacker-supplied nested JSON (objects, arrays, content-filter objects with
-// prefix/suffix/numeric/cidr/anything-but terms) performing many type
-// assertions on decoded values; none may panic, hang, or OOM on malformed input.
+// The matcher walks attacker-supplied nested JSON; none may panic, hang or
+// exhaust memory.
 func FuzzEBEventPatternMatches(f *testing.F) {
 	patterns := []string{
 		``,

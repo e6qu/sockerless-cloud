@@ -6,14 +6,9 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// ECS account settings — opt-in/opt-out flags (e.g. serviceLongArnFormat,
-// awsvpcTrunking, containerInsights) set per-principal or as the account
-// default. Backed by aws_ecs_account_setting_default. The sim stores each
-// setting keyed by principal + name; ListAccountSettings reads them back and
-// PutAccountSettingDefault writes the account-wide row (principalArn = the
-// account root).
+// Settings are keyed by principal and name; PutAccountSettingDefault writes
+// the row for the account root.
 
-// ECSAccountSetting is the stored shape of an account setting.
 type ECSAccountSetting struct {
 	Name         string `json:"name"`
 	Value        string `json:"value"`
@@ -108,7 +103,7 @@ func handleECSDeleteAccountSetting(w http.ResponseWriter, r *http.Request) {
 	key := ecsAccountSettingKey(principal, req.Name)
 	s, ok := ecsAccountSettings.Get(key)
 	if !ok {
-		// Deleting an unset setting still echoes the now-default-shaped row.
+		// Deleting an unset setting still echoes a default-shaped row.
 		s = ECSAccountSetting{Name: req.Name, PrincipalArn: principal}
 	}
 	ecsAccountSettings.Delete(key)

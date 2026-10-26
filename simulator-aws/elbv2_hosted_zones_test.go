@@ -8,8 +8,7 @@ import (
 	"testing"
 )
 
-// The generated table holds exactly the zones the vendored provider file
-// lists, so a refresh that changes one without the other fails here.
+// A refresh changing the table without the vendored file fails here.
 func TestELBv2HostedZonesMatchTheVendoredTable(t *testing.T) {
 	f, err := os.Open("../specs/cloud-api/aws/elbv2-hosted-zone-ids.go.gz")
 	if err != nil {

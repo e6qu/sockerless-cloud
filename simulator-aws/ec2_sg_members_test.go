@@ -10,8 +10,7 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
-// sgMemberTask is a task with an awsvpc elastic network interface in the
-// groups, as RunTask records one; a stopped task's interface went with it.
+// A stopped task's interface went with it.
 func sgMemberTask(id, status, ip string, groups ...string) ECSTask {
 	eniID := "eni-" + id
 	if ECSTaskStatus(status) != ECSTaskStatusStopped {
@@ -30,12 +29,8 @@ func sgMemberTask(id, status, ip string, groups ...string) ECSTask {
 	}
 }
 
-// A security-group rule whose source is another group resolves to that
-// group's members, one /32 each, and every one becomes a packet rule on the
-// task being attached. A stopped task is not a member: its address is gone
-// with its ENI, and the store only keeps it for DescribeTasks. On the e6qu
-// deployment the scheduled reconciler stops every five minutes, so counting
-// stopped tasks tripled the workspace task's rule count.
+// A rule sourcing another group expands to that group's members, one /32
+// each. A stopped task is not a member: its address went with its ENI.
 func TestSecurityGroupMembersExcludeStoppedTasks(t *testing.T) {
 	bg.Await()
 	ec2NetworkInterfaces = sim.MakeStore[EC2NetworkInterface](nil, "ec2_network_interfaces")

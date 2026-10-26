@@ -16,17 +16,13 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/delivery"
 )
 
-// Amazon EventBridge invokes Amazon ECS, Amazon Kinesis Data Streams, AWS
-// Batch and API destination targets as the target's RoleArn, which must trust
-// events.amazonaws.com and allow the call the target makes.
+// The RoleArn must trust events.amazonaws.com and allow the target's call.
 
 func ebAuthorizeTargetRole(target EBTarget, actions map[string]string) *delivery.Outcome {
 	return ebAuthorizeTargetRoleCall(target, nil, actions)
 }
 
-// ebAuthorizeTargetRoleCall is ebAuthorizeTargetRole for a call whose request
-// EventBridge has built, so the policy's conditions on that request are
-// evaluated against it.
+// The policy's conditions are evaluated against the built request.
 func ebAuthorizeTargetRoleCall(target EBTarget, request *http.Request, actions map[string]string) *delivery.Outcome {
 	if target.RoleArn == "" {
 		outcome := delivery.Permanent(ebTargetError{"AccessDeniedException", "Target " + target.Arn + " requires a RoleArn"})
@@ -39,15 +35,11 @@ func ebAuthorizeTargetRoleCall(target EBTarget, request *http.Request, actions m
 	return nil
 }
 
-// ebCustomInput reports whether the target shapes its own input rather than
-// receiving the whole event.
 func ebCustomInput(target EBTarget) bool {
 	return target.Input != "" || target.InputPath != "" || len(target.InputTransformer) > 0
 }
 
-// ebRunTaskRequest is the RunTask request that runs the target's task
-// definition on the cluster the target ARN names, started by
-// events-rule/<rule name>. Custom input is the RunTask overrides.
+// Started by events-rule/<rule name>; custom input is the overrides.
 func ebRunTaskRequest(ruleArn string, target EBTarget, input string) (map[string]any, *delivery.Outcome) {
 	var params struct {
 		TaskDefinitionArn    string          `json:"TaskDefinitionArn"`
@@ -109,8 +101,7 @@ func ebRunTaskRequest(ruleArn string, target EBTarget, input string) (map[string
 	return body, nil
 }
 
-// ecsRunTaskFailuresOutcome retries a RunTask that started no task: its
-// failures, such as a cluster short of capacity, can clear.
+// A RunTask that started no task is retried; capacity can clear.
 func ecsRunTaskFailuresOutcome(response []byte) delivery.Outcome {
 	var result struct {
 		Tasks    []json.RawMessage `json:"tasks"`
@@ -127,8 +118,7 @@ func ecsRunTaskFailuresOutcome(response []byte) delivery.Outcome {
 	return delivery.Delivered()
 }
 
-// lowerFirstKeys re-spells an EventBridge structure's keys in the camel case
-// the AWS Batch API reads.
+// AWS Batch reads camel-case keys.
 func lowerFirstKeys(raw json.RawMessage) map[string]any {
 	var in map[string]any
 	_ = json.Unmarshal(raw, &in)
@@ -139,8 +129,7 @@ func lowerFirstKeys(raw json.RawMessage) map[string]any {
 	return out
 }
 
-// ebApiDestinationRetryable is how EventBridge reads an API destination's
-// answer: it retries 401, 407, 409, 429 and 5xx, and no other code.
+// EventBridge retries 401, 407, 409, 429 and 5xx, and no other code.
 func ebApiDestinationRetryable(status int) bool {
 	switch status {
 	case http.StatusUnauthorized, http.StatusProxyAuthRequired, http.StatusConflict, http.StatusTooManyRequests:
@@ -149,8 +138,7 @@ func ebApiDestinationRetryable(status int) bool {
 	return status >= 500
 }
 
-// ebInvokeApiDestination sends the input to the API destination's endpoint
-// with the connection's authorization and the target's HTTP parameters.
+// With the connection's authorization and the target's HTTP parameters.
 func ebInvokeApiDestination(ctx context.Context, target EBTarget, input string) delivery.Outcome {
 	name := ebApiDestinationName(target.Arn)
 	destination, ok := ebApiDest.Get(name)
@@ -249,8 +237,7 @@ func ebInvocationGateFor(destinationArn string) *ebInvocationGate {
 	return gate
 }
 
-// ebAwaitInvocationSlot holds an invocation until the API destination's
-// InvocationRateLimitPerSecond allows it.
+// Holds the invocation until InvocationRateLimitPerSecond allows it.
 func ebAwaitInvocationSlot(ctx context.Context, destination EBApiDestination) error {
 	if destination.InvocationRateLimit == nil || *destination.InvocationRateLimit < 1 {
 		return nil
@@ -269,8 +256,7 @@ func ebAwaitInvocationSlot(ctx context.Context, destination EBApiDestination) er
 	}
 }
 
-// reserve returns when the next invocation may go out, spacing invocations
-// evenly so no second carries more than perSecond of them.
+// Spaces invocations evenly so no second carries more than perSecond.
 func (gate *ebInvocationGate) reserve(now time.Time, perSecond int32) time.Time {
 	gate.mu.Lock()
 	defer gate.mu.Unlock()
@@ -282,7 +268,6 @@ func (gate *ebInvocationGate) reserve(now time.Time, perSecond int32) time.Time 
 	return slot
 }
 
-// ebApiDestinationName reads the name from an API destination ARN,
 // arn:aws:events:<region>:<account>:api-destination/<name>[/<uuid>].
 func ebApiDestinationName(arn string) string {
 	_, rest, _ := strings.Cut(arn, ":api-destination/")
@@ -304,9 +289,8 @@ type ebAuthorization struct {
 	query  map[string]string
 }
 
-// ebConnectionAuthorization is what a connection adds to each request: an API
-// key header, a Basic authorization header, or an OAuth bearer token from the
-// client-credentials exchange, plus the connection's invocation parameters.
+// An API key header, Basic authorization or an OAuth client-credentials bearer
+// token, plus the connection's invocation parameters.
 func ebConnectionAuthorization(ctx context.Context, connection EBConnection) (ebAuthorization, error) {
 	type parameter struct {
 		Key   string `json:"Key"`

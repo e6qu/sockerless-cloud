@@ -37,9 +37,8 @@ func handleDescribeVolumes(w http.ResponseWriter, r *http.Request) {
 		}
 		volumes = append(volumes, vol)
 	}
-	// MaxResults/NextToken pagination applies only to the list form (not when
-	// explicit VolumeIds are requested), matching real EC2. Sort by id for a
-	// stable offset cursor across pages.
+	// Paginate only the list form, not explicit VolumeIds; sort by id for a stable
+	// cursor.
 	nextToken := ""
 	if len(volumeIDs) == 0 {
 		paged, pageNext, pageOK := awsKeyPage(w, ec2BadToken, volumes, func(it EC2Volume) string { return it.VolumeId }, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0), 0)
@@ -63,37 +62,30 @@ func handleDescribeVolumes(w http.ResponseWriter, r *http.Request) {
 </DescribeVolumesResponse>`, ec2Xmlns(), sim.NewUUID(), items.String(), nextTokenXML)
 }
 
-// ebsECSDockerVolumeName returns the Docker named volume name for an ECS-managed EBS volume.
-// ECS tasks use Docker named volumes so the data lives in the Docker daemon rather than on
-// the sim process's own filesystem, making volumes accessible to sibling task containers
-// regardless of whether the sim itself runs on the host or inside a container.
+// Keep the data in the engine rather than on the simulator's filesystem, so
+// sibling task containers reach it wherever the simulator runs.
 func ebsECSDockerVolumeName(volumeID string) string {
 	return "sockerless-ebs-" + volumeID
 }
 
-// ebsSnapshotDockerVolumeName returns the Docker named volume name for a snapshot taken
-// from an ECS-managed EBS volume.
 func ebsSnapshotDockerVolumeName(snapshotID string) string {
 	return "sockerless-snap-" + snapshotID
 }
 
-// ebsRemoveDockerVolume removes the engine volume behind an Amazon ECS managed
-// EBS volume or a snapshot. A volume that is already gone is not an error.
+// An already-removed volume is not an error.
 func ebsRemoveDockerVolume(name string) {
 	if name == "" {
 		return
 	}
 	if sim.DockerClient() == nil {
-		// Process mode (SIM_RUNTIME=process): the managed-EBS volume is
-		// host-path-backed, so no engine volume exists to remove.
+		// SIM_RUNTIME=process backs the volume with a host path; there is no engine
+		// volume.
 		return
 	}
 	_ = sim.RemoveVolume(name)
 }
 
-// ebsCopyDockerVolumes copies all content from srcVolume into dstVolume using a
-// short-lived Alpine container. The destination volume is auto-created by Docker if
-// it does not yet exist.
+// Docker creates the destination volume if missing.
 func ebsCopyDockerVolumes(ctx context.Context, srcVolume, dstVolume string) error {
 	handle, err := sim.StartContainerSyncContext(ctx, sim.ContainerConfig{
 		Image:        "mirror.gcr.io/library/alpine:latest",
@@ -103,15 +95,8 @@ func ebsCopyDockerVolumes(ctx context.Context, srcVolume, dstVolume string) erro
 			srcVolume + ":/src:ro",
 			dstVolume + ":/dst",
 		},
-		// No wall-clock cap: the copy's duration is a function of how much data
-		// the volume holds, which the simulator does not get to choose. A fixed
-		// timeout here (this was 60s) fails a large but perfectly healthy
-		// restore -- an 8 GiB workspace copies in roughly 40s on an idle host
-		// and longer under load -- and reports it as an error the caller cannot
-		// act on. Real EBS has no equivalent deadline: a volume created from a
-		// snapshot is usable immediately and hydrates lazily. Callers bound this
-		// instead by the lifecycle they own (a task's transition, which can be
-		// stopped), not by a guess made here.
+		// No timeout: the copy takes as long as the data does. Amazon EBS has no such
+		// deadline either; callers bound it through the lifecycle they own.
 		Timeout: 0,
 	}, discardLogSink{})
 	if err != nil {
@@ -127,11 +112,8 @@ func ebsCopyDockerVolumes(ctx context.Context, srcVolume, dstVolume string) erro
 	return nil
 }
 
-// ebsHostRoot returns the on-disk root for simulated EBS volume backing
-// images and snapshot payloads. Resolution order: SIM_EBS_DATA_DIR
-// (explicit override), then <SIM_DATA_DIR>/ebs (so volume contents survive
-// a simulator restart alongside the SQLite control-plane state), then a
-// temp directory.
+// SIM_EBS_DATA_DIR, else <SIM_DATA_DIR>/ebs so contents survive a restart,
+// else a temporary directory.
 func ebsHostRoot() string {
 	return sim.ScopedDataDir("SIM_EBS_DATA_DIR", "ebs", "sockerless-sim-ebs")
 }
@@ -199,10 +181,8 @@ func ec2VolumeFieldsXML(vol EC2Volume) string {
 		attachments.String(), vol.VolumeType, perf, vol.Encrypted, vol.MultiAttachEnabled, writeTagSetXML(vol.Tags))
 }
 
-// ec2ResolveVolumePerformance returns the effective iops/throughput for a
-// volume, applying the AWS-documented per-type rules (gp3 defaults 3000/125;
-// gp2 iops derived from size; io1/io2 use the requested iops; st1/sc1/standard
-// have neither). The resolved values are stored so they round-trip.
+// gp3 defaults to 3000/125; gp2 derives IOPS from size; io1 and io2 use the
+// requested IOPS; st1, sc1 and standard have neither.
 func ec2ResolveVolumePerformance(volType string, size, reqIops, reqThroughput int) (iops, throughput int) {
 	switch volType {
 	case "gp3":
@@ -278,8 +258,7 @@ func ec2VolumeHasAttachment(vol EC2Volume, pred func(EC2VolumeAttachment) bool) 
 }
 
 func handleCreateVolume(w http.ResponseWriter, r *http.Request) {
-	// AvailabilityZone is a required CreateVolume parameter; real EC2 rejects a
-	// request without it rather than defaulting the AZ.
+	// AvailabilityZone is required; Amazon EC2 does not default it.
 	az := r.FormValue("AvailabilityZone")
 	if az == "" {
 		ec2ErrorXML(w, "MissingParameter", "The request must contain the parameter availability_zone", http.StatusBadRequest)
@@ -335,9 +314,8 @@ func handleCreateVolume(w http.ResponseWriter, r *http.Request) {
 		ec2ErrorXML(w, "InternalError", fmt.Sprintf("could not create volume data path: %v", err), http.StatusInternalServerError)
 		return
 	}
-	// A volume restored from a snapshot is answered creating and hydrates
-	// behind the response, as Amazon EC2 does; it is available once its data
-	// is in place.
+	// A volume from a snapshot answers creating and hydrates behind the response,
+	// becoming available once its data is in place.
 	if snapshotHostPath != "" {
 		vol.State = "creating"
 	}
@@ -350,16 +328,14 @@ func handleCreateVolume(w http.ResponseWriter, r *http.Request) {
 		ec2Xmlns(), sim.NewUUID(), ec2VolumeFieldsXML(vol))
 }
 
-// ec2VolumeHydrating holds the volumes whose snapshot data is still
-// copying; ec2VolumeHydrations announces a volume when its copy ends.
+// ec2VolumeHydrations announces a volume when its copy ends.
 var (
 	ec2VolumeHydrationsMu sync.Mutex
 	ec2VolumeHydrating    = map[string]bool{}
 	ec2VolumeHydrations   = signals.New[string]()
 )
 
-// ec2HydrateVolume copies a snapshot's data into a creating volume and makes
-// it available, or puts it in error when the copy fails.
+// A failed copy puts the volume in error.
 func ec2HydrateVolume(volumeID, destination, source string) {
 	ec2VolumeHydrationsMu.Lock()
 	ec2VolumeHydrating[volumeID] = true
@@ -394,8 +370,7 @@ func ec2HydrateVolume(volumeID, destination, source string) {
 	}()
 }
 
-// ec2AwaitVolumeHydrated returns once a volume's snapshot data is in place,
-// at once for a volume that is not hydrating.
+// Returns at once for a volume that is not hydrating.
 func ec2AwaitVolumeHydrated(ctx context.Context, volumeID string) error {
 	return ec2VolumeHydrations.Await(ctx, volumeID, func() bool {
 		ec2VolumeHydrationsMu.Lock()
@@ -517,8 +492,8 @@ func handleModifyVolume(w http.ResponseWriter, r *http.Request) {
 	if v := r.FormValue("Throughput"); v != "" {
 		vol.Throughput = ec2AtoiOr(v, vol.Throughput)
 	}
-	// Re-resolve performance for the (possibly new) type/size so gp2 iops and
-	// gp3 defaults stay consistent after a type change.
+	// Re-resolve after a type or size change so gp2 IOPS and gp3 defaults stay
+	// consistent.
 	vol.Iops, vol.Throughput = ec2ResolveVolumePerformance(vol.VolumeType, vol.Size, vol.Iops, vol.Throughput)
 	mod.TargetSize, mod.TargetVolumeType, mod.TargetIops, mod.TargetThroughput = vol.Size, vol.VolumeType, vol.Iops, vol.Throughput
 	ec2VolumeMods.Put(volID, mod)
@@ -539,10 +514,8 @@ func ec2VolumeModFieldsXML(m EC2VolumeModification) string {
 		m.StartTime, m.EndTime)
 }
 
-// handleDescribeVolumesModifications returns the recorded volume modifications.
-// terraform-provider-aws polls this after a ModifyVolume to wait for the resize
-// to reach `completed`; an unregistered op previously made aws_ebs_volume
-// updates error with UnknownOperation.
+// terraform-provider-aws polls this after ModifyVolume until the resize is
+// completed.
 func handleDescribeVolumesModifications(w http.ResponseWriter, r *http.Request) {
 	ids := ec2ParamList(r, "VolumeId")
 	mods := make([]EC2VolumeModification, 0)

@@ -11,8 +11,7 @@ import (
 	"time"
 )
 
-// putServiceRole records an IAM role the service may assume, allowing action
-// on every resource.
+// The role allows action on every resource.
 func putServiceRole(t *testing.T, name, service string, actions ...string) string {
 	t.Helper()
 	arn := "arn:aws:iam::" + awsAccountID() + ":role/" + name
@@ -56,9 +55,7 @@ func ebPutEvent(t *testing.T, router *AWSRouter, source, detail string) {
 	}
 }
 
-// An API destination target is called with the connection's authorization and
-// the event as its body; a 5xx answer is retried under the target's
-// RetryPolicy until the endpoint accepts it.
+// A 5xx is retried under the RetryPolicy until accepted.
 func TestEventBridgeApiDestinationTargetRetriesUntilAccepted(t *testing.T) {
 	_, router, _ := buildConformanceSimulator(t)
 	var mu sync.Mutex
@@ -124,8 +121,7 @@ func TestEventBridgeApiDestinationTargetRetriesUntilAccepted(t *testing.T) {
 	}
 }
 
-// An API destination that keeps failing exhausts MaximumRetryAttempts and the
-// event reaches the dead-letter queue naming the exhausted condition.
+// Exhausting MaximumRetryAttempts sends the event to the dead-letter queue.
 func TestEventBridgeApiDestinationExhaustsItsRetries(t *testing.T) {
 	_, router, _ := buildConformanceSimulator(t)
 	endpoint := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -160,9 +156,8 @@ func TestEventBridgeApiDestinationExhaustsItsRetries(t *testing.T) {
 	}
 }
 
-// A Kinesis target puts the event on the stream as the target's role, keyed
-// by the value at PartitionKeyPath; a role without kinesis:PutRecord sends the
-// event to the dead-letter queue instead.
+// Keyed by the value at PartitionKeyPath; without kinesis:PutRecord the event
+// goes to the dead-letter queue.
 func TestEventBridgeKinesisTargetPutsTheEventAsItsRole(t *testing.T) {
 	_, router, _ := buildConformanceSimulator(t)
 	if status, out := awsJSONCall(t, router, "Kinesis_20131202.CreateStream", map[string]any{"StreamName": "orders", "ShardCount": 1}); status != 200 {

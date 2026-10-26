@@ -6,10 +6,8 @@ import (
 	"testing"
 )
 
-// TestEC2InstanceTypesVendoredCatalog locks the vendored catalog: its
-// provenance is written down, every entry converts, and the count moves only
-// when scripts/fetch-aws-ec2-instance-types.go regenerates it, so a partial
-// vendor fails here rather than serving a short catalog.
+// The count moves only when scripts/fetch-aws-ec2-instance-types.go
+// regenerates the catalog, so a partial vendor fails here.
 func TestEC2InstanceTypesVendoredCatalog(t *testing.T) {
 	var header struct {
 		Source, Region, Version, PublicationDate, SHA256, Retrieved string

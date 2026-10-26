@@ -13,15 +13,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// A host that fits exactly one 2048 MiB / 1024 CPU-unit task beside a 2048 /
-// 1024 one already running.
+// Room for one 2048 MiB / 1024-unit task beside one already running.
 //
-// The helper builds a whole simulator before narrowing the ECS stores: a test
-// that runs a task sends it through the real start lifecycle, which reads the
-// stores of every service a task touches (the load balancers whose DNS names a
-// workload resolves, among them). Replacing only the ECS stores left those
-// nil unless an earlier test in the binary had built a simulator, so selecting
-// these tests on their own panicked in elbv2NLBHostEntries.
+// Build a whole simulator first: running a task reads the stores of every
+// service it touches, which stay nil unless a simulator was built.
 func placementHostForTest(t *testing.T) {
 	t.Helper()
 	bg.Await()
@@ -46,7 +41,7 @@ func placementHostForTest(t *testing.T) {
 		NetworkMode:          "bridge",
 		ContainerDefinitions: []ECSContainerDefinition{{Name: "app", Image: "busybox"}},
 	})
-	// Sized only per container, the way EC2 task definitions usually are.
+	// Sized per container, as EC2 task definitions usually are.
 	ecsTaskDefinitions.Put("percontainer:1", ECSTaskDefinition{
 		TaskDefinitionArn: "arn:aws:ecs:us-east-1:000000000000:task-definition/percontainer:1",
 		Family:            "percontainer",
@@ -126,9 +121,8 @@ func TestRunTaskRefusesPlacementWithTheRealShape(t *testing.T) {
 	// Fill the host: the held task plus one more.
 	ecsTasks.Put("held2", ECSTask{TaskArn: "arn:held2", LastStatus: ECSTaskStatusPending, Cpu: "1024", Memory: "2048"})
 
-	// A Fargate request needs awsvpc; the bridge definition above is refused
-	// for that before placement, so drive the EC2 path through the handler and
-	// the Fargate shape through runECSTasks directly.
+	// A Fargate request needs awsvpc, which the bridge definition fails before
+	// placement, so drive the Fargate shape through runECSTasks directly.
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{"cluster":"default","taskDefinition":"fits:1","count":2}`))
 	rec := httptest.NewRecorder()
 	handleECSRunTask(rec, req)
@@ -144,8 +138,8 @@ func TestRunTaskRefusesPlacementWithTheRealShape(t *testing.T) {
 	require.Equal(t, "RESOURCE:MEMORY", out.Failures[0].Reason)
 	require.Contains(t, out.Failures[0].Detail, "this task needs 2048 MiB and 1024 CPU units")
 
-	// Placement is decided before the ENI is allocated, so a refused Fargate
-	// task never needs the subnet to exist.
+	// Placement precedes ENI allocation, so a refused Fargate task needs no
+	// subnet.
 	fargate, failures, rerr := runECSTasks(context.Background(), ecsRunTaskInput{
 		Cluster: "default", TaskDefinition: "fargate:1", Count: 1, LaunchType: "FARGATE",
 		NetworkConfiguration: &ECSTaskNetworkConfig{AwsvpcConfiguration: &ECSTaskVpcConfig{Subnets: []string{"subnet-unplaced"}}},
@@ -156,7 +150,7 @@ func TestRunTaskRefusesPlacementWithTheRealShape(t *testing.T) {
 	require.Equal(t, ecsFargateCapacityUnavailable, failures[0].Reason)
 	require.Equal(t, ecsArn("cluster", "default"), failures[0].Arn)
 
-	// An empty failures list is `[]` on the wire, as on Amazon ECS.
+	// An empty failures list is `[]` on the wire.
 	ecsTasks.Update("held", func(task *ECSTask) { task.LastStatus = ECSTaskStatusStopped })
 	ecsTasks.Update("held2", func(task *ECSTask) { task.LastStatus = ECSTaskStatusStopped })
 	rec = httptest.NewRecorder()

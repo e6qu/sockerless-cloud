@@ -15,23 +15,19 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// ecsPendingEBSRestore is a managed-EBS snapshot restore that has been recorded
-// but not yet performed. Real ECS returns RunTask in milliseconds and hydrates
-// the volume while the task moves PROVISIONING → PENDING → RUNNING, which is why
-// an EBS attachment reports ATTACHING at all; a volume created from a snapshot
-// is usable immediately there and its blocks fault in lazily from S3. Copying
-// the data inline in the request handler instead made RunTask block for the
-// length of the copy, so any reverse proxy in front of the simulator timed the
-// call out and the caller saw a 502 rather than a task it could poll.
+// A restore recorded but not yet performed. Amazon ECS answers RunTask at once
+// and hydrates the volume while the task moves PROVISIONING → PENDING →
+// RUNNING, with the attachment ATTACHING; copying inline would hold RunTask
+// open for the length of the copy.
 type ecsPendingEBSRestore struct {
 	AttachmentID string
 	VolumeName   string
-	// DockerDst is created as an engine volume and filled from DockerSrc when
-	// the volume comes from a snapshot.
+	// DockerDst is created as an engine volume and filled from DockerSrc for a
+	// snapshot volume.
 	DockerSrc string
 	DockerDst string
-	// HydratingVolumeID is a volume Amazon EC2 is still restoring from an
-	// Amazon EC2 snapshot, which the task waits for.
+	// A volume Amazon EC2 is still restoring from a snapshot; the task waits for
+	// it.
 	HydratingVolumeID string
 }
 
@@ -118,8 +114,8 @@ func ecsPrepareManagedEBSVolumes(ctx context.Context, td ECSTaskDefinition, conf
 		}
 		volumeID := vol.VolumeId
 		ecsManagedVolumeOwners.Put(volumeID, ecsManagedVolumeOwner{TaskArn: taskArn, RoleArn: managed.RoleArn})
-		// Amazon EC2 holds the volume; the task's hold on it is Amazon ECS's own
-		// record, as a Fargate task is no instance AttachVolume names.
+		// A Fargate task is no instance AttachVolume names; Amazon ECS records the
+		// task's hold itself.
 		vol.State = "in-use"
 		vol.Attachments = []EC2VolumeAttachment{{
 			VolumeId:            volumeID,
@@ -129,11 +125,9 @@ func ecsPrepareManagedEBSVolumes(ctx context.Context, td ECSTaskDefinition, conf
 			AttachTime:          time.Now().UTC().Format(time.RFC3339),
 			DeleteOnTermination: deleteOnTermination,
 		}}
-		// A volume restored from an Amazon EC2 snapshot hydrates on the host,
-		// where the task mounts it once it is available. Any other volume the
-		// engine holds as a named volume, so sibling task containers reach it
-		// wherever the simulator runs; in process mode there is no engine, and
-		// the host path Amazon EC2 made serves.
+		// A volume from an Amazon EC2 snapshot hydrates on the host; any other is an
+		// engine named volume, reachable by sibling task containers; in process mode
+		// the host path serves.
 		if snapshotHostPath != "" {
 			restores = append(restores, ecsPendingEBSRestore{
 				AttachmentID:      "ebs-" + volumeID,
@@ -145,8 +139,7 @@ func ecsPrepareManagedEBSVolumes(ctx context.Context, td ECSTaskDefinition, conf
 			_ = os.RemoveAll(vol.HostPath)
 			vol.HostPath = ""
 			vol.DockerVolumeName = ebsECSDockerVolumeName(volumeID)
-			// Filling the volume from a snapshot is deferred to the task's
-			// transition: see ecsPendingEBSRestore.
+			// Filling from a snapshot happens on the task's transition.
 			if snapshotDockerVolumeName != "" {
 				restores = append(restores, ecsPendingEBSRestore{
 					AttachmentID: "ebs-" + volumeID,
@@ -176,8 +169,7 @@ func ecsPrepareManagedEBSVolumes(ctx context.Context, td ECSTaskDefinition, conf
 	return hosts, attachments, restores, nil
 }
 
-// ecsManagedVolumeOwner is the task a managed Amazon EBS volume was created
-// for and the infrastructure role that created it, which releases it.
+// The infrastructure role that created the volume releases it.
 type ecsManagedVolumeOwner struct {
 	TaskArn string `json:"taskArn"`
 	RoleArn string `json:"roleArn"`
@@ -185,9 +177,7 @@ type ecsManagedVolumeOwner struct {
 
 var ecsManagedVolumeOwners sim.Store[ecsManagedVolumeOwner]
 
-// ecsCreateManagedEBSVolume creates a task's volume through Amazon EC2 as the
-// volume's infrastructure role, with the parameters the configuration maps
-// 1:1 onto CreateVolume.
+// The configuration maps 1:1 onto CreateVolume.
 func ecsCreateManagedEBSVolume(ctx context.Context, actor awsActor, name string, managed *ECSTaskManagedEBSVolumeConfiguration, size int, snapshotID, volumeType, az string) (EC2Volume, *ecsRequestError) {
 	form := url.Values{
 		"AvailabilityZone": {az},
@@ -238,11 +228,8 @@ func ecsCreateManagedEBSVolume(ctx context.Context, actor awsActor, name string,
 	return vol, nil
 }
 
-// ecsRunPendingEBSRestores hydrates managed-EBS volumes created from a snapshot
-// and marks their attachments ATTACHED once the data is in place. It runs on the
-// task's transition path rather than in the RunTask handler, so a large restore
-// delays only this task's move to RUNNING — which a caller polling DescribeTasks
-// is already prepared for — instead of holding the API response open.
+// Runs on the task's transition path, so a large restore delays only this
+// task's RUNNING, not the API response.
 func ecsRunPendingEBSRestores(ctx context.Context, taskID string, restores []ecsPendingEBSRestore) error {
 	for _, restore := range restores {
 		switch {
@@ -269,15 +256,10 @@ func ecsRunPendingEBSRestores(ctx context.Context, taskID string, restores []ecs
 	return nil
 }
 
-// ecsCleanupTaskManagedEBS releases the task's managed-EBS volumes and returns
-// the ones whose termination policy deletes them, which the caller then
-// deletes with ecsDeleteManagedVolumes.
-//
-// Every caller runs this inside an ecsTasks.Update callback, which holds the
-// task store's write lock for as long as the callback runs — every other
-// task's transition and every DescribeTasks waits behind it. Deleting a volume
-// is a call to Amazon EC2 that removes an engine volume, so that part is
-// handed to the caller to do once the lock is released rather than done here.
+// Returns the volumes whose termination policy deletes them, for the caller to
+// pass to ecsDeleteManagedVolumes. Callers run inside an ecsTasks.Update
+// callback, which holds the task store's write lock, so the Amazon EC2 calls
+// happen after it is released.
 func ecsCleanupTaskManagedEBS(task *ECSTask) (doomed []string) {
 	for i := range task.Attachments {
 		att := &task.Attachments[i]
@@ -300,11 +282,8 @@ func ecsCleanupTaskManagedEBS(task *ECSTask) (doomed []string) {
 	return doomed
 }
 
-// ecsDeleteManagedVolumes deletes a stopped task's volumes through Amazon EC2
-// as the infrastructure role that created each, as the termination policy
-// asks. Call it after the ecsTasks.Update that released them has returned. A
-// volume the role is refused stays, as it does in AWS, and the refusal is
-// logged.
+// Call after the releasing ecsTasks.Update returns. A volume the role is
+// refused stays, as in AWS, and the refusal is logged.
 func ecsDeleteManagedVolumes(volumeIDs []string) {
 	for _, volumeID := range volumeIDs {
 		owner, _ := ecsManagedVolumeOwners.Get(volumeID)

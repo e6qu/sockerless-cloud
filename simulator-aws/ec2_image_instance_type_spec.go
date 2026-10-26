@@ -8,13 +8,10 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// An AMI's instance type specification names which instance types may launch
-// it. RunInstances validates against it, so the specification is not a label:
-// storing it without enforcing it would report a restriction the simulator does
-// not apply.
+// RunInstances enforces an AMI's instance type specification; storing it
+// unenforced would report a restriction the simulator does not apply.
 
-// EC2ImageInstanceTypeSpec is an AMI's instance type specification. No record
-// means every instance type is allowed.
+// No record allows every instance type.
 type EC2ImageInstanceTypeSpec struct {
 	ImageId                  string
 	SupportedInstanceTypes   []string
@@ -28,8 +25,7 @@ func registerEC2ImageInstanceTypeSpec(r *AWSQueryRouter, srv *sim.Server) {
 	r.Register("ReplaceImageInstanceTypeSpecification", handleReplaceImageInstanceTypeSpecification)
 }
 
-// ec2InstanceTypePatternMatches evaluates one entry, which may end in `*`
-// (`t3.*` matches every t3 size).
+// An entry may end in `*`: `t3.*` matches every t3 size.
 func ec2InstanceTypePatternMatches(pattern, instanceType string) bool {
 	if strings.HasSuffix(pattern, "*") {
 		return strings.HasPrefix(instanceType, strings.TrimSuffix(pattern, "*"))
@@ -46,9 +42,9 @@ func ec2InstanceTypeMatchesAny(patterns []string, instanceType string) bool {
 	return false
 }
 
-// ec2ImageAllowsInstanceType applies the evaluation order the API documents:
-// no specification allows everything; unsupported alone excludes its matches;
-// supported requires a match and still excludes an unsupported one.
+// The documented order: no specification allows everything; unsupported
+// alone excludes its matches; supported requires a match and still excludes
+// an unsupported one.
 func ec2ImageAllowsInstanceType(imageID, instanceType string) bool {
 	spec, ok := ec2ImageInstanceTypeSpecs.Get(imageID)
 	if !ok {
@@ -63,14 +59,13 @@ func ec2ImageAllowsInstanceType(imageID, instanceType string) bool {
 	return ec2InstanceTypeMatchesAny(spec.SupportedInstanceTypes, instanceType)
 }
 
-// ec2ImageInstanceTypeSpecXML renders the member DescribeImages carries.
 func ec2ImageInstanceTypeSpecXML(imageID string) string {
 	spec, ok := ec2ImageInstanceTypeSpecs.Get(imageID)
 	if !ok {
 		return ""
 	}
 	// The request carries bare strings; the response wraps each in an
-	// InstanceTypeItem, so an item holds <instanceType> rather than the value.
+	// InstanceTypeItem.
 	set := func(name string, values []string) string {
 		if len(values) == 0 {
 			return ""
@@ -106,13 +101,13 @@ func handleReplaceImageInstanceTypeSpecification(w http.ResponseWriter, r *http.
 		return
 	}
 
-	// The list flattens to a singular key — `SupportedInstanceType.1` — which
-	// is the name the model's list member carries, not the plural struct member.
+	// The list flattens to the model's singular member name,
+	// `SupportedInstanceType.1`.
 	supported := ec2CriterionValues(r, "InstanceTypeSpecification.SupportedInstanceType")
 	unsupported := ec2CriterionValues(r, "InstanceTypeSpecification.UnsupportedInstanceType")
 
-	// Omitting the specification removes it, which is how the caller restores
-	// an AMI any instance type may launch.
+	// Omitting the specification removes it, letting any instance type launch the
+	// AMI.
 	if len(supported) == 0 && len(unsupported) == 0 {
 		ec2ImageInstanceTypeSpecs.Delete(imageID)
 	} else {

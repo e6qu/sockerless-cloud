@@ -9,11 +9,8 @@ import (
 	"strings"
 )
 
-// ecsHostCeiling is what this host can commit to ECS tasks: the simulator's
-// own cgroup limits when it runs bounded (the usual deployment — a container
-// with a memory limit and a CPU quota), and otherwise the machine's memory
-// and CPUs. A ceiling it cannot determine is a bug in this function, not
-// something to paper over with "unlimited": it panics with what it read.
+// The simulator's cgroup limits when bounded, else the machine's memory and
+// CPUs. An undeterminable ceiling panics rather than assuming unlimited.
 func ecsHostCeiling() ecsTaskSize {
 	memBytes, err := ecsCgroupMemoryMax()
 	if err != nil {
@@ -26,9 +23,7 @@ func ecsHostCeiling() ecsTaskSize {
 	return ecsTaskSize{MemoryMiB: int(memBytes / (1024 * 1024)), CPUUnits: cpuUnits}
 }
 
-// ecsCgroupMemoryMax reads the cgroup v2 memory.max of the simulator's own
-// cgroup; "max" (unbounded) and a host without cgroup v2 mean the machine's
-// MemTotal.
+// "max" or no cgroup v2 means the machine's MemTotal.
 func ecsCgroupMemoryMax() (int64, error) {
 	raw, err := os.ReadFile("/sys/fs/cgroup/memory.max")
 	if err == nil {
@@ -65,9 +60,7 @@ func ecsProcMemTotal() (int64, error) {
 	return 0, fmt.Errorf("/proc/meminfo has no MemTotal line")
 }
 
-// ecsCgroupCPUUnits reads cpu.max ("<quota> <period>", or "max <period>") and
-// converts the quota to ECS CPU units; unbounded means every CPU the machine
-// has.
+// cpu.max is "<quota> <period>" or "max <period>"; unbounded means every CPU.
 func ecsCgroupCPUUnits() (int, error) {
 	raw, err := os.ReadFile("/sys/fs/cgroup/cpu.max")
 	if err != nil {

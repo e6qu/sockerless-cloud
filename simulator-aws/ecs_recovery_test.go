@@ -11,8 +11,7 @@ import (
 )
 
 func TestRecoverECSTasksStopsLegacyRunningTasksWithoutWorkloadContainers(t *testing.T) {
-	// Background work from an earlier test must finish before the stores
-	// it is reading are replaced.
+	// Let earlier background work finish before replacing its stores.
 	bg.Await()
 	ecsTaskDefinitions = sim.MakeStore[ECSTaskDefinition](nil, "ecs_task_definitions")
 	ecsTasks = sim.MakeStore[ECSTask](nil, "ecs_tasks")
@@ -110,8 +109,7 @@ func TestRecoverECSTasksStopsLegacyRunningTasksWithoutWorkloadContainers(t *test
 }
 
 func TestRecoverECSTasksFailsOnWorkloadDiscoveryError(t *testing.T) {
-	// Background work from an earlier test must finish before the stores
-	// it is reading are replaced.
+	// Let earlier background work finish before replacing its stores.
 	bg.Await()
 	ecsTaskDefinitions = sim.MakeStore[ECSTaskDefinition](nil, "ecs_task_definitions")
 	ecsTasks = sim.MakeStore[ECSTask](nil, "ecs_tasks")

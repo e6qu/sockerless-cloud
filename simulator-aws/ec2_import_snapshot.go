@@ -37,12 +37,10 @@ var ec2ImportSnapshotTasks sim.Store[EC2ImportSnapshotTask]
 
 const ec2GiB = int64(1) << 30
 
-// ec2ImportedSnapshotVolumeID is the volume ID EC2 reports for a snapshot
-// that VM Import/Export created rather than one taken from a volume.
+// Amazon EC2 reports this volume ID for a snapshot VM Import/Export created.
 const ec2ImportedSnapshotVolumeID = "vol-ffffffff"
 
-// ec2ImportSource resolves the disk container's UserBucket or its s3:// or
-// Amazon S3 https URL to a bucket and key.
+// Accepts UserBucket, an s3:// URL or an Amazon S3 https URL.
 func ec2ImportSource(r *http.Request, prefix string) (bucket, key, rawURL string, err error) {
 	bucket = r.FormValue(prefix + "UserBucket.S3Bucket")
 	key = r.FormValue(prefix + "UserBucket.S3Key")
@@ -59,8 +57,8 @@ func ec2ImportSource(r *http.Request, prefix string) (bucket, key, rawURL string
 	}
 	switch {
 	case ec2IsOCIReference(rawURL):
-		// The simulator takes an OCI image reference as the disk's Url: the
-		// root filesystem the imported AMI's instances boot.
+		// An OCI image reference as Url names the root filesystem the imported AMI's
+		// instances boot.
 		return "", "", rawURL, nil
 	case u.Scheme == "s3":
 		return u.Host, strings.TrimPrefix(u.Path, "/"), rawURL, nil
@@ -73,9 +71,7 @@ func ec2ImportSource(r *http.Request, prefix string) (bucket, key, rawURL string
 	return "", "", "", fmt.Errorf("the disk container Url %q is not an Amazon S3 URL", rawURL)
 }
 
-// ec2IsOCIReference reports whether a disk container's Url names an OCI
-// image rather than an Amazon S3 object: a registry host or repository path
-// with a tag or digest and no URL scheme.
+// A registry host or repository path with a tag or digest and no URL scheme.
 func ec2IsOCIReference(raw string) bool {
 	if strings.Contains(raw, "://") || strings.ContainsAny(raw, " \t") {
 		return false
@@ -125,13 +121,10 @@ func handleImportSnapshot(w http.ResponseWriter, r *http.Request) {
 		ec2Xmlns(), sim.NewUUID(), ec2ImportSnapshotTaskFieldsXML(task))
 }
 
-// ec2VMImportRoleCanRead checks that the VM Import/Export service role, the
-// request's RoleName or else vmimport, can read the disk image, and writes the
-// error EC2 returns when it cannot.
+// The service role is RoleName, else vmimport.
 func ec2VMImportRoleCanRead(w http.ResponseWriter, r *http.Request, bucket, key string) bool {
 	if bucket == "" {
-		// An OCI image reference is read from its registry, not from a bucket
-		// the vmimport role must reach.
+		// An OCI image is read from its registry, not a bucket.
 		return true
 	}
 	roleName := ec2Default(r.FormValue("RoleName"), "vmimport")
@@ -145,9 +138,7 @@ func ec2VMImportRoleCanRead(w http.ResponseWriter, r *http.Request, bucket, key 
 	return true
 }
 
-// ec2RunImportSnapshot reads the disk image from Amazon S3, converts it into
-// the snapshot's raw block image, and completes the task, or fails it with
-// the message VM Import/Export reports.
+// Fails the task with the message VM Import/Export reports.
 func ec2RunImportSnapshot(task EC2ImportSnapshotTask) {
 	snapshot, imageSize, failure := ec2ImportDiskImage(task.ImportTaskId, task.Format, task.S3Bucket, task.S3Key, task.Encrypted, task.KmsKeyId)
 	ec2ImportSnapshotTasks.Update(task.ImportTaskId, func(t *EC2ImportSnapshotTask) {
@@ -164,9 +155,7 @@ func ec2RunImportSnapshot(task EC2ImportSnapshotTask) {
 	})
 }
 
-// ec2ImportDiskImage converts an import task's disk image into a completed
-// snapshot. It returns the image's size in bytes and, when the import fails,
-// the task's status message.
+// On failure, the message is the task's status message.
 func ec2ImportDiskImage(taskID, format, bucket, key string, encrypted bool, kmsKeyID string) (EC2Snapshot, int64, string) {
 	source := fmt.Sprintf("s3://%s/%s", bucket, key)
 	obj, ok := s3Objects.Get(s3ObjectKey(bucket, key))
@@ -205,8 +194,7 @@ func ec2ImportDiskImage(taskID, format, bucket, key string, encrypted bool, kmsK
 	return snapshot, current.Size, ""
 }
 
-// ec2WriteSnapshotImage converts a disk image into the raw block image a
-// snapshot directory holds, the file a volume restored from it starts from.
+// The raw block image is what a restored volume starts from.
 func ec2WriteSnapshotImage(format string, src io.ReaderAt, size int64, dir string) (int64, error) {
 	if err := os.MkdirAll(dir, 0o777); err != nil {
 		return 0, err

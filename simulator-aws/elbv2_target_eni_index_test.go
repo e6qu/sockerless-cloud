@@ -9,16 +9,9 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// Resolving a load-balancer target must not cost a full read of the Amazon ECS
-// task store. Every request the simulator proxies through a load balancer goes
-// through elbv2TargetAddress, and a profile of the deployed simulator under
-// twelve concurrent requests attributed 84.8% of all its CPU to that read —
-// almost entirely JSON-decoding stopped tasks nobody asked about. The store is
-// the input, so the test counts reads of it directly rather than timing
-// anything.
+// Every proxied request resolves a target, so count task-store reads rather
+// than timing.
 
-// countingECSTaskStore counts List calls and delegates the rest, so a test can
-// assert how many times a code path read the whole task store.
 type countingECSTaskStore struct {
 	sim.Store[ECSTask]
 	lists atomic.Int64
@@ -29,8 +22,7 @@ func (s *countingECSTaskStore) List() []ECSTask {
 	return s.Store.List()
 }
 
-// elbv2ENIIndexTestStores gives one test its own ECS task and EC2 subnet
-// stores and an unbuilt ENI index, and restores the package globals after it.
+// Restores the package globals afterwards.
 func elbv2ENIIndexTestStores(t *testing.T) *countingECSTaskStore {
 	t.Helper()
 	previousTasks, previousSubnets := ecsTasks, ec2Subnets
@@ -68,10 +60,8 @@ func elbv2ENIIndexTask(taskID, address, subnetID string, status ECSTaskStatus) E
 	}
 }
 
-// A target group scoped to a different VPC than the task's subnet never
-// matches, which lets these tests exercise the whole resolution path without a
-// container runtime: the Docker published-port lookup is only reached once the
-// VPC agrees.
+// A target group in another VPC never matches, so the path runs without a
+// container runtime.
 func TestELBv2TargetResolutionReadsTheTaskStoreOncePerChange(t *testing.T) {
 	tasks := elbv2ENIIndexTestStores(t)
 	ec2Subnets.Put("subnet-a", EC2Subnet{SubnetId: "subnet-a", VpcId: "vpc-a"})
@@ -97,22 +87,19 @@ func TestELBv2TargetENIIndexFollowsTheTaskStore(t *testing.T) {
 	require.Equal(t, "task-1", found[0].taskID)
 	require.Equal(t, "subnet-a", found[0].subnetID)
 
-	// A second task on the same address — two VPCs may share a CIDR — is
-	// reachable, not shadowed by the first.
+	// Two VPCs may share a CIDR; the second task is not shadowed.
 	tasks.Put("task-2", elbv2ENIIndexTask("task-2", "10.0.1.5", "subnet-b", ECSTaskStatusRunning))
 	require.Len(t, ecsRunningTaskENIs("10.0.1.5"), 2)
 
-	// A task that stops leaves the index on the next resolution, without any
-	// explicit invalidation call at the ECS lifecycle's end.
+	// A stopped task leaves the index without explicit invalidation.
 	tasks.Put("task-1", elbv2ENIIndexTask("task-1", "10.0.1.5", "subnet-a", ECSTaskStatusStopped))
 	found = ecsRunningTaskENIs("10.0.1.5")
 	require.Len(t, found, 1)
 	require.Equal(t, "task-2", found[0].taskID)
 
-	// So does a task that is deleted outright.
+	// So does a deleted one.
 	require.True(t, tasks.Delete("task-2"))
 	require.Empty(t, ecsRunningTaskENIs("10.0.1.5"))
 
-	// An address no task holds is not an entry.
 	require.Empty(t, ecsRunningTaskENIs("10.0.9.9"))
 }

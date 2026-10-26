@@ -12,16 +12,7 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/workload"
 )
 
-// This file implements EC2 ec2Query slices for Dedicated Hosts, Instance Event
-// Windows, image attributes + lifecycle, snapshot attributes + lifecycle, and
-// the VPC ClassicLink / endpoint-connection / block-public-access families.
-// Each handler is faithful CRUD over a real sim.Store; DescribeImageAttribute /
-// DescribeSnapshotAttribute layer per-resource attribute state onto the
-// existing AMI / snapshot stores.
-
-// EC2Host models a Dedicated Host (h-…). Real AllocateHosts reserves dedicated
-// hardware for a single instance family in one AZ; the host is "available"
-// until instances launch onto it.
+// AllocateHosts reserves hardware for one instance family in one zone.
 type EC2Host struct {
 	HostId                             string
 	AutoPlacement                      string
@@ -47,9 +38,8 @@ type EC2Host struct {
 	Tags                               []EC2Tag
 }
 
-// EC2InstanceEventWindow models a maintenance event window (iew-…) — a set of
-// weekly time ranges (or a cron expression) plus an association target
-// (instance ids, dedicated-host ids, or instance tags).
+// Weekly time ranges or a cron expression, plus a target of instance IDs,
+// host IDs or instance tags.
 type EC2InstanceEventWindow struct {
 	InstanceEventWindowId string
 	Name                  string
@@ -69,9 +59,7 @@ type EC2EventWindowTimeRange struct {
 	EndHour      int
 }
 
-// EC2ImageAttributes holds the mutable per-AMI attributes (launchPermission /
-// description) that ModifyImageAttribute sets and DescribeImageAttribute reads.
-// Keyed by ImageId in its store.
+// Keyed by ImageId.
 type EC2ImageAttributes struct {
 	ImageId          string
 	Description      string
@@ -81,8 +69,6 @@ type EC2ImageAttributes struct {
 	TpmSupport       string
 }
 
-// EC2SnapshotAttributes holds the mutable createVolumePermission state for a
-// snapshot (ModifySnapshotAttribute / DescribeSnapshotAttribute).
 type EC2SnapshotAttributes struct {
 	SnapshotId  string
 	PermUsers   []string
@@ -91,15 +77,12 @@ type EC2SnapshotAttributes struct {
 	LockExpires string
 }
 
-// EC2VpcClassicLink holds the per-VPC ClassicLink + ClassicLink-DNS flags.
 type EC2VpcClassicLink struct {
 	VpcId          string
 	ClassicLink    bool
 	ClassicLinkDns bool
 }
 
-// EC2VpcEndpointConnection models a pending/accepted interface-endpoint
-// connection to a VPC endpoint service (vpce-conn-…).
 type EC2VpcEndpointConnection struct {
 	VpcEndpointConnectionId string
 	ServiceId               string
@@ -113,8 +96,7 @@ type EC2VpcEndpointConnection struct {
 	Tags                    []EC2Tag
 }
 
-// EC2ConnectionNotification models a VPC-endpoint connection notification
-// (vpce-nfn-…) — an SNS topic notified on connection events.
+// An Amazon SNS topic notified on connection events.
 type EC2ConnectionNotification struct {
 	ConnectionNotificationId    string
 	ServiceId                   string
@@ -126,8 +108,7 @@ type EC2ConnectionNotification struct {
 	ServiceRegion               string
 }
 
-// EC2VpcBpaExclusion models a VPC Block Public Access exclusion
-// (vpcbpa-exclude-…) carving a VPC/subnet out of the account BPA policy.
+// Carves a VPC or subnet out of the account's Block Public Access policy.
 type EC2VpcBpaExclusion struct {
 	ExclusionId                  string
 	InternetGatewayExclusionMode string
@@ -149,12 +130,10 @@ var (
 	ec2VpcEndpointConns  sim.Store[EC2VpcEndpointConnection]
 	ec2ConnNotifications sim.Store[EC2ConnectionNotification]
 	ec2VpcBpaExclusions  sim.Store[EC2VpcBpaExclusion]
-	// ec2VpcBpaOptions holds the single account-level VPC Block Public Access
-	// options record (real AWS keeps one per account-region).
+	// AWS keeps one record per account and Region.
 	ec2VpcBpaOptions sim.Store[EC2VpcBpaOptions]
 )
 
-// EC2VpcBpaOptions is the account-level Block Public Access policy.
 type EC2VpcBpaOptions struct {
 	State                    string
 	InternetGatewayBlockMode string
@@ -175,14 +154,12 @@ func registerEC2HostsImagesVpc(r *AWSQueryRouter, srv *sim.Server) {
 	ec2VpcBpaExclusions = sim.MakeStore[EC2VpcBpaExclusion](srv.DB(), "ec2_vpc_bpa_exclusions")
 	ec2VpcBpaOptions = sim.MakeStore[EC2VpcBpaOptions](srv.DB(), "ec2_vpc_bpa_options")
 
-	// Dedicated Hosts
 	r.Register("AllocateHosts", handleAllocateHosts)
 	r.Register("DescribeHosts", handleDescribeHosts)
 	r.Register("ModifyHosts", handleModifyHosts)
 	r.Register("ReleaseHosts", handleReleaseHosts)
 	r.Register("DescribeMacHosts", handleDescribeMacHosts)
 
-	// Instance Event Windows
 	r.Register("CreateInstanceEventWindow", handleCreateInstanceEventWindow)
 	r.Register("DescribeInstanceEventWindows", handleDescribeInstanceEventWindows)
 	r.Register("ModifyInstanceEventWindow", handleModifyInstanceEventWindow)
@@ -190,7 +167,6 @@ func registerEC2HostsImagesVpc(r *AWSQueryRouter, srv *sim.Server) {
 	r.Register("AssociateInstanceEventWindow", handleAssociateInstanceEventWindow)
 	r.Register("DisassociateInstanceEventWindow", handleDisassociateInstanceEventWindow)
 
-	// Image attributes + lifecycle
 	r.Register("DescribeImageAttribute", handleDescribeImageAttribute)
 	r.Register("ModifyImageAttribute", handleModifyImageAttribute)
 	r.Register("ResetImageAttribute", handleResetImageAttribute)
@@ -201,7 +177,6 @@ func registerEC2HostsImagesVpc(r *AWSQueryRouter, srv *sim.Server) {
 	r.Register("CreateRestoreImageTask", handleCreateRestoreImageTask)
 	r.Register("RestoreImageFromRecycleBin", handleRestoreImageFromRecycleBin)
 
-	// Snapshot attributes + lifecycle
 	r.Register("DescribeSnapshotAttribute", handleDescribeSnapshotAttribute)
 	r.Register("ModifySnapshotAttribute", handleModifySnapshotAttribute)
 	r.Register("ResetSnapshotAttribute", handleResetSnapshotAttribute)
@@ -210,7 +185,6 @@ func registerEC2HostsImagesVpc(r *AWSQueryRouter, srv *sim.Server) {
 	r.Register("UnlockSnapshot", handleUnlockSnapshot)
 	r.Register("ImportSnapshot", handleImportSnapshot)
 
-	// VPC ClassicLink
 	r.Register("DescribeVpcClassicLink", handleDescribeVpcClassicLink)
 	r.Register("EnableVpcClassicLink", handleEnableVpcClassicLink)
 	r.Register("DisableVpcClassicLink", handleDisableVpcClassicLink)
@@ -218,7 +192,6 @@ func registerEC2HostsImagesVpc(r *AWSQueryRouter, srv *sim.Server) {
 	r.Register("EnableVpcClassicLinkDnsSupport", handleEnableVpcClassicLinkDnsSupport)
 	r.Register("DisableVpcClassicLinkDnsSupport", handleDisableVpcClassicLinkDnsSupport)
 
-	// VPC endpoint connections + notifications
 	r.Register("DescribeVpcEndpointConnections", handleDescribeVpcEndpointConnections)
 	r.Register("AcceptVpcEndpointConnections", handleAcceptVpcEndpointConnections)
 	r.Register("RejectVpcEndpointConnections", handleRejectVpcEndpointConnections)
@@ -227,7 +200,6 @@ func registerEC2HostsImagesVpc(r *AWSQueryRouter, srv *sim.Server) {
 	r.Register("ModifyVpcEndpointConnectionNotification", handleModifyVpcEndpointConnectionNotification)
 	r.Register("DeleteVpcEndpointConnectionNotifications", handleDeleteVpcEndpointConnectionNotifications)
 
-	// VPC Block Public Access
 	r.Register("CreateVpcBlockPublicAccessExclusion", handleCreateVpcBlockPublicAccessExclusion)
 	r.Register("DescribeVpcBlockPublicAccessExclusions", handleDescribeVpcBlockPublicAccessExclusions)
 	r.Register("ModifyVpcBlockPublicAccessExclusion", handleModifyVpcBlockPublicAccessExclusion)
@@ -235,8 +207,6 @@ func registerEC2HostsImagesVpc(r *AWSQueryRouter, srv *sim.Server) {
 	r.Register("ModifyVpcBlockPublicAccessOptions", handleModifyVpcBlockPublicAccessOptions)
 	r.Register("DescribeVpcBlockPublicAccessOptions", handleDescribeVpcBlockPublicAccessOptions)
 }
-
-// Dedicated Hosts
 
 func handleAllocateHosts(w http.ResponseWriter, r *http.Request) {
 	az := r.FormValue("AvailabilityZone")
@@ -267,8 +237,7 @@ func handleAllocateHosts(w http.ResponseWriter, r *http.Request) {
 		maintenance = "off"
 	}
 	tags := parseTags(r)
-	// The host's properties are its family's in the Price List, which states
-	// no socket count; a family it does not list gets none.
+	// The Price List states no socket count; an unlisted family gets none.
 	probe := EC2Host{InstanceFamily: family, InstanceType: instType}
 	facts := ec2DedicatedHostCatalog()[ec2HostFamily(probe)]
 	var ids []string
@@ -359,8 +328,7 @@ func ec2HostFieldsXML(h EC2Host) string {
 	return b.String()
 }
 
-// ec2OnOff renders a host's AllowsMultipleInstanceTypes flag as the on/off enum
-// AWS uses for that field.
+// AllowsMultipleInstanceTypes is an on/off enum.
 func ec2OnOff(v bool) string {
 	if v {
 		return "on"
@@ -412,8 +380,7 @@ func handleDescribeHosts(w http.ResponseWriter, r *http.Request) {
 		ec2Xmlns(), sim.NewUUID(), items.String(), nt)
 }
 
-// ec2HostFilters reads the "Filter.N.Name/Value.M" form DescribeHosts uses (it
-// uses the same wire shape as ec2Filters).
+// DescribeHosts uses ec2Filters' wire shape.
 func ec2HostFilters(r *http.Request) map[string][]string { return ec2Filters(r) }
 
 func ec2HostMatchesFilters(h EC2Host, filters map[string][]string) bool {
@@ -569,8 +536,7 @@ func handleDescribeMacHosts(w http.ResponseWriter, r *http.Request) {
 		ec2Xmlns(), sim.NewUUID(), items.String(), nt)
 }
 
-// ec2UnsuccessfulItem is the shared UnsuccessfulItem shape returned by the
-// batch host / endpoint-connection ops.
+// Shared by the batch host and endpoint-connection operations.
 type ec2UnsuccessfulItem struct {
 	ResourceId string
 	Code       string
@@ -600,9 +566,6 @@ func ec2UnsuccessfulItemsXML(items []ec2UnsuccessfulItem) string {
 	return b.String()
 }
 
-// Instance Event Windows
-
-// ec2ParseEventWindowTimeRanges reads the indexed TimeRange.N.* request params.
 func ec2ParseEventWindowTimeRanges(r *http.Request) []EC2EventWindowTimeRange {
 	var ranges []EC2EventWindowTimeRange
 	for i := 1; ; i++ {
@@ -828,7 +791,7 @@ func handleAssociateInstanceEventWindow(w http.ResponseWriter, r *http.Request) 
 			ew.TargetDedicatedHosts = append(ew.TargetDedicatedHosts, hid)
 		}
 	}
-	// Instance tags target: AssociationTarget.InstanceTag.N.Key/Value
+	// Instance tag targets: AssociationTarget.InstanceTag.N.Key/Value.
 	for i := 1; ; i++ {
 		key := r.FormValue(fmt.Sprintf("AssociationTarget.InstanceTag.%d.Key", i))
 		if key == "" {
@@ -875,8 +838,6 @@ func handleDisassociateInstanceEventWindow(w http.ResponseWriter, r *http.Reques
 	fmt.Fprintf(w, `<DisassociateInstanceEventWindowResponse %s><requestId>%s</requestId><instanceEventWindow>%s</instanceEventWindow></DisassociateInstanceEventWindowResponse>`,
 		ec2Xmlns(), sim.NewUUID(), ec2EventWindowFieldsXML(ew))
 }
-
-// Image attributes + lifecycle
 
 func handleDescribeImageAttribute(w http.ResponseWriter, r *http.Request) {
 	imageID := r.FormValue("ImageId")
@@ -951,8 +912,8 @@ func handleModifyImageAttribute(w http.ResponseWriter, r *http.Request) {
 	ia.ImageId = imageID
 	attr := r.FormValue("Attribute")
 	value := r.FormValue("Value")
-	// Description can arrive either as Description.Value (struct form) or
-	// Attribute=description + Value (legacy form).
+	// Description arrives as Description.Value or as Attribute=description with
+	// Value.
 	if d := r.FormValue("Description.Value"); d != "" {
 		ia.Description = d
 		img.Description = d
@@ -963,9 +924,9 @@ func handleModifyImageAttribute(w http.ResponseWriter, r *http.Request) {
 		ec2Images.Put(imageID, img)
 	}
 
-	// LaunchPermission add/remove. AWS supports OperationType=add|remove with
-	// the legacy form (UserGroup.N / UserId.N) and the structured form
-	// (LaunchPermission.Add.N.UserId / LaunchPermission.Remove.N.Group).
+	// OperationType=add|remove takes the legacy form (UserGroup.N / UserId.N) or
+	// the structured one (LaunchPermission.Add.N.UserId,
+	// LaunchPermission.Remove.N.Group).
 	applyPerm := func(users, groups []string, add bool) {
 		for _, u := range users {
 			ia.LaunchPermUsers = ec2StrSetOp(ia.LaunchPermUsers, u, add)
@@ -995,8 +956,7 @@ func handleModifyImageAttribute(w http.ResponseWriter, r *http.Request) {
 		ec2Xmlns(), sim.NewUUID())
 }
 
-// ec2IndexedField reads "<prefix>.N.<field>" values (e.g. the structured
-// LaunchPermission.Add.1.UserId form).
+// Reads e.g. LaunchPermission.Add.1.UserId.
 func ec2IndexedField(r *http.Request, prefix, field string) []string {
 	var out []string
 	for i := 1; ; i++ {
@@ -1009,7 +969,6 @@ func ec2IndexedField(r *http.Request, prefix, field string) []string {
 	return out
 }
 
-// ec2StrSetOp adds or removes v from set (idempotently).
 func ec2StrSetOp(set []string, v string, add bool) []string {
 	if add {
 		if !ec2StrInValues(v, set) {
@@ -1037,8 +996,8 @@ func handleResetImageAttribute(w http.ResponseWriter, r *http.Request) {
 		ec2ErrorXML(w, "InvalidAMIID.NotFound", fmt.Sprintf("The image id %q does not exist", imageID), http.StatusBadRequest)
 		return
 	}
-	// ResetImageAttribute only resets launchPermission (the lone resettable
-	// AMI attribute), reverting the AMI to private.
+	// launchPermission is the only resettable AMI attribute; resetting makes the
+	// AMI private.
 	ia, _ := ec2ImageAttrs.Get(imageID)
 	ia.ImageId = imageID
 	ia.LaunchPermUsers = nil
@@ -1094,9 +1053,8 @@ func handleExportImage(w http.ResponseWriter, r *http.Request) {
 	taskID := ec2ID("export-ami")
 	tags := parseTags(r)
 
-	// The task the caller is handed is the task DescribeExportImageTasks
-	// answers for, so the identifier this response carries is one a client can
-	// actually poll.
+	// Store the task so the identifier returned is one DescribeExportImageTasks
+	// answers for.
 	ec2ExportImageTasks.Put(taskID, EC2ExportImageTask{
 		ExportImageTaskId: taskID,
 		ImageId:           imageID,
@@ -1178,16 +1136,14 @@ func handleImportImage(w http.ResponseWriter, r *http.Request) {
 		ec2Xmlns(), sim.NewUUID(), ec2ImportImageFieldsXML(task))
 }
 
-// ec2RunImportImage converts every disk of an ImportImage task into a
-// snapshot and registers an EBS-backed AMI whose root is the first disk.
+// Each disk becomes a snapshot; the AMI's root is the first.
 func ec2RunImportImage(task EC2ImportImageTask) {
 	imageLocation := ""
 	for i := range task.Disks {
 		disk := &task.Disks[i]
 		if disk.S3Bucket == "" && disk.Url != "" {
-			// The disk is an OCI image: the import pulls it for the AMI's
-			// architecture, and its reference becomes the AMI's root
-			// filesystem.
+			// The disk is an OCI image pulled for the AMI's architecture; its reference
+			// becomes the root filesystem.
 			platform, err := ec2PlatformForArchitecture(task.Architecture)
 			if err == nil {
 				var pulled string
@@ -1294,8 +1250,6 @@ func ec2Default(v, def string) string {
 	}
 	return v
 }
-
-// Snapshot attributes + lifecycle
 
 func handleDescribeSnapshotAttribute(w http.ResponseWriter, r *http.Request) {
 	snapID := r.FormValue("SnapshotId")
@@ -1438,7 +1392,7 @@ func handleLockSnapshot(w http.ResponseWriter, r *http.Request) {
 	}
 	lockState := mode
 	if mode == "compliance" {
-		// Compliance locks observe a cooloff window before they take effect.
+		// Compliance locks observe a cooloff window before taking effect.
 		lockState = "compliance-cooloff"
 	}
 	created := ec2NowRFC3339Milli()
@@ -1469,8 +1423,6 @@ func handleUnlockSnapshot(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<UnlockSnapshotResponse %s><requestId>%s</requestId><snapshotId>%s</snapshotId></UnlockSnapshotResponse>`,
 		ec2Xmlns(), sim.NewUUID(), snapID)
 }
-
-// VPC ClassicLink
 
 func handleDescribeVpcClassicLink(w http.ResponseWriter, r *http.Request) {
 	ids := ec2ParamList(r, "VpcId")
@@ -1569,8 +1521,6 @@ func handleDescribeVpcClassicLinkDnsSupport(w http.ResponseWriter, r *http.Reque
 	fmt.Fprintf(w, `<DescribeVpcClassicLinkDnsSupportResponse %s><requestId>%s</requestId><vpcs>%s</vpcs></DescribeVpcClassicLinkDnsSupportResponse>`,
 		ec2Xmlns(), sim.NewUUID(), items.String())
 }
-
-// VPC endpoint connections + notifications
 
 func ec2VpcEndpointConnFieldsXML(c EC2VpcEndpointConnection) string {
 	var b strings.Builder
@@ -1778,8 +1728,6 @@ func handleDeleteVpcEndpointConnectionNotifications(w http.ResponseWriter, r *ht
 	fmt.Fprintf(w, `<DeleteVpcEndpointConnectionNotificationsResponse %s><requestId>%s</requestId>%s</DeleteVpcEndpointConnectionNotificationsResponse>`,
 		ec2Xmlns(), sim.NewUUID(), ec2UnsuccessfulItemsXML(unsuccessful))
 }
-
-// VPC Block Public Access
 
 func ec2VpcBpaExclusionFieldsXML(e EC2VpcBpaExclusion) string {
 	var b strings.Builder

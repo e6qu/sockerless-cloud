@@ -14,8 +14,7 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/eventbus"
 )
 
-// ebTargetDelivery is one event Amazon EventBridge owes one rule target. Body
-// is the event after the target's input transformation.
+// Body is the event after the target's input transformation.
 type ebTargetDelivery struct {
 	RuleArn string
 	Target  EBTarget
@@ -23,14 +22,13 @@ type ebTargetDelivery struct {
 	Body    string
 }
 
-// ebRoute is one target of one rule: what an event on a bus fans out to.
+// One target of one rule.
 type ebRoute struct {
 	Rule   EBRule
 	Target EBTarget
 }
 
-// ebTargetError is a failed target invocation with the error code EventBridge
-// reports in the dead-letter message.
+// The error code reported in the dead-letter message.
 type ebTargetError struct {
 	Code    string
 	Message string
@@ -74,8 +72,8 @@ func registerEventBridgeDelivery(srv *sim.Server) {
 		Start(srv, "EventBridge scheduled rules", time.Second)
 }
 
-// ebMigrateTargetDeliveryBodies applies the target's input transformation to
-// the pending deliveries an earlier build persisted without it.
+// Deliveries an earlier build persisted untransformed get the target's input
+// transformation.
 func ebMigrateTargetDeliveryBodies(db *sql.DB, store sim.Store[delivery.Item[ebTargetDelivery]]) error {
 	return sim.Migrate(db, "eventbridge_target_deliveries/body", func() error {
 		for _, item := range store.List() {
@@ -86,7 +84,7 @@ func ebMigrateTargetDeliveryBodies(db *sql.DB, store sim.Store[delivery.Item[ebT
 	})
 }
 
-// ebBusRoutes lists every target of every enabled rule on bus.
+// Every target of every enabled rule on bus.
 func ebBusRoutes(bus string) []ebRoute {
 	var routes []ebRoute
 	for _, rule := range ebRules.List() {
@@ -107,9 +105,8 @@ func ebRuleRoutes(rule EBRule, targets sim.Store[[]EBTarget]) []ebRoute {
 	return routes
 }
 
-// ebTargetRetryPolicy reads the target's RetryPolicy: MaximumRetryAttempts
-// (default 185) and MaximumEventAgeInSeconds (default 86400), retried with
-// exponential backoff.
+// MaximumRetryAttempts defaults to 185 and MaximumEventAgeInSeconds to 86400,
+// with exponential backoff.
 func ebTargetRetryPolicy(target EBTarget) delivery.Policy {
 	policy := struct {
 		MaximumRetryAttempts     *int `json:"MaximumRetryAttempts"`
@@ -132,11 +129,9 @@ func ebTargetRetryPolicy(target EBTarget) delivery.Policy {
 	}
 }
 
-// ebAttemptTarget delivers one event to one target through the target
-// service's API, on the rule's behalf. A refusal the target service answers
-// with, such as a resource policy that does not admit events.amazonaws.com or
-// a target that does not exist, fails without retry, as EventBridge treats
-// both; throttling and server errors are retried.
+// A refusal by the target service, such as a resource policy not admitting
+// events.amazonaws.com or a missing target, fails without retry; throttling
+// and server errors are retried.
 func ebAttemptTarget(ctx context.Context, d ebTargetDelivery) delivery.Outcome {
 	target, body := d.Target, d.Body
 	switch {
@@ -171,8 +166,7 @@ func ebAttemptTarget(ctx context.Context, d ebTargetDelivery) delivery.Outcome {
 	}
 }
 
-// ebDeadLetterTargetDelivery sends an event the target never accepted to the
-// target's DeadLetterConfig queue with the attributes EventBridge documents.
+// With the attributes EventBridge documents.
 func ebDeadLetterTargetDelivery(item delivery.Item[ebTargetDelivery], reason delivery.Reason) {
 	d := item.Payload
 	var dlq struct {
@@ -215,9 +209,7 @@ func ebDeadLetterTargetDelivery(item delivery.Item[ebTargetDelivery], reason del
 	sqsEnqueueBodyWithAttributes(queue, string(event), attributes)
 }
 
-// ebScheduledRuleEntries fires every enabled rule with a ScheduleExpression:
-// each occurrence sends a "Scheduled Event" from aws.events, naming the rule
-// in its resources, to that rule's targets.
+// Each occurrence sends a "Scheduled Event" from aws.events naming the rule.
 func ebScheduledRuleEntries(rules sim.Store[EBRule], targets sim.Store[[]EBTarget]) []cron.Entry {
 	var entries []cron.Entry
 	for _, rule := range rules.List() {
@@ -256,8 +248,7 @@ func ebScheduledRuleEntries(rules sim.Store[EBRule], targets sim.Store[[]EBTarge
 	return entries
 }
 
-// ebRuleScheduleProblem applies the PutRule rules for ScheduleExpression,
-// returning the ValidationException message or "".
+// Returns the ValidationException message, or "".
 func ebRuleScheduleProblem(expr, pattern, bus string) string {
 	switch {
 	case expr == "" && pattern == "":

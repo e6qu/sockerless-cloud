@@ -6,12 +6,8 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// StartTask runs a task on the specific container instances the caller names,
-// rather than letting the scheduler place it (RunTask). It is the EC2-launch-type
-// placement primitive: the caller has its own ECS agents (RegisterContainerInstance)
-// and assigns the task directly. The sim creates a task associated with the named
-// instances. It launches each assigned task through the same real container,
-// networking, logging, and lifecycle path as RunTask.
+// StartTask places a task on the container instances the caller names instead
+// of letting the scheduler place it, then launches through the RunTask path.
 
 func registerECSStartTask(r *AWSRouter, srv *sim.Server) {
 	r.Register("AmazonEC2ContainerServiceV20141113.StartTask", handleECSStartTask)
@@ -51,7 +47,7 @@ func handleECSStartTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Resolve task definition (latest revision when a bare family is given).
+	// A bare family takes the latest revision.
 	tdKey := ecsTaskDefinitionKey(req.TaskDefinition)
 	_, ok = ecsTaskDefinitions.Get(tdKey)
 	if !ok {
@@ -108,11 +104,7 @@ func handleECSStartTask(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// ecsStartTaskTags applies the managed tags Amazon ECS adds when a caller asks
-// for them. The service scheduler already did this for the tasks it launches;
-// StartTask parsed the same flag and dropped it, so the identical request
-// produced tagged tasks through a service and untagged ones directly. A task
-// started outside a service has no service name, so only the cluster tag
+// A task outside a service has no service name, so only the cluster tag
 // applies.
 func ecsStartTaskTags(tags []ECSTag, managed bool, cluster string) []ECSTag {
 	if !managed {

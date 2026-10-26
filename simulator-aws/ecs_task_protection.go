@@ -8,13 +8,9 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// ECS task scale-in protection — a task in a service can be marked protected so
-// the service scheduler won't terminate it during scale-in, optionally with an
-// expiry. GetTaskProtection reads the flag; UpdateTaskProtection sets it. The
-// sim stores the protection state keyed by task id (the task itself lives in
-// ecsTasks).
+// Keyed by task id; a protected task survives the scheduler's scale-in,
+// optionally until an expiry.
 
-// ECSTaskProtection is the stored protection state for one task.
 type ECSTaskProtection struct {
 	TaskArn           string   `json:"taskArn"`
 	ProtectionEnabled bool     `json:"protectionEnabled"`
@@ -102,7 +98,7 @@ func handleECSUpdateTaskProtection(w http.ResponseWriter, r *http.Request) {
 		}
 		p := ECSTaskProtection{TaskArn: task.TaskArn, ProtectionEnabled: req.ProtectionEnabled}
 		if req.ProtectionEnabled {
-			mins := 2880 // ECS default protection period: 48 hours.
+			mins := 2880 // Default protection period: 48 hours.
 			if req.ExpiresInMinutes != nil {
 				mins = *req.ExpiresInMinutes
 			}

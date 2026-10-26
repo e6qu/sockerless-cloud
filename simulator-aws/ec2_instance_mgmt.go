@@ -12,10 +12,8 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
-// EC2InstanceConnectEndpoint models an EC2 Instance Connect Endpoint (eice-…) —
-// the VPC-resident endpoint that brokers SSH/RDP to instances without a public
-// IP. Real EC2 provisions an elastic network interface in the endpoint's subnet
-// and transitions the endpoint through create-in-progress → create-complete.
+// Amazon EC2 provisions a network interface in the endpoint's subnet and moves
+// the endpoint create-in-progress → create-complete.
 type EC2InstanceConnectEndpoint struct {
 	InstanceConnectEndpointId string
 	SubnetId                  string
@@ -34,10 +32,6 @@ type EC2InstanceConnectEndpoint struct {
 	Tags                      []EC2Tag
 }
 
-// EC2InstanceStatusReport records a ReportInstanceStatus submission. Real EC2
-// keeps the report against the instance to feed scheduled-event and health
-// dashboards; the sim persists it so the op is a faithful CRUD write, not a
-// no-op.
 type EC2InstanceStatusReport struct {
 	InstanceId  string
 	Status      string
@@ -47,18 +41,14 @@ type EC2InstanceStatusReport struct {
 	Description string
 }
 
-// EC2AccountInstanceSettings holds the account-level (per-Region) instance
-// management knobs that real EC2 stores at the account level rather than on any
-// single instance: serial-console access, IMDS defaults, and the set of tag
-// keys registered for instance-event notifications. Keyed in its store by the
-// AWS account ID so a SOCKERLESS_AWS_ACCOUNT_ID override scopes correctly.
+// Account-level settings keyed by account ID, so an account override scopes
+// them.
 type EC2AccountInstanceSettings struct {
 	AccountId                string
 	SerialConsoleAccess      bool
 	EventNotificationTagKeys []string
 	IncludeAllTagsOfInstance bool
-	// IMDS account-level defaults. Empty MetadataConfigured means the account
-	// has no defaults set (real EC2 returns an empty accountLevel element).
+	// MetadataConfigured false means no defaults: an empty accountLevel element.
 	MetadataConfigured   bool
 	MetadataHttpTokens   string
 	MetadataHopLimit     int
@@ -72,51 +62,39 @@ var (
 	ec2AccountInstanceSettings  sim.Store[EC2AccountInstanceSettings]
 )
 
-// registerEC2InstanceMgmt registers the EC2 instance-management family:
-// Instance Connect endpoints, instance-event-notification attributes,
-// serial-console access, IMDS account defaults, monitoring, and the
-// reboot/report/reset/classic-link instance operations.
 func registerEC2InstanceMgmt(r *AWSQueryRouter, srv *sim.Server) {
 	ec2InstanceConnectEndpoints = sim.MakeStore[EC2InstanceConnectEndpoint](srv.DB(), "ec2_instance_connect_endpoints")
 	ec2InstanceStatusReports = sim.MakeStore[EC2InstanceStatusReport](srv.DB(), "ec2_instance_status_reports")
 	ec2AccountInstanceSettings = sim.MakeStore[EC2AccountInstanceSettings](srv.DB(), "ec2_account_instance_settings")
 
-	// EC2 Instance Connect endpoints
 	r.Register("CreateInstanceConnectEndpoint", handleCreateInstanceConnectEndpoint)
 	r.Register("DescribeInstanceConnectEndpoints", handleDescribeInstanceConnectEndpoints)
 	r.Register("ModifyInstanceConnectEndpoint", handleModifyInstanceConnectEndpoint)
 	r.Register("DeleteInstanceConnectEndpoint", handleDeleteInstanceConnectEndpoint)
 
-	// Instance-event-notification attributes (account-level registered tag keys)
 	r.Register("RegisterInstanceEventNotificationAttributes", handleRegisterInstanceEventNotificationAttributes)
 	r.Register("DeregisterInstanceEventNotificationAttributes", handleDeregisterInstanceEventNotificationAttributes)
 	r.Register("DescribeInstanceEventNotificationAttributes", handleDescribeInstanceEventNotificationAttributes)
 
-	// Serial-console access (account-level flag)
 	r.Register("EnableSerialConsoleAccess", handleEnableSerialConsoleAccess)
 	r.Register("DisableSerialConsoleAccess", handleDisableSerialConsoleAccess)
 	r.Register("GetSerialConsoleAccessStatus", handleGetSerialConsoleAccessStatus)
 
-	// IMDS account-level defaults
 	r.Register("GetInstanceMetadataDefaults", handleGetInstanceMetadataDefaults)
 	r.Register("ModifyInstanceMetadataDefaults", handleModifyInstanceMetadataDefaults)
 
-	// Monitoring
 	r.Register("MonitorInstances", handleMonitorInstances)
 	r.Register("UnmonitorInstances", handleUnmonitorInstances)
 
-	// Instance lifecycle / status
 	r.Register("RebootInstances", handleRebootInstances)
 	r.Register("ReportInstanceStatus", handleReportInstanceStatus)
 	r.Register("ResetInstanceAttribute", handleResetInstanceAttribute)
 
-	// EC2-Classic (honest-empty: the sim runs only in a VPC)
+	// The simulator runs only in a VPC, so EC2-Classic answers empty.
 	r.Register("DescribeClassicLinkInstances", handleDescribeClassicLinkInstances)
 }
 
-// ec2AccountSettings returns the account's instance-management settings,
-// seeding a zero-valued record (serial console disabled, no IMDS defaults, no
-// registered tag keys) the first time it's read — matching a fresh AWS account.
+// Seeds a fresh account's zero values on first read.
 func ec2AccountSettings() EC2AccountInstanceSettings {
 	id := awsAccountID()
 	if s, ok := ec2AccountInstanceSettings.Get(id); ok {
@@ -146,9 +124,8 @@ func handleCreateInstanceConnectEndpoint(w http.ResponseWriter, r *http.Request)
 		ipType = "ipv4"
 	}
 	id := ec2ID("eice")
-	// Real EC2 auto-creates an elastic network interface for the endpoint in
-	// the target subnet. Provision one from the same store DescribeNetworkInterfaces
-	// reads, so the endpoint's networkInterfaceIdSet references a real ENI.
+	// Create the endpoint's network interface in the store
+	// DescribeNetworkInterfaces reads.
 	eniID := ec2ID("eni")
 	eniIP, err := AllocateSubnetIP(subnetID)
 	if err != nil {
@@ -193,8 +170,6 @@ func handleCreateInstanceConnectEndpoint(w http.ResponseWriter, r *http.Request)
 		ec2Xmlns(), sim.NewUUID(), ec2InstanceConnectEndpointFieldsXML(eice), clientToken)
 }
 
-// ec2InstanceConnectEndpointArn renders the endpoint ARN
-// (arn:aws:ec2:region:account:instance-connect-endpoint/eice-…).
 func ec2InstanceConnectEndpointArn(eice EC2InstanceConnectEndpoint) string {
 	return fmt.Sprintf("arn:aws:ec2:%s:%s:instance-connect-endpoint/%s", awsRegion(), eice.OwnerId, eice.InstanceConnectEndpointId)
 }
@@ -325,8 +300,8 @@ func handleDeleteInstanceConnectEndpoint(w http.ResponseWriter, r *http.Request)
 		ec2ErrorXML(w, "InvalidInstanceConnectEndpointId.NotFound", fmt.Sprintf("The EC2 Instance Connect Endpoint '%s' does not exist", id), http.StatusBadRequest)
 		return
 	}
-	// Real EC2 tears down the auto-created ENI and moves the endpoint to
-	// delete-complete. Remove the backing ENIs and transition state.
+	// Amazon EC2 removes the endpoint's network interfaces and moves it to
+	// delete-complete.
 	for _, eniID := range eice.NetworkInterfaceIds {
 		ec2NetworkInterfaces.Delete(eniID)
 	}
@@ -337,8 +312,6 @@ func handleDeleteInstanceConnectEndpoint(w http.ResponseWriter, r *http.Request)
 		ec2Xmlns(), sim.NewUUID(), ec2InstanceConnectEndpointFieldsXML(eice))
 }
 
-// ec2InstanceTagAttributeXML renders the account's registered tag keys as the
-// instanceTagAttribute element shared by the register/deregister/describe ops.
 func ec2InstanceTagAttributeXML(s EC2AccountInstanceSettings) string {
 	var keys strings.Builder
 	keys.WriteString("<instanceTagKeySet>")
@@ -355,7 +328,7 @@ func handleRegisterInstanceEventNotificationAttributes(w http.ResponseWriter, r 
 	if v := r.FormValue("InstanceTagAttribute.IncludeAllTagsOfInstance"); v != "" {
 		s.IncludeAllTagsOfInstance = v == "true"
 		if s.IncludeAllTagsOfInstance {
-			// Registering all tags clears any explicit key list, matching AWS.
+			// Registering all tags clears any explicit key list.
 			s.EventNotificationTagKeys = nil
 		}
 	}
@@ -473,8 +446,6 @@ func handleModifyInstanceMetadataDefaults(w http.ResponseWriter, r *http.Request
 		ec2Xmlns(), sim.NewUUID())
 }
 
-// ec2MonitoringResponse flips detailed monitoring on each named instance and
-// renders the shared MonitorInstances/UnmonitorInstances instancesSet body.
 func ec2MonitoringResponse(w http.ResponseWriter, r *http.Request, root string, enable bool) {
 	ids := ec2ParamList(r, "InstanceId")
 	for _, id := range ids {
@@ -488,8 +459,8 @@ func ec2MonitoringResponse(w http.ResponseWriter, r *http.Request, root string, 
 		ec2Instances.Update(id, func(inst *EC2Instance) { inst.Monitoring = enable })
 		state := "disabled"
 		if enable {
-			// MonitorInstances reports "pending" until detailed monitoring is
-			// active; the sim applies it immediately, so report "enabled".
+			// Amazon EC2 reports "pending" until detailed monitoring is active; the
+			// simulator applies it at once.
 			state = "enabled"
 		}
 		fmt.Fprintf(&items, "<item><instanceId>%s</instanceId><monitoring><state>%s</state></monitoring></item>", id, state)
@@ -520,8 +491,7 @@ func handleRebootInstances(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	// A reboot restarts the machine in place: the instance stays running
-	// throughout while its init stops and boots again on the same root disk.
+	// The instance stays running while the init restarts on the same root disk.
 	for _, id := range ids {
 		instanceID := id
 		bg.Go(func() {
@@ -575,11 +545,11 @@ func handleResetInstanceAttribute(w http.ResponseWriter, r *http.Request) {
 	}
 	switch attr {
 	case "sourceDestCheck":
-		// The default for sourceDestCheck is true; resetting restores it.
+		// sourceDestCheck defaults to true.
 		ec2Instances.Update(id, func(inst *EC2Instance) { inst.SourceDestCheck = true })
 	case "kernel", "ramdisk":
-		// The sim stores no kernel/ramdisk override; the reset is a no-op
-		// against the (already-default) value, matching AWS's allowed set.
+		// The simulator stores no kernel or ramdisk override, so resetting changes
+		// nothing.
 	default:
 		ec2ErrorXML(w, "InvalidParameterValue", fmt.Sprintf("You can only reset the following attributes: kernel | ramdisk | sourceDestCheck. The attribute '%s' is not resettable.", attr), http.StatusBadRequest)
 		return
@@ -589,9 +559,7 @@ func handleResetInstanceAttribute(w http.ResponseWriter, r *http.Request) {
 		ec2Xmlns(), sim.NewUUID())
 }
 
-// handleDescribeClassicLinkInstances returns an honest-empty set: the sim runs
-// only in a VPC (EC2-Classic was retired AWS-wide), so no instances are ever
-// ClassicLink-attached.
+// EC2-Classic is retired, so no instance is ClassicLink-attached.
 func handleDescribeClassicLinkInstances(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DescribeClassicLinkInstancesResponse %s><requestId>%s</requestId><instancesSet/></DescribeClassicLinkInstancesResponse>`,

@@ -7,15 +7,10 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// ECS service deployments + service revisions — the newer rollout-tracking
-// surface (DescribeServiceDeployments / ListServiceDeployments /
-// DescribeServiceRevisions / StopServiceDeployment / ContinueServiceDeployment)
-// plus ListServicesByNamespace. Each CreateService / UpdateService records a
-// service revision (the immutable config snapshot) and a service deployment
-// (the rollout from the previous revision to it). Reconciliation marks the
-// deployment successful only after real tasks reach the target revision.
+// Each CreateService and UpdateService records a service revision (immutable
+// snapshot) and a service deployment (the rollout to it). A deployment
+// succeeds only after real tasks reach the target revision.
 
-// ECSServiceDeploymentRec is the stored shape of a service deployment.
 type ECSServiceDeploymentRec struct {
 	ServiceDeploymentArn     string  `json:"serviceDeploymentArn"`
 	ServiceArn               string  `json:"serviceArn"`
@@ -27,26 +22,22 @@ type ECSServiceDeploymentRec struct {
 	TargetServiceRevisionArn string  `json:"targetServiceRevisionArn"`
 	Status                   string  `json:"status"`
 	StatusReason             string  `json:"statusReason,omitempty"`
-	// Where the deployment is in its lifecycle, and the hooks recorded against
-	// the stages that guard it. A service with no lifecycle hooks configured
-	// carries a stage and an empty list, exactly as AWS returns.
+	// A service without hooks carries a stage and an empty list, as AWS returns.
 	LifecycleStage       string                    `json:"lifecycleStage,omitempty"`
 	LifecycleHookDetails []ECSDeploymentHookDetail `json:"lifecycleHookDetails,omitempty"`
 }
 
-// ECSServiceRevisionRec is the stored shape of a service revision.
 type ECSServiceRevisionRec struct {
-	ServiceRevisionArn string  `json:"serviceRevisionArn"`
-	ServiceArn         string  `json:"serviceArn"`
-	ClusterArn         string  `json:"clusterArn"`
-	TaskDefinition     string  `json:"taskDefinition"`
-	LaunchType         string  `json:"launchType,omitempty"`
-	PlatformVersion    string  `json:"platformVersion,omitempty"`
-	CreatedAt          float64 `json:"createdAt"`
-	// GatewayConnectors are the connectors the revision deployed with.
-	GatewayConnectors []ecsGatewayConnector `json:"gatewayConnectors,omitempty"`
-	// Namespace links the revision (and so the service) to a Cloud Map namespace
-	// for ListServicesByNamespace; never on the wire.
+	ServiceRevisionArn string                `json:"serviceRevisionArn"`
+	ServiceArn         string                `json:"serviceArn"`
+	ClusterArn         string                `json:"clusterArn"`
+	TaskDefinition     string                `json:"taskDefinition"`
+	LaunchType         string                `json:"launchType,omitempty"`
+	PlatformVersion    string                `json:"platformVersion,omitempty"`
+	CreatedAt          float64               `json:"createdAt"`
+	GatewayConnectors  []ecsGatewayConnector `json:"gatewayConnectors,omitempty"`
+	// Links the revision to a Cloud Map namespace for ListServicesByNamespace;
+	// never on the wire.
 	Namespace string `json:"-"`
 }
 
@@ -67,10 +58,7 @@ func registerECSServiceDeployments(r *AWSRouter, srv *sim.Server) {
 	r.Register("AmazonEC2ContainerServiceV20141113.ListServicesByNamespace", handleECSListServicesByNamespace)
 }
 
-// ecsRecordServiceDeployment snapshots a service into a new revision + an
-// in-progress deployment, called on CreateService and UpdateService. namespace is
-// the Cloud Map namespace the service is associated with (for
-// ListServicesByNamespace), derived by the caller from serviceConnectConfiguration.
+// namespace comes from the caller's serviceConnectConfiguration.
 func ecsRecordServiceDeployment(svc ECSService, namespace string) string {
 	now := ecsEpochSeconds()
 	for _, deployment := range ecsServiceDeployments.List() {
@@ -105,8 +93,8 @@ func ecsRecordServiceDeployment(svc ECSService, namespace string) string {
 		TargetServiceRevisionArn: revArn,
 		Status:                   "IN_PROGRESS",
 	}
-	// A service that configured lifecycle hooks stops this deployment at the
-	// first stage one guards, before anything scales up.
+	// Configured hooks stop the deployment at the first guarded stage, before
+	// anything scales up.
 	ecsBeginDeploymentLifecycle(&deployment, svc)
 	ecsServiceDeployments.Put(depArn, deployment)
 	return revArn
@@ -124,7 +112,6 @@ func ecsCompleteServiceDeployments(serviceArn string, now float64) {
 	}
 }
 
-// ecsServiceArnSuffix returns the <cluster>/<service> portion of a service ARN.
 func ecsServiceArnSuffix(serviceArn string) string {
 	idx := strings.Index(serviceArn, ":service/")
 	if idx < 0 {
@@ -176,10 +163,7 @@ func ecsServiceDeploymentDetail(dep ECSServiceDeploymentRec) map[string]any {
 	if dep.StatusReason != "" {
 		out["statusReason"] = dep.StatusReason
 	}
-	// Where the deployment is, and the hooks holding it there. Without these
-	// the deployment's own state is invisible: a caller cannot see which stage
-	// it stopped at, and cannot learn the hookId ContinueServiceDeployment
-	// needs.
+	// Callers need the stage and the hookId ContinueServiceDeployment takes.
 	if dep.LifecycleStage != "" {
 		out["lifecycleStage"] = dep.LifecycleStage
 	}
@@ -340,10 +324,7 @@ func handleECSContinueServiceDeployment(w http.ResponseWriter, r *http.Request) 
 			"The service deployment %s does not exist.", req.ServiceDeploymentArn)
 		return
 	}
-	// hookId names the lifecycle hook this call releases. It had been parsed
-	// and ignored, which was honest only while no hook existed to release;
-	// now a deployment can be waiting on one, and continuing without saying
-	// which would be guessing.
+	// hookId names the hook this call releases.
 	code, message, ok := ecsContinueDeploymentHook(&dep, req.HookId, req.Action)
 	if !ok {
 		AWSError(w, code, message, http.StatusBadRequest)
@@ -356,8 +337,8 @@ func handleECSContinueServiceDeployment(w http.ResponseWriter, r *http.Request) 
 	}
 	dep.UpdatedAt = ecsEpochSeconds()
 	ecsServiceDeployments.Put(req.ServiceDeploymentArn, dep)
-	// Released, the service can converge: the scheduler was holding its tasks
-	// back while the hook waited.
+	// Released, the service converges; the scheduler held its tasks while the hook
+	// waited.
 	if service, found := ecsServiceFromARNKey(dep.ServiceArn); found {
 		ecsRequestServiceReconcile(service)
 	}
@@ -387,7 +368,7 @@ func handleECSListServicesByNamespace(w http.ResponseWriter, r *http.Request) {
 		if seen[rev.ServiceArn] {
 			continue
 		}
-		// Only list services that still exist and are ACTIVE.
+		// List only services that still exist and are ACTIVE.
 		if svc, ok := ecsServiceByArn(rev.ServiceArn); ok && svc.Status == "ACTIVE" {
 			seen[rev.ServiceArn] = true
 			arns = append(arns, rev.ServiceArn)
@@ -404,14 +385,12 @@ func handleECSListServicesByNamespace(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, out)
 }
 
-// ecsServiceByArn resolves a service ARN to its stored service.
 func ecsServiceByArn(arn string) (ECSService, bool) {
 	_, _, svc, ok := ecsServiceFromARN(arn)
 	return svc, ok
 }
 
-// ecsServiceFromARNKey returns the store key of the service an ARN names, for
-// the paths that hold a deployment and need to nudge its service.
+// For paths holding a deployment that must nudge its service.
 func ecsServiceFromARNKey(serviceArn string) (string, bool) {
 	_, key, _, ok := ecsServiceFromARN(serviceArn)
 	return key, ok

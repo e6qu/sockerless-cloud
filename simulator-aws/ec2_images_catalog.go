@@ -7,8 +7,7 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/vminstance"
 )
 
-// The public AMIs the simulator publishes. Each names an OCI image on
-// mirror.gcr.io pinned by the digest the registry serves for the tag;
+// Each public AMI names an OCI image on mirror.gcr.io pinned by digest;
 // scripts/check-latest-deps.sh keeps the pins current.
 const (
 	ec2AmazonLinux2023OCI = "mirror.gcr.io/library/amazonlinux:2023@sha256:c04a1012acc483977f61f7f91c28624a39a621e56a59781319a75dec528be9b6"
@@ -16,15 +15,14 @@ const (
 	ec2Debian12OCI        = "mirror.gcr.io/library/debian:12@sha256:854dd8ab51d62866dbd8f5431d15ce77b12983a2a4a1e1fe43a2395dc7ef9f61"
 )
 
-// The accounts that own the public AMIs, as DescribeImages reports them.
 const (
 	ec2AmazonImageOwnerID    = "137112412989"
 	ec2CanonicalImageOwnerID = "099720109477"
 	ec2DebianImageOwnerID    = "136693071363"
 )
 
-// ec2ImageCatalog lists the public AMIs: Amazon Linux 2023, Ubuntu 24.04 LTS
-// and Debian 12, each for x86_64 and arm64.
+// Amazon Linux 2023, Ubuntu 24.04 LTS and Debian 12, each for x86_64 and
+// arm64.
 var ec2ImageCatalog = sync.OnceValues(func() ([]EC2Image, map[string]EC2Image) {
 	public := func(id, name, description, owner, alias, arch, rootDevice, snapshot, oci, created string) EC2Image {
 		return EC2Image{
@@ -83,8 +81,7 @@ var ec2ImageCatalog = sync.OnceValues(func() ([]EC2Image, map[string]EC2Image) {
 	return list, byID
 })
 
-// ec2LookupImage finds an AMI: one the simulator publishes, or one the
-// account registered, created or imported.
+// A published AMI, or one the account registered, created or imported.
 func ec2LookupImage(imageID string) (EC2Image, bool) {
 	_, catalog := ec2ImageCatalog()
 	if img, ok := catalog[imageID]; ok {
@@ -93,8 +90,7 @@ func ec2LookupImage(imageID string) (EC2Image, bool) {
 	return ec2Images.Get(imageID)
 }
 
-// ec2AllImages lists every AMI DescribeImages can report, the published ones
-// first.
+// Published AMIs first.
 func ec2AllImages() []EC2Image {
 	list, _ := ec2ImageCatalog()
 	return append(append([]EC2Image(nil), list...), ec2Images.List()...)
@@ -102,8 +98,7 @@ func ec2AllImages() []EC2Image {
 
 var errEC2ImageNotBootable = errors.New("the image names no root filesystem to boot")
 
-// ec2ImageRootFS is the OCI image an AMI boots from. An AMI registered from a
-// block device mapping alone has none.
+// An AMI registered from a block device mapping alone has none.
 func ec2ImageRootFS(img EC2Image) (vminstance.Image, error) {
 	if img.ImageLocation == "" {
 		return vminstance.Image{}, errEC2ImageNotBootable
@@ -115,8 +110,6 @@ func ec2ImageRootFS(img EC2Image) (vminstance.Image, error) {
 	return vminstance.Image{OCI: img.ImageLocation, Architecture: platform}, nil
 }
 
-// ec2PlatformForArchitecture maps an AMI's architecture to the OCI platform
-// its root filesystem is pulled for.
 func ec2PlatformForArchitecture(arch string) (string, error) {
 	switch arch {
 	case "x86_64", "":
@@ -127,8 +120,7 @@ func ec2PlatformForArchitecture(arch string) (string, error) {
 	return "", errors.New("the architecture " + arch + " has no container platform")
 }
 
-// ec2ImageOwnedBy applies DescribeImages' Owners: self, amazon,
-// aws-marketplace or an account ID.
+// Owners: self, amazon, aws-marketplace or an account ID.
 func ec2ImageOwnedBy(img EC2Image, owners []string) bool {
 	if len(owners) == 0 {
 		return true

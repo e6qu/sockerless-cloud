@@ -44,9 +44,7 @@ func handleECSRegisterTaskDefinition(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Fargate requires task-level cpu and memory — AWS runs this compatibility
-	// check when requiresCompatibilities includes FARGATE and rejects a task
-	// definition missing either with a ClientException.
+	// FARGATE requires task-level cpu and memory, else a ClientException.
 	if hasFargate(req.RequiresCompatibilities) && (req.Cpu == "" || req.Memory == "") {
 		AWSError(w, "ClientException",
 			"Task definition does not support launch type FARGATE: task-level memory and cpu are required.",
@@ -54,7 +52,6 @@ func handleECSRegisterTaskDefinition(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate Fargate CPU/memory combinations
 	if hasFargate(req.RequiresCompatibilities) && req.Cpu != "" && req.Memory != "" {
 		if err := validateFargateResources(req.Cpu, req.Memory); err != nil {
 			AWSError(w, "ClientException", err.Error(), http.StatusBadRequest)
@@ -62,7 +59,6 @@ func handleECSRegisterTaskDefinition(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Auto-increment revision
 	ecsRevisionMu.Lock()
 	ecsRevisions[req.Family]++
 	revision := ecsRevisions[req.Family]
@@ -96,7 +92,7 @@ func handleECSRegisterTaskDefinition(w http.ResponseWriter, r *http.Request) {
 	key := fmt.Sprintf("%s:%d", req.Family, revision)
 	ecsTaskDefinitions.Put(key, td)
 
-	// Real RegisterTaskDefinition echoes the tags at the response top level.
+	// RegisterTaskDefinition echoes the tags at the response top level.
 	resp := map[string]any{"taskDefinition": td}
 	if len(td.Tags) > 0 {
 		resp["tags"] = td.Tags
@@ -117,7 +113,6 @@ func handleECSDeregisterTaskDefinition(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Extract family:revision from ARN or direct reference
 	key := req.TaskDefinition
 	if strings.HasPrefix(key, "arn:") {
 		parts := strings.Split(key, "/")
@@ -164,7 +159,7 @@ func handleECSDescribeTaskDefinition(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// If no revision specified, find the latest active one
+	// Without a revision, take the latest active one.
 	if !strings.Contains(key, ":") {
 		ecsRevisionMu.RLock()
 		rev, exists := ecsRevisions[key]
@@ -181,8 +176,8 @@ func handleECSDescribeTaskDefinition(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Tags surface at the response top level only when include=TAGS — this is
-	// the path terraform-provider-aws reads task-definition tags on refresh.
+	// Tags appear at the top level only with include=TAGS, which
+	// terraform-provider-aws reads on refresh.
 	resp := map[string]any{"taskDefinition": td}
 	if len(td.Tags) > 0 && ecsIncludeHasTags(req.Include) {
 		resp["tags"] = td.Tags
@@ -190,9 +185,7 @@ func handleECSDescribeTaskDefinition(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, resp)
 }
 
-// ecsComputeCompatibilities derives the AWS-computed launch-type list. Every
-// task definition is EC2-compatible; FARGATE additionally requires the awsvpc
-// network mode. requiresCompatibilities is always a subset of the result.
+// Every task definition is EC2-compatible; FARGATE also requires awsvpc.
 func ecsComputeCompatibilities(networkMode string, requires []string) []string {
 	set := map[string]bool{"EC2": true}
 	for _, c := range requires {
@@ -210,8 +203,7 @@ func ecsComputeCompatibilities(networkMode string, requires []string) []string {
 	return out
 }
 
-// Amazon Elastic Container Service (ECS) task networking modes, as spelled by
-// the ECS API's NetworkMode enum.
+// As the NetworkMode enum spells them.
 const (
 	ecsNetworkModeAwsvpc = "awsvpc"
 	ecsNetworkModeBridge = "bridge"
@@ -219,10 +211,7 @@ const (
 	ecsNetworkModeNone   = "none"
 )
 
-// ecsEffectiveNetworkMode returns the networking mode a task definition's
-// containers run under. Amazon ECS defaults an unset networkMode to bridge, so
-// the launch path resolves the default once instead of treating "" as a mode of
-// its own.
+// An unset networkMode defaults to bridge.
 func ecsEffectiveNetworkMode(td ECSTaskDefinition) string {
 	mode := strings.ToLower(strings.TrimSpace(td.NetworkMode))
 	if mode == "" {
@@ -231,9 +220,7 @@ func ecsEffectiveNetworkMode(td ECSTaskDefinition) string {
 	return mode
 }
 
-// ecsTaskDefinitionKey reduces a task definition reference — a family, a
-// family:revision, or either's ARN — to its store key, taking a bare family
-// at its latest revision the way RunTask and StartTask do.
+// A bare family takes its latest revision, as RunTask and StartTask do.
 func ecsTaskDefinitionKey(ref string) string {
 	key := ref
 	if strings.HasPrefix(key, "arn:") {
@@ -250,7 +237,6 @@ func ecsTaskDefinitionKey(ref string) string {
 	return key
 }
 
-// extractTDKey extracts "family:revision" from a task definition ARN.
 func extractTDKey(arn string) string {
 	parts := strings.Split(arn, "/")
 	if len(parts) > 1 {
@@ -259,11 +245,11 @@ func extractTDKey(arn string) string {
 	return arn
 }
 
-// Fargate CPU/memory validation. Valid combinations per AWS docs.
-// Lower tiers (256, 512) have explicit valid values; higher tiers use ranges.
+// Valid Fargate CPU/memory combinations: the lower tiers list values, the
+// higher ones ranges.
 type fargateCombo struct {
 	cpu        int
-	memOptions []int // explicit valid values (nil = use range)
+	memOptions []int // nil means use the range.
 	memMin     int
 	memMax     int
 	memInc     int

@@ -13,18 +13,8 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// This file implements the EC2 Capacity Reservations, EC2 Fleets, and Spot
-// families (instance requests, fleets, datafeed, scheduled instances, dedicated
-// host reservations). Each stateful resource is backed by a real sim.Store and
-// settles into the state the real EC2 service would return: a capacity
-// reservation becomes "active" with an AvailableInstanceCount, an EC2 fleet
-// settles "active" against its target capacity, a spot instance request settles
-// "active" / "fulfilled" with a spot price, etc. The read-only price/score/
-// availability/offering ops return real-shaped (small) results.
-
-// EC2CapacityReservation reserves N instances of a type in an AZ. State settles
-// "active" with AvailableInstanceCount == TotalInstanceCount until instances are
-// launched into it (the sim doesn't bind launches, so available stays at total).
+// Launches do not bind to the reservation, so AvailableInstanceCount stays at
+// TotalInstanceCount.
 type EC2CapacityReservation struct {
 	CapacityReservationId      string
 	OwnerId                    string
@@ -44,15 +34,13 @@ type EC2CapacityReservation struct {
 	CreateDate                 string
 	CapacityReservationFleetId string
 	Tags                       []EC2Tag
-	// A future-dated reservation holds RequestedInstanceCount and its
-	// commitment; until StartDate it is scheduled with no instances.
+	// Until StartDate a future-dated reservation is scheduled with no instances.
 	RequestedInstanceCount int
 	CommitmentDuration     int64
 	OriginalStartDate      string
 	AdjustmentStatus       string
 }
 
-// EC2CapacityReservationFleet aggregates capacity reservations toward a target.
 type EC2CapacityReservationFleet struct {
 	CapacityReservationFleetId string
 	State                      string
@@ -67,8 +55,6 @@ type EC2CapacityReservationFleet struct {
 	Tags                       []EC2Tag
 }
 
-// EC2FleetCapacityReservationMember is one (instance-type, weight, priority)
-// reservation inside a capacity reservation fleet.
 type EC2FleetCapacityReservationMember struct {
 	CapacityReservationId string
 	AvailabilityZone      string
@@ -82,7 +68,6 @@ type EC2FleetCapacityReservationMember struct {
 	Priority              int
 }
 
-// EC2Fleet requests target on-demand+spot capacity from launch templates.
 type EC2Fleet struct {
 	FleetId                          string
 	FleetState                       string
@@ -109,8 +94,7 @@ type EC2Fleet struct {
 	Tags                             []EC2Tag
 }
 
-// EC2SpotInstanceRequest is a one-off spot request. It settles "active" /
-// "fulfilled" with a backing instance and the prevailing spot price.
+// A one-off request settles active/fulfilled with a backing instance.
 type EC2SpotInstanceRequest struct {
 	SpotInstanceRequestId        string
 	SpotPrice                    string
@@ -131,8 +115,7 @@ type EC2SpotInstanceRequest struct {
 	Tags                         []EC2Tag
 }
 
-// EC2SpotFleetRequest is a spot fleet (sfr-). It settles "active" / "fulfilled"
-// against its target capacity from the request config.
+// A spot fleet settles active/fulfilled against its target capacity.
 type EC2SpotFleetRequest struct {
 	SpotFleetRequestId           string
 	SpotFleetRequestState        string
@@ -155,7 +138,7 @@ type EC2SpotFleetRequest struct {
 	Tags                         []EC2Tag
 }
 
-// EC2SpotDatafeedSubscription is the account-wide spot data feed (singleton).
+// The account-wide singleton.
 type EC2SpotDatafeedSubscription struct {
 	Bucket  string
 	Prefix  string
@@ -163,7 +146,6 @@ type EC2SpotDatafeedSubscription struct {
 	State   string
 }
 
-// EC2ScheduledInstance is a purchased Scheduled Reserved Instance.
 type EC2ScheduledInstance struct {
 	ScheduledInstanceId         string
 	AvailabilityZone            string
@@ -182,7 +164,6 @@ type EC2ScheduledInstance struct {
 	RecurrenceInterval          int
 }
 
-// EC2HostReservation is a purchased Dedicated Host Reservation.
 type EC2HostReservation struct {
 	HostReservationId string
 	OfferingId        string
@@ -221,7 +202,6 @@ func registerEC2CapacityFleet(r *AWSQueryRouter, srv *sim.Server) {
 	ec2ScheduledInstances = sim.MakeStore[EC2ScheduledInstance](srv.DB(), "ec2_scheduled_instances")
 	ec2HostReservations = sim.MakeStore[EC2HostReservation](srv.DB(), "ec2_host_reservations")
 
-	// Capacity Reservations
 	r.Register("CreateCapacityReservation", handleCreateCapacityReservation)
 	r.Register("DescribeCapacityReservations", handleDescribeCapacityReservations)
 	r.Register("ModifyCapacityReservation", handleModifyCapacityReservation)
@@ -230,13 +210,11 @@ func registerEC2CapacityFleet(r *AWSQueryRouter, srv *sim.Server) {
 	r.Register("GetGroupsForCapacityReservation", handleGetGroupsForCapacityReservation)
 	registerEC2CapacityReservationDateChange(r, srv)
 
-	// Capacity Reservation Fleets
 	r.Register("CreateCapacityReservationFleet", handleCreateCapacityReservationFleet)
 	r.Register("DescribeCapacityReservationFleets", handleDescribeCapacityReservationFleets)
 	r.Register("ModifyCapacityReservationFleet", handleModifyCapacityReservationFleet)
 	r.Register("CancelCapacityReservationFleets", handleCancelCapacityReservationFleets)
 
-	// EC2 Fleets
 	r.Register("CreateFleet", handleCreateFleet)
 	r.Register("DescribeFleets", handleDescribeFleets)
 	r.Register("DescribeFleetInstances", handleDescribeFleetInstances)
@@ -244,12 +222,10 @@ func registerEC2CapacityFleet(r *AWSQueryRouter, srv *sim.Server) {
 	r.Register("ModifyFleet", handleModifyFleet)
 	r.Register("DeleteFleets", handleDeleteFleets)
 
-	// Spot instance requests
 	r.Register("RequestSpotInstances", handleRequestSpotInstances)
 	r.Register("DescribeSpotInstanceRequests", handleDescribeSpotInstanceRequests)
 	r.Register("CancelSpotInstanceRequests", handleCancelSpotInstanceRequests)
 
-	// Spot fleets
 	r.Register("RequestSpotFleet", handleRequestSpotFleet)
 	r.Register("DescribeSpotFleetRequests", handleDescribeSpotFleetRequests)
 	r.Register("DescribeSpotFleetInstances", handleDescribeSpotFleetInstances)
@@ -257,22 +233,18 @@ func registerEC2CapacityFleet(r *AWSQueryRouter, srv *sim.Server) {
 	r.Register("ModifySpotFleetRequest", handleModifySpotFleetRequest)
 	r.Register("CancelSpotFleetRequests", handleCancelSpotFleetRequests)
 
-	// Spot datafeed
 	r.Register("CreateSpotDatafeedSubscription", handleCreateSpotDatafeedSubscription)
 	r.Register("DescribeSpotDatafeedSubscription", handleDescribeSpotDatafeedSubscription)
 	r.Register("DeleteSpotDatafeedSubscription", handleDeleteSpotDatafeedSubscription)
 
-	// Spot read-only
 	r.Register("DescribeSpotPriceHistory", handleDescribeSpotPriceHistory)
 	r.Register("GetSpotPlacementScores", handleGetSpotPlacementScores)
 
-	// Scheduled instances
 	r.Register("DescribeScheduledInstances", handleDescribeScheduledInstances)
 	r.Register("DescribeScheduledInstanceAvailability", handleDescribeScheduledInstanceAvailability)
 	r.Register("PurchaseScheduledInstances", handlePurchaseScheduledInstances)
 	r.Register("RunScheduledInstances", handleRunScheduledInstances)
 
-	// Dedicated host reservations
 	r.Register("DescribeHostReservations", handleDescribeHostReservations)
 	r.Register("DescribeHostReservationOfferings", handleDescribeHostReservationOfferings)
 	r.Register("GetHostReservationPurchasePreview", handleGetHostReservationPurchasePreview)
@@ -287,20 +259,16 @@ func ec2FloatStr(f float64) string {
 	return strconv.FormatFloat(f, 'f', -1, 64)
 }
 
-// ec2ParseTagSpecs reads tags from a request, accepting both the EC2 wire forms
-// the aws-sdk-go-v2 query serializer emits: RunInstances-style
-// "TagSpecification.N.Tag.M.{Key,Value}" (handled by the shared parseTags) and
-// the "TagSpecifications.N.Tag.M.{Key,Value}" form the Capacity Reservation /
-// Fleet / Spot operations serialize (object.FlatKey("TagSpecifications")). It
-// returns the union across all TagSpecification entries.
+// The SDK serializes RunInstances tags as "TagSpecification.N…" and the
+// Capacity Reservation, Fleet and Spot ones as "TagSpecifications.N…"; accept
+// both and return the union.
 func ec2ParseTagSpecs(r *http.Request) []EC2Tag {
 	if tags := parseTags(r); len(tags) > 0 {
 		return tags
 	}
 	var tags []EC2Tag
 	for i := 1; ; i++ {
-		// A TagSpecification entry is present iff it carries a ResourceType or a
-		// first tag key.
+		// An entry exists iff it carries a ResourceType or a first tag key.
 		base := fmt.Sprintf("TagSpecifications.%d", i)
 		if r.FormValue(base+".ResourceType") == "" && r.FormValue(base+".Tag.1.Key") == "" {
 			break
@@ -537,15 +505,12 @@ func handleGetGroupsForCapacityReservation(w http.ResponseWriter, r *http.Reques
 		ec2ErrorXML(w, "InvalidCapacityReservationId.NotFound", fmt.Sprintf("The Capacity Reservation ID %q does not exist", id), http.StatusBadRequest)
 		return
 	}
-	// The reservation is not in any resource group; return an empty set.
+	// The reservation is in no resource group.
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<GetGroupsForCapacityReservationResponse %s><requestId>%s</requestId><capacityReservationGroupSet/></GetGroupsForCapacityReservationResponse>`,
 		ec2Xmlns(), sim.NewUUID())
 }
 
-// ec2ParseFleetCapacityReservations reads the
-// InstanceTypeSpecification.N.{InstanceType,AvailabilityZone,Weight,Priority,...}
-// request params for CreateCapacityReservationFleet.
 func ec2ParseFleetCapacityReservations(r *http.Request) []EC2FleetCapacityReservationMember {
 	var members []EC2FleetCapacityReservationMember
 	for i := 1; ; i++ {
@@ -602,8 +567,7 @@ func handleCreateCapacityReservationFleet(w http.ResponseWriter, r *http.Request
 		tenancy = "default"
 	}
 	members := ec2ParseFleetCapacityReservations(r)
-	// Distribute the target capacity across the members and create the backing
-	// capacity reservations, mirroring how a real fleet fulfills its target.
+	// Spread the target capacity across the members as backing reservations.
 	fleetID := ec2ID("crf")
 	var fulfilled float64
 	for i := range members {
@@ -743,8 +707,8 @@ func handleCreateFleet(w http.ResponseWriter, r *http.Request) {
 	if fleetType == "" {
 		fleetType = "maintain"
 	}
-	// Launch template config 1 — the first override drives the synthesized
-	// instances (the sim launches one instance per unit of target capacity).
+	// Only the first launch template config's override shapes the instances; one
+	// instance launches per unit of target capacity.
 	ltID := r.FormValue("LaunchTemplateConfigs.1.LaunchTemplateSpecification.LaunchTemplateId")
 	ltName := r.FormValue("LaunchTemplateConfigs.1.LaunchTemplateSpecification.LaunchTemplateName")
 	ltVersion := r.FormValue("LaunchTemplateConfigs.1.LaunchTemplateSpecification.Version")
@@ -772,9 +736,7 @@ func handleCreateFleet(w http.ResponseWriter, r *http.Request) {
 		InstanceType:                     instType,
 		Tags:                             ec2ParseTagSpecs(r),
 	}
-	// A "request"-type fleet is one-shot and returns instance ids; "maintain"
-	// and "instant" also synthesize instances. Settle the fleet active and
-	// launch real instances into the default subnet.
+	// Every fleet type launches real instances into the default subnet.
 	for i := 0; i < total; i++ {
 		id := ec2LaunchFleetInstance(instType, ltID)
 		fleet.InstanceIds = append(fleet.InstanceIds, id)
@@ -788,8 +750,8 @@ func handleCreateFleet(w http.ResponseWriter, r *http.Request) {
 	ec2Fleets.Put(fleet.FleetId, fleet)
 
 	w.Header().Set("Content-Type", "text/xml")
-	// CreateFleet's response shape depends on Type: "instant" returns the
-	// fleetInstanceSet; "request"/"maintain" return only the fleetId.
+	// "instant" returns the fleetInstanceSet; "request" and "maintain" only the
+	// fleetId.
 	if fleetType == "instant" {
 		var instXML strings.Builder
 		instXML.WriteString("<fleetInstanceSet>")
@@ -803,8 +765,6 @@ func handleCreateFleet(w http.ResponseWriter, r *http.Request) {
 		ec2Xmlns(), sim.NewUUID(), fleet.FleetId)
 }
 
-// ec2LaunchFleetInstance launches one backing instance for a fleet/spot request
-// into the default subnet, returning the instance id.
 func ec2LaunchFleetInstance(instanceType, _ string) string {
 	subnet := defaultVPCSubnetID()
 	inst := EC2Instance{
@@ -1123,7 +1083,7 @@ func handleRequestSpotFleet(w http.ResponseWriter, r *http.Request) {
 	if interruption == "" {
 		interruption = "terminate"
 	}
-	// First launch spec drives the synthesized instances.
+	// Only the first launch specification shapes the instances.
 	instType := r.FormValue("SpotFleetRequestConfig.LaunchSpecifications.1.InstanceType")
 	if instType == "" {
 		instType = "t3.micro"
@@ -1438,8 +1398,7 @@ func handleRunScheduledInstances(w http.ResponseWriter, r *http.Request) {
 		ec2Xmlns(), sim.NewUUID(), items.String())
 }
 
-// ec2HostOfferings is the catalog of Dedicated Host Reservation offerings the
-// sim advertises (a small real-shaped set).
+// The simulator advertises a small catalog of offerings.
 var ec2HostOfferings = []EC2HostReservation{
 	{OfferingId: "hro-0123456789abcdef0", InstanceFamily: "m4", PaymentOption: "NoUpfront", HourlyPrice: "1.499", UpfrontPrice: "0.0", CurrencyCode: "USD", Duration: 31536000},
 	{OfferingId: "hro-fedcba9876543210f", InstanceFamily: "c5", PaymentOption: "AllUpfront", HourlyPrice: "0.0", UpfrontPrice: "12000.0", CurrencyCode: "USD", Duration: 94608000},
@@ -1549,10 +1508,8 @@ func handleDescribeHostReservations(w http.ResponseWriter, r *http.Request) {
 		ec2Xmlns(), sim.NewUUID(), items.String())
 }
 
-// ec2FulfilSpotLaunch records the Spot Instance request a RunInstances call
-// with a spot market makes and the instance fulfils: a one-time request
-// unless the call names a persistent one, active and fulfilled, whose price
-// is the maximum the call names.
+// A one-time request unless the call names a persistent one; its price is the
+// call's maximum.
 func ec2FulfilSpotLaunch(inst EC2Instance, options EC2LTInstanceMarketOptions, tags []EC2Tag) EC2Instance {
 	reqType := options.SpotInstanceType
 	if reqType == "" {
@@ -1597,8 +1554,6 @@ func ec2LTMarketType(lt EC2LaunchTemplateData) string {
 	return lt.InstanceMarketOptions.MarketType
 }
 
-// ec2TerminateFleetInstances terminates the instances a deleted fleet launched,
-// as TerminateInstances does.
 func ec2TerminateFleetInstances(ctx context.Context, instanceIDs []string) {
 	for _, id := range instanceIDs {
 		inst, ok := ec2Instances.Get(id)

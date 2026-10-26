@@ -16,9 +16,8 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// ELBv2TrustStore is a mutual-TLS trust store: a named resource holding its own
-// copy of the CA certificate bundle it read from Amazon S3 plus a set of
-// numbered revocation lists. Status is ACTIVE once the bundle is ingested.
+// Holds its own copy of the CA bundle read from Amazon S3 plus numbered
+// revocation lists; ACTIVE once the bundle is ingested.
 type ELBv2TrustStore struct {
 	Arn                                 string
 	Name                                string
@@ -33,8 +32,7 @@ type ELBv2TrustStore struct {
 	Tags                                map[string]string
 }
 
-// ELBv2TrustStoreRevocation is one numbered revocation list added to a trust
-// store via AddTrustStoreRevocations.
+// Added by AddTrustStoreRevocations.
 type ELBv2TrustStoreRevocation struct {
 	RevocationID           int64
 	RevocationType         string
@@ -45,8 +43,7 @@ type ELBv2TrustStoreRevocation struct {
 	Content                []byte
 }
 
-// ELBv2TrustStoreAssociation records a resource (a listener ARN) that uses the
-// trust store for mutual TLS verification.
+// A listener using the trust store for mutual TLS.
 type ELBv2TrustStoreAssociation struct {
 	TrustStoreArn string
 	ResourceArn   string
@@ -468,7 +465,6 @@ func filterELBv2TrustStores(r *http.Request) ([]ELBv2TrustStore, *elbv2NotFound)
 	return elbv2FindByARNOrName(r, "TrustStoreArns", elbv2TrustStores, func(it ELBv2TrustStore) string { return it.Name }, "TrustStoreNotFound", "Trust stores")
 }
 
-// elbv2SSLPolicy is one predefined ELB security policy.
 type elbv2SSLPolicy struct {
 	Name                       string
 	SslProtocols               []string
@@ -512,9 +508,8 @@ func cipherList(names ...string) []elbv2SSLCipher {
 	return out
 }
 
-// elbv2PredefinedSSLPolicies returns a faithful subset of the AWS Elastic Load
-// Balancing predefined SSL security policies, with their real protocol and
-// cipher sets as published in the ELB security-policy reference.
+// A subset of the predefined policies with their published protocols and
+// ciphers.
 func elbv2PredefinedSSLPolicies() []elbv2SSLPolicy {
 	allLBTypes := []string{"application", "network"}
 	policies := []elbv2SSLPolicy{
@@ -618,8 +613,7 @@ func elbv2PredefinedSSLPolicies() []elbv2SSLPolicy {
 	return policies
 }
 
-// elbv2BundleObject reads the Amazon S3 object version a trust store names:
-// the version given, or the key's current object when none is.
+// The given version, or the current object.
 func elbv2BundleObject(bucket, key, version string) ([]byte, bool) {
 	if _, ok := s3Buckets_.Get(bucket); !ok {
 		return nil, false
@@ -643,8 +637,8 @@ func elbv2BundleObject(bucket, key, version string) ([]byte, bool) {
 	return data, err == nil
 }
 
-// elbv2PEMBlocks splits data into its PEM blocks, failing when anything but
-// whitespace lies outside them or a block is not of the wanted type.
+// Fails when anything but whitespace lies outside the blocks or a block has
+// another type.
 func elbv2PEMBlocks(data []byte, blockType string) ([][]byte, bool) {
 	var blocks [][]byte
 	rest := data
@@ -662,10 +656,8 @@ func elbv2PEMBlocks(data []byte, blockType string) ([][]byte, bool) {
 	return blocks, len(blocks) > 0 && len(bytes.TrimSpace(rest)) == 0
 }
 
-// elbv2ReadCaCertificatesBundle reads a trust store's CA certificates bundle
-// from Amazon S3 and counts its certificates. It answers
-// CaCertificatesBundleNotFound for an object or version that is not there and
-// InvalidCaCertificatesBundle for a bundle that is not PEM X.509 certificates.
+// CaCertificatesBundleNotFound for a missing object or version,
+// InvalidCaCertificatesBundle for anything but PEM X.509 certificates.
 func elbv2ReadCaCertificatesBundle(w http.ResponseWriter, r *http.Request, bucket, key, version string) ([]byte, int, bool) {
 	data, ok := elbv2BundleObject(bucket, key, version)
 	if !ok {
@@ -687,10 +679,8 @@ func elbv2ReadCaCertificatesBundle(w http.ResponseWriter, r *http.Request, bucke
 	return data, len(blocks), true
 }
 
-// elbv2ReadRevocationList reads a revocation file from Amazon S3 and counts
-// the certificates it revokes. It answers RevocationContentNotFound for an
-// object that is not there and InvalidRevocationContent for anything but a
-// PEM certificate revocation list.
+// RevocationContentNotFound for a missing object, InvalidRevocationContent
+// for anything but a PEM CRL.
 func elbv2ReadRevocationList(w http.ResponseWriter, r *http.Request, rev ELBv2TrustStoreRevocation) ([]byte, int, bool) {
 	data, ok := elbv2BundleObject(rev.S3Bucket, rev.S3Key, rev.S3ObjectVersion)
 	if !ok {
@@ -716,11 +706,8 @@ func elbv2ReadRevocationList(w http.ResponseWriter, r *http.Request, rev ELBv2Tr
 	return data, entries, true
 }
 
-// elbv2TrustStoreContentURL places the trust store's own copy of a bundle or
-// revocation list in Elastic Load Balancing's Amazon S3 bucket and answers a
-// presigned GET for it, as GetTrustStoreCaCertificatesBundle and
-// GetTrustStoreRevocationContent do. The key carries the content's digest, so
-// the URL names exactly the bytes the trust store ingested.
+// Stores the trust store's copy in Elastic Load Balancing's bucket and returns
+// a presigned GET; the key carries the content digest.
 func elbv2TrustStoreContentURL(r *http.Request, ts ELBv2TrustStore, name string, content []byte) (string, error) {
 	bucket := s3EnsureServiceBucket(awsAccountID() + "-elasticloadbalancing-trust-stores")
 	digest := sha256.Sum256(content)

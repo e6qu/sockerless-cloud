@@ -8,10 +8,8 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/lbplane"
 )
 
-// elbv2ListenerTLSConfig builds the TLS configuration an HTTPS or TLS listener
-// terminates with, from its AWS Certificate Manager certificates: the first
-// certificate that is ISSUED with key material is the default, and the SNI
-// certificates are presented to clients that name one of theirs.
+// The first ISSUED certificate with key material is the default; SNI
+// certificates answer clients naming them.
 func elbv2ListenerTLSConfig(listener ELBv2Listener) (*tls.Config, error) {
 	if len(listener.Certificates) == 0 {
 		return nil, fmt.Errorf("HTTPS/TLS listener %s has no certificate", listener.Arn)
@@ -28,8 +26,7 @@ func elbv2ListenerTLSConfig(listener ELBv2Listener) (*tls.Config, error) {
 	}
 	var sniCerts []*tls.Certificate
 	for _, arn := range listener.SNICertificates {
-		// A certificate not yet ISSUED is not presented, which is what a
-		// listener does with one it cannot use.
+		// A certificate not yet ISSUED is not presented.
 		if cert, err := elbv2LoadTLSCert(arn); err == nil {
 			sniCerts = append(sniCerts, cert)
 		}
@@ -49,8 +46,7 @@ func elbv2LoadTLSCert(arn string) (*tls.Certificate, error) {
 	return cert, nil
 }
 
-// elbv2HTTPSListenerHandler serves one HTTPS listener after TLS termination:
-// it forwards each decrypted request the way the HTTP front end does.
+// Forwards each decrypted request as the HTTP front end does.
 func elbv2HTTPSListenerHandler(listenerArn string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		listener, ok := elbv2Listeners.Get(listenerArn)

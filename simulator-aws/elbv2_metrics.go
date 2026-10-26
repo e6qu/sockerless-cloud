@@ -11,9 +11,7 @@ import (
 
 const elbv2MetricNamespace = "AWS/ApplicationELB"
 
-// elbv2MetricKey names one datapoint the publisher reports: a metric, the
-// dimensions it carries (an empty value leaves that dimension off) and the
-// minute it counts.
+// An empty dimension value leaves that dimension off.
 type elbv2MetricKey struct {
 	metric       string
 	loadBalancer string
@@ -21,19 +19,16 @@ type elbv2MetricKey struct {
 	minute       int64
 }
 
-// elbv2RequestMetrics holds what the data plane routed and the publisher has
-// not yet reported, so a request adds to a counter instead of writing to
-// CloudWatch.
+// Requests add to counters; the publisher writes to CloudWatch.
 var elbv2RequestMetrics = struct {
 	sync.Mutex
 	pending map[elbv2MetricKey]float64
 }{pending: map[elbv2MetricKey]float64{}}
 
-// elbv2RecordRoutedRequest counts the request an Application Load Balancer
-// routed to a target of tg: one RequestCount for the load balancer and for the
-// target group behind it, and the request's share of RequestCountPerTarget
-// across the targets tg has in service. Each dimension value is "the final
-// portion" of the resource's ARN, the form a ResourceLabel joins.
+// One RequestCount for the load balancer and the target group, and the
+// request's share of RequestCountPerTarget across the group's in-service
+// targets. Dimension values are "the final portion" of each ARN, the form a
+// ResourceLabel joins.
 func elbv2RecordRoutedRequest(lbArn string, tg ELBv2TargetGroup, at time.Time) {
 	inService := 0
 	for _, target := range tg.Targets {
@@ -60,9 +55,8 @@ func startELBv2RequestMetricsPublisher(srv *sim.Server) {
 	srv.StartBackground("ELB request metrics publisher", elbv2PublishRequestMetrics)
 }
 
-// elbv2PublishRequestMetrics reports each minute as it closes: Elastic Load
-// Balancing measures and sends its metrics in 60-second intervals, and only for
-// intervals in which requests flowed.
+// Elastic Load Balancing reports 60-second intervals, and only those in which
+// requests flowed.
 func elbv2PublishRequestMetrics(ctx context.Context) {
 	for {
 		now := time.Now()
@@ -78,8 +72,7 @@ func elbv2PublishRequestMetrics(ctx context.Context) {
 	}
 }
 
-// elbv2FlushRequestMetrics reports the requests counted in every minute before
-// current to CloudWatch, one datapoint per metric, dimension set and minute.
+// One datapoint per metric, dimension set and minute before current.
 func elbv2FlushRequestMetrics(current int64) {
 	elbv2RequestMetrics.Lock()
 	batch := map[elbv2MetricKey]float64{}

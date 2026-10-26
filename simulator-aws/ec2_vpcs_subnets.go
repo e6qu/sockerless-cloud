@@ -53,9 +53,8 @@ func handleCreateVpc(w http.ResponseWriter, r *http.Request) {
 			applyAccountVpcEncryptionControl(id, requestedEncryptionMode, requestedExclusions)
 		}
 	}
-	// Real AWS auto-creates a main route table per VPC (local route + a main
-	// association with no subnet). aws_vpc.main_route_table_id /
-	// default_route_table_id and aws_default_route_table read it back.
+	// AWS creates a main route table per VPC (local route and a subnet-less main
+	// association); aws_vpc and aws_default_route_table read it back.
 	mainRTID := ec2ID("rtb")
 	ec2RouteTables.Put(mainRTID, EC2RouteTable{
 		RouteTableId: mainRTID,
@@ -80,13 +79,10 @@ func handleCreateVpc(w http.ResponseWriter, r *http.Request) {
 </CreateVpcResponse>`, ec2Xmlns(), sim.NewUUID(), vpcItemBodyXML(vpc))
 }
 
-// vpcItemBodyXML renders the inner <vpc>/<item> fields shared by CreateVpc and
-// DescribeVpcs. dhcpOptionsId is always "default" (real AWS associates the
-// account's default DHCP option set on create).
+// dhcpOptionsId is always "default", the set AWS associates on create.
 func vpcItemBodyXML(vpc EC2Vpc) string {
-	// Real DescribeVpcs lists the primary CIDR in cidrBlockAssociationSet as
-	// well as in cidrBlock; data.aws_vpc reads cidr_block_associations from it.
-	// The sim synthesizes a stable association id from the VPC id.
+	// DescribeVpcs lists the primary CIDR in cidrBlockAssociationSet too, which
+	// data.aws_vpc reads; the association id derives from the VPC id.
 	assocID := "vpc-cidr-assoc-" + strings.TrimPrefix(vpc.VpcId, "vpc-")
 	var cidrAssoc strings.Builder
 	fmt.Fprintf(&cidrAssoc, `<cidrBlockAssociationSet><item><associationId>%s</associationId><cidrBlock>%s</cidrBlock><cidrBlockState><state>associated</state></cidrBlockState></item>`,
@@ -119,8 +115,7 @@ func vpcItemBodyXML(vpc EC2Vpc) string {
 		vpc.VpcId, vpc.CidrBlock, vpc.State, vpc.OwnerId, vpc.IsDefault, tenancy, dhcpOptionsID, cidrAssoc.String(), encryptionControl, writeTagSetXML(vpc.Tags))
 }
 
-// ec2VpcIpv6AssocBodyXML renders a VPC's IPv6 CIDR block association as
-// DescribeVpcs, AssociateVpcCidrBlock and DisassociateVpcCidrBlock list it.
+// As DescribeVpcs, AssociateVpcCidrBlock and DisassociateVpcCidrBlock list it.
 func ec2VpcIpv6AssocBodyXML(assoc EC2VpcCidrAssoc) string {
 	return fmt.Sprintf(`<associationId>%s</associationId><ipv6CidrBlock>%s</ipv6CidrBlock><ipv6CidrBlockState><state>%s</state></ipv6CidrBlockState><networkBorderGroup>%s</networkBorderGroup><ipv6Pool>%s</ipv6Pool>`,
 		assoc.AssociationId, assoc.Ipv6CidrBlock, assoc.State, assoc.NetworkBorderGroup, assoc.Ipv6Pool)
@@ -211,9 +206,8 @@ func ec2VpcMatchesFilters(v EC2Vpc, filters map[string][]string) bool {
 	return true
 }
 
-// ec2TagFilterMatch evaluates the EC2 tag filter forms (`tag:<Key>` and
-// `tag-key`). Returns (handled, match): handled=false means the filter name
-// isn't a tag filter and the caller should decide.
+// Handles `tag:<Key>` and `tag-key`; handled=false leaves other filters to the
+// caller.
 func ec2TagFilterMatch(name string, vals []string, tags []EC2Tag) (handled, match bool) {
 	switch {
 	case strings.HasPrefix(name, "tag:"):
@@ -237,8 +231,8 @@ func ec2TagFilterMatch(name string, vals []string, tags []EC2Tag) (handled, matc
 
 func handleDeleteVpc(w http.ResponseWriter, r *http.Request) {
 	id := r.FormValue("VpcId")
-	// A deleted VPC's engine network goes with it; left behind, it would hold
-	// the range a re-created VPC with the same CIDR needs.
+	// Remove the VPC's engine network, or it would hold the range a re-created VPC
+	// with the same CIDR needs.
 	if err := ec2RemoveVPCNetwork(r.Context(), id); err != nil {
 		ec2ErrorXML(w, "DependencyViolation", fmt.Sprintf("failed to delete the VPC's network: %v", err), http.StatusServiceUnavailable)
 		return
@@ -340,9 +334,8 @@ func handleCreateSubnet(w http.ResponseWriter, r *http.Request) {
 	ipv6Native := r.FormValue("Ipv6Native") == "true"
 	cidr := r.FormValue("CidrBlock")
 	ipv6 := r.FormValue("Ipv6CidrBlock")
-	// "For an IPv4 only subnet, specify an IPv4 CIDR block. ... For an IPv6
-	// only subnet, specify an IPv6 CIDR block. For a dual stack subnet,
-	// specify both."
+	// "For an IPv4 only subnet, specify an IPv4 CIDR block. ... For an IPv6 only
+	// subnet, specify an IPv6 CIDR block. For a dual stack subnet, specify both."
 	switch {
 	case ipv6Native && cidr != "":
 		ec2ErrorXML(w, "InvalidParameterCombination", "CidrBlock is not supported for an IPv6 only subnet", http.StatusBadRequest)
@@ -392,10 +385,8 @@ func handleCreateSubnet(w http.ResponseWriter, r *http.Request) {
 </CreateSubnetResponse>`, ec2Xmlns(), sim.NewUUID(), subnetItemBodyXML(subnet))
 }
 
-// ec2AvailabilityZoneId synthesizes a stable AZ-id from an AZ name. Real AWS
-// AZ-ids (e.g. use1-az1) are randomized per account and not derivable from the
-// name, so we emit a deterministic stable value — availability_zone_id is a
-// computed attribute, so this does not drift.
+// Real zone IDs (e.g. use1-az1) are randomized per account; derive a stable
+// one from the name. availability_zone_id is computed, so it does not drift.
 func ec2AvailabilityZoneId(az string) string {
 	if az == "" {
 		return ""
@@ -413,8 +404,7 @@ func ec2AvailabilityZoneId(az string) string {
 	return fmt.Sprintf("%s-az%d", strings.ReplaceAll(region, "-", ""), idx)
 }
 
-// ec2SubnetAvailableIPs returns the usable host count for a subnet CIDR. AWS
-// reserves 5 addresses per subnet (network, VPC router, DNS, future, broadcast).
+// AWS reserves five addresses per subnet.
 func ec2SubnetAvailableIPs(cidr string) int {
 	_, ipnet, err := net.ParseCIDR(cidr)
 	if err != nil {
@@ -436,14 +426,11 @@ func subnetArn(s EC2Subnet) string {
 	return fmt.Sprintf("arn:aws:ec2:%s:%s:subnet/%s", awsRegion(), s.OwnerId, s.SubnetId)
 }
 
-// ec2SubnetIpv6AssociationID names the association of a subnet's one IPv6 CIDR
-// block.
 func ec2SubnetIpv6AssociationID(subnetID string) string {
 	return "subnet-cidr-assoc-" + strings.TrimPrefix(subnetID, "subnet-")
 }
 
-// ec2SubnetOfIpv6Association returns the subnet an IPv6 CIDR block association
-// names, while that subnet holds the block.
+// Only while the subnet holds the block.
 func ec2SubnetOfIpv6Association(assocID string) (string, bool) {
 	suffix, ok := strings.CutPrefix(assocID, "subnet-cidr-assoc-")
 	if !ok || ec2Subnets == nil {
@@ -456,8 +443,7 @@ func ec2SubnetOfIpv6Association(assocID string) (string, bool) {
 	return subnet.SubnetId, true
 }
 
-// subnetItemBodyXML renders the inner subnet fields shared by CreateSubnet and
-// DescribeSubnets.
+// Shared by CreateSubnet and DescribeSubnets.
 func subnetItemBodyXML(s EC2Subnet) string {
 	hostnameType := s.PrivateDnsHostnameTypeOnLaunch
 	if hostnameType == "" {

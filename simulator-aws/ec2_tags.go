@@ -138,7 +138,7 @@ func handleDescribeTags(w http.ResponseWriter, r *http.Request) {
 			add(tagEntry{resourceID: snap.SnapshotId, resourceType: "snapshot", key: tag.Key, value: tag.Value})
 		}
 	}
-	// Stable order so the MaxResults/NextToken offset cursor is consistent.
+	// Stable order keeps the cursor consistent.
 	entries, nextToken, pageOK := awsKeyPage(w, ec2BadToken, entries, func(it tagEntry) string { return it.resourceID + "\x00" + it.key }, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0), 0)
 	if !pageOK {
 		return

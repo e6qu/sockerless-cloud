@@ -11,11 +11,8 @@ import (
 	"testing"
 )
 
-// A listener whose port the host will not give up is still created. Amazon
-// ELBv2 never rejects CreateListener because another process holds a port, and
-// the simulator used to: an SSH network load balancer on port 22 could not be
-// created on any machine running sshd, which is every CI runner the
-// container-mode topology uses.
+// Elastic Load Balancing never rejects CreateListener because another process
+// holds the port, as sshd holds 22 on CI runners.
 func TestListenerIsCreatedWhenTheHostHoldsItsPort(t *testing.T) {
 	elbv2InitStoresForTest(t)
 	held, err := net.Listen("tcp", "127.0.0.1:0")
@@ -49,8 +46,8 @@ func TestOnlyAnUnavailableAddressDegradesTheDataPlane(t *testing.T) {
 	}
 }
 
-// The shape net.Listen actually returns: *net.OpError wrapping
-// *os.SyscallError wrapping the errno.
+// net.Listen returns *net.OpError wrapping *os.SyscallError wrapping the
+// errno.
 func wrapped(err error) error {
 	return &net.OpError{Op: "listen", Net: "tcp", Err: os.NewSyscallError("bind", err)}
 }
