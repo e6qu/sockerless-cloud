@@ -5,12 +5,9 @@
 # A `concurrency` group keyed by branch (github.ref_name, github.ref, or a
 # constant) collapses every push to that branch into one slot, and
 # cancel-in-progress then kills the run under way each time a new commit lands.
-# For a workflow that runs on `push` that is a loss of the commit's own result:
-# the publish workflow left merged commits with no container image at all —
-# `sockerless-simulator-{aws,gcp,azure}` had none for 36a81145cbb0, b52cc80edf47,
-# c06550cb44f3, b9d651fb5a1c, b01a8e29385e or 418e0c8482f2 — and CI left main
-# commits with no verdict. Neither can be recovered without a manual re-run,
-# because no later commit produces the missing commit's artifact.
+# For a workflow that runs on `push` that loses the commit's own result — a
+# merged commit with no container image, a main commit with no CI verdict —
+# which no later commit can produce and only a manual re-run recovers.
 #
 # The rule: a workflow triggered by `push` that declares a `concurrency` group
 # must key that group on ${{ github.sha }}, so the group has exactly one member

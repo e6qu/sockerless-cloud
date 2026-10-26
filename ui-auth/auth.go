@@ -200,14 +200,12 @@ func (a *Auth) Protect(next http.Handler) http.Handler {
 }
 
 // oidcDiscoveryClient bounds every call this package makes to the issuer:
-// discovery and key-set fetches through providerFor, and, via callback's
-// oidc.ClientContext, the token exchange and ID-token key-set verification
-// too. go-oidc and golang.org/x/oauth2 both read the same http.Client out of
-// the context (oidc.ClientContext sets the same key oauth2 checks); without
-// it they fall back to http.DefaultClient's zero timeout, and a slow or
-// unreachable issuer can then hold providerMu, or hang callback and the
-// browser's pending redirect, for as long as it keeps the connection open
-// instead of failing fast into the 502 responses already coded for that.
+// discovery and key-set fetches through providerFor, and, through callback's
+// oidc.ClientContext, the token exchange and ID-token verification. go-oidc
+// and golang.org/x/oauth2 both read this client from the context; without it
+// they use http.DefaultClient's zero timeout, and an unreachable issuer could
+// hold providerMu, or hang callback and the browser's redirect, for as long
+// as it keeps the connection open.
 var oidcDiscoveryClient = &http.Client{Timeout: 10 * time.Second}
 
 func (a *Auth) providerFor() (*oidc.Provider, error) {

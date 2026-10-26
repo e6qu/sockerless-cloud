@@ -46,11 +46,10 @@ fi
 # sockerless monorepo — every historical registration would be judged as new,
 # including routes that pre-date the hook. There is no incremental change to
 # gate, so pass explicitly rather than mis-applying the contract.
-# Every exemption has to say why it is one. The allowlists next to these files
-# demand a reason and an owner; this list demanded nothing, so entries
-# accumulated as bare routes and nobody could tell a route that genuinely has no
-# SDK/CLI/terraform surface from one whose test was simply never written. A
-# reason is a comment on the line directly above the entry.
+# Every exemption has to say why it is one, as the allowlists beside these
+# files do: a reason is a comment on the line directly above the entry, so a
+# route with no SDK/CLI/terraform surface is told apart from one whose test was
+# never written.
 for exempt_file in simulator-*/tests-exempt.txt; do
     [[ -f "$exempt_file" ]] || continue
     previous=""
@@ -130,11 +129,10 @@ get_tests_for_cloud() {
 
 changed_sim_files=$(git diff --name-only "$staged_range" 2>/dev/null | grep -E '^simulator-' || true)
 
-# Materialize the added ('+') diff lines ONCE per cloud, for both the
-# production sim files and the test files. Every lookup below greps these
-# capture files. Diffing per (op, file) pair instead was quadratic: an import
-# commit that registers thousands of operations across hundreds of files spent
-# tens of minutes re-running `git diff` for every operation.
+# Materialize the added ('+') diff lines once per cloud, for both the
+# production sim files and the test files, and grep these capture files: a
+# diff per (op, file) pair is quadratic in a change that registers thousands of
+# operations.
 added_dir=$(mktemp -d)
 trap 'rm -rf "$added_dir"' EXIT
 for cloud in aws gcp azure; do

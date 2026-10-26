@@ -6,9 +6,7 @@
 # RWMutex`. That is not a recoverable panic — it takes the process down, so in a
 # simulator the visible failure is not the one handler that got it wrong but
 # every test that runs afterwards, each reporting `connection refused` against a
-# port nothing is listening on any more. Converting Amazon Lambda's durable
-# executions to read locks left four Unlock calls behind, and the first request
-# to reach one of them killed the simulator mid-suite.
+# port nothing is listening on any more.
 #
 # Neither the compiler nor `go vet` sees it: both calls are real methods on a
 # real receiver, and only executing the path proves the pair wrong. So this is a

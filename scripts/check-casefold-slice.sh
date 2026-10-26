@@ -4,8 +4,7 @@
 # strings.ToLower/ToUpper (and bytes.*) are Unicode-aware and change the BYTE
 # length of non-ASCII / invalid-UTF-8 input (each bad byte expands to a 3-byte
 # U+FFFD). Computing a string index against the folded copy and then slicing the
-# ORIGINAL panics with "slice bounds out of range" — a class fuzzing has found
-# repeatedly (cwIndexKeyword, Cosmos, Azure Tags, DynamoDB).
+# ORIGINAL panics with "slice bounds out of range".
 #
 # This blocks the inline form `(strings|bytes).Index*( ... .To{Lower,Upper}( ...`.
 # Use the byte-length-preserving helpers instead:
@@ -20,10 +19,7 @@ cd "$(git rev-parse --show-toplevel)" || exit 2
 pattern='(strings|bytes)\.(Last)?Index([A-Za-z]*)?\([^)]*\.To(Lower|Upper)\('
 
 # The Go source this repository owns. The filter is anchored so a match under
-# specs/, testdata/ or a vendored tree is not reported, and it names the
-# directories this repository actually has: the sockerless monorepo's
-# simulators/, backends/, agent/ and core/ are not among them, and a filter
-# naming those matched nothing here.
+# specs/, testdata/ or a vendored tree is not reported.
 readonly SCAN_DIRS='sim|simulator-aws|simulator-azure|simulator-gcp|testutil|ui-auth'
 
 # A gate that scans nothing passes for the wrong reason. Prove the scan set is

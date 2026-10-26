@@ -85,7 +85,7 @@ jobs:
     steps: []
 YAML
 
-# Negative control: the exact shape that cancelled five publishes.
+# Negative control: a push workflow whose concurrency group is keyed by branch.
 cat >"$fixture/branch-keyed/publish.yml" <<'YAML'
 name: publish
 on:

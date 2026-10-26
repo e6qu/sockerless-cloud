@@ -119,11 +119,9 @@ refresh_gcp() {
     ;;
   esac
   # `run-v2.discovery.json.gz` → local name `run`, version `v2`. Both come
-  # from the file rather than the source path: a central-index path names the
-  # service too (`discovery/v1/apis/compute/v1/rest`), and reading the version
-  # from there left the name empty for Compute Engine, so the fetcher fell back
-  # to the host's first label and asked www.googleapis.com for `apis/www/v1`.
-  # That 404 aborted the whole Google sweep, every night.
+  # from the file rather than the source path: a central-index path
+  # (`discovery/v1/apis/compute/v1/rest`) names the service too, and reading
+  # the version from it leaves the name empty for Compute Engine.
   name="${file%.discovery.json.gz}"
   version="${name##*-}"
   name="${name%-"$version"}"
@@ -161,12 +159,9 @@ for cloud in "${CLOUDS[@]}"; do
   # Every captured document is a row the freshness run reported as drift, and
   # that run is the one that saw upstream move. This re-check is a second
   # sample, from another runner minutes later, and Google serves several
-  # Discovery revisions at once -- so on its own it both misses rows the run
-  # captured and finds rows the run called current. That is not theory: the
-  # run on 1a72c6278c86 captured a drifted eventarc and the refresh vendored
-  # iamcredentials instead, leaving eventarc stale and the report red for it
-  # on every later run. The captured rows are therefore added to whatever this
-  # sample found, and a row is refreshed once.
+  # Discovery revisions at once, so on its own it both misses rows the run
+  # captured and finds rows the run called current. The captured rows are
+  # therefore added to whatever this sample found, and a row is refreshed once.
   if [ -n "$CAPTURE_DIR" ] && [ -d "$CAPTURE_DIR" ]; then
     for captured in "$CAPTURE_DIR"/*; do
       [ -f "$captured" ] || continue

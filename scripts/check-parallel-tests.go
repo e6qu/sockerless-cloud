@@ -3,8 +3,7 @@
 // check-parallel-tests holds the simulators' SDK and CLI suites to running in
 // parallel. Each suite talks to one simulator process the way many clients
 // talk to one cloud, and a test that runs alone leaves the job waiting on its
-// sleeps, polls and CLI start-ups with nothing else in flight; that serial
-// wall clock is what pushed the shards toward their time limit.
+// sleeps, polls and CLI start-ups with nothing else in flight.
 //
 // Every top-level test in a suite starts with t.Parallel(), or names itself in
 // the suite's serial-tests.txt with the reason it cannot share the simulator:

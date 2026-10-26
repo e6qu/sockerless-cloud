@@ -19,10 +19,8 @@
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 
-# The check is incremental — it gates skip code ADDED by this change. A root
-# commit has no parent, so the whole tree imported from the sockerless
-# monorepo would count as added, including grandfathered skips that predate
-# the hook (tracked in BUGS.md). With no parent there is no incremental
+# The check gates skip code this change adds. A root commit has no parent, so
+# the whole tree would count as added; with no parent there is no incremental
 # change to gate.
 if ! git rev-parse --verify HEAD >/dev/null 2>&1; then
   echo "[no-tool-absent-skips] root commit (no parent): nothing incremental to gate"

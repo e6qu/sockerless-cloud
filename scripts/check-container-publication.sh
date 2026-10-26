@@ -22,9 +22,9 @@ expect_count 1 '          - { platform: linux/arm64, runner: ubuntu-24.04-arm, s
 expect_count 1 "          tags: ${gha}{{ env.REGISTRY }}/e6qu/${gha}{{ matrix.image.name }}:${gha}{{ needs.prepare.outputs.short_sha }}-${gha}{{ matrix.arch.suffix }}"
 expect_count 1 '          provenance: false'
 # The revision label names the commit being published, which is not always the
-# commit that triggered the run: the workflow takes a `commit` input so the six
-# main commits a cancelled publish left with no image can each be built by SHA,
-# and `github.sha` on such a dispatch is the ref's tip rather than the commit
+# commit that triggered the run: the workflow takes a `commit` input so a
+# commit a cancelled publish left with no image can be built by SHA, and
+# `github.sha` on such a dispatch is the ref's tip rather than the commit
 # whose tree was checked out. `prepare` resolves the two into one output and
 # rejects anything that is not a full 40-character SHA, so this is the label
 # that always names what was built.
@@ -65,9 +65,9 @@ for image in sockerless-simulator-aws sockerless-simulator-gcp sockerless-simula
 done
 
 # Retention is its own workflow: pruning must be serialized and latest-wins,
-# which is the opposite of what publishing needs, and sharing a run forced one
-# of them to be wrong. It still runs on every publish — the completion of the
-# publish workflow triggers it — with a schedule as the backstop.
+# the opposite of what publishing needs. It still runs on every publish — the
+# completion of the publish workflow triggers it — with a schedule as the
+# backstop.
 if [[ ! -f "$prune_workflow" ]]; then
 	echo "retention workflow is missing: $prune_workflow" >&2
 	echo 'registry retention runs there, triggered by the publication workflow completing.' >&2
@@ -187,13 +187,11 @@ fi
 
 # A publish in flight must survive a prune another publish triggered.
 #
-# A release is only "complete" once both per-arch tags exist, so a publish that
-# has pushed one of them looks exactly like an obsolete remnant — and this prune
-# runs on the completion of *another* publish, while siblings are mid-flight. It
-# deleted them: six publishes dispatched together left three failing at the
-# manifest step with `not found` for a tag they had pushed minutes earlier. Age
-# is the only thing in the listing that tells a half-pushed release from an
-# abandoned one.
+# A release is only complete once both per-arch tags exist, so a publish that
+# has pushed one of them looks exactly like an obsolete remnant, and this
+# prune runs on the completion of another publish while siblings are
+# mid-flight. Age is the only thing in the listing that tells a half-pushed
+# release from an abandoned one.
 inflight_fixture="$(mktemp)"
 trap 'rm -f "$fixture" "$shared_fixture" "$inflight_fixture"' EXIT
 jq -n '[
@@ -262,11 +260,10 @@ expect_retention_fail() {
 	fi
 }
 
-# The live shape that made this gate unsatisfiable: 21 short-SHA releases over
-# a limit of 20, ten of them pinned to published releases and therefore
-# undeletable, leaving 11 the pruner may actually remove. Counting the pinned
-# ones failed a package that was pruned as far as policy permits, and every
-# release added another, so no amount of pruning could ever have satisfied it.
+# 21 short-SHA releases over a limit of 20, ten of them pinned to published
+# releases and therefore undeletable, leaving 11 the pruner may remove:
+# counting the pinned ones would fail a package pruned as far as policy
+# permits.
 releases_fixture 21 10
 expect_retention_pass 20 '21 releases of which only 11 are prunable'
 

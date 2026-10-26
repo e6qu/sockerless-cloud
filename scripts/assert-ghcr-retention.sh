@@ -2,10 +2,9 @@
 # assert-ghcr-retention.sh — hold a GHCR container package's retained versions
 # to the immutable-release contract, given the package's version listing.
 #
-# Split out of prune-ghcr-images.sh so the contract is a pure function of a
-# listing document: the pruner passes the listing it re-read after deleting,
-# and scripts/check-container-publication.sh passes fixtures reproducing shapes
-# the live registry produces. Both run this same code.
+# The contract is a pure function of a listing document: the pruner passes the
+# listing it re-read after deleting, and scripts/check-container-publication.sh
+# passes fixtures reproducing shapes the live registry produces.
 #
 # Usage: assert-ghcr-retention.sh <package> <keep> <versions-json>
 set -euo pipefail
@@ -31,13 +30,9 @@ remaining_releases="$(jq '[.[].metadata.container.tags[]? | select(test("^[0-9a-
 # that release's package version. Those versions are immortal by policy -- a
 # published release must stay pullable forever -- and deleting one to satisfy a
 # short-SHA budget would unpublish the release with it, which is why
-# select-obsolete-container-versions.jq never selects them.
-#
-# Counting them anyway made this gate fail on a correctly pruned package and
-# guaranteed it would keep failing: for sockerless-simulator-aws, 21 short-SHA
-# releases remained against a limit of 20, of which 10 were pinned to v0.3.0
-# through v0.12.0 and only 11 were prunable. Every release adds another, so once
-# the release count reaches the limit no amount of pruning can satisfy it.
+# select-obsolete-container-versions.jq never selects them. Counting them would
+# fail a correctly pruned package for good: every release adds another, so
+# once the release count reaches the limit no pruning could satisfy it.
 prunable_releases="$(jq '[.[]
 	| select(all((.metadata.container.tags // [])[];
 		test("^v[0-9]+\\.[0-9]+\\.[0-9]+(-(amd64|arm64))?$"; "i") | not))

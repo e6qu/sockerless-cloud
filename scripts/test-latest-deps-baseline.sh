@@ -124,9 +124,8 @@ expect 0 "INHERITED  .: $superseded_module pinned $superseded_version" \
 expect 0 "INHERITED  .github/workflows/fixture.yml: $superseded_action pinned $superseded_action_tag" \
 	'an action tag unchanged from the baseline is inherited' --baseline "$baseline"
 
-# The npm half went straight to FAIL and never asked the baseline, so a console
-# package that aged out of the quarantine while a pull request was open failed
-# that pull request for drift main carried identically.
+# A console package that aged out of the quarantine while a pull request was
+# open is drift main carries identically: inherited, not failed.
 expect 0 "INHERITED  ui/package.json: $superseded_npm pinned $superseded_npm_version" \
 	'an npm pin unchanged from the baseline is inherited' --baseline "$baseline"
 

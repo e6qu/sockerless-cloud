@@ -31,10 +31,9 @@ DEST="$DEST_DIR/${NAME}.swagger.json.gz"
 SOURCES="$DEST_DIR/SOURCES.md"
 mkdir -p "$DEST_DIR"
 
-# Pin the commit that last touched THIS file, not the branch tip. The freshness
-# check compares a pin against `commits?path=…`, so pinning the tip made every
-# freshly vendored spec report drift immediately and buried genuine staleness in
-# bookkeeping noise. An explicit ref argument still wins.
+# Pin the commit that last touched THIS file, not the branch tip: the
+# freshness check compares a pin against `commits?path=…`, so a tip pin would
+# report drift at once. An explicit ref argument still wins.
 if [ -n "${REF_EXPLICIT:-}" ]; then
   SHA="$(gh api "repos/$REPO/commits/$REF" --jq .sha)"
 else

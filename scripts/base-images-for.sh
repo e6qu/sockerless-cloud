@@ -12,11 +12,11 @@
 #
 # It descends, and it reads more than Go. A Terraform suite keeps one Go file
 # per stack in its own subdirectory and names the workload image in the stack's
-# HCL, so a flat Go-only scan sees neither: it misses the Amazon ECS pause
-# image and the alpine workloads, which are the pulls that failed those jobs.
+# HCL, so a flat Go-only scan sees neither the Amazon ECS pause image nor the
+# alpine workloads.
 #
-# The scan is limited to mirror.gcr.io and the ECR Public Gallery, which are
-# where every base image these tests pull comes from: mirror.gcr.io serves
+# The scan is limited to mirror.gcr.io and the Amazon ECR Public Gallery, where
+# every base image these tests pull comes from: mirror.gcr.io serves
 # Docker Hub's images, Docker's official ones among them, without Docker Hub's
 # anonymous pull limit, and the Gallery serves the images AWS publishes itself,
 # such as the AWS CLI and Amazon DynamoDB local. A wider host pattern would

@@ -8,10 +8,6 @@
 # so a support module that gained an exported symbol builds locally and fails
 # for anyone installing the binary.
 #
-# That is not hypothetical: all three simulators referenced
-# uiauth.Config.MonitoringToken while pinning a ui-auth version that predated
-# it, and every workspace build passed while every install was broken.
-#
 # The dependency freshness gate cannot catch this. A module this repository
 # publishes carries no per-module tag, so its pin is the pseudo-version of a
 # release commit — which always sorts below the deleted-but-proxy-cached

@@ -78,13 +78,13 @@ expect_fetches() {
   fi
 }
 
-# A row this sample reports is refreshed, as it always was.
+# A row this sample reports is refreshed.
 fetches=$(run_case sampled 'DRIFT eventarc-v1.discovery.json.gz: pinned revision 20260907, newest sampled revision 20260911
 ' '')
 expect_fetches 'a sampled row' 'eventarc.googleapis.com v1 live' "$fetches"
 
 # A row the freshness run captured is refreshed even when this sample calls
-# every document current -- the case that left eventarc stale.
+# every document current.
 fetches=$(run_case captured '' 'eventarc-v1.discovery.json.gz')
 expect_fetches 'a captured row this sample missed' \
   "eventarc.googleapis.com v1 $fixture/captured/captures/eventarc-v1.discovery.json.gz" "$fetches"

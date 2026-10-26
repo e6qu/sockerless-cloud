@@ -8,7 +8,6 @@ sedi() { if [[ "$OSTYPE" == darwin* ]]; then sed -i '' "$@"; else sed -i "$@"; f
 
 msg_file="$1"
 
-# Strip trailing whitespace from every line
 sedi 's/[[:space:]]*$//' "$msg_file"
 
 # Remove Co-authored-by / Authored-by / Generated-by lines referencing AI tools

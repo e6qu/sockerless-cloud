@@ -6,9 +6,8 @@
 # The release pull request release-please opens on its own branch after every
 # merge to main is not work in progress: it is the automation's release
 # proposal, it reopens itself if closed, and its branch cannot be consolidated
-# into a work branch without carrying the version bump along. Counting it made
-# the gate unsatisfiable for the first change after any merge until the release
-# had shipped, so it is left out of the count.
+# into a work branch without carrying the version bump along. Counting it would
+# make the gate unsatisfiable after every merge until the release shipped.
 #
 # Used by the pre-commit hook and by CI from the same source:
 #   - Locally without gh / auth / network it skips (the CI gate is authoritative).

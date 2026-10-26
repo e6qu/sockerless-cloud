@@ -6,10 +6,9 @@ set -euo pipefail
 ROOT=$(git rev-parse --show-toplevel)
 fail=0
 for cloud in aws gcp azure; do
-  # `out=$(...)` under `set -e` aborts the script the moment knip exits
-  # non-zero — before any of the reporting below runs. This gate spent a CI run
-  # doing exactly that: exit 1, not one line of output, nothing to act on. The
-  # The status is captured instead, so a failing knip is reported, not fatal.
+  # `out=$(...)` under `set -e` would abort the script the moment knip exits
+  # non-zero, before any of the reporting below runs; capture the status
+  # instead, so a failing knip is reported, not fatal.
   #
   # --no-config-hints because a hint is not a finding. knip prints one for every
   # package here ("Compiled extension excluded by project" for .css), and any

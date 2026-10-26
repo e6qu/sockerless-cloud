@@ -6,9 +6,7 @@
 # resolves sim and ui-auth from the pseudo-versions pinned in each
 # simulator's go.mod, not from the working tree. A local build sees the tree
 # through go.work, so a fix landed in a support module and never pinned ships
-# in no installed binary while every workspace build and test passes: the
-# ui-auth callback timeout fix went out that way, pinned a week behind the
-# module it was fixed in.
+# in no installed binary while every workspace build and test passes.
 #
 # check-installable-build.sh only proves the pinned versions compile. This gate
 # downloads each pinned version and requires its content to equal the working

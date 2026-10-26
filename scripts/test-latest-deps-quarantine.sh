@@ -59,7 +59,7 @@ t = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(seconds=in
 print(t.strftime("%Y-%m-%dT%H:%M:%SZ"))' "$1"
 }
 
-# --- Fixture registries ----------------------------------------------------
+# Fixture registries.
 # One HTTP server answers for the Terraform registry under /terraform... and
 # for the GitHub API under /github. It serves the file at the request path,
 # or the directory's .index file when the path names a directory (a provider's
@@ -207,7 +207,7 @@ expect_silent_about() {
 	fi
 }
 
-# --- Go modules ------------------------------------------------------------
+# Go modules.
 # testify v1.11.1 is superseded by v1.12.0, published 2026-06-10 — comfortably
 # older than a day.
 go_repo="$(new_repo go)"
@@ -262,7 +262,7 @@ run_check "$go_repo" GOWORK=off DEPS_ADOPTION_QUARANTINE_SECONDS=soon
 expect_status 2 'go: a nonsense window is rejected'
 expect_says 'must be a whole number of seconds' 'go: a nonsense window is rejected'
 
-# --- Go modules: publication time unavailable ------------------------------
+# Go modules: publication time unavailable.
 # A second fixture proxy carries v1.12.0's .info in the protocol-legal form
 # that has no Time. The Go toolchain renders that absence as the zero time
 # rather than dropping the field, so a check that trusted it would read
@@ -301,14 +301,13 @@ expect_status 1 'go: a refused version listing fails the run'
 expect_says "the module proxy did not list github.com/stretchr/testify's versions" \
 	'go: a refused version listing fails the run'
 
-# --- Go modules: a proxy that never answers ---------------------------------
-# A module proxy that accepts a connection and then says nothing is what held a
-# CI run until its job was cancelled: the Go toolchain gives the request no
-# deadline. The check must give up on it, and fail naming what it could not
-# learn, rather than wait forever or read the silence as "no newer versions".
-# The listener is a real TCP socket that accepts and never replies, and the
-# deadline is shortened so three stalled attempts take seconds; both shells CI
-# runs the check under are held to it.
+# Go modules: a proxy that never answers.
+# A module proxy that accepts a connection and then says nothing gets no
+# deadline from the Go toolchain. The check must give up on it, and fail
+# naming what it could not learn, rather than wait forever or read the silence
+# as "no newer versions". The listener is a real TCP socket that accepts and
+# never replies, and the deadline is shortened so three stalled attempts take
+# seconds; both shells CI runs the check under are held to it.
 stall_port_file="$fixture/stall-port"
 python3 - "$stall_port_file" <<'PY' &
 import os, socket, sys
@@ -337,7 +336,7 @@ done
 run_check "$go_repo" GOWORK=off DEPS_GO_PROXY_DEADLINE_SECONDS=0
 expect_status 2 'go: a zero proxy deadline is rejected'
 
-# --- GitHub Actions --------------------------------------------------------
+# GitHub Actions.
 # example/action is pinned at v6.1.0, and each newer tag reaches its
 # publication time by a different road the check walks: v7.0.1 through its
 # GitHub Release, v7.0.0 (no release) through its annotated tag's tagger date,
@@ -395,7 +394,7 @@ run_check "$gha_repo" GITHUB_TOKEN=ghp_000000000000000000000000000000000000 \
 expect_status 1 'actions: a rejected credential fails loudly'
 expect_says 'tags could not be read' 'actions: a rejected credential fails loudly'
 
-# --- Terraform providers ---------------------------------------------------
+# Terraform providers.
 # example/null has one release published an hour before the test runs, so the
 # newest release is inside the default window and the newest adoptable one is
 # the release below it — the state the registry is in for a day after every
@@ -512,7 +511,7 @@ expect_status 1 'terraform: a version without a publication time fails loudly'
 expect_says "$tf_provider) publication time for 3.3.4 could not be determined from the Terraform registry" \
 	'terraform: a version without a publication time fails loudly'
 
-# --- The GitHub rate-limit protocol ----------------------------------------
+# The GitHub rate-limit protocol.
 # A throttle is not something a test can ask GitHub for, so the decision the
 # protocol makes is exercised against the headers a throttled reply carries.
 # What matters is that it waits only when told to and never guesses: the
@@ -583,7 +582,7 @@ printf 'HTTP/2 403\r\nx-ratelimit-remaining: 0\r\nx-ratelimit-reset: %s\r\n\r\n'
 	"$((throttle_now - 5))" >"$throttle_headers"
 expect_wait 1 'throttle: a reset already past yields once'
 
-# --- Container image pins -----------------------------------------------------
+# Container image pins.
 # Docker Hub's tag API and mirror.gcr.io's manifest endpoint are both served
 # from the fixture registry, so every digest and push time compared below is
 # one written here. The copy's digest is the SHA-256 of the manifest it serves,

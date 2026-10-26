@@ -7,12 +7,9 @@
 #
 # zsh ties `path` to `PATH` as an array, so `local path=$1` — or a bare `local
 # a path b` with no assignment at all — empties the command search path for the
-# rest of the scope and every external command silently fails to resolve. `status` is read-only (an alias for `?`), so assigning to it
-# aborts the script. Both parse cleanly under bash and under `zsh -n`.
-#
-# The freshness gate's Go-tool section shipped with `local path=$1`, passed
-# every bash run, and reported "no module resolves" for all three tools the
-# first time CI ran it under zsh.
+# rest of the scope and every external command silently fails to resolve.
+# `status` is read-only (an alias for `?`), so assigning to it aborts the
+# script. Both parse cleanly under bash and under `zsh -n`.
 
 set -euo pipefail
 
