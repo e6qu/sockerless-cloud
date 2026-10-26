@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.0.1](https://github.com/e6qu/sockerless-cloud/compare/v3.0.0...v3.0.1) (2026-10-26)
+
+
+### Bug Fixes
+
+* build for macOS and the AWS image again; docs: the build-your-own-cloud guide and a tutorial tested end to end ([#354](https://github.com/e6qu/sockerless-cloud/issues/354)) ([3e7c39e](https://github.com/e6qu/sockerless-cloud/commit/3e7c39e07e87c500806b6cb566c1bfac86b75d7a))
+
 ## [3.0.0](https://github.com/e6qu/sockerless-cloud/compare/v2.4.0...v3.0.0) (2026-10-25)
 
 
