@@ -59,7 +59,11 @@ aws s3 mb s3://hello && aws s3 ls
 Google Cloud takes the seeded bootstrap service account's key:
 
 ```sh
-<!-- GCP-BOOTSTRAP -->
+go run github.com/e6qu/sockerless-cloud/testutil/cmd/gcp-bootstrap-key@latest -o bootstrap-key.json
+gcloud auth activate-service-account --key-file=bootstrap-key.json
+gcloud config set auth/token_host http://localhost:4567/token
+gcloud config set api_endpoint_overrides/storage http://localhost:4567/
+gcloud storage buckets create gs://hello --project=sockerless && gcloud storage ls --project=sockerless
 ```
 
 Azure takes the seeded bootstrap application's client secret:
