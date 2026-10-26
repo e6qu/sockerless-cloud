@@ -17,8 +17,9 @@
 //
 // SDK configuration:
 //
-//	option.WithEndpoint("http://localhost:4567")
-//	option.WithoutAuthentication()
+//	option.WithEndpoint("http://localhost:4567"), with the bootstrap service
+//	account's credential file as Application Default Credentials
+//	(go run ./testutil/cmd/gcp-bootstrap-key).
 package main
 
 import (
