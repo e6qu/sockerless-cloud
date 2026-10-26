@@ -1,19 +1,15 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net"
 	"net/http"
 	"strconv"
 	"strings"
-	"sync"
-	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
-	"github.com/e6qu/sockerless-cloud/sim/placement"
+	"github.com/e6qu/sockerless-cloud/sim/cacheengine"
 )
 
 const msRedisInstanceType = "type.googleapis.com/google.cloud.redis.v1.Instance"
@@ -45,8 +41,13 @@ func msRedisSettle(op Operation, err error) Operation {
 	}
 	code := rpcInternal
 	var failure msRedisOperationError
-	if errors.As(err, &failure) {
+	var rule *cacheengine.InvalidRuleError
+	var source *cacheengine.ImportError
+	switch {
+	case errors.As(err, &failure):
 		code = failure.code
+	case errors.As(err, &rule), errors.As(err, &source):
+		code = rpcInvalidArgument
 	}
 	op.Response = nil
 	op.Error = &OperationError{Code: code, Message: err.Error()}
@@ -146,7 +147,7 @@ func handleMSRedisFailover(w http.ResponseWriter, r *http.Request, id string) {
 		msRedisSetState(key, "FAILING_OVER")
 		plane.opMu.Lock()
 		next := plane.Primary()
-		for _, node := range plane.nodeOrder() {
+		for _, node := range plane.Nodes() {
 			if node != next {
 				next = node
 				break
@@ -180,16 +181,16 @@ func (p *msRedisPlane) checkReplicationGap(replica int) error {
 	if err := p.Ensure(); err != nil {
 		return err
 	}
-	ip, err := p.nodeIP(replica)
+	ip, err := p.NodeIP(replica)
 	if err != nil {
 		return err
 	}
-	reply, err := p.command(p.Primary(), "INFO", "replication")
+	reply, err := p.Command(p.Primary(), "INFO", "replication")
 	if err != nil {
 		return err
 	}
 	text, _ := reply.(string)
-	info := msRedisParseInfo(text)
+	info := cacheengine.ParseInfo(text)
 	primaryOffset, err := strconv.ParseInt(info["master_repl_offset"], 10, 64)
 	if err != nil {
 		return fmt.Errorf("the primary reports no replication offset: %w", err)
@@ -328,17 +329,14 @@ func msRedisImportInstance(plane *msRedisPlane, bucket, object string) error {
 	if err != nil {
 		return msRedisOperationFailure(rpcNotFound, "%v", err)
 	}
-	if !msRedisIsRDB(data) {
+	if !cacheengine.IsRDB(data) {
 		return msRedisOperationFailure(rpcInvalidArgument, "gs://%s/%s is not an RDB file", bucket, object)
 	}
 	return plane.Restart(data, "")
 }
 
 // msRedisImportSource is one RDB file a new cluster loads.
-type msRedisImportSource struct {
-	Name string
-	Data []byte
-}
+type msRedisImportSource = cacheengine.ImportSource
 
 // msRedisClusterImportSources reads the RDB files a cluster create names in
 // gcsSource or managedBackupSource.
@@ -363,7 +361,7 @@ func msRedisClusterImportSources(gcs *MSRedisGcsBackupSource, managed *MSRedisMa
 			if err != nil {
 				return nil, msRedisOperationFailure(rpcNotFound, "%v", err)
 			}
-			if !msRedisIsRDB(data) {
+			if !cacheengine.IsRDB(data) {
 				return nil, msRedisOperationFailure(rpcInvalidArgument, "%s is not an RDB file", uri)
 			}
 			sources = append(sources, msRedisImportSource{Name: uri, Data: data})
@@ -389,103 +387,4 @@ func msRedisClusterImportSources(gcs *MSRedisGcsBackupSource, managed *MSRedisMa
 		return sources, nil
 	}
 	return nil, nil
-}
-
-// msRedisImportDirectory holds the RDB file the import source serves.
-const msRedisImportDirectory = "/import"
-
-// ImportRDB loads an RDB file's keys into a running cluster: a standalone
-// redis-server placed beside the nodes loads the file, and redis-cli's
-// cluster import, run from one node, migrates each key to the shard that owns
-// its slot.
-func (p *msRedisPlane) ImportRDB(source msRedisImportSource) error {
-	via := p.nodeOrder()[0]
-	ip, err := p.nodeIP(via)
-	if err != nil {
-		return err
-	}
-	password := p.currentPassword()
-	from, stop, err := p.placeImportSource(source)
-	if err != nil {
-		return err
-	}
-	defer stop()
-	importArgs := []string{"redis-cli", "--cluster", "import", net.JoinHostPort(ip, strconv.Itoa(msRedisPort)),
-		"--cluster-from", net.JoinHostPort(from, strconv.Itoa(msRedisPort)), "--cluster-copy", "--cluster-replace"}
-	var env []string
-	if password != "" {
-		importArgs = append(importArgs, "--cluster-from-pass", password)
-		env = append(env, "REDISCLI_AUTH="+password)
-	}
-	if _, err := p.exec(via, importArgs, env); err != nil {
-		return msRedisOperationFailure(rpcInvalidArgument, "import %s: %v", source.Name, err)
-	}
-	return nil
-}
-
-// placeImportSource places a redis-server that serves source's RDB file on
-// the engines' network, and returns its address once it has loaded the file
-// and accepts clients, with the function that stops it.
-func (p *msRedisPlane) placeImportSource(source msRedisImportSource) (string, func(), error) {
-	backend, err := gcpPlacement.For(placementRedis)
-	if err != nil {
-		return "", nil, err
-	}
-	p.mu.RLock()
-	image, dns, password := p.image, p.dns, p.password
-	p.mu.RUnlock()
-	command := []string{"redis-server",
-		"--port", strconv.Itoa(msRedisPort), "--bind", "0.0.0.0", "--protected-mode", "no",
-		"--dir", msRedisImportDirectory, "--dbfilename", "source.rdb",
-		"--save", "", "--appendonly", "no",
-	}
-	if password != "" {
-		command = append(command, "--requirepass", password)
-	}
-	labels := map[string]string{"sockerless-memorystore-import": "true"}
-	for key, value := range p.labels {
-		labels[key] = value
-	}
-	ready := make(chan struct{})
-	var once sync.Once
-	output := sim.FuncSink(func(line sim.LogLine) {
-		if strings.Contains(strings.ToLower(line.Text), "ready to accept connections") {
-			once.Do(func() { close(ready) })
-		}
-	})
-	handle, err := backend.Place(context.Background(), placement.Workload{
-		CancelGracePeriod: msRedisStopGrace,
-		Image:             image,
-		Architecture:      msRedisEnginePlatform,
-		Command:           command,
-		Labels:            labels,
-		Network:           msRedisNetworkName(),
-		DNS:               dns,
-		Seed:              []sim.SeedFile{{Path: msRedisImportDirectory + "/source.rdb", Data: source.Data}},
-		Sandbox:           SandboxCloudRun,
-	}, output)
-	if err != nil {
-		return "", nil, fmt.Errorf("place the import source: %w", err)
-	}
-	stop := func() {
-		handle.Cancel()
-		_ = handle.Wait()
-	}
-	timer := time.NewTimer(msRedisReadyBudget)
-	defer timer.Stop()
-	select {
-	case <-ready:
-	case <-handle.Exited():
-		result := handle.Wait()
-		return "", nil, msRedisOperationFailure(rpcInvalidArgument, "import %s: the RDB file did not load: redis-server exited with status %d", source.Name, result.ExitCode)
-	case <-timer.C:
-		stop()
-		return "", nil, fmt.Errorf("import %s: the source did not load the RDB file within %s", source.Name, msRedisReadyBudget)
-	}
-	address, err := handle.Address(context.Background())
-	if err != nil {
-		stop()
-		return "", nil, err
-	}
-	return address, stop, nil
 }

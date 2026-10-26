@@ -781,7 +781,7 @@ func msRedisSnapshotCluster(plane *msRedisPlane) (msRedisBackupContent, []MSRedi
 	if err := plane.Ensure(); err != nil {
 		return content, nil, 0, err
 	}
-	primaries, _, err := plane.shardMap()
+	primaries, _, err := plane.ShardMap()
 	if err != nil {
 		return content, nil, 0, err
 	}

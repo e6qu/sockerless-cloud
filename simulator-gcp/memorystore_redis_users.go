@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/e6qu/sockerless-cloud/sim/cacheengine"
 )
 
 // A cluster runs its token-auth users and the users its ACL policy defines as
@@ -107,10 +109,14 @@ func msRedisValidateAclRules(rules []MSRedisAclRule) error {
 }
 
 // engineUsers are the users the cluster's engine runs besides its default
-// user, and its policy users keyed by lowercased username.
-func (p *msRedisPlane) engineUsers() ([]msRedisUser, map[string]string, error) {
+// user: its token-auth users with their active tokens as passwords, and its
+// ACL policy's users with their rules. On a cluster that authenticates with
+// IAM the relay authenticates a mapped IAM principal with the engine's
+// credential, so a policy user's rule takes that credential first, and a rule
+// that drops passwords drops it too.
+func (p *msRedisPlane) engineUsers() ([]cacheengine.User, error) {
 	p.mu.RLock()
-	tokenAuth, policyName := p.tokenAuth, p.aclPolicy
+	tokenAuth, policyName, iamAuth := p.tokenAuth, p.aclPolicy, p.iamAuth
 	p.mu.RUnlock()
 	byName := map[string]*msRedisUser{}
 	if tokenAuth {
@@ -118,16 +124,15 @@ func (p *msRedisPlane) engineUsers() ([]msRedisUser, map[string]string, error) {
 			byName[user.Name] = &user
 		}
 	}
-	policyUsers := map[string]string{}
 	if policyName != "" {
 		policy, ok := msRedisAclPolicies.Get(policyName)
 		if !ok {
-			return nil, nil, msRedisOperationFailure(rpcNotFound, "ACL policy %s not found", policyName)
+			return nil, msRedisOperationFailure(rpcNotFound, "ACL policy %s not found", policyName)
 		}
 		for _, rule := range policy.Rules {
 			args, err := msRedisSplitAclRule(rule.Rule)
 			if err != nil {
-				return nil, nil, msRedisOperationFailure(rpcInvalidArgument, "%v", err)
+				return nil, msRedisOperationFailure(rpcInvalidArgument, "%v", err)
 			}
 			user, ok := byName[rule.Username]
 			if !ok {
@@ -135,72 +140,37 @@ func (p *msRedisPlane) engineUsers() ([]msRedisUser, map[string]string, error) {
 				byName[rule.Username] = user
 			}
 			user.Rule = args
-			policyUsers[strings.ToLower(rule.Username)] = rule.Username
 		}
 	}
-	users := make([]msRedisUser, 0, len(byName))
+	secret := p.Password()
+	users := make([]cacheengine.User, 0, len(byName))
 	for _, user := range byName {
-		users = append(users, *user)
+		engineUser := cacheengine.User{Name: user.Name, Passwords: user.Tokens}
+		if user.Rule != nil {
+			engineUser.Rule = []string{}
+			if iamAuth && secret != "" {
+				engineUser.Rule = append(engineUser.Rule, ">"+secret)
+			}
+			engineUser.Rule = append(engineUser.Rule, user.Rule...)
+		}
+		users = append(users, engineUser)
 	}
 	sort.Slice(users, func(i, j int) bool { return users[i].Name < users[j].Name })
-	return users, policyUsers, nil
+	return users, nil
 }
 
-// applyUsers makes the engine users of nodes the cluster's token-auth users
-// and its ACL policy's users, and removes every other user but default.
-func (p *msRedisPlane) applyUsers(nodes []int) error {
-	users, policyUsers, err := p.engineUsers()
-	if err != nil {
-		return err
-	}
-	p.mu.RLock()
-	iamAuth, secret := p.iamAuth, p.password
-	p.mu.RUnlock()
-	desired := map[string]bool{"default": true}
+// usersApplied records the policy users every node now holds, which an IAM
+// principal of that email connects as.
+func (p *msRedisPlane) usersApplied(users []cacheengine.User) {
+	policyUsers := map[string]string{}
 	for _, user := range users {
-		desired[user.Name] = true
-	}
-	for _, node := range nodes {
-		reply, err := p.command(node, "ACL", "USERS")
-		if err != nil {
-			return err
-		}
-		existing, _ := reply.([]any)
-		for _, name := range existing {
-			if !desired[fmt.Sprint(name)] {
-				if _, err := p.command(node, "ACL", "DELUSER", fmt.Sprint(name)); err != nil {
-					return err
-				}
-			}
-		}
-		for _, user := range users {
-			args := []string{"ACL", "SETUSER", user.Name, "reset"}
-			if user.Rule == nil || len(user.Tokens) > 0 {
-				args = append(args, "on")
-			}
-			for _, token := range user.Tokens {
-				args = append(args, ">"+token)
-			}
-			if user.Rule == nil {
-				args = append(args, "~*", "&*", "+@all")
-			} else {
-				// The relay authenticates a mapped IAM principal with the
-				// engine's credential, so a rule that drops passwords drops
-				// that one too.
-				if iamAuth && secret != "" {
-					args = append(args, ">"+secret)
-				}
-				args = append(args, user.Rule...)
-			}
-			if _, err := p.command(node, args...); err != nil {
-				return msRedisOperationFailure(rpcInvalidArgument, "set user %s from its ACL rule: %v", user.Name, err)
-			}
+		if user.Rule != nil {
+			policyUsers[strings.ToLower(user.Name)] = user.Name
 		}
 	}
 	p.mu.Lock()
 	p.policyUsers = policyUsers
 	p.mu.Unlock()
-	return nil
 }
 
 // engineUserOf is the engine user an IAM principal connects as: the policy
@@ -220,20 +190,20 @@ func (p *msRedisPlane) SetAclPolicy(policy string) error {
 	p.mu.Lock()
 	p.aclPolicy = policy
 	p.mu.Unlock()
-	if !p.running() {
+	if !p.Running() {
 		return nil
 	}
-	return p.applyUsers(p.nodeOrder())
+	return p.ApplyUsers(p.Nodes())
 }
 
 // msRedisApplyUsers brings a running cluster's engine users in line with its
 // token-auth users and ACL policy.
 func msRedisApplyUsers(cluster string) error {
 	plane, ok := msRedisLoadPlane(cluster)
-	if !ok || !plane.running() {
+	if !ok || !plane.Running() {
 		return nil
 	}
 	plane.opMu.Lock()
 	defer plane.opMu.Unlock()
-	return plane.applyUsers(plane.nodeOrder())
+	return plane.ApplyUsers(plane.Nodes())
 }
