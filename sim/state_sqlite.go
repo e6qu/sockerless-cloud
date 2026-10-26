@@ -64,7 +64,7 @@ func marshalPersistentValue[T any](item T) ([]byte, error) {
 func unmarshalPersistentValue[T any](data []byte, out *T) error {
 	if len(data) < len(persistenceEnvelopeMagic) ||
 		string(data[:len(persistenceEnvelopeMagic)]) != persistenceEnvelopeMagic {
-		// Databases written before persistence envelopes remain readable.
+		// A row without a persistence envelope decodes as plain JSON.
 		return json.Unmarshal(data, out)
 	}
 	var envelope persistenceEnvelope
@@ -96,20 +96,18 @@ func unmarshalPersistentValue[T any](data []byte, out *T) error {
 	return nil
 }
 
-// SQLiteStore is a persistent implementation of Store backed by SQLite.
-// Each instance maps to a single table with (key TEXT, value BLOB) schema.
+// SQLiteStore persists a Store in one SQLite table of (key TEXT, value BLOB).
 type SQLiteStore[T any] struct {
 	db    *sql.DB
 	table string
 	mu    sync.Mutex // serialize writes (SQLite is single-writer)
-	// generation is advanced inside mu by every write that changed the table,
-	// and read without it, so a reader never blocks behind a writer just to
-	// ask whether its derived index is still current. See Store.Generation.
+	// Every write that changed the table advances generation inside mu, and
+	// readers read it without mu, so a reader never blocks behind a writer just
+	// to ask whether its derived index is still current. See Store.Generation.
 	generation atomic.Uint64
 }
 
-// NewSQLiteStore creates a persistent store backed by a SQLite table.
-// Creates the table if it doesn't exist.
+// NewSQLiteStore opens a store over table, creating the table when absent.
 func NewSQLiteStore[T any](db *sql.DB, table string) (*SQLiteStore[T], error) {
 	_, err := db.Exec(fmt.Sprintf(
 		`CREATE TABLE IF NOT EXISTS %q (key TEXT PRIMARY KEY, value BLOB)`, table))
@@ -121,12 +119,10 @@ func NewSQLiteStore[T any](db *sql.DB, table string) (*SQLiteStore[T], error) {
 	return store, nil
 }
 
-// fatalDBErr panics on an UNEXPECTED SQLite error (a failed write, a query
-// error, or a corrupt row). A persistence fault is a real fault for the sim:
-// failing loudly (net/http recovers a handler panic into a 500 with a logged
-// stack) is far better than silently losing a write or reading a resource back
-// as absent — the same stance MakeStore takes with log.Fatalf on a bad open.
-// A legitimate not-found is sql.ErrNoRows and is NOT routed here.
+// fatalDBErr panics on an unexpected SQLite error (a failed write, a query
+// error, a corrupt row): net/http recovers a handler's panic into a 500 with a
+// logged stack, which beats silently losing a write or reading a resource
+// back as absent. A not-found is sql.ErrNoRows and never comes here.
 func (s *SQLiteStore[T]) fatalDBErr(op, id string, err error) {
 	panic(fmt.Sprintf("sim SQLiteStore[%s].%s id=%q: %v", s.table, op, id, err))
 }
@@ -362,19 +358,11 @@ func (s *SQLiteStore[T]) Upsert(id string, fn func(*T)) {
 	s.generation.Store(nextStoreGeneration())
 }
 
-// MakeStore returns a SQLiteStore if db is non-nil, or a MemoryStore
-// otherwise.
-//
-// When db is non-nil but NewSQLiteStore fails (CREATE TABLE rejected
-// by SQLite — typically corruption or fs perms post-OpenDB), the
-// process exits via log.Fatalf rather than silently dropping that one
-// table back to memory while its neighbours stay durable. Half-
-// persistent state would surface as confusing "some data lost on
-// restart" reports later.
-//
-// All 100+ call sites are register*-time, so log.Fatalf here is the
-// equivalent of a startup error — operator sees the message and the
-// failing table name immediately, no degraded-mode running.
+// MakeStore returns a SQLiteStore when db is set and a MemoryStore otherwise.
+// A table SQLite refuses to create exits the process through log.Fatalf
+// rather than dropping that one table back to memory while its neighbours
+// stay durable; every caller runs at registration, so this is a startup
+// error that names the table.
 func MakeStore[T any](db *sql.DB, table string) Store[T] {
 	store := newStore[T](db, table)
 	// Every store joins the tracked set (store_scan.go) so a cross-cutting

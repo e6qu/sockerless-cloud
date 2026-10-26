@@ -8,10 +8,10 @@ import (
 )
 
 // RuntimeMode is how a simulator process was started, and decides whether it
-// holds a container engine client. It is resolved once, at startup, from the
-// SIM_RUNTIME environment variable, and carried on the server: re-reading the
-// variable later would let what the process reports about itself drift from
-// what it actually has.
+// holds a container engine client. Startup resolves it once from the
+// SIM_RUNTIME environment variable and carries it on the server: re-reading
+// the variable later would let what the process reports about itself drift
+// from what it actually has.
 type RuntimeMode string
 
 const (
@@ -42,14 +42,10 @@ func (m RuntimeMode) ExecutesWorkloads() bool { return m != RuntimeModeAPIOnly }
 
 // ResolveRuntimeMode reads the runtime mode from the environment. An empty
 // variable is the container default; anything else must name a mode the
-// simulator implements.
-//
-// An unrecognised value is refused rather than read as "not API-only". The
-// variable is the only thing standing between a process that runs workloads and
-// one that cannot, so a value the simulator does not understand is a
-// misconfiguration whose consequences show up much later — as workloads that
-// fail one by one against a process that looks healthy — and it costs nothing
-// to say so at startup instead.
+// simulator implements. It refuses an unrecognised value rather than reading
+// it as "not API-only": the variable alone decides whether the process can run
+// workloads, and a misread shows up much later as workloads failing one by
+// one against a process that looks healthy.
 func ResolveRuntimeMode() (RuntimeMode, error) {
 	value := strings.TrimSpace(os.Getenv(runtimeModeVariable))
 	if value == "" {

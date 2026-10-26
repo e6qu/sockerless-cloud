@@ -1,12 +1,12 @@
 package sim
 
-// Shared bounds-safe scaffolding for the hand-rolled expression/DSL parsers
-// (DynamoDB expressions, CloudWatch Logs Insights/filter-pattern, GCP AIP-160
-// filter, Azure OData $filter, …). The grammars differ per cloud, but the
-// UNSAFE parts are identical everywhere and are exactly what fuzzing keeps
-// finding: raw s[i] / s[i:j] indexing that panics on a short/multibyte input,
-// and unbounded recursion that blows the stack. Scanner removes the index
-// panics by construction; ParseGuard bounds recursion + total work.
+// Bounds-safe scaffolding for the hand-rolled expression parsers (Amazon
+// DynamoDB expressions, Amazon CloudWatch Logs Insights queries and filter
+// patterns, Google Cloud AIP-160 filters, Azure OData $filter, …). The
+// grammars differ per cloud, but the unsafe parts are the same everywhere:
+// raw s[i] and s[i:j] indexing that panics on a short or multibyte input, and
+// unbounded recursion that blows the stack. Scanner removes the index panics
+// by construction; ParseGuard bounds recursion and total work.
 
 // Scanner is a bounds-safe cursor over a string. Every accessor is range-checked
 // so a parser can never panic on an index or slice, regardless of input.
@@ -15,7 +15,6 @@ type Scanner struct {
 	pos int
 }
 
-// NewScanner returns a Scanner positioned at the start of s.
 func NewScanner(s string) *Scanner { return &Scanner{s: s} }
 
 // Pos and Len report the cursor position and the input length.

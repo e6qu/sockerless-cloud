@@ -18,7 +18,6 @@ type keyedLock struct {
 	users int
 }
 
-// NewKeyedLocks returns an empty lock table.
 func NewKeyedLocks() *KeyedLocks {
 	return &KeyedLocks{held: map[string]*keyedLock{}}
 }

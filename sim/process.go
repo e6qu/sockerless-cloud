@@ -2,13 +2,9 @@ package sim
 
 import "time"
 
-// The log stream and the terminal result of a workload the simulator runs.
-//
-// The simulator executes every workload as a container (see container.go);
-// there is no host-process execution path, and SIM_RUNTIME=process means
-// API-only — serving the API surface without a container engine, not running
-// workloads as processes. The types here are the container path's log sink and
-// its result.
+// SIM_RUNTIME=process means API-only — serving the API without a container
+// engine — and never running workloads as host processes: every workload runs
+// as a container (container.go), and these are its log sink and result.
 
 // LogLine is a single line of captured output.
 type LogLine struct {
@@ -17,8 +13,9 @@ type LogLine struct {
 	Timestamp time.Time
 }
 
-// LogSink receives log lines as they are produced.
-// Each cloud implements its own sink (CloudWatch, Cloud Logging, Log Analytics).
+// LogSink receives log lines as the workload writes them. Each cloud
+// implements its own sink (Amazon CloudWatch Logs, Cloud Logging, Azure
+// Monitor Logs).
 type LogSink interface {
 	WriteLog(line LogLine)
 }

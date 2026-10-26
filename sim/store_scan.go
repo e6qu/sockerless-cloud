@@ -6,18 +6,16 @@ import (
 	"sync"
 )
 
-// Cross-cutting state passes.
-//
 // Almost every simulator operation belongs to one slice and reaches only the
 // stores that slice owns. A few do not: Azure Resource Manager's
 // cross-resource-group move re-homes a resource onto a new resource ID, and
 // every row stored beneath that ID — and every reference held to it from any
-// other slice — has to follow. There is no slice that owns "every reference in
-// the simulator", so the pass needs the whole set of stores.
+// other slice — has to follow. No slice owns "every reference in the
+// simulator", so the pass needs the whole set of stores.
 //
 // MakeStore records each store it creates here, so the set is exactly the
 // stores the running simulator built rather than a hand-maintained list that
-// silently rots as slices are added.
+// rots as slices are added.
 
 // TrackedStore is one store MakeStore created, exposed for a cross-cutting
 // pass.
@@ -127,8 +125,8 @@ func remapStrings(v reflect.Value, edit func(string) string) bool {
 		if v.IsNil() || !v.CanSet() {
 			return false
 		}
-		// An interface's dynamic value is not addressable, so it is rewritten
-		// in a copy and stored back. This is the `map[string]any` properties
+		// An interface's dynamic value is not addressable, so rewrite it in
+		// a copy and store it back. This is the `map[string]any` properties
 		// document most Azure resources hold.
 		inner := reflect.New(v.Elem().Type()).Elem()
 		inner.Set(v.Elem())

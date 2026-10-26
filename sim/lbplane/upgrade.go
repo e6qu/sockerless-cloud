@@ -30,24 +30,22 @@ func IsUpgradeRequest(r *http.Request) bool {
 	return false
 }
 
-// tunnelUpgradedResponse finishes a 101 Switching Protocols by introducing the two
-// connections to each other and copying bytes until one of them ends.
+// tunnelUpgradedResponse finishes a 101 Switching Protocols by introducing the
+// two connections to each other and copying bytes until one of them ends.
 //
-// Relaying the handshake is not enough, and getting only that half right fails in a
-// way that looks like success. `client.Do` + `io.Copy(w, resp.Body)` hands the client
-// a correct-looking 101 — right `Sec-WebSocket-Accept`, right negotiated extensions —
-// and then silently drops everything the client sends, because a ResponseWriter has
-// no path back to the target. The client's frames go nowhere, the target never
-// answers something it never received, and the peer reports a HANDSHAKE TIMEOUT
-// rather than a connection error. So this runs for every 101, whatever the protocol.
+// Relaying the handshake alone fails while looking like success: the client
+// gets a correct 101 — right `Sec-WebSocket-Accept`, right extensions — and
+// everything it then sends goes nowhere, since a ResponseWriter has no path
+// back to the target, until the peer reports a handshake timeout. So this
+// runs for every 101, whatever the protocol.
 //
-// A failure before the client connection is hijacked leaves the caller free to
-// write an error response. Once the hijack succeeds the ResponseWriter is spent,
-// so a failure to write the handshake wraps ErrAnswerStarted; a tunnel torn down
-// by either peer is a normal ending, not a proxy error, so it reports nil.
+// A failure before the client connection is hijacked leaves the caller free
+// to write an error response. Once the hijack succeeds the ResponseWriter is
+// spent, so a failure to write the handshake wraps ErrAnswerStarted; a tunnel
+// either peer tears down is a normal ending and reports nil.
 //
-// A positive idle closes the tunnel once that long passes with no byte read from
-// either peer, and activity runs whenever a byte is.
+// A positive idle closes the tunnel once that long passes with no byte read
+// from either peer, and activity runs whenever a byte is.
 func tunnelUpgradedResponse(w http.ResponseWriter, resp *http.Response, idle time.Duration, activity func()) error {
 	// Go's transport exposes a 101's connection as a ReadWriteCloser precisely so it
 	// can be tunnelled; anything else means the response never really upgraded.

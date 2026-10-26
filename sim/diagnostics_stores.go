@@ -10,24 +10,12 @@ import (
 	"sync"
 )
 
-// What is in the database, and how much of it. A deployed simulator's database
-// reached 2.4 GB and the question "of what?" had no answer from the outside:
-// the file lives inside a Firecracker guest with no shell, so it was settled by
-// dumping the first hundred bytes of the file off the guest's ext4 image and
-// decoding the SQLite header by hand. The page count and the free list are in
-// that header; the per-table split is not, and guessing it went wrong. The
-// guess was Amazon S3 object bodies, which are blobs in this database. The
-// first answer this endpoint gave on the deployed simulator was s3_objects at
-// 4 KiB, against 659 MiB of sampled AWS WAF requests, 604 MiB of temporary
-// credentials and 590 MiB of CloudTrail events -- the three tables the
-// retention sweeps exist to drain, which had not drained because each sweep
-// was being killed by the panic this release also fixes.
-//
-// /debug/stores answers it in one request. It reports each table's size from
-// SQLite's own dbstat virtual table, so it walks b-tree pages rather than
-// reading every blob, and it names the write-ahead log's size beside the
-// database's, because a WAL at its high-water mark is the other half of the
-// disk a simulator holds.
+// /debug/stores answers "what holds the database" in one request, for a
+// database file that may live inside a Firecracker guest with no shell. It
+// reports each table's size from SQLite's own dbstat virtual table, so it
+// walks b-tree pages rather than reading every blob, and names the
+// write-ahead log's size beside the database's: a WAL at its high-water mark
+// is the other half of the disk a simulator holds.
 
 // diagnosticsDB is one open database the diagnostics listener can report on.
 type diagnosticsDB struct {
@@ -84,9 +72,8 @@ type storeTableSize struct {
 	Rows  int64 // -1 when not counted
 }
 
-// writeStoreReport writes the per-database report. countRows makes it count
-// every table's rows, which is a full scan of each table's b-tree and is left
-// to the caller to ask for.
+// writeStoreReport writes the per-database report. countRows counts every
+// table's rows, a full scan of each table's b-tree, so the caller asks for it.
 func writeStoreReport(w io.Writer, countRows bool) {
 	dbs := registeredDiagnosticsDBs()
 	if len(dbs) == 0 {

@@ -47,7 +47,6 @@ func (p *Plane) ResizeInstance(replicas int) error {
 	})
 }
 
-// allocateNodes reserves count new node indices.
 func (p *Plane) allocateNodes(count int) []int {
 	p.mu.Lock()
 	defer p.mu.Unlock()

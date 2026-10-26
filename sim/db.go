@@ -18,46 +18,27 @@ func OpenDB(dataDir string) (*sql.DB, error) {
 	}
 
 	dbPath := filepath.Join(dataDir, "simulator.db")
-	// Apply the PRAGMAs via the DSN so the driver runs them on EVERY connection
-	// it opens for the database/sql pool. A `db.Exec("PRAGMA …")` only configures
-	// the single pooled connection it happens to run on; the pool then opens
-	// further connections for concurrent reads that would inherit none of these
-	// PRAGMAs — most importantly busy_timeout=0, so a read connection holding a
-	// WAL read lock makes a concurrent write fail immediately with SQLITE_BUSY
-	// ("database is locked") instead of waiting. WAL lets readers and the single
-	// writer (serialized by SQLiteStore.mu) coexist; busy_timeout on every
-	// connection absorbs the brief lock hand-offs under load.
+	// Apply the PRAGMAs through the DSN so the driver runs them on every
+	// connection the database/sql pool opens; a `db.Exec("PRAGMA …")` configures
+	// only the connection it runs on. Without busy_timeout on a read connection,
+	// a concurrent write fails at once with SQLITE_BUSY instead of waiting out
+	// the lock hand-off. WAL lets readers and the single writer (serialized by
+	// SQLiteStore.mu) coexist.
 	//
-	// synchronous=NORMAL, not FULL: FULL fsyncs the WAL on every single commit,
-	// and under concurrent load every write serializes behind that fsync —
-	// measured on a deployed simulator under real client traffic, DynamoDB
-	// Query/PutItem calls that complete in low single-digit milliseconds against
-	// real AWS took 500-1100ms here, because the request volume this simulator
-	// now serves queues every writer behind the previous one's fsync. NORMAL
-	// still fsyncs at every WAL checkpoint and is safe against an application or
-	// process crash (SQLite's own documented guarantee); it only gives up
-	// protection against the specific case of the host losing power between a
-	// commit and its next checkpoint, which does not matter for this
-	// simulator's ephemeral, rebuildable state the way it would for a real
-	// database. A simulator that answers 100-1000x slower than the cloud it
-	// simulates breaks fidelity for any client whose behavior is timing
-	// sensitive — durability the real service's own client contract never
-	// promised was the wrong thing to buy that slowdown for.
-	// journal_size_limit bounds the write-ahead log's FILE, not the amount of
-	// WAL a transaction may use: after each checkpoint SQLite truncates the
-	// file back to this size instead of leaving it at its high-water mark,
-	// which is the default. A deployed simulator was found with a 368 MB WAL
-	// beside a 2.4 GB database. That costs disk in the microVM's rootfs and
-	// makes every restart replay more, for no benefit once the frames are
-	// checkpointed. 64 MiB leaves ample room for a large write to commit
-	// without the file being retruncated constantly, and the deployment
-	// settled at exactly that within minutes of the limit arriving.
+	// synchronous=NORMAL, not FULL: FULL fsyncs the WAL on every commit, and
+	// under concurrent load every writer queues behind the previous one's fsync,
+	// turning a millisecond Amazon DynamoDB PutItem into a second. NORMAL still
+	// fsyncs at every checkpoint and survives an application or process crash;
+	// it gives up only a power loss between a commit and its checkpoint, which
+	// the simulator's rebuildable state does not need and no cloud client
+	// contract promises.
 	//
-	// The first reading of that WAL blamed Amazon S3 object bodies, which are
-	// blobs in this database. /debug/stores disproved it: s3_objects held
-	// 4 KiB. What fills the log is the retention sweep itself, deleting from
-	// the three tables that hold the database -- sampled AWS WAF requests,
-	// temporary credentials and CloudTrail events.
+	// journal_size_limit bounds the WAL file, not the WAL a transaction may use:
+	// after each checkpoint SQLite truncates the file back to this size instead of
+	// leaving it at its high-water mark. 64 MiB leaves a large write room to
+	// commit without SQLite retruncating the file constantly. The retention
+	// sweeps — deleting sampled AWS WAF requests, temporary credentials and AWS
+	// CloudTrail events — are what fill the log.
 	dsn := dbPath +
 		"?_pragma=busy_timeout(5000)" +
 		"&_pragma=journal_mode(WAL)" +

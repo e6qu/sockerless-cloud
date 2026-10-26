@@ -7,12 +7,11 @@ import (
 	"testing"
 )
 
-// TestWrapHandlerRequestsAreObserved proves a host-addressed data plane
-// registered through WrapHandler is logged like any path-routed request.
-// Amazon S3, Amplify hosting, and the load-balancer data planes all claim
-// requests by Host header
-// before the mux ever sees them, so a wrapper that ran outside the logging
-// middleware made every data-plane request invisible in the request log.
+// A host-addressed data plane registered through WrapHandler is logged like
+// any path-routed request: Amazon S3, AWS Amplify Hosting and the
+// load-balancer data planes claim requests by Host header before the mux sees
+// them, and a wrapper outside the logging middleware would hide them from
+// the request log.
 func TestWrapHandlerRequestsAreObserved(t *testing.T) {
 	srv, err := NewServer(Config{Provider: "aws", ListenAddr: ":0", LogLevel: "error"})
 	if err != nil {

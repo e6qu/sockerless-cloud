@@ -386,7 +386,7 @@ func (g *guest) guestConfig() []byte {
 }
 
 // interfaces are the guest's further interfaces, eth1 onwards, with the
-// address each takes; eth0 is configured by the kernel's command line.
+// address each takes; the kernel's command line configures eth0.
 func (g *guest) interfaces() []map[string]string {
 	out := make([]map[string]string, 0, len(g.spec.Extra))
 	for i, extra := range g.spec.Extra {
@@ -467,7 +467,7 @@ func extractTar(r io.Reader, dir string) error {
 		case tar.TypeLink:
 			links = append(links, hdr)
 		case tar.TypeChar, tar.TypeBlock, tar.TypeFifo:
-			// Device nodes come from devtmpfs at boot; the image's are left out.
+			// Device nodes come from devtmpfs at boot; skip the image's.
 		}
 	}
 	for _, hdr := range links {

@@ -62,7 +62,6 @@ func StatusRange(low, high int) StatusMatcher {
 	return StatusMatcher{ranges: [][2]int{{low, high}}}
 }
 
-// Matches reports whether code is one of the matcher's codes.
 func (m StatusMatcher) Matches(code int) bool {
 	for _, r := range m.ranges {
 		if code >= r[0] && code <= r[1] {

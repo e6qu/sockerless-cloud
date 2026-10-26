@@ -43,15 +43,15 @@ type Query struct {
 type Zone struct {
 	Apex    string
 	Records []dns.RR
-	// Forwarders, when set, make the zone a forwarding zone: its names are
-	// answered by these servers (host:port) and Records are not read.
+	// Forwarders, when set, make the zone a forwarding zone: these servers
+	// (host:port) answer its names, and Records go unread.
 	Forwarders []string
 }
 
 // View is everything one query can see.
 type View struct {
 	Zones []Zone
-	// Names are answered by exact owner name ahead of every zone: addresses a
+	// Names answer by exact owner name ahead of every zone: addresses a
 	// platform gives a network outside any zone it hosts.
 	Names []dns.RR
 }
@@ -59,7 +59,6 @@ type View struct {
 // Catalog returns what a query can see.
 type Catalog func(Query) View
 
-// Config configures a Server.
 type Config struct {
 	// Host is the IPv4 address to listen on; empty listens on all of them.
 	Host string
@@ -70,12 +69,13 @@ type Config struct {
 	// Name labels the server in logs.
 	Name string
 	// Recursion, when set, recurses for names outside every zone. Without it,
-	// or with no upstream answering, such a name is answered SERVFAIL: its
-	// absence is not known.
+	// or with no upstream answering, the server answers such a name SERVFAIL:
+	// its absence is not known.
 	Recursion *Recursion
 }
 
-// Recursion names the servers a name outside every zone is recursed through.
+// Recursion names the servers to recurse through for a name outside every
+// zone.
 type Recursion struct {
 	// Upstreams is a comma-separated host[:port] list; empty reads the host's
 	// resolv.conf.
@@ -169,7 +169,6 @@ var bindPair = func(host, port string) (*net.UDPConn, *net.TCPListener, error) {
 	return udp, tcp, nil
 }
 
-// Port is the port the server answers on.
 func (s *Server) Port() int { return s.port }
 
 // Addr is the host:port the server answers on.

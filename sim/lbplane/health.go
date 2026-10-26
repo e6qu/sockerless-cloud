@@ -18,7 +18,7 @@ const (
 )
 
 // HealthPolicy is a health check's schedule and thresholds, in the cloud's own
-// terms: how often a target is checked, and how many consecutive results move
+// terms: how often to check a target, and how many consecutive results move
 // it into or out of service.
 type HealthPolicy struct {
 	Interval time.Duration
@@ -48,7 +48,7 @@ type Health struct {
 	LastStatus  int
 	LastErr     error
 	LastFailure error
-	// LastChecked is when the latest completed check was issued.
+	// LastChecked is when the checker issued the latest completed check.
 	LastChecked time.Time
 
 	nextCheck time.Time
@@ -130,8 +130,8 @@ func (t *HealthTracker[K]) Sweep(ctx context.Context, now time.Time, targets []H
 }
 
 // schedule books the next check of every due target. A check's result lasts
-// for the whole interval, so the next one is booked when this one is issued
-// rather than when it answers.
+// for the whole interval, so book the next one when this one goes out, not
+// when it answers.
 func (t *HealthTracker[K]) schedule(now time.Time, targets []HealthTarget[K]) []HealthTarget[K] {
 	t.mu.Lock()
 	defer t.mu.Unlock()

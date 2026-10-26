@@ -7,19 +7,16 @@ import (
 )
 
 // CachedSQLiteStore keeps every row of a SQLite-backed store in memory and
-// writes through to SQLite.
-//
-// SQLiteStore answers each Get with a SQL query and a JSON decode. For a store
-// read in bulk that is the whole cost of the read path. The AWS simulator's
-// DynamoDB serves a query on a secondary index by reading every item of the
-// table: 2,500 items of about 1.8 KB took 116 ms to read from SQLite on a
-// developer's SSD and 3.2 ms from memory, and on the deployed simulator's
-// virtual disk the query held its table lock long enough for PutItem and
-// UpdateItem to wait 10–21 s behind it.
+// writes through to SQLite. SQLiteStore answers each Get with a SQL query and
+// a JSON decode, the whole cost of a store read in bulk: an Amazon DynamoDB
+// query on a secondary index reads every item of its table, and from SQLite
+// that held the table lock long enough to stall PutItem and UpdateItem
+// behind it.
 //
 // SQLite stays the durable copy: every write reaches it before memory does,
-// and a new process loads the rows back. Reads return a copy, as MemoryStore's
-// do, so a caller that changes what it read cannot change what is stored.
+// and a new process loads the rows back. Reads return a copy, as
+// MemoryStore's do, so a caller that changes what it read cannot change what
+// is stored.
 type CachedSQLiteStore[T any] struct {
 	disk  *SQLiteStore[T]
 	mu    sync.RWMutex

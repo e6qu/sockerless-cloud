@@ -12,14 +12,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Close must mean that nothing is still running, not merely that nothing new
-// is accepted.
-//
-// It used to close the listener and wait for the accept loop, while the
-// handlers that loop had already spawned kept calling the caller's resolver.
-// In the AWS simulator that resolver reads the load-balancer and target-group
-// stores, so a test that closed its proxy and then replaced those stores raced
-// its own teardown — which is how the race detector found this.
+// Close means nothing is still running, not merely that nothing new is
+// accepted: a handler the accept loop spawned still calls the caller's
+// resolver, which reads the caller's stores, and a test that closes its proxy
+// and then replaces those stores must not race it.
 func TestTCPProxyCloseWaitsForItsHandlers(t *testing.T) {
 	// A resolver that blocks until released, so a handler is guaranteed to be
 	// inside it when Close is called.
@@ -128,7 +124,7 @@ func TestTCPProxyCloseEndsAStreamInFlight(t *testing.T) {
 }
 
 // A load balancer's security group can change while the proxy serves, so the
-// admission check is installed on a serving proxy; a refused client's
+// test installs the admission check on a serving proxy; a refused client's
 // connection closes without a byte, while an admitted one is forwarded.
 func TestTCPProxySetAdmitRefusesAClientWithoutAByte(t *testing.T) {
 	upstream, err := net.Listen("tcp", "127.0.0.1:0")

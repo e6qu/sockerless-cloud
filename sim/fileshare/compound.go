@@ -54,8 +54,8 @@ func (s *Server) compound(cred credentials, d *decoder) ([]byte, bool) {
 		status = s.operation(st, op, d, results)
 		done++
 		if d.err != nil {
-			// The arguments ran out inside the operation: what was answered
-			// is replaced by the one status the client can act on.
+			// The arguments ran out inside the operation: replace what was answered
+			// with the one status the client can act on.
 			results.buf = results.buf[:0]
 			results.uint32(op)
 			results.uint32(nfs4ErrBadXDR)
@@ -888,9 +888,9 @@ func (s *Server) opOpen(st *compoundState, d *decoder, r *encoder) uint32 {
 		case createGuarded:
 			flags |= os.O_EXCL
 		case createExclusive:
-			// The verifier the client sent is kept in the file's access
-			// time, as servers do, so a retried create of the same file by
-			// the same client succeeds and another client's is refused.
+			// Keep the client's verifier in the file's access time, as servers do,
+			// so a retried create of the same file by the same client succeeds and
+			// another client's is refused.
 			if existing, err := os.Lstat(path); err == nil {
 				if st, ok := existing.Sys().(*syscall.Stat_t); ok && exclusiveVerifier(st) == string(verifier) {
 					break

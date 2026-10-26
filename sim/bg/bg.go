@@ -5,17 +5,16 @@
 // An untracked goroutine outlives the test that started it and reads stores the
 // next test has rebuilt, which the race detector reports as a race in code
 // neither test owns. Every one-shot goroutine, timer and watch a simulator
-// starts therefore goes through this package, and Await is the barrier a test
-// calls before it rebuilds a simulator.
+// starts therefore goes through this package, and a test calls Await before it
+// rebuilds a simulator.
 //
-// A long-lived loop still belongs to the server that started it, through
+// A long-lived loop belongs to the server that started it, through
 // sim.Server.StartBackground and StopBackground; Handoff counts work handed to
 // that lifecycle.
 //
-// Await is a test barrier, and sim.Server's shutdown drains once, after the
-// HTTP server and the background loops have stopped and before the database
-// closes, so no work writes a store that is gone. While a drain runs,
-// work requested is dropped rather than started, because work chains — an
+// sim.Server's shutdown drains once, after the HTTP server and the background
+// loops have stopped and before the database closes, so no work writes a store
+// that is gone. A drain drops work requested while it runs: work chains — an
 // Amazon ECS reconciliation requests another whenever it moves a task — and a
 // drain that kept admitting it would wait on a group that never empties.
 package bg

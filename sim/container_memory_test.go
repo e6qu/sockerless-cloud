@@ -28,14 +28,13 @@ func readRunningContainerMemoryPeak(t *testing.T, name, script string) uint64 {
 	}
 	held := make(chan struct{})
 	handle, err := StartContainerSyncContext(t.Context(), ContainerConfig{
-		Image:        memoryPeakTestImage,
-		Architecture: "linux/" + runtime.GOARCH,
-		Command:      []string{"sh"},
-		Args:         []string{"-c", script + " && echo " + memoryHeldMarker + " && exec sleep 300"},
-		Name:         fmt.Sprintf("sockerless-sim-memory-peak-%s-%d", name, time.Now().UnixNano()),
-		Timeout:      2 * time.Minute,
-		MemoryBytes:  256 * 1024 * 1024,
-		// The measurement under test.
+		Image:           memoryPeakTestImage,
+		Architecture:    "linux/" + runtime.GOARCH,
+		Command:         []string{"sh"},
+		Args:            []string{"-c", script + " && echo " + memoryHeldMarker + " && exec sleep 300"},
+		Name:            fmt.Sprintf("sockerless-sim-memory-peak-%s-%d", name, time.Now().UnixNano()),
+		Timeout:         2 * time.Minute,
+		MemoryBytes:     256 * 1024 * 1024,
 		TrackMemoryPeak: true,
 	}, FuncSink(func(line LogLine) {
 		if line.Text == memoryHeldMarker {
@@ -64,8 +63,8 @@ func readRunningContainerMemoryPeak(t *testing.T, name, script string) uint64 {
 // land after the allocation, has to carry them.
 func TestContainerMemoryPeakMeasuresTheContainer(t *testing.T) {
 	const heldMegabytes = 48
-	// The pages are written into the container's own shared-memory filesystem
-	// and held there for the rest of the run.
+	// The script writes the pages into the container's own shared-memory
+	// filesystem and holds them there for the rest of the run.
 	held := readRunningContainerMemoryPeak(t, "holding", fmt.Sprintf(
 		"dd if=/dev/zero of=/dev/shm/held bs=1M count=%d >/dev/null 2>&1", heldMegabytes))
 	idle := readRunningContainerMemoryPeak(t, "idle", "true")

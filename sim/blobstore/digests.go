@@ -55,7 +55,6 @@ func (d *digester) sum() Digests {
 	return out
 }
 
-// Digest returns the digests of data.
 func Digest(data []byte) Digests {
 	d := newDigester()
 	_, _ = d.Write(data)

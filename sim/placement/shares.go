@@ -19,12 +19,12 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/sidecar"
 )
 
-// shares serves what a guest's binds name. A host directory, or a single
-// host file, is served over NFSv4 from this process, on one port every
-// engine network's gateway reaches. An engine volume lives where this
-// process cannot read it, so a share container serves a workload's volumes
-// from the node agent's network namespace, at the agent's address on the
-// guest's network, and goes with the workload.
+// shares serves what a guest's binds name. This process serves a host
+// directory, or a single host file, over NFSv4, on one port every engine
+// network's gateway reaches. An engine volume lives where this process cannot
+// read it, so a share container serves a workload's volumes from the node
+// agent's network namespace, at the agent's address on the guest's network,
+// and goes with the workload.
 type shares struct {
 	once   sync.Once
 	server *fileshare.Server

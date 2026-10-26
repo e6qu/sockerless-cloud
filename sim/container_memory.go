@@ -10,31 +10,25 @@ import (
 	"github.com/moby/moby/client"
 )
 
-// Measuring what a container's memory actually reached.
-//
-// A cloud product that reports a workload's memory consumption has to read it
-// from the thing that ran the workload. The container engine accounts for a
-// running container's memory in its cgroup and serves that accounting on
-// `GET /containers/{id}/stats`. What the accounting carries depends on the
-// host's cgroup version:
+// A cloud product that reports a workload's memory consumption reads it from
+// the container engine, which accounts for a running container's memory in
+// its cgroup and serves it on `GET /containers/{id}/stats`. What it carries
+// depends on the host's cgroup version:
 //
 //   - cgroup v1: `usage` (memory.usage_in_bytes) and `max_usage`
-//     (memory.max_usage_in_bytes), the kernel's own high-water mark for the
-//     cgroup, so any reading carries the peak up to that moment;
-//   - cgroup v2: `usage` (memory.current) alone. The Engine API documents
-//     max_usage as unset on a cgroup v2 host, and the engine does not serve
-//     memory.peak, so the peak is the highest usage any reading saw.
+//     (memory.max_usage_in_bytes), the kernel's own high-water mark, so any
+//     reading carries the peak up to that moment;
+//   - cgroup v2: `usage` (memory.current) alone. The Engine API leaves
+//     max_usage unset there and serves no memory.peak, so the peak is the
+//     highest usage any reading saw.
 //
-// The observer therefore keeps the highest figure of every reading: the
-// running maximum of the usage samples and, where the engine keeps one, its
-// peak counter. It polls the accounting through the engine's one-shot reading
-// rather than holding the endpoint's stream open, because a stream's cadence
-// is the engine's and far coarser than the workloads measured here — Podman's
-// compatibility endpoint emits one streamed sample roughly every five seconds,
-// a single reading for a sub-second AWS Lambda invocation. A caller that
-// reports the figure at a moment of its own (the end of an invocation) reads
-// once more at that moment, so what the container holds then is counted even
-// when the workload finished between two polls.
+// The observer keeps the highest figure of every reading. It polls the
+// engine's one-shot reading rather than holding the stream open, because the
+// stream's cadence is far coarser than the workloads measured — Podman emits
+// one streamed sample roughly every five seconds, a single reading for a
+// sub-second AWS Lambda invocation. A caller that reports the figure at a
+// moment of its own reads once more then, so what the container holds at that
+// moment counts even when the workload finished between two polls.
 
 // memoryPeakSampleInterval is the gap between two readings of a container's
 // memory accounting. It is short relative to the shortest workload worth
@@ -84,8 +78,8 @@ func (o *memoryPeakObserver) read() uint64 {
 	return o.peakBytes()
 }
 
-// stop ends the observation. It is called when the container exits, before the
-// engine is asked to remove it.
+// stop ends the observation. The handle calls it when the container exits,
+// before it removes the container.
 func (o *memoryPeakObserver) stop() {
 	o.stopOnce.Do(func() { close(o.stopped) })
 }

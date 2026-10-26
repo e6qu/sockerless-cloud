@@ -67,8 +67,8 @@ func TestResolveLocalImage_ECR_LibraryOnly(t *testing.T) {
 	}
 }
 
-// parsePlatform — workload arch is carried in the spec, never derived
-// from the host. Empty or malformed → error (no silent fallback).
+// The workload's spec carries its platform, never the host: empty or
+// malformed input is an error.
 func TestParsePlatform(t *testing.T) {
 	cases := []struct {
 		in      string

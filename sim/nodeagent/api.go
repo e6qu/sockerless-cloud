@@ -7,7 +7,6 @@ package nodeagent
 
 import "time"
 
-// GuestSpec describes one guest.
 type GuestSpec struct {
 	ID       string `json:"id"`
 	Hostname string `json:"hostname,omitempty"`
@@ -33,7 +32,7 @@ type GuestSpec struct {
 	VCPUs         int            `json:"vcpus,omitempty"`
 	// MemoryMiB is the guest's memory; zero takes 512.
 	MemoryMiB int `json:"memoryMiB,omitempty"`
-	// Seed files are written into the root filesystem before it boots.
+	// The agent writes Seed files into the root filesystem before it boots.
 	Seed []SeedFile `json:"seed,omitempty"`
 	// StopGrace is how long the first process gets between SIGTERM and the
 	// guest's power-off.
@@ -81,13 +80,13 @@ type MemberSpec struct {
 	WorkingDir string `json:"workingDir,omitempty"`
 	// User runs the process as uid[:gid], resolved in the member's root.
 	User string `json:"user,omitempty"`
-	// Seed files are written into the member's root filesystem before it
+	// The agent writes Seed files into the member's root filesystem before it
 	// mounts.
 	Seed []SeedFile `json:"seed,omitempty"`
 	// StopGrace is how long the process gets between SIGTERM and SIGKILL.
 	StopGrace time.Duration `json:"stopGrace,omitempty"`
-	// Mounts are the file shares mounted into the member's root before its
-	// process starts.
+	// Mounts are the file shares guestinit mounts into the member's root before
+	// its process starts.
 	Mounts []Mount `json:"mounts,omitempty"`
 }
 
@@ -95,19 +94,19 @@ type MemberSpec struct {
 // a member: in a log read and in an exec. No member may take the name.
 const InitProcess = "init"
 
-// GuestNetwork is the guest's place on an engine network the agent joined.
 // NoDefaultRoute is the DefaultRoute of a guest with no route out of its
 // network.
 const NoDefaultRoute = "none"
 
+// GuestNetwork is the guest's place on an engine network the agent joined.
 type GuestNetwork struct {
 	// AgentAddress is the agent's own address on the network, which names the
 	// interface the guest bridges onto.
 	AgentAddress string `json:"agentAddress"`
 	// Address is the guest's address in CIDR notation.
 	Address string `json:"address"`
-	// Gateway is the network's own gateway, where the engine's host and
-	// the shares it serves are reached.
+	// Gateway is the network's own gateway, where the guest reaches the
+	// engine's host and the shares it serves.
 	Gateway string `json:"gateway"`
 	// DefaultRoute is where the guest's default route goes: empty for
 	// Gateway, an address on the network for another next hop, or
@@ -156,9 +155,9 @@ type GuestState struct {
 	Status  GuestStatus       `json:"status"`
 	Labels  map[string]string `json:"labels,omitempty"`
 	Address string            `json:"address"`
-	// Gateway is the guest's network's gateway, where a share the
-	// simulator serves is reached, and AgentAddress the agent's own address
-	// on that network, where a share served from the agent's namespace is.
+	// Gateway is the guest's network's gateway, where the guest reaches a
+	// share the simulator serves, and AgentAddress the agent's own address on
+	// that network, where it reaches a share served from the agent's namespace.
 	Gateway      string        `json:"gateway,omitempty"`
 	AgentAddress string        `json:"agentAddress,omitempty"`
 	ExitCode     int           `json:"exitCode"`

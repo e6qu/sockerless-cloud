@@ -66,8 +66,7 @@ type Spec struct {
 	// Address is the sidecar's fixed address inside the network's range: the
 	// address the cloud reserves for its resolver and metadata service.
 	Address netip.Addr
-	// Name is the container's name.
-	Name string
+	Name    string
 	// DNSUpstream is the host:port of the simulator's listener for this
 	// network (dnsserver.Server.ListenNetwork), as the sidecar reaches it.
 	DNSUpstream string

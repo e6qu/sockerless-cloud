@@ -10,9 +10,9 @@ import (
 // A network sidecar forwards a workload's metadata request to the simulator
 // with the token the simulator minted for it and the workload's address. The
 // simulator trusts the address only with a registered token, so a workload
-// reaching the simulator directly cannot claim another's address: the pair is
-// read here, stripped from every request, and the trusted address becomes the
-// request's RemoteAddr, which the metadata handlers already key on.
+// reaching the simulator directly cannot claim another's address: SidecarTrust
+// reads the pair, strips it from every request, and makes the trusted address
+// the request's RemoteAddr, which the metadata handlers already key on.
 const (
 	sidecarTokenHeader  = "X-Sockerless-Sidecar-Token"
 	sidecarClientHeader = "X-Sockerless-Sidecar-Client"

@@ -47,13 +47,13 @@ func exchange(ctx context.Context, network string, query *dns.Msg, upstream stri
 	return resp, err
 }
 
-// ResolvConf is the host file upstreams are read from by default.
+// ResolvConf is the host file the server reads its default upstreams from.
 var ResolvConf = "/etc/resolv.conf"
 
 // upstreams returns the servers to recurse through, as host:port: those the
 // Recursion lists (port 53 when none is given), or else the nameservers of the
-// host's resolv.conf, read once. An entry that points back at this server's
-// own listener is left out: forwarding to it is a query loop whose reply
+// host's resolv.conf, read once. It leaves out an entry that points back at
+// this server's own listener: forwarding to it is a query loop whose reply
 // never comes.
 func (s *Server) upstreams() []string {
 	rec := s.cfg.Recursion

@@ -25,8 +25,7 @@ type EgressSpec struct {
 	Network string
 	// Address is the gateway's address inside the network's range.
 	Address netip.Addr
-	// Name is the container's name.
-	Name string
+	Name    string
 	// Gateway names the gateway in the sidecar's reports.
 	Gateway string
 	// Sources are the ranges whose connections the gateway carries.

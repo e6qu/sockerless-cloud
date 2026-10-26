@@ -65,7 +65,6 @@ type Delivery[P any] struct {
 	DeadLetter func(item delivery.Item[P], reason delivery.Reason)
 }
 
-// Config holds a Bus's hooks.
 type Config[E, S, P any] struct {
 	Subscriptions func(source string) []S
 	// Admits is the cloud's filter; nil admits every event.

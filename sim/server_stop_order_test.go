@@ -10,9 +10,8 @@ import (
 )
 
 // What a program starts beside the HTTP port stops while the database is
-// still open: a stop that lists a store after the database closed was a panic
-// on the way out, and the harness that restarted the simulator then found it
-// had not exited cleanly.
+// still open: a stop that lists a store after the close would panic on the
+// way out.
 func TestServerStopsItsListenersBeforeClosingTheDatabase(t *testing.T) {
 	t.Setenv("SIM_RUNTIME", "process")
 	probe, err := net.Listen("tcp", "127.0.0.1:0")

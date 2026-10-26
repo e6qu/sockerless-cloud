@@ -14,18 +14,18 @@ import (
 	"time"
 )
 
-// OCI Distribution data plane — the Docker Registry HTTP API v2 (`/v2/…`),
-// shared verbatim across the AWS ECR, GCP Artifact Registry, and Azure ACR
-// simulators. The protocol is identical across registries; cloud-specific
-// behaviour (control-plane image-row registration, pull-through hydration,
-// non-OCI `/v2/` routes) is injected via the hooks on OCIRegistry.
+// The OCI Distribution data plane — the Docker Registry HTTP API v2 (`/v2/…`)
+// — serves Amazon ECR, Artifact Registry and Azure Container Registry alike.
+// Each cloud injects its own behaviour (control-plane image rows,
+// pull-through hydration, non-OCI `/v2/` routes) through the hooks on
+// OCIRegistry.
 
 // A registry's content is its own. Two registries served by one simulator hold
 // unrelated repositories, so every stored manifest, blob and upload records the
-// registry it belongs to and is keyed within it — the Scope, resolved per
-// request by the mounting cloud (see OCIRegistry.Scope). Without it,
-// `regA.example.com/foo` and `regB.example.com/foo` would resolve to the same
-// content, which no real registry does.
+// registry it belongs to — the Scope, which the mounting cloud resolves per
+// request (see OCIRegistry.Scope) — and is keyed within it. Otherwise
+// `regA.example.com/foo` and `regB.example.com/foo` would share content, which
+// no real registry does.
 
 // OCIManifest is a stored image manifest, keyed by
 // `scope/repo:reference` (tag or digest).
@@ -36,10 +36,8 @@ type OCIManifest struct {
 	Data        []byte
 	Repo        string
 	Ref         string
-	// Pushed is when the registry received this manifest. A registry knows
-	// when it was written, and the properties APIs the clouds put in front of
-	// it report that time; without it they would have to name a moment nothing
-	// happened at.
+	// Pushed is when the registry received this manifest, which the
+	// properties APIs the clouds put in front of it report.
 	Pushed time.Time
 }
 
@@ -72,23 +70,23 @@ type OCIRegistry struct {
 	// of the same manifest can't leave a dangling half-manifest.
 	manifestMu sync.Mutex
 
-	// OnManifestPut, if set, is invoked after a manifest is stored so the cloud
-	// can register a control-plane image row against the registry the request
-	// addressed.
+	// OnManifestPut, if set, runs after the registry stores a manifest, so the
+	// cloud can register a control-plane image row against the registry the
+	// request addressed.
 	OnManifestPut func(scope, repo, ref, contentType string, data []byte)
-	// OnManifestDelete, if set, is invoked under the manifest lock after a
-	// client's DELETE removed a manifest and its aliases, so the cloud can drop
-	// the control-plane rows that describe that digest. It must not re-enter the
+	// OnManifestDelete, if set, runs under the manifest lock after a client's
+	// DELETE removed a manifest and its aliases, so the cloud can drop the
+	// control-plane rows that describe that digest. It must not re-enter the
 	// manifest store.
 	OnManifestDelete func(scope, repo, digest string)
-	// HydrateManifest, if set, is invoked on a manifest GET/HEAD miss to let the
-	// cloud's pull-through cache populate the manifest (+ its blobs) via
-	// PutBlob, in the scope of the registry the request addressed. Returns true
-	// if it populated the requested manifest.
+	// HydrateManifest, if set, runs on a manifest GET/HEAD miss so the cloud's
+	// pull-through cache can populate the manifest and its blobs through
+	// PutBlob, in the scope of the registry the request addressed. It returns
+	// true if it populated the requested manifest.
 	HydrateManifest func(reg *OCIRegistry, scope, repo, ref string) bool
 	// SkipPath, if set, returns true for `/v2/`-prefixed paths the surrounding
-	// mux serves elsewhere (e.g. GCP's `/v2/projects/` control-plane routes);
-	// those get a 404 here so the cloud handler can take them.
+	// mux serves elsewhere (Artifact Registry's `/v2/projects/` control-plane
+	// routes); the data plane answers them 404 so the cloud handler takes them.
 	SkipPath func(path string) bool
 	// Authorize, if set, authenticates every `/v2/` request before the data
 	// plane acts on it. repo is the repository the request addresses — empty
@@ -119,14 +117,14 @@ type OCIRegistry struct {
 	// BaseResponse, if set, writes the authorized answer to the API-version
 	// probe at `/v2/`. The three registries this data plane serves disagree
 	// there: Amazon ECR answers status 200 with `content-length: 0` and no
-	// `content-type` at all, Google Artifact Registry the same empty body as
+	// `content-type` at all, Artifact Registry the same empty body as
 	// `text/html; charset=UTF-8`, Azure Container Registry the two-byte body
 	// `{}` as `application/json; charset=utf-8`. Docker Distribution's `{}` is
 	// what the reference implementation sends and none of these three do. A
 	// registry mounted without the hook answers the way Amazon ECR does.
 	BaseResponse func(w http.ResponseWriter)
 	// RefuseChunkedUpload, if set, makes an upload session accept exactly one
-	// write and calls the hook to refuse the second. Google Artifact Registry
+	// write and calls the hook to refuse the second. Artifact Registry
 	// documents that it does not support Docker chunked uploads; the line is
 	// between one write and several, not between PATCH and PUT, because every
 	// container engine's `docker push` sends the whole blob in one PATCH and
@@ -146,20 +144,18 @@ type OCIRegistry struct {
 	Scope func(r *http.Request) string
 }
 
-// Register mounts the data plane on the /v2/ subtree for every method, then
-// dispatches by method internally. Registering one method-specific subtree per
-// verb (rather than a bare `/v2/` or per-method `{wildcard...}` patterns)
-// sidesteps three ServeMux pitfalls at once: the Go 1.22 rule that a
-// `{name...}` wildcard must be the final segment; the method-pattern split that
-// left blob-upload POST unrouted on ACR; and the conflict a bare all-method
-// `/v2/` raises against a method-specific root pattern like awsJson's `POST /`
-// (a method-specific subtree is strictly more specific, so it wins cleanly).
+// Register mounts the data plane on the /v2/ subtree once per method and
+// dispatches inside. One method-specific subtree per verb sidesteps three
+// ServeMux pitfalls: a `{name...}` wildcard must be the final segment;
+// per-method wildcard patterns leave some verb unrouted; and a bare
+// all-method `/v2/` conflicts with a method-specific root pattern like
+// awsJson's `POST /`, which a method-specific subtree outranks.
 func (reg *OCIRegistry) Register(srv *Server) {
 	h := http.HandlerFunc(reg.serve)
-	// HEAD is intentionally omitted: Go's ServeMux routes HEAD to a GET
-	// handler, and registering an explicit `HEAD /v2/` would conflict with any
-	// sibling `GET /v2/<exact>` route (e.g. AWS API Gateway v2's /v2/apis) via
-	// the GET-implies-HEAD rule. handleBlob/handleManifest serve HEAD inside.
+	// Leave HEAD out: Go's ServeMux routes HEAD to a GET handler, and an
+	// explicit `HEAD /v2/` would conflict with any sibling `GET /v2/<exact>`
+	// route (Amazon API Gateway v2's /v2/apis) through the GET-implies-HEAD
+	// rule. handleBlob and handleManifest serve HEAD inside.
 	for _, method := range []string{"GET", "POST", "PATCH", "PUT", "DELETE"} {
 		srv.Handle(method+" /v2/", h)
 	}
@@ -167,11 +163,10 @@ func (reg *OCIRegistry) Register(srv *Server) {
 
 func (reg *OCIRegistry) serve(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Path
-	// Real Docker Distribution / ECR registries return this header on EVERY
-	// /v2/ response (not just the base ping) — including the missing-manifest
-	// 404 that a push client probes first. Setting it here covers manifest,
-	// blob, tags, and error responses; a strict client or fronting proxy can
-	// otherwise reject a bare 404 that doesn't look like a registry response.
+	// Docker Distribution and Amazon ECR return this header on every /v2/
+	// response, the missing-manifest 404 a push probes first included; a
+	// strict client or fronting proxy can reject a bare 404 that does not look
+	// like a registry response.
 	w.Header().Set("Docker-Distribution-Api-Version", "registry/2.0")
 	if path == "/v2/" || path == "/v2" {
 		// The base endpoint is the one a client probes to discover both API
@@ -583,13 +578,10 @@ func OCIError(w http.ResponseWriter, code, message string, status int) {
 	})
 }
 
-// ociMaxBodyBytes bounds the size of any single blob/manifest upload the
-// registry will buffer in memory. A registry caller streams whole image layers
-// through here, so the cap is generous (2 GiB) — larger than any realistic test
-// image layer — but finite: without it an attacker could POST a body with no
-// Content-Length (or a tiny gzip blob that inflates to gigabytes — a "zip bomb")
-// and OOM the simulator. The decompressed size is what the cap guards, since
-// that is what gets materialized.
+// ociMaxBodyBytes bounds any single blob or manifest upload the registry
+// buffers in memory: generous enough for a whole image layer, but finite, so
+// a body without Content-Length or a gzip bomb cannot exhaust memory. It caps
+// the decompressed size, which is what the registry materializes.
 const ociMaxBodyBytes = 2 << 30 // 2 GiB
 
 // ociReadBody reads the request body, transparently gunzipping it when the
@@ -600,15 +592,8 @@ func ociReadBody(r *http.Request) ([]byte, error) {
 	return ociReadBodyLimited(r, ociMaxBodyBytes)
 }
 
-// ociReadBodyLimited is ociReadBody with the cap supplied rather than assumed.
-//
-// The cap is two gibibytes, and a test that proves the limit by reaching it
-// must materialize that much: two such tests together peaked at 7.7 GiB of
-// resident memory under the race detector, on a hosted runner that has 7 GiB
-// in total. What they assert — that the read stops one byte past the cap
-// instead of truncating, on the plain path and after inflation alike — is a
-// property of the boundary, not of its size, so the tests supply a small cap
-// and assert both sides of it exactly.
+// ociReadBodyLimited is ociReadBody with the cap supplied, so a test proves
+// the boundary at a small cap instead of materializing two gibibytes.
 func ociReadBodyLimited(r *http.Request, limit int64) ([]byte, error) {
 	switch ce := strings.ToLower(strings.TrimSpace(r.Header.Get("Content-Encoding"))); ce {
 	case "", "identity":

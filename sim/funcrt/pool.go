@@ -21,10 +21,10 @@
 // invocation. They hold their share of the limit while allocated, and serve
 // invocations only once every one of them has initialised; invocations past
 // them run on on-demand environments. Retire stops the pool: idle
-// environments stop at once, busy ones once their invocation releases them,
-// and the cloud starts a new pool for the function's new code or
-// configuration.
-//
+// Invocations count against a Limit, which several pools may share: the
+// versions of one function share that function's reserved concurrency.
+// Acquire refuses an invocation the limit has no room for with a
+// ThrottledError rather than queuing it, so the cloud answers it as a throttle.
 // The package holds no wire shapes. The cloud creates and initialises an
 // environment through Hooks.Start, and the environment's own protocol — the
 // Lambda Runtime API, the Functions host's HTTP listener — carries the
@@ -82,7 +82,6 @@ type Hooks[E Environment] struct {
 	Expires func(env E) time.Time
 }
 
-// Options shape a pool.
 type Options struct {
 	// Limit is what the pool's invocations count against; nil is unbounded.
 	Limit *Limit
@@ -165,7 +164,6 @@ type Lease[E Environment] struct {
 	once sync.Once
 }
 
-// Env is the leased environment.
 func (l *Lease[E]) Env() E { return l.slot.env }
 
 // Kind is how the leased environment was initialised.
@@ -595,7 +593,6 @@ func (p *Pool[E]) Provisioning() Provisioning {
 	}
 }
 
-// Stats counts the pool's environments.
 type Stats struct {
 	Starting, Idle, Busy int
 }

@@ -12,10 +12,9 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
-// Work handed to package bg that is still running when the shutdown signal
-// arrives writes its store before the database closes: a job's attempt that
-// finished starting during a restart wrote a closed database and panicked the
-// simulator on its way out.
+// Work handed to package bg that still runs when the shutdown signal arrives
+// writes its store before the database closes; a write after the close would
+// panic the simulator on its way out.
 func TestServerDrainsBackgroundWorkBeforeClosingTheDatabase(t *testing.T) {
 	t.Setenv("SIM_RUNTIME", "process")
 	probe, err := net.Listen("tcp", "127.0.0.1:0")

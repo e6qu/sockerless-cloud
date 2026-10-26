@@ -83,10 +83,9 @@ func (p *TCPProxy) SetAdmit(admit func(client netip.Addr, target string) error) 
 	p.admit.Store(&admit)
 }
 
-// Close stops the proxy and returns once no handler is still running. In-flight
-// client connections are closed rather than waited out: a proxied stream can
-// last for hours by design, so waiting for one to end would make Close block
-// for as long as its busiest connection.
+// Close stops the proxy and returns once no handler is still running. It
+// closes in-flight client connections rather than waiting them out: a proxied
+// stream can last for hours by design.
 func (p *TCPProxy) Close() error {
 	var err error
 	p.once.Do(func() {

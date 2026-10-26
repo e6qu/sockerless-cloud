@@ -100,11 +100,10 @@ func Modules(mappings []Mapping) []Module {
 
 // WriteCore writes an ELF core of a process to w: one PT_LOAD segment per run
 // of readable pages, read out of mem, which is the process's /proc/<pid>/mem.
-// A mapping that cannot be read is left out rather than zero-filled: a segment
-// of zeroes would claim the process holds zeroes there, and it holds something
-// this reader was not allowed to see. The core carries no register set, which
-// PTRACE_GETREGSET reads only from a stopped process; a debugger opens it and
-// reads memory, and says so about the threads.
+// It leaves out a mapping it cannot read rather than zero-filling it: a
+// segment of zeroes would claim the process holds zeroes there. The core
+// carries no register set, which PTRACE_GETREGSET reads only from a stopped
+// process; a debugger opens it, reads memory, and says so about the threads.
 func WriteCore(w io.Writer, mem io.ReaderAt, mappings []Mapping, pageSize int, machine elf.Machine) error {
 	type segment struct {
 		low    uint64

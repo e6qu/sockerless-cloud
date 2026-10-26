@@ -31,9 +31,8 @@ import (
 )
 
 // parsePlatform splits an "os/arch" or "os/arch/variant" string into an
-// ocispec.Platform. Returns an error on empty or malformed input —
-// every caller must be explicit per `feedback_sim_host_model.md`. No
-// silent fallback to "image default / host arch".
+// ocispec.Platform. It refuses empty or malformed input: every caller names
+// its platform, and none falls back to the host's.
 func parsePlatform(s string) (*ocispec.Platform, error) {
 	if s == "" {
 		return nil, fmt.Errorf("ContainerConfig.Architecture is required (e.g. \"linux/arm64\")")
@@ -49,14 +48,6 @@ func parsePlatform(s string) (*ocispec.Platform, error) {
 	}
 }
 
-// ContainerConfig describes a container to run.
-//
-// Architecture carries the workload's target arch (e.g. "linux/arm64",
-// "linux/amd64"). The simulator never derives this from the host —
-// the workload's spec carries the field; cloud-product translators
-// pass it through. Empty string means "use the image's default" which
-// in practice resolves to the host arch via Docker (treat that as a
-// not-yet-migrated caller).
 // NetworkAttachment is a further network a workload joins at an address.
 type NetworkAttachment struct {
 	Network     string
@@ -69,7 +60,7 @@ const NoGateway = "none"
 
 type ContainerConfig struct {
 	Image        string // container image (e.g., "alpine:latest")
-	Architecture string // OS/arch (e.g. "linux/arm64"); see field-level docstring above
+	Architecture string // OS/arch (e.g. "linux/arm64") from the workload's spec, never the host's
 	// RegistryAuth is the credential the engine presents to Image's registry
 	// when it pulls — the engine API's X-Registry-Auth value, which
 	// RegistryCredential renders. Empty pulls anonymously.
@@ -154,18 +145,15 @@ type ContainerConfig struct {
 	// something else binds it.
 	PublishPorts []int
 
-	// Sandbox: per-platform capability + permission restrictions. Each
+	// Sandbox restricts the workload as its cloud platform does; each
 	// cloud-product handler picks the matching profile (SandboxLambda,
-	// SandboxFargate, and so on). Zero value = no sandbox enforcement;
-	// callers without an explicit profile see a one-time warning at
-	// startup but the container still runs. Production callers must
-	// always set Sandbox.
+	// SandboxFargate, and so on). The zero value enforces nothing.
 	Sandbox SandboxProfile
 
-	// MemoryBytes is the hard memory limit (cgroup memory.max) applied to the
-	// container, in bytes. Zero = unbounded. Cloud handlers translate the
-	// product's advertised sizing (ECS/Fargate task or container memory) here
-	// so the container's cgroup matches what the metadata advertises.
+	// MemoryBytes is the hard memory limit (cgroup memory.max) in bytes; zero
+	// is unbounded. Cloud handlers translate the product's advertised sizing
+	// (an Amazon ECS task's or container's memory) here, so the cgroup matches
+	// what the metadata advertises.
 	MemoryBytes int64
 
 	// NanoCPU is the CPU limit (cgroup cpu.max) in units of 1e-9 CPUs — e.g.
@@ -298,7 +286,7 @@ func (h *ContainerHandle) MemoryPeakBytes() uint64 {
 // recorded, and none when the engine no longer held it.
 func (h *ContainerHandle) StartedAt() time.Time { return h.startedAt }
 
-// dockerClient is the shared Docker client. Initialized once at startup.
+// dockerClient is the shared engine client InitDocker sets.
 var (
 	dockerClient     *client.Client
 	dockerClientOnce sync.Once
@@ -343,14 +331,12 @@ func pingContainerEngine(cli *client.Client) error {
 }
 
 // InitDocker initializes the shared Docker client and verifies connectivity.
-// Called at simulator startup for every runtime mode that executes workloads.
+// Startup calls it for every runtime mode that executes workloads.
 //
-// It reports an error rather than exiting the process, so that the decision to
-// refuse to start belongs to startup — which can say what it was configuring
-// and can be exercised by a test — instead of to a library call. A simulator
-// that cannot reach an engine must not reach the point of serving requests: the
-// alternative is a process that answers its health check while every workload
-// it is asked to run fails at first use.
+// It returns an error rather than exiting, so startup decides to refuse to
+// start and can say what it was configuring: a simulator that cannot reach an
+// engine must not answer its health check while every workload it runs fails
+// at first use.
 func InitDocker(provider string, preserveWorkloads bool, stateDir string) (*client.Client, error) {
 	configureSimulatorIdentity(provider, stateDir)
 	dockerClientOnce.Do(func() {
@@ -379,18 +365,15 @@ func InitDocker(provider string, preserveWorkloads bool, stateDir string) (*clie
 	return dockerClient, nil
 }
 
-// DockerClient returns the shared Docker client. InitDocker must have been called first.
+// DockerClient returns the shared Docker client InitDocker set.
 func DockerClient() *client.Client {
 	return dockerClient
 }
 
 // RequireContainerRuntime reports why an operation that runs a container cannot
 // run in this process. Startup refuses to serve when a workload-executing mode
-// cannot reach an engine, so a missing client here means only one thing: the
-// simulator was deliberately started API-only. Naming that says which of the
-// two very different situations the caller is in — an engine that went away,
-// or a process that never had one — instead of leaving a nil variable to be
-// reported as if it were an engine fault.
+// cannot reach an engine, so a missing client here means the simulator was
+// started API-only, not that an engine went away.
 func RequireContainerRuntime(operation string) error {
 	if dockerClient != nil {
 		return nil
@@ -403,8 +386,7 @@ func RequireContainerRuntime(operation string) error {
 var managedContainers sync.Map // containerID -> true
 
 // CleanupContainers stops and removes all simulator-managed containers, then
-// the run's networks and volumes.
-// Called on simulator shutdown.
+// the run's networks and volumes. Shutdown calls it.
 func CleanupContainers() {
 	if dockerClient == nil {
 		return
@@ -438,10 +420,9 @@ func CleanupContainers() {
 	}
 }
 
-// StartContainerSyncContext pulls the image (if needed), creates and starts a
-// container, returning the handle with ContainerID populated.
-// Blocks until the container is created and started (but not until it exits).
-// Stdout/stderr are streamed to the LogSink; call handle.Wait() to block until exit.
+// StartContainerSyncContext pulls the image when needed, creates and starts a
+// container, and returns its handle once it has started. Stdout and stderr
+// stream to sink; handle.Wait blocks until exit.
 //
 // ctx bounds the start alone: once it is done the pull and the create stop and
 // the call fails, while a container that already started runs until it exits
@@ -469,7 +450,6 @@ func StartContainerSyncContext(ctx context.Context, cfg ContainerConfig, sink Lo
 	}
 	handle.memory = memory
 
-	// Stream logs and wait for exit in background
 	go func() {
 		result := waitAndCaptureLogs(lifetime, cli, containerID, cfg, sink)
 		// The observation ends with the container, before it is removed: the
@@ -742,8 +722,8 @@ func WaitContainerRemoved(containerID string, timeout time.Duration) error {
 }
 
 // containerNotFoundError accepts Docker's typed 404 and Podman's
-// Docker-compatible API response. Podman currently returns the missing
-// container database condition without Docker's NotFound error classification.
+// Docker-compatible answer, which reports the missing container without
+// Docker's NotFound classification.
 func containerNotFoundError(err error) bool {
 	if err == nil {
 		return false
@@ -890,12 +870,6 @@ func drainImagePull(reader io.Reader, imageName string) error {
 	}
 }
 
-// pullImage pulls imageName (optionally platform-pinned), retrying
-// transient registry throttling: public mirrors rate-limit
-// unauthenticated pulls (toomanyrequests / 429 / 503) and a hard fail
-// turns a moment of throttle into a failed workload. Bounded
-// exponential backoff per the strict rate-limit rule; everything
-// non-transient fails immediately.
 // InspectHeldImage inspects the image the engine holds for name. `docker load`
 // restores no repository digest, so the engine holds a digest-pinned image a
 // base-image archive restored only under the tag that spells its digest,
@@ -926,6 +900,11 @@ func digestTag(name string) string {
 	return repo + ":sha256-" + digest
 }
 
+// pullImage pulls imageName, pinned to platform when one is named, retrying
+// registry throttling (toomanyrequests, 429, 503) with bounded exponential
+// backoff: public mirrors rate-limit unauthenticated pulls, and a hard fail
+// would turn a moment of throttle into a failed workload. Anything else fails
+// at once.
 func pullImage(ctx context.Context, cli *client.Client, imageName, platform, registryAuth string) error {
 	pullOpts := client.ImagePullOptions{RegistryAuth: registryAuth}
 	var wanted *ocispec.Platform
@@ -937,17 +916,15 @@ func pullImage(ctx context.Context, cli *client.Client, imageName, platform, reg
 		wanted = parsed
 		pullOpts.Platforms = []ocispec.Platform{*parsed}
 	}
-	// An image the host already holds needs no registry request. This is what
-	// `docker run` itself does — its default pull policy is "missing" — and it
-	// is what keeps a data cap from turning a workload the host could start
-	// into a failure: a capped registry refuses the manifest check as readily
-	// as the layers, and the backoff below cannot recover from a cap, only
-	// from a moment of throttle.
+	// An image the host already holds needs no registry request, as `docker
+	// run`'s default pull policy ("missing") does. It also keeps a data cap from
+	// failing a workload the host could start: a capped registry refuses the
+	// manifest check as readily as the layers, and the backoff below recovers
+	// from throttling, never from a cap.
 	//
-	// A pinned platform is checked against what the host holds rather than
-	// assumed: the simulator's own architecture is routinely not the
-	// workload's, and starting an amd64 image where arm64 was asked for would
-	// be a worse answer than fetching.
+	// Check a pinned platform against what the host holds: the simulator's own
+	// architecture is routinely not the workload's, and starting an amd64 image
+	// where arm64 was asked for is worse than fetching.
 	held, err := InspectHeldImage(ctx, cli, imageName)
 	switch {
 	case err != nil:
@@ -991,12 +968,11 @@ func pullImage(ctx context.Context, cli *client.Client, imageName, platform, reg
 }
 
 // selinuxRelabelBinds appends the shared SELinux relabel option (`z`) to each
-// bind so a workload container on an SELinux-enforcing host (a rootful podman
-// machine, say) can read and write the bind-mounted directory. The simulator's
-// file shares are deliberately shared across the containers that mount them,
-// so the shared (`z`) rather than private (`Z`) relabel applies. Hosts without
-// SELinux ignore the option. A bind that already states a relabel option is
-// left as its caller wrote it: the engine refuses a second one.
+// bind so a workload container on an SELinux-enforcing host (a rootful Podman
+// machine, say) can read and write the bind-mounted directory. The containers
+// that mount a simulator file share all share it, hence `z` and not the
+// private `Z`. Hosts without SELinux ignore the option. A bind that already
+// states a relabel option keeps it: the engine refuses a second one.
 func selinuxRelabelBinds(binds []string) []string {
 	out := make([]string, 0, len(binds))
 	for _, b := range binds {
@@ -1083,13 +1059,10 @@ func PullImageWithCredential(ctx context.Context, imageName, platform, registryA
 // registry-side throttling and momentary unavailability.
 func isTransientRegistryErr(err error) bool {
 	msg := strings.ToLower(err.Error())
-	// A data cap is not throttling. The ECR Public Gallery, which serves the
-	// images AWS publishes, such as the AWS Lambda base images, answers an
-	// exhausted anonymous allowance with "toomanyrequests: Data limit
-	// exceeded", which reads like the rate limit below it and is nothing like
-	// it: waiting does not clear it, so the backoff only spends two minutes
-	// arriving at the same answer. Saying so at once leaves the reason in the
-	// log where the failure is, instead of five identical lines above it.
+	// A data cap is not throttling. Amazon ECR Public, which serves the images
+	// AWS publishes such as the AWS Lambda base images, answers an exhausted
+	// anonymous allowance with "toomanyrequests: Data limit exceeded", which
+	// waiting does not clear; fail at once so the reason sits where the failure is.
 	if strings.Contains(msg, "data limit exceeded") {
 		return false
 	}
@@ -1102,33 +1075,29 @@ func isTransientRegistryErr(err error) bool {
 }
 
 func createAndStartContainer(ctx context.Context, cli *client.Client, cfg ContainerConfig) (string, time.Time, error) {
-	// Pull image
 	pullPolicy := os.Getenv("SIM_PULL_POLICY")
 	if pullPolicy == "" {
 		pullPolicy = "if-not-present"
 	}
 
-	// "if-not-present" is decided by pullImage, which holds the image
-	// present only when the host has it for the platform asked for: an
-	// image the host holds under the name for another architecture is not
-	// the image the workload asked for, and starting it would run the
-	// wrong binary — a Go program crashes at once under emulation.
+	// pullImage decides "if-not-present", holding the image present only when the
+	// host has it for the platform asked for: an image held under the name for
+	// another architecture would run the wrong binary — a Go program crashes at
+	// once under emulation.
 	if pullPolicy != "never" {
 		if err := pullImage(ctx, cli, cfg.Image, cfg.Architecture, cfg.RegistryAuth); err != nil {
 			return "", time.Time{}, err
 		}
 	}
 
-	// Resolve the image to its ID for ContainerCreate. Podman's docker-compat
-	// API resolves a short name ("name:tag") on inspect/pull but not on create:
-	// a locally-built image inspects fine yet create reports "no such image".
-	// The image ID is unambiguous on both Docker and Podman, so create by ID.
+	// Create by image ID: Podman's Docker-compatible API resolves a short name
+	// ("name:tag") on inspect and pull but not on create, where a locally built
+	// image reports "no such image".
 	imageRef := cfg.Image
 	if inspect, err := InspectHeldImage(ctx, cli, cfg.Image); err == nil && inspect.ID != "" {
 		imageRef = inspect.ID
 	}
 
-	// Build container config
 	var env []string
 	for k, v := range cfg.Env {
 		env = append(env, k+"="+v)
@@ -1153,7 +1122,6 @@ func createAndStartContainer(ctx context.Context, cli *client.Client, cfg Contai
 		containerCfg.ExposedPorts = network.PortSet{}
 	}
 
-	// Set entrypoint and command separately
 	if len(cfg.Command) > 0 {
 		containerCfg.Entrypoint = cfg.Command
 	}
@@ -1172,10 +1140,9 @@ func createAndStartContainer(ctx context.Context, cli *client.Client, cfg Contai
 		}
 		hostCfg.DNS = append(hostCfg.DNS, addr)
 	}
-	// Apply the advertised resource limits to the container's cgroup so the
-	// workload is actually bounded the way the cloud product reports (e.g. a
-	// Fargate task that advertises 512 CPU / 1024 MiB sees a matching
-	// memory.max / cpu.max, not the host's full capacity).
+	// Bound the container's cgroup the way the cloud product reports: a Fargate
+	// task that advertises 512 CPU / 1024 MiB sees a matching memory.max and
+	// cpu.max, not the host's full capacity.
 	if cfg.MemoryBytes > 0 {
 		hostCfg.Memory = cfg.MemoryBytes
 	}
@@ -1203,9 +1170,7 @@ func createAndStartContainer(ctx context.Context, cli *client.Client, cfg Contai
 		hostCfg.PortBindings[port] = []network.PortBinding{{HostIP: netip.MustParseAddr("127.0.0.1")}}
 	}
 
-	// Enforce sandbox parity with the real cloud platform. Empty profile
-	// means no enforcement; non-empty must apply cleanly so caller errors
-	// fail loudly.
+	// An empty profile enforces nothing; a non-empty one must apply cleanly.
 	if err := cfg.Sandbox.Apply(hostCfg, containerCfg); err != nil {
 		return "", time.Time{}, fmt.Errorf("sandbox enforce: %w", err)
 	}
@@ -1385,11 +1350,10 @@ func waitAndCaptureLogs(ctx context.Context, cli *client.Client, containerID str
 		_, _ = cli.ContainerKill(killCtx, containerID, client.ContainerKillOptions{Signal: "KILL"})
 	}
 
-	// Stream logs live while the workload runs — the awslogs driver forwards
-	// each line to CloudWatch Logs as it is produced, so a long-running
-	// service task accumulates logs in near-real time instead of becoming
-	// visible only after it exits. The stream runs on a detached context so
-	// a caller-side cancel cannot truncate it before the exit drain below.
+	// Stream logs live while the workload runs, as the awslogs driver forwards
+	// each line to Amazon CloudWatch Logs as the workload writes it. The stream
+	// runs on a detached context so a caller's cancel cannot truncate it before
+	// the exit drain below.
 	counting := &lineCountingSink{sink: sink, counts: map[string]int{}}
 	followCtx, followCancel := context.WithCancel(context.Background())
 	defer followCancel()
@@ -1399,7 +1363,6 @@ func waitAndCaptureLogs(ctx context.Context, cli *client.Client, containerID str
 		followContainerLogs(followCtx, cli, containerID, counting)
 	}()
 
-	// Enforce timeout via a separate goroutine.
 	if cfg.Timeout > 0 {
 		go func() {
 			select {
@@ -1414,7 +1377,6 @@ func waitAndCaptureLogs(ctx context.Context, cli *client.Client, containerID str
 		}()
 	}
 
-	// Wait for container to exit.
 	var result ProcessResult
 	wait := cli.ContainerWait(ctx, containerID, client.ContainerWaitOptions{Condition: container.WaitConditionNotRunning})
 	statusCh, errCh := wait.Result, wait.Error
@@ -1459,13 +1421,11 @@ func waitAndCaptureLogs(ctx context.Context, cli *client.Client, containerID str
 		<-followDone
 	}
 
-	// Drain any remainder the follow stream did not deliver — it may have
-	// attached after a very short-lived container had already exited, or
-	// seen EOF before the final buffered lines were demuxed. Both reads
-	// walk the same per-stream log buffer in order, so skipping the lines
-	// the live stream already wrote appends exactly the missing tail
-	// without duplicating anything. Use a detached context with a generous
-	// timeout so any caller-side cancel doesn't interrupt the read.
+	// Drain what the follow stream did not deliver: it may have attached after a
+	// short-lived container exited, or seen EOF before the last buffered lines
+	// were demuxed. Both reads walk the same per-stream buffer in order, so
+	// skipping the lines the live stream wrote appends exactly the missing tail.
+	// A detached context keeps a caller's cancel from interrupting the read.
 	readCtx, readCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer readCancel()
 	written := &lineCountingSink{sink: sink, counts: map[string]int{}}
@@ -1556,10 +1516,9 @@ func followContainerLogs(ctx context.Context, cli *client.Client, containerID st
 	}
 }
 
-// drainContainerLogs reads the full container log via non-follow
-// ContainerLogs and forwards every demuxed line to sink. Called once
-// the container has exited; Docker keeps the log buffer around until
-// the container is removed.
+// drainContainerLogs reads the whole container log with a non-follow
+// ContainerLogs and forwards every demuxed line to sink. Call it once the
+// container has exited; Docker keeps the log until the container is removed.
 func drainContainerLogs(ctx context.Context, cli *client.Client, containerID string, sink LogSink) error {
 	reader, err := cli.ContainerLogs(ctx, containerID, client.ContainerLogsOptions{
 		ShowStdout: true,
@@ -1573,11 +1532,9 @@ func drainContainerLogs(ctx context.Context, cli *client.Client, containerID str
 	return streamDockerLogs(reader, sink)
 }
 
-// streamDockerLogs demuxes Docker log output and sends lines to the sink.
 // splitDockerLogTimestamp splits the RFC3339Nano timestamp Docker prepends to
-// each line when ContainerLogs is asked for timestamps. A line without one —
-// an engine that did not honour the option — keeps its whole text and is dated
-// now, which is what every line used to get.
+// each line when ContainerLogs asks for timestamps. A line without one, from
+// an engine that ignored the option, keeps its whole text and is dated now.
 func splitDockerLogTimestamp(line string) (time.Time, string) {
 	stamp, rest, found := strings.Cut(line, " ")
 	if !found {
@@ -1593,7 +1550,6 @@ func splitDockerLogTimestamp(line string) (time.Time, string) {
 func streamDockerLogs(reader io.ReadCloser, sink LogSink) error {
 	defer reader.Close()
 
-	// Docker multiplexed output: use stdcopy to demux
 	stdoutPR, stdoutPW := io.Pipe()
 	stderrPR, stderrPW := io.Pipe()
 
@@ -1617,11 +1573,9 @@ func streamDockerLogs(reader io.ReadCloser, sink LogSink) error {
 		// takes the timestamp the read asks Docker to prepend.
 		scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 		for scanner.Scan() {
-			// The line carries the time the container wrote it, which Docker
-			// records and now prepends. Stamping time.Now() here dated every
-			// line by when this reader got to it, so a workload that logged
-			// during a slow start reported the delay as its own — the reader's
-			// lag and the workload's were the same number.
+			// Date the line by when the container wrote it, not by when this reader got
+			// to it: a reader lagging behind a slow start would report its lag as the
+			// workload's.
 			stamp, text := splitDockerLogTimestamp(scanner.Text())
 			sink.WriteLog(LogLine{
 				Stream:    stream,
@@ -1645,26 +1599,24 @@ func streamDockerLogs(reader io.ReadCloser, sink LogSink) error {
 }
 
 // ResolveLocalImage maps pull-through-cache coordinates back to their upstream
-// Docker Hub images for local execution. Cloud backends can resolve
-// "alpine:latest" to cloud-specific private registry caches:
-//   - GCP AR: "us-central1-docker.pkg.dev/project/docker-hub/library/alpine:latest"
-//   - AWS ECR: "123456789.dkr.ecr.eu-west-1.amazonaws.com/alpine:latest"
-//   - Azure ACR: "myacr.azurecr.io/library/alpine:latest"
+// Docker Hub images for local execution. A cloud can resolve "alpine:latest"
+// to a private registry cache of its own:
+//   - Artifact Registry: "us-central1-docker.pkg.dev/project/docker-hub/library/alpine:latest"
+//   - Amazon ECR: "123456789.dkr.ecr.eu-west-1.amazonaws.com/alpine:latest"
+//   - Azure Container Registry: "myacr.azurecr.io/library/alpine:latest"
 //
-// Public registry coordinates are already directly pullable by the local
-// container engine and remain unchanged.
+// The local engine pulls public registry coordinates directly, unchanged.
 func ResolveLocalImage(image string) string {
-	// GCP Artifact Registry pull-through cache
+	// Artifact Registry pull-through cache.
 	if strings.Contains(image, "-docker.pkg.dev/") && strings.Contains(image, "/docker-hub/") {
 		idx := strings.Index(image, "/docker-hub/")
 		dockerPath := image[idx+len("/docker-hub/"):]
 		dockerPath = strings.TrimPrefix(dockerPath, "library/")
 		return dockerPath
 	}
-	// AWS ECR pull-through cache. Strip docker-hub/ first, THEN
-	// library/ — the URI is always `<acct>.dkr.ecr.<region>.amazonaws.com/docker-hub/library/<name>`
-	// for docker-hub pull-through cache hits, so reversing the order
-	// would leave `library/<name>` stuck to the front.
+	// Amazon ECR pull-through cache: strip docker-hub/ before library/, since a
+	// Docker Hub cache hit is always
+	// `<acct>.dkr.ecr.<region>.amazonaws.com/docker-hub/library/<name>`.
 	if strings.Contains(image, ".dkr.ecr.") && strings.Contains(image, ".amazonaws.com/") {
 		idx := strings.Index(image, ".amazonaws.com/")
 		dockerPath := image[idx+len(".amazonaws.com/"):]
@@ -1672,7 +1624,7 @@ func ResolveLocalImage(image string) string {
 		dockerPath = strings.TrimPrefix(dockerPath, "library/")
 		return dockerPath
 	}
-	// Azure ACR
+	// Azure Container Registry.
 	if strings.Contains(image, ".azurecr.io/") {
 		idx := strings.Index(image, ".azurecr.io/")
 		dockerPath := image[idx+len(".azurecr.io/"):]
@@ -1683,11 +1635,9 @@ func ResolveLocalImage(image string) string {
 	return image
 }
 
-// EnsureDockerNetwork creates a user-defined Docker network with the
-// given name if it doesn't exist. Returns the network ID (existing or
-// newly created). Used by the Cloud Map simulator to back each private
-// DNS namespace with a real Docker network so cross-container DNS works
-// via Docker's embedded DNS resolver.
+// EnsureDockerNetwork creates the user-defined engine network name unless it
+// exists, and returns its ID. A user-defined network gives its containers the
+// engine's embedded DNS.
 func EnsureDockerNetwork(name string) (string, error) {
 	cli := DockerClient()
 	if err := RequireContainerRuntime("creating a container network"); err != nil {
@@ -1695,7 +1645,6 @@ func EnsureDockerNetwork(name string) (string, error) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	// Idempotent: return existing network if present.
 	if existing, err := cli.NetworkInspect(ctx, name, client.NetworkInspectOptions{}); err == nil {
 		return existing.Network.ID, nil
 	}

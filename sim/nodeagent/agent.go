@@ -102,7 +102,7 @@ func Start(ctx context.Context, opts Options, sink sim.LogSink) (*Agent, error) 
 
 // Adopt takes over a node agent a previous process of this persistent
 // simulator left running, found by its labels, with its API reached on
-// network, and reports false when none runs. The agent's token is read from
+// network, and reports false when none runs. It reads the agent's token from
 // the container's environment, where the process that started it put it.
 func Adopt(ctx context.Context, network string, labels map[string]string, sink sim.LogSink) (*Agent, bool, error) {
 	if err := sim.RequireContainerRuntime("adopting a node agent"); err != nil {
@@ -167,13 +167,11 @@ func Adopt(ctx context.Context, network string, labels map[string]string, sink s
 // apiPort is the port the agent program serves on.
 const apiPort = 8700
 
-// Client is the agent's API client.
 func (a *Agent) Client() *Client { return a.client }
 
 // Architecture is the OCI architecture the agent's guests run on.
 func (a *Agent) Architecture() string { return a.architecture }
 
-// ContainerID is the agent container's ID.
 func (a *Agent) ContainerID() string { return a.handle.ContainerID }
 
 // Join connects the agent to an engine network at the address the cloud
@@ -199,8 +197,8 @@ func (a *Agent) Join(ctx context.Context, network string, address netip.Addr) (n
 // Leave takes the agent off an engine network it joined, once the cloud has
 // no workload left on it: the agent dissolves the bridge its guests on that
 // network used, and the container leaves the network, so the engine can
-// remove it. The network the agent started on, where the simulator reaches
-// it, is never left.
+// remove it. The agent never leaves the network it started on, where the
+// simulator reaches it.
 func (a *Agent) Leave(ctx context.Context, network string) error {
 	a.mu.Lock()
 	address, ok := a.networks[network]

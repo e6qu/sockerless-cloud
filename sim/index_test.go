@@ -93,10 +93,10 @@ func TestGenerationIndexReturnsEveryRowOnAKey(t *testing.T) {
 	require.Len(t, index.LookupAll(store, "shared.example", rowHosts), 2)
 }
 
-// Replacing the store is what tests do between cases, and a per-store counter
-// starting at zero made a stale index match the replacement's generation and
-// be served for it. Generations are unique across stores, so the index refuses
-// the old contents even without a Reset.
+// Tests replace the store between cases, and a per-store counter starting at
+// zero would let a stale index match the replacement's generation.
+// Generations are unique across stores, so the index refuses the old contents
+// even without a Reset.
 func TestGenerationIndexRefusesAnIndexBuiltFromAReplacedStore(t *testing.T) {
 	first := newCountingStore()
 	first.Put("a", indexedRow{ID: "a", Hosts: []string{"a.example"}})

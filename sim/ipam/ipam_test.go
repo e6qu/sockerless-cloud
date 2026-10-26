@@ -39,7 +39,6 @@ func TestIPAMReleaseIPv6NoPanic(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Must not panic.
 	ipam.Release(net.ParseIP("fe80::1"))
 	ipam.Release(net.ParseIP("::1"))
 }

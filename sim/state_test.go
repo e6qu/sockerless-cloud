@@ -379,7 +379,7 @@ func TestSQLitePersistence(t *testing.T) {
 
 func TestSQLiteStoreWithNilDB(t *testing.T) {
 	s := MakeStore[testItem]((*sql.DB)(nil), "whatever")
-	// Should fall back to memory
+	// Without a database the store keeps its items in memory.
 	s.Put("x", testItem{Name: "x"})
 	if _, ok := s.Get("x"); !ok {
 		t.Error("memory fallback should work with nil db")

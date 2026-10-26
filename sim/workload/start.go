@@ -80,9 +80,9 @@ func StartOrder(members []Member) ([]int, error) {
 	return order, nil
 }
 
-// StartError is a group that did not start. The members it placed are
-// cancelled; Stopped closes once every one of them has exited, for a caller
-// that holds what they used, an address or a mount, until then.
+// StartError is a group that did not start: StartGroup cancelled the members
+// it placed, and Stopped closes once every one of them has exited, for a
+// caller that holds what they used, an address or a mount, until then.
 type StartError struct {
 	Err     error
 	stopped chan struct{}
@@ -100,7 +100,7 @@ func (e *StartError) Stopped() <-chan struct{} { return e.stopped }
 // passed its startup check. It returns once every member passed its check.
 // The returned group's Main is the first declared member and its Sidecars
 // the rest, in declared order. When a member fails to start or its check
-// fails, or ctx ends, every member placed is cancelled and the error is a
+// fails, or ctx ends, StartGroup cancels every member placed and returns a
 // *StartError.
 func StartGroup(ctx context.Context, backend placement.Backend, members []Member, opts StartOptions) (*Group, error) {
 	if len(members) == 0 {

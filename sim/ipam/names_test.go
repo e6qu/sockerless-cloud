@@ -6,7 +6,7 @@ import (
 )
 
 func TestDeriveMACSeparatesPermutedIdentifiers(t *testing.T) {
-	// A positional XOR fold gave these two the same address.
+	// A positional XOR fold would give these two the same address.
 	a := DeriveMAC("02:15:5d", "nic-ab")
 	b := DeriveMAC("02:15:5d", "nic-ba")
 	if a == b {

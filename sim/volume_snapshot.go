@@ -13,37 +13,31 @@ import (
 	"github.com/moby/moby/client"
 )
 
-// Volume snapshots for the managed-database services.
+// A managed database's data directory is a named volume on the container
+// engine. A snapshot captures that volume into a new volume, and a restore
+// clones a snapshot volume into a fresh server volume.
 //
-// A database server's data directory is a named volume on the container
-// engine. A snapshot captures that volume's contents into a new volume, and a
-// restore clones a snapshot volume into a fresh server volume — the same
-// operation in the other direction.
-//
-// The capture is one command: `cp -a --reflink=auto`. On a container engine
-// whose volume store sits on btrfs, on XFS with reflinks, or on OpenZFS 2.2+
-// with block cloning enabled, that command clones blocks copy-on-write — the
-// snapshot is O(metadata), effectively instant, and shares storage with its
-// source until either diverges, exactly the behaviour an operator provisions
-// such a filesystem for. On any other filesystem the same command performs a
-// full copy, which is slower and still a complete, real capture. One code
-// path; the filesystem underneath decides the speed; the cloud API above
-// never changes shape either way.
+// The capture is one command, `cp -a --reflink=auto`. On a volume store on
+// btrfs, XFS with reflinks, or OpenZFS 2.2+ with block cloning, it clones
+// blocks copy-on-write: the snapshot costs metadata only and shares storage
+// with its source until either diverges. Elsewhere it makes a full copy,
+// slower and still a complete capture. The filesystem decides the speed; the
+// cloud API never changes shape.
 //
 // A database engine writing to the source while cp walks it would leave a
-// capture that holds each file as of a different moment, which the engine's
+// capture holding each file as of a different moment, which the engine's
 // crash recovery cannot always open. SnapshotVolume therefore freezes every
 // running container that mounts the source writable — the cgroup freezer
 // behind the Docker Engine's pause — for the length of the copy, so the
-// capture is one crash-consistent point in time, the property a block-level
-// storage snapshot gives. A frozen engine keeps its client connections; their
-// I/O waits until the copy ends and the engine thaws.
+// capture is one crash-consistent point in time, as a block-level storage
+// snapshot is. A frozen engine keeps its client connections; their I/O waits
+// until the engine thaws.
 //
 // The copy runs in a one-shot helper container with the source mounted
-// read-only, because the volume store belongs to the engine and may not even
-// be on this host (a Docker Desktop virtual machine, a remote engine). The
-// helper reports the filesystem it found, so logs say whether a deployment is
-// getting the instant path without the API ever saying anything different.
+// read-only, because the volume store belongs to the engine and may not be on
+// this host (a Docker Desktop virtual machine, a remote engine). The helper
+// reports the filesystem it found, so the log says whether a deployment gets
+// the instant path.
 
 const volumeSnapshotImage = "mirror.gcr.io/library/alpine:3.22"
 

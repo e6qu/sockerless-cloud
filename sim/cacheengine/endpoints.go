@@ -139,7 +139,6 @@ func (p *Plane) serve(endpoint Endpoint, listener net.Listener, target func() (i
 	}()
 }
 
-// stopServing closes the listener serving key.
 func (p *Plane) stopServing(key string) {
 	p.mu.Lock()
 	listener := p.listeners[key]
@@ -408,5 +407,4 @@ func ExchangeCredential(args []string, secret string, authorize func(string) (st
 	return nil, false
 }
 
-// nodeEndpointKey is the listener key of a node's endpoint.
 func nodeEndpointKey(index int) string { return "node-" + strconv.Itoa(index) }

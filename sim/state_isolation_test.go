@@ -6,10 +6,7 @@ import (
 	"testing"
 )
 
-// Per-instance state isolation invariant: two simulators pointed at
-// different SIM_DATA_DIR values share no state. Verifies the data path
-// admin composes per topology instance — the simplest test that proves
-// isolation works at the persistence layer.
+// Two simulators pointed at different SIM_DATA_DIR values share no state.
 func TestPersistenceIsolatedAcrossDataDirs(t *testing.T) {
 	tmp := t.TempDir()
 	dirA := filepath.Join(tmp, "proj-a", "sim-aws")
@@ -59,11 +56,9 @@ func TestPersistenceIsolatedAcrossDataDirs(t *testing.T) {
 	}
 }
 
-// Persistence survives a "restart" (close + re-open the DB at the
-// same path). Combined with the above test, this is what makes
-// per-instance state usable in the operator workflow: a sim instance
-// stops + restarts and picks up where it left off, without leaking
-// state to its neighbours.
+// Persistence survives a restart (close and reopen the database at the same
+// path): a simulator picks up where it left off without leaking state to its
+// neighbours.
 func TestPersistenceSurvivesReopen(t *testing.T) {
 	tmp := t.TempDir()
 	dir := filepath.Join(tmp, "proj-a", "sim-aws")
@@ -85,7 +80,7 @@ func TestPersistenceSurvivesReopen(t *testing.T) {
 		_ = db.Close()
 	}
 
-	// Verify the file actually landed where admin would expect it.
+	// The database lands at <SIM_DATA_DIR>/simulator.db.
 	if _, err := os.Stat(filepath.Join(dir, "simulator.db")); err != nil {
 		t.Fatalf("simulator.db missing at %s: %v", dir, err)
 	}
@@ -110,11 +105,9 @@ func TestPersistenceSurvivesReopen(t *testing.T) {
 	}
 }
 
-// NewServer with cfg.Persist=true must surface OpenDB failures via
-// its returned error. Pointing DataDir at a path that can't be created
-// (e.g. under a read-only file) is the simplest reproduction; the
-// fail-loud-on-persist-open contract refuses to silently fall back to
-// in-memory state.
+// NewServer with cfg.Persist surfaces an OpenDB failure as its error rather
+// than falling back to in-memory state; a DataDir under a regular file
+// cannot be created.
 func TestNewServerPersistFailLoud(t *testing.T) {
 	tmp := t.TempDir()
 	// Create a regular file then try to use it as a directory — mkdir

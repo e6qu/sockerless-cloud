@@ -151,25 +151,20 @@ func TestStoreUpdateNoLostWriteSoak(t *testing.T) {
 	}
 }
 
-// TestStoreFilterVsDeleteSoak stresses the specific hazard the prompt calls
-// out: Filter's returned slice racing a concurrent Delete (and Put/Update) on
-// the same keys. Readers iterate the returned slice (reading every field)
-// while writers churn the key space. A race in slice construction or a torn
-// value read surfaces under -race.
+// TestStoreFilterVsDeleteSoak races Filter's returned slice against a
+// concurrent Delete (and Put/Update) on the same keys: readers iterate the
+// slice, reading every field, while writers churn the key space. A race in
+// slice construction or a torn value read surfaces under -race.
 func TestStoreFilterVsDeleteSoak(t *testing.T) {
 	const (
 		writers = 24
 		iters   = 600
 		keys    = 24
 	)
-	// The readers spin without pausing, so a fixed pool starves the writers
-	// they are supposed to be racing on any machine with fewer cores than the
-	// pool: this test finishes in twelve seconds at full parallelism, thirty
-	// at four processors and forty-six at two, and on a continuous-integration
-	// runner it ran two and a half minutes without finishing and took the
-	// package's whole budget down with it. Sizing the pool to the machine
-	// keeps the hazard — a Filter result racing a concurrent Delete — while
-	// leaving the writers processors to run on.
+	// The readers spin without pausing, so a fixed pool larger than the
+	// machine's processors starves the writers they race. Size the pool to
+	// the machine: the hazard — a Filter result racing a concurrent Delete —
+	// stays, and the writers keep processors to run on.
 	readers := max(2, runtime.GOMAXPROCS(0)/2)
 	for name, store := range soakStores(t) {
 		t.Run(name, func(t *testing.T) {
@@ -276,7 +271,6 @@ func TestOCIChunkedUploadSoak(t *testing.T) {
 		go func(u int) {
 			defer wg.Done()
 			repo := fmt.Sprintf("repo%d", u%8)
-			// Initiate.
 			resp, err := client.Post(ts.URL+"/v2/"+repo+"/blobs/uploads/", "", nil)
 			if err != nil {
 				t.Errorf("initiate: %v", err)
@@ -288,7 +282,6 @@ func TestOCIChunkedUploadSoak(t *testing.T) {
 				t.Errorf("no upload Location")
 				return
 			}
-			// Several chunks.
 			var full []byte
 			for c := 0; c < 5; c++ {
 				chunk := []byte(strings.Repeat(fmt.Sprintf("%d", u), 64*(c+1)))
@@ -313,7 +306,6 @@ func TestOCIChunkedUploadSoak(t *testing.T) {
 				t.Errorf("finalize status=%d want 201", pr.StatusCode)
 				return
 			}
-			// Pull it back and verify content integrity.
 			gr, err := client.Get(ts.URL + "/v2/" + repo + "/blobs/" + digest)
 			if err != nil {
 				t.Errorf("get blob: %v", err)

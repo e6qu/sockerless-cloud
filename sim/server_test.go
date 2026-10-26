@@ -99,8 +99,8 @@ func TestFirstPartyOIDCProtectsOperatorSurfacesOnly(t *testing.T) {
 }
 
 // RegisterUI must not panic the mux when a simulated service already owns
-// the API root: S3's ListBuckets registers "GET /{$}", and the root belongs
-// to the API surface — the UI stays reachable at /ui/.
+// the API root: Amazon S3's ListBuckets registers "GET /{$}", and the root
+// belongs to the API surface — the UI stays reachable at /ui/.
 func TestRegisterUICoexistsWithAPIRoot(t *testing.T) {
 	t.Setenv("SIM_RUNTIME", "process")
 	srv, err := NewServer(Config{Provider: "aws", LogLevel: "disabled"})

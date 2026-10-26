@@ -27,7 +27,7 @@ func NewClient(base, token string) *Client {
 	return &Client{base: strings.TrimRight(base, "/"), token: token, http: &http.Client{}}
 }
 
-// ErrNotFound is wrapped when the agent knows no guest of the id.
+// The client wraps ErrNotFound when the agent knows no guest of the id.
 var ErrNotFound = errors.New("the agent knows no such guest")
 
 func (c *Client) do(ctx context.Context, method, path string, body io.Reader, contentType string) (*http.Response, error) {
@@ -84,7 +84,6 @@ func (c *Client) doJSON(ctx context.Context, method, path string, in, out any) e
 	return json.NewDecoder(resp.Body).Decode(out)
 }
 
-// Ping reports whether the agent answers.
 func (c *Client) Ping(ctx context.Context) error {
 	return c.doJSON(ctx, http.MethodGet, "/v1/ping", nil, nil)
 }
@@ -114,7 +113,6 @@ func (c *Client) Start(ctx context.Context, id string) (GuestState, error) {
 	return state, err
 }
 
-// Get reads the guest's state.
 func (c *Client) Get(ctx context.Context, id string) (GuestState, error) {
 	var state GuestState
 	err := c.doJSON(ctx, http.MethodGet, "/v1/guests/"+id, nil, &state)

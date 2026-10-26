@@ -8,18 +8,13 @@ import (
 
 // ParentPIDVariable names the process this simulator must not outlive.
 //
-// A test harness starts a simulator as a child and stops it from its own
-// cleanup, which covers every ordinary ending and not the one that matters: a
-// `go test` killed outright — a timeout kill, a stopped run, an editor closing
-// the process — never reaches its cleanup, and the simulator it started keeps
-// running. The container reaper waits on the simulator, so the pair survives
-// together, holding ports and memory until someone notices. Simulators aged
-// two to twelve days were found that way, across all three clouds.
-//
-// A signal handler cannot close that gap, because the ending that matters is
-// the one signal a process cannot trap. The watch has to run inside the child
-// and look outward, which is what the reaper already does for the simulator;
-// this is the same relationship one level up.
+// A test harness stops the simulator it started from its own cleanup, which
+// a `go test` killed outright — a timeout kill, a stopped run, an editor
+// closing the process — never reaches; the simulator and the container
+// reaper waiting on it then keep running, holding ports and memory. A signal
+// handler cannot close that gap, since the ending that matters is the one
+// signal a process cannot trap, so the child watches its parent, as the
+// reaper watches the simulator.
 const ParentPIDVariable = "SOCKERLESS_PARENT_PID"
 
 // ExitWithParent ends this process once the process named by

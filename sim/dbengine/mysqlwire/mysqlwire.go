@@ -58,7 +58,8 @@ type login struct {
 	database     string
 }
 
-// Frontend authenticates a client before its session is relayed to the engine.
+// Frontend authenticates a client before the endpoint relays its session to
+// the engine.
 type Frontend struct {
 	Certificate func() (tls.Certificate, error)
 	// Authenticate checks the password a client presented for user; secure

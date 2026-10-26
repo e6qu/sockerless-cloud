@@ -10,7 +10,7 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// bitmap4 is the attribute set of a request or reply: word i holds
+// bitmap is a bitmap4, the attribute set of a request or reply: word i holds
 // attributes 32*i to 32*i+31.
 type bitmap []uint32
 
