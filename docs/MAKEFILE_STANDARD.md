@@ -51,7 +51,7 @@ target, so the target name always exists.
 | `build` | Produce the artefact. A simulator's `build` embeds the console built at `ui/packages/<name>/dist` (`-tags console`) and fails when it has not been built; a library's is a compile check. |
 | `build-api` | Build without an embedded console, as the `sdk-test`, `cli-test` and `terraform-test` targets do; a compile check for libraries. |
 | `test` | Run unit tests. |
-| `lint` | `go vet` + `gofmt -l` + `golangci-lint` where installed; UI packages type-check with `tsc --noEmit`. Non-zero exit on findings. |
+| `lint` | `go vet` + `gofmt -l` + `golangci-lint`, which must be on `PATH`; UI packages type-check with `tsc --noEmit`. Non-zero exit on findings. |
 | `clean` | Remove the artefacts the module owns. |
 | `upgrade-deps` | Bump every direct dependency to its newest release. This repository's own modules are skipped: a release pins them by commit, and `@latest` would walk that pin back to a deleted bootstrap tag the module proxy still serves. |
 
@@ -107,7 +107,7 @@ deadlines and sharding.
 | `help.mk` | root and leaf Makefiles | The generated `help` target, and `help` as the default goal. |
 | `go-app.mk` | the simulators | Recipes for a Go binary with an optional embedded console. |
 | `go-lib.mk` | `sim`, `ui-auth`, `testutil` | Recipes for a Go library. |
-| `ui-app.mk` | `ui/packages/*` | Recipes driven by `bun --filter` against the workspace root. |
+| `ui-app.mk` | `ui/packages/*` | Recipes that run the package's own `bun run` scripts, after `bun install` at the workspace root. |
 | `https-gateway/` | the Terraform and CLI harnesses | The Caddyfile of the optional local HTTPS gateway. |
 
 Per-file detail is in [`make/README.md`](../make/README.md).
@@ -118,7 +118,7 @@ The top-level Makefile has three jobs:
 
 - Maintain the explicit lists: `GO_UI_APPS`, `GO_APPS`, `UI_APPS`, `TEST_DIRS`.
 - Fan out the standard targets — `build`, `build-api`, `test`,
-  `test-integration`, `lint`, `lint-ui`, `clean`, `install`, `upgrade-deps` —
+  `lint`, `lint-ui`, `clean`, `install`, `upgrade-deps` —
   plus `check-deps`, `check-workflow-timeouts` and `check-workflow-concurrency`.
 - Delegate path targets: `make simulator-aws/build` runs
   `make -C simulator-aws build`, and the same form reaches every standard target

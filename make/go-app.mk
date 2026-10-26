@@ -19,7 +19,6 @@
 # Optional — for non-workspace builds:
 #   GO_BUILD_FLAGS   : extra `go build` flags
 #   GO_ENV           : env prepended to every go invocation (e.g. GOWORK=off)
-#   FAAS_SMOKE_TESTS : regexp for the sim-backed FaaS smoke tests
 #
 # REPO_ROOT_REL is the path from the leaf Makefile to the repository root:
 # ../.. unless the leaf sets it, and ".." in a simulator-<cloud>/ leaf.
@@ -32,7 +31,7 @@ LOCAL_DIST    := $(CURDIR)/dist
 include $(REPO_ROOT)/make/help.mk
 include $(REPO_ROOT)/make/colors.mk
 
-.PHONY: install build build-api embed run dev test test-integration test-faas-smoke lint clean
+.PHONY: install build build-api embed run dev test lint clean
 
 install: ## install Go module deps
 	$(GO_ENV) go mod download
@@ -92,19 +91,6 @@ endif
 test: ## run unit tests
 	$(GO_ENV) go test ./...
 
-test-integration: ## run integration tests against the local simulator
-	$(GO_ENV) SOCKERLESS_TEST_TARGET=sim go test -tags integration -v -timeout 15m ./...
-
-test-faas-smoke: ## run this backend's sim-backed FaaS runner smoke test
-ifndef FAAS_SMOKE_TESTS
-	@printf "$(COLOR_DIM)$(APP_NAME): no FaaS smoke test configured.$(COLOR_RESET)\n"
-else
-	$(GO_ENV) SOCKERLESS_TEST_TARGET=sim go test -tags integration -v -count=1 -run '$(FAAS_SMOKE_TESTS)' -timeout 15m ./...
-endif
-
-test-integration-cloud: ## run integration tests against the operator-supplied real cloud (requires SOCKERLESS_ENDPOINT_URL + per-backend ARM env vars)
-	$(GO_ENV) SOCKERLESS_TEST_TARGET=cloud go test -tags integration -v -timeout 30m ./...
-
 # This repository's own modules are excluded. A release pins them by commit, so
 # they are required at a pseudo-version, and `@latest` prefers any semver tag
 # over one — including the deleted bootstrap `v0.1.0` tags, which still resolve
@@ -123,17 +109,15 @@ upgrade-deps: ## bump every direct require in go.mod to its latest (this reposit
 	done; \
 	$(GO_ENV) go mod tidy
 
-lint: ## go vet + gofmt check (golangci-lint when available)
+lint: ## go vet, gofmt and golangci-lint
 	$(GO_ENV) go vet ./...
 	@unformatted=$$(gofmt -l .); \
 	if [ -n "$$unformatted" ]; then \
 	  printf "$(COLOR_RED)gofmt -l .$(COLOR_RESET)\n%s\n" "$$unformatted"; \
 	  exit 1; \
 	fi
-	@if command -v golangci-lint >/dev/null 2>&1; then \
-	  printf "$(COLOR_DIM)$(APP_NAME): golangci-lint$(COLOR_RESET)\n"; \
-	  $(GO_ENV) golangci-lint run ./...; \
-	fi
+	@command -v golangci-lint >/dev/null 2>&1 || { printf "$(COLOR_RED)golangci-lint is not on PATH: install v2.15.0, the version CI runs$(COLOR_RESET)\n"; exit 1; }
+	$(GO_ENV) golangci-lint run ./...
 
 clean: ## remove built binary + dist
 	rm -f $(APP_NAME)

@@ -11,8 +11,8 @@ surface they implement; this page maps the directory.
 | `colors.mk` | every other file | TTY-detected ANSI colour variables (empty in CI logs) and the `STEP` banner macro |
 | `help.mk` | root and leaf Makefiles | `make help`, listing every target that carries a `## description` comment; `help` as the default goal |
 | `go-app.mk` | the three simulators | Recipes for a Go binary. The leaf sets `APP_NAME` and `GO_PACKAGE`, and optionally `UI_PACKAGE` (the console to embed), `RUN_FLAGS`, `RUN_ENV`, `DEFAULT_PORT` and `GO_ENV`, before the include. |
-| `go-lib.mk` | [`sim`](../sim/README.md), [`ui-auth`](../ui-auth), [`testutil`](../testutil) | Recipes for a Go library: `build` is a compile check; `test`, `lint` (`go vet`, `gofmt`, and golangci-lint when installed) and `upgrade-deps` |
-| `ui-app.mk` | `ui/packages/<x>/` | Recipes driven by `bun --filter` against the workspace root. The leaf sets `UI_PACKAGE` to the full `@sockerless/...` package name. |
+| `go-lib.mk` | [`sim`](../sim/README.md), [`ui-auth`](../ui-auth), [`testutil`](../testutil) | Recipes for a Go library: `build` is a compile check; `test`, `lint` (`go vet`, `gofmt` and golangci-lint) and `upgrade-deps` |
+| `ui-app.mk` | `ui/packages/<x>/` | Recipes that run the package's own `bun run` scripts, after `bun install` at the workspace root. The leaf only includes it. |
 
 ## Subdirectories
 

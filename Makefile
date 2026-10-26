@@ -63,7 +63,7 @@ TEST_DIRS := \
 
 ALL_APPS := $(GO_UI_APPS) $(GO_APPS) $(UI_APPS)
 
-.PHONY: install build build-api test test-integration lint lint-ui lint-all clean upgrade-deps work-sum check-deps check-workflow-timeouts check-workflow-concurrency hooks
+.PHONY: install build build-api test lint lint-ui lint-all clean upgrade-deps work-sum check-deps check-workflow-timeouts check-workflow-concurrency hooks
 
 install: ## install deps in every app
 	@$(MAKE) -s _fanout TARGET=install APPS="$(ALL_APPS)"
@@ -81,9 +81,6 @@ build-api: ## build every Go app without an embedded console
 
 test: ## unit-test every app
 	@$(MAKE) -s _fanout TARGET=test APPS="$(ALL_APPS)"
-
-test-integration: ## run integration tests across every Go app
-	@$(MAKE) -s _fanout TARGET=test-integration APPS="$(GO_UI_APPS) $(GO_APPS) $(TEST_DIRS)"
 
 lint: ## lint every Go app (CI lint runner has no bun — use lint-ui separately)
 	@$(MAKE) -s _fanout TARGET=lint APPS="$(GO_UI_APPS) $(GO_APPS)"
@@ -140,7 +137,7 @@ _fanout:
 .PHONY: FORCE
 FORCE:
 
-%/install %/build %/build-api %/embed %/run %/dev %/test %/test-integration %/lint %/clean %/preview %/help %/docker-test %/docker-test-build %/unit-test %/sdk-test %/cli-test %/terraform-test %/terraform-https-test: FORCE
+%/install %/build %/build-api %/embed %/run %/dev %/test %/lint %/clean %/preview %/help %/docker-test %/docker-test-build %/unit-test %/sdk-test %/cli-test %/terraform-test %/terraform-https-test: FORCE
 	@$(MAKE) -s -C $* $(notdir $@)
 
 SIMULATOR_APPS := simulator-aws simulator-gcp simulator-azure

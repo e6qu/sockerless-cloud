@@ -1,9 +1,5 @@
 # ui-app.mk — standardized recipes for Vite/Bun UI packages.
 #
-# Required:
-#   UI_PACKAGE   : the package's directory basename under ui/packages
-#                  (e.g. simulator-aws)
-#
 # Optional:
 #   DEV_PORT     : informational; printed in the run banner
 #   REPO_ROOT_REL: path from this Makefile's dir to the repo root.
