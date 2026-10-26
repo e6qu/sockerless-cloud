@@ -58,6 +58,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
 	github.com/jackc/pgx/v5 v5.11.0
+	github.com/redis/go-redis/v9 v9.23.0
 	github.com/stretchr/testify v1.12.1
 	golang.org/x/crypto v0.58.0
 	golang.org/x/image v0.47.0
@@ -82,6 +83,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sso v1.38.5 // indirect
 	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.43.5 // indirect
 	github.com/beevik/etree v1.8.1 // indirect
+	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/docker/cli v29.7.2+incompatible // indirect
 	github.com/docker/docker-credential-helpers v0.9.8 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
@@ -92,6 +94,7 @@ require (
 	github.com/opencontainers/image-spec v1.1.1 // indirect
 	github.com/russellhaering/goxmldsig v1.6.1 // indirect
 	github.com/sirupsen/logrus v1.10.2 // indirect
+	go.uber.org/atomic v1.12.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	golang.org/x/sync v0.24.0 // indirect
 	golang.org/x/sys v0.49.0 // indirect

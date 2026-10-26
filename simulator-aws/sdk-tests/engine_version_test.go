@@ -70,6 +70,9 @@ func TestElastiCache_EngineVersionDefault(t *testing.T) {
 		NumCacheNodes:  aws.Int32(1),
 	})
 	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = c.DeleteCacheCluster(ctx, &elasticache.DeleteCacheClusterInput{CacheClusterId: aws.String(defaultID)})
+	})
 	got := aws.ToString(out.CacheCluster.EngineVersion)
 	require.NotEmpty(t, got, "ElastiCache redis EngineVersion default must be populated")
 	assert.Equal(t, "7.1", got, "redis GA default must be the canonical sim value")
@@ -82,5 +85,8 @@ func TestElastiCache_EngineVersionDefault(t *testing.T) {
 		NumCacheNodes:  aws.Int32(1),
 	})
 	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = c.DeleteCacheCluster(ctx, &elasticache.DeleteCacheClusterInput{CacheClusterId: aws.String(explicitID)})
+	})
 	assert.Equal(t, "6.2", aws.ToString(out2.CacheCluster.EngineVersion))
 }

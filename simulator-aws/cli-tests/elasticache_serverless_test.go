@@ -3,6 +3,7 @@ package aws_cli_test
 import (
 	"testing"
 
+	goredis "github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -31,13 +32,22 @@ func TestElastiCacheCLI_Serverless(t *testing.T) {
 	}
 	parseJSON(t, out, &created)
 	require.Equal(t, cacheName, created.ServerlessCache.ServerlessCacheName)
-	assert.Equal(t, "available", created.ServerlessCache.Status)
+	assert.Equal(t, "creating", created.ServerlessCache.Status)
 	assert.Equal(t, "redis", created.ServerlessCache.Engine)
 	assert.Equal(t, 6379, created.ServerlessCache.Endpoint.Port)
 	t.Cleanup(func() {
 		_ = awsCLI("elasticache", "delete-serverless-cache",
 			"--serverless-cache-name", cacheName).Run()
 	})
+
+	cache := ecCLIAwaitServerless(t, cacheName)
+	assert.Equal(t, 6380, cache.ReaderEndpoint.Port)
+	client := goredis.NewClusterClient(&goredis.ClusterOptions{Addrs: []string{cache.Endpoint.address()}, TLSConfig: ecCLIClientTLS()})
+	t.Cleanup(func() { client.Close() })
+	require.NoError(t, client.Set(t.Context(), "cli-serverless", "answered", 0).Err())
+	value, err := client.Get(t.Context(), "cli-serverless").Result()
+	require.NoError(t, err)
+	assert.Equal(t, "answered", value)
 
 	// DescribeServerlessCaches.
 	out = runCLI(t, awsCLI("elasticache", "describe-serverless-caches",
@@ -308,6 +318,7 @@ func TestElastiCacheCLI_ReplicaShardAndReserved(t *testing.T) {
 		_ = awsCLI("elasticache", "delete-replication-group",
 			"--replication-group-id", rgID).Run()
 	})
+	ecCLIAwaitReplGroup(t, rgID)
 
 	out := runCLI(t, awsCLI("elasticache", "increase-replica-count",
 		"--replication-group-id", rgID,
@@ -315,32 +326,30 @@ func TestElastiCacheCLI_ReplicaShardAndReserved(t *testing.T) {
 		"--apply-immediately"))
 	var inc struct {
 		ReplicationGroup struct {
-			MemberClusters []string `json:"MemberClusters"`
+			Status string `json:"Status"`
 		} `json:"ReplicationGroup"`
 	}
 	parseJSON(t, out, &inc)
-	assert.Len(t, inc.ReplicationGroup.MemberClusters, 3)
+	assert.Equal(t, "modifying", inc.ReplicationGroup.Status)
+	assert.Len(t, ecCLIAwaitReplGroup(t, rgID).MemberClusters, 3)
 
 	runCLI(t, awsCLI("elasticache", "decrease-replica-count",
 		"--replication-group-id", rgID,
 		"--new-replica-count", "1",
 		"--apply-immediately"))
+	assert.Len(t, ecCLIAwaitReplGroup(t, rgID).MemberClusters, 2)
 
-	out = runCLI(t, awsCLI("elasticache", "modify-replication-group-shard-configuration",
+	refused := runCLIExpectError(t, awsCLI("elasticache", "modify-replication-group-shard-configuration",
 		"--replication-group-id", rgID,
 		"--node-group-count", "2",
 		"--apply-immediately"))
-	var shard struct {
-		ReplicationGroup struct {
-			ClusterEnabled bool `json:"ClusterEnabled"`
-		} `json:"ReplicationGroup"`
-	}
-	parseJSON(t, out, &shard)
-	assert.True(t, shard.ReplicationGroup.ClusterEnabled)
+	assert.Contains(t, refused, "InvalidParameterValue", "a group without cluster mode has one node group")
 
 	runCLI(t, awsCLI("elasticache", "test-failover",
 		"--replication-group-id", rgID,
 		"--node-group-id", "0001"))
+	failedOver := ecCLIAwaitReplGroup(t, rgID)
+	assert.Equal(t, rgID+"-002", failedOver.NodeGroups[0].NodeGroupMembers[0].CacheClusterId, "the replica became the primary")
 
 	// Online migration.
 	runCLI(t, awsCLI("elasticache", "start-migration",

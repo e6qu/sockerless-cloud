@@ -3,6 +3,7 @@ package aws_cli_test
 import (
 	"testing"
 
+	goredis "github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -199,13 +200,22 @@ func TestElastiCacheCLI_ClusterLifecycle(t *testing.T) {
 	require.Equal(t, id, created.CacheCluster.CacheClusterId)
 	assert.Equal(t, "cache.t3.micro", created.CacheCluster.CacheNodeType)
 	assert.Equal(t, "redis", created.CacheCluster.Engine)
-	assert.Equal(t, "available", created.CacheCluster.CacheClusterStatus)
+	assert.Equal(t, "creating", created.CacheCluster.CacheClusterStatus)
 	arn := created.CacheCluster.ARN
 	require.NotEmpty(t, arn)
 	t.Cleanup(func() {
 		_ = awsCLI("elasticache", "delete-cache-cluster",
 			"--cache-cluster-id", id).Run()
 	})
+
+	cluster := ecCLIAwaitCluster(t, id)
+	require.Len(t, cluster.CacheNodes, 1)
+	assert.Equal(t, 6379, cluster.CacheNodes[0].Endpoint.Port)
+	client := ecCLIRedis(t, &goredis.Options{Addr: cluster.CacheNodes[0].Endpoint.address()})
+	require.NoError(t, client.Set(t.Context(), "cli-greeting", "from the cli", 0).Err())
+	value, err := client.Get(t.Context(), "cli-greeting").Result()
+	require.NoError(t, err)
+	assert.Equal(t, "from the cli", value)
 
 	out = runCLI(t, awsCLI("elasticache", "describe-cache-clusters",
 		"--cache-cluster-id", id,
@@ -252,6 +262,7 @@ func TestElastiCacheCLI_ReplicationGroupAndReboot(t *testing.T) {
 		_ = awsCLI("elasticache", "delete-cache-cluster",
 			"--cache-cluster-id", clusterID).Run()
 	})
+	ecCLIAwaitCluster(t, clusterID)
 	out := runCLI(t, awsCLI("elasticache", "reboot-cache-cluster",
 		"--cache-cluster-id", clusterID,
 		"--cache-node-ids-to-reboot", "0001"))
@@ -261,7 +272,8 @@ func TestElastiCacheCLI_ReplicationGroupAndReboot(t *testing.T) {
 		} `json:"CacheCluster"`
 	}
 	parseJSON(t, out, &rebooted)
-	assert.Equal(t, "rebooting cache cluster nodes", rebooted.CacheCluster.CacheClusterStatus)
+	assert.Equal(t, "rebooting cluster nodes", rebooted.CacheCluster.CacheClusterStatus)
+	ecCLIAwaitCluster(t, clusterID)
 
 	// Replication group lifecycle.
 	rgID := "cli-repl-group"
@@ -283,7 +295,7 @@ func TestElastiCacheCLI_ReplicationGroupAndReboot(t *testing.T) {
 	}
 	parseJSON(t, out, &rgCreated)
 	require.Equal(t, rgID, rgCreated.ReplicationGroup.ReplicationGroupId)
-	assert.Equal(t, "available", rgCreated.ReplicationGroup.Status)
+	assert.Equal(t, "creating", rgCreated.ReplicationGroup.Status)
 	assert.Equal(t, "enabled", rgCreated.ReplicationGroup.AutomaticFailover)
 	require.Len(t, rgCreated.ReplicationGroup.MemberClusters, 2)
 	rgARN := rgCreated.ReplicationGroup.ARN
@@ -291,6 +303,20 @@ func TestElastiCacheCLI_ReplicationGroupAndReboot(t *testing.T) {
 		_ = awsCLI("elasticache", "delete-replication-group",
 			"--replication-group-id", rgID).Run()
 	})
+
+	group := ecCLIAwaitReplGroup(t, rgID)
+	require.Len(t, group.NodeGroups, 1)
+	require.NotNil(t, group.NodeGroups[0].PrimaryEndpoint)
+	require.NotNil(t, group.NodeGroups[0].ReaderEndpoint)
+	primary := ecCLIRedis(t, &goredis.Options{Addr: group.NodeGroups[0].PrimaryEndpoint.address()})
+	require.NoError(t, primary.Set(t.Context(), "cli-replicated", "yes", 0).Err())
+	acknowledged, err := primary.Wait(t.Context(), 1, 0).Result()
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), acknowledged)
+	reader := ecCLIRedis(t, &goredis.Options{Addr: group.NodeGroups[0].ReaderEndpoint.address()})
+	replicated, err := reader.Get(t.Context(), "cli-replicated").Result()
+	require.NoError(t, err)
+	assert.Equal(t, "yes", replicated)
 
 	out = runCLI(t, awsCLI("elasticache", "describe-replication-groups",
 		"--replication-group-id", rgID))
@@ -325,6 +351,7 @@ func TestElastiCacheCLI_ReplicationGroupAndReboot(t *testing.T) {
 
 	runCLI(t, awsCLI("elasticache", "delete-replication-group",
 		"--replication-group-id", rgID))
+	runCLI(t, awsCLI("elasticache", "wait", "replication-group-deleted", "--replication-group-id", rgID))
 }
 
 func TestElastiCacheCLI_SubnetAndParameterGroups(t *testing.T) {

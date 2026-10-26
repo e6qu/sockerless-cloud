@@ -37,7 +37,7 @@ func TestElastiCache_Serverless(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, created.ServerlessCache)
 	assert.Equal(t, name, aws.ToString(created.ServerlessCache.ServerlessCacheName))
-	assert.Equal(t, "available", aws.ToString(created.ServerlessCache.Status))
+	assert.Equal(t, "creating", aws.ToString(created.ServerlessCache.Status))
 	assert.Equal(t, "redis", aws.ToString(created.ServerlessCache.Engine))
 	require.NotNil(t, created.ServerlessCache.Endpoint)
 	assert.Equal(t, int32(6379), aws.ToInt32(created.ServerlessCache.Endpoint.Port))
@@ -52,12 +52,9 @@ func TestElastiCache_Serverless(t *testing.T) {
 
 	assertECTags(t, c, aws.ToString(created.ServerlessCache.ARN), map[string]string{"owner": "platform"})
 
-	desc, err := c.DescribeServerlessCaches(ctx, &elasticache.DescribeServerlessCachesInput{
-		ServerlessCacheName: aws.String(name),
-	})
-	require.NoError(t, err)
-	require.Len(t, desc.ServerlessCaches, 1)
-	assert.Equal(t, name, aws.ToString(desc.ServerlessCaches[0].ServerlessCacheName))
+	available := ecAwaitServerless(t, c, name)
+	assert.Equal(t, name, aws.ToString(available.ServerlessCacheName))
+	assert.Equal(t, "7.1", aws.ToString(available.FullEngineVersion))
 
 	mod, err := c.ModifyServerlessCache(ctx, &elasticache.ModifyServerlessCacheInput{
 		ServerlessCacheName: aws.String(name),
@@ -71,11 +68,7 @@ func TestElastiCache_Serverless(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "deleting", aws.ToString(del.ServerlessCache.Status))
-
-	_, err = c.DescribeServerlessCaches(ctx, &elasticache.DescribeServerlessCachesInput{
-		ServerlessCacheName: aws.String(name),
-	})
-	assertAWSAPIErrorCode(t, err, "ServerlessCacheNotFoundFault")
+	ecAwaitServerlessDeleted(t, c, name)
 }
 
 // TestElastiCache_ServerlessSnapshots covers
@@ -382,6 +375,13 @@ func TestElastiCache_ReplicaAndShardConfig(t *testing.T) {
 			ReplicationGroupId: aws.String(rgID),
 		})
 	})
+	_, err = c.IncreaseReplicaCount(ctx, &elasticache.IncreaseReplicaCountInput{
+		ReplicationGroupId: aws.String(rgID),
+		NewReplicaCount:    aws.Int32(2),
+		ApplyImmediately:   aws.Bool(true),
+	})
+	assertAWSAPIErrorCode(t, err, "InvalidReplicationGroupState")
+	ecAwaitReplGroup(t, c, rgID)
 
 	inc, err := c.IncreaseReplicaCount(ctx, &elasticache.IncreaseReplicaCountInput{
 		ReplicationGroupId: aws.String(rgID),
@@ -389,23 +389,23 @@ func TestElastiCache_ReplicaAndShardConfig(t *testing.T) {
 		ApplyImmediately:   aws.Bool(true),
 	})
 	require.NoError(t, err)
-	assert.Len(t, inc.ReplicationGroup.MemberClusters, 3)
+	assert.Equal(t, "modifying", aws.ToString(inc.ReplicationGroup.Status))
+	assert.Len(t, ecAwaitReplGroup(t, c, rgID).MemberClusters, 3)
 
-	dec, err := c.DecreaseReplicaCount(ctx, &elasticache.DecreaseReplicaCountInput{
+	_, err = c.DecreaseReplicaCount(ctx, &elasticache.DecreaseReplicaCountInput{
 		ReplicationGroupId: aws.String(rgID),
 		NewReplicaCount:    aws.Int32(1),
 		ApplyImmediately:   aws.Bool(true),
 	})
 	require.NoError(t, err)
-	assert.Len(t, dec.ReplicationGroup.MemberClusters, 2)
+	assert.Len(t, ecAwaitReplGroup(t, c, rgID).MemberClusters, 2)
 
-	shard, err := c.ModifyReplicationGroupShardConfiguration(ctx, &elasticache.ModifyReplicationGroupShardConfigurationInput{
+	_, err = c.ModifyReplicationGroupShardConfiguration(ctx, &elasticache.ModifyReplicationGroupShardConfigurationInput{
 		ReplicationGroupId: aws.String(rgID),
 		NodeGroupCount:     aws.Int32(2),
 		ApplyImmediately:   aws.Bool(true),
 	})
-	require.NoError(t, err)
-	assert.True(t, aws.ToBool(shard.ReplicationGroup.ClusterEnabled))
+	assertAWSAPIErrorCode(t, err, "InvalidParameterValue")
 
 	fo, err := c.TestFailover(ctx, &elasticache.TestFailoverInput{
 		ReplicationGroupId: aws.String(rgID),
@@ -413,6 +413,7 @@ func TestElastiCache_ReplicaAndShardConfig(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.NotNil(t, fo.ReplicationGroup)
+	ecAwaitReplGroup(t, c, rgID)
 
 	sm, err := c.StartMigration(ctx, &elasticache.StartMigrationInput{
 		ReplicationGroupId: aws.String(rgID),
