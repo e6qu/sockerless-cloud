@@ -5,7 +5,6 @@ import (
 	"testing"
 )
 
-// registerCLIAMI registers a user AMI via the aws CLI and returns its id.
 func registerCLIAMI(t *testing.T, q func(args ...string) string, name string) string {
 	t.Helper()
 	ami := q("ec2", "register-image", "--name", name, "--architecture", "x86_64",
@@ -18,8 +17,6 @@ func registerCLIAMI(t *testing.T, q func(args ...string) string, name string) st
 	return ami
 }
 
-// TestEC2CLI_FastLaunch covers enable-fast-launch (state enabled, config echoed),
-// describe-fast-launch-images, and disable-fast-launch via the aws CLI.
 func TestEC2CLI_FastLaunch(t *testing.T) {
 	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
@@ -50,8 +47,6 @@ func TestEC2CLI_FastLaunch(t *testing.T) {
 	}
 }
 
-// TestEC2CLI_ImageDeprecation covers enable-image-deprecation and
-// disable-image-deprecation (idempotent) via the aws CLI.
 func TestEC2CLI_ImageDeprecation(t *testing.T) {
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
 	ami := registerCLIAMI(t, q, "cli-deprecation-ami")
@@ -68,9 +63,6 @@ func TestEC2CLI_ImageDeprecation(t *testing.T) {
 	}
 }
 
-// TestEC2CLI_LaunchPermissionExportRecycleBin covers cancel-image-launch-permission,
-// describe-export-image-tasks / describe-import-image-tasks (honest-empty read
-// sides), and list-images-in-recycle-bin (honest-empty) via the aws CLI.
 func TestEC2CLI_LaunchPermissionExportRecycleBin(t *testing.T) {
 	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
@@ -82,8 +74,6 @@ func TestEC2CLI_LaunchPermissionExportRecycleBin(t *testing.T) {
 		t.Fatalf("cancel-image-launch-permission Return: got %q, want True", cancel)
 	}
 
-	// The export/import task read sides accept the call and return well-shaped
-	// lists (typically empty in a fresh sim).
 	if v := q("ec2", "describe-export-image-tasks",
 		"--query", "ExportImageTasks", "--output", "json"); v == "" {
 		t.Fatal("describe-export-image-tasks returned empty output")
@@ -93,7 +83,6 @@ func TestEC2CLI_LaunchPermissionExportRecycleBin(t *testing.T) {
 		t.Fatal("describe-import-image-tasks returned empty output")
 	}
 
-	// No AMI has been sent to the Recycle Bin -> honest-empty list.
 	n := q("ec2", "list-images-in-recycle-bin", "--query", "length(Images)", "--output", "text")
 	if n != "0" {
 		t.Fatalf("list-images-in-recycle-bin: got count %q, want 0", n)

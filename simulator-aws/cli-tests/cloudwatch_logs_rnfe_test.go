@@ -5,11 +5,10 @@ import (
 	"testing"
 )
 
-// TestCloudWatchLogsCLI_FilterMissingGroupRNFE asserts `aws logs
-// filter-log-events` against a non-existent group fails with
-// ResourceNotFoundException rather than returning an empty event list
-// that masks misconfiguration. Uses CombinedOutput directly since the call is
-// expected to exit non-zero (runCLI fatals on non-zero exit).
+// TestCloudWatchLogsCLI_FilterMissingGroupRNFE expects filter-log-events on a
+// missing group to fail with ResourceNotFoundException, not return an empty
+// list. runCLI fails the test on a non-zero exit, so the call uses
+// CombinedOutput.
 func TestCloudWatchLogsCLI_FilterMissingGroupRNFE(t *testing.T) {
 	t.Parallel()
 	out, err := awsCLI("logs", "filter-log-events", "--log-group-name", "/cli/does-not-exist-483").CombinedOutput()

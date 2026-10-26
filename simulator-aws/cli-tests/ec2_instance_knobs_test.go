@@ -5,8 +5,6 @@ import (
 	"testing"
 )
 
-// TestEC2InstanceKnobFidelityCLI covers the RunInstances knobs + Instance
-// response fields and the ModifyInstanceAttribute persist via the aws CLI.
 func TestEC2InstanceKnobFidelityCLI(t *testing.T) {
 	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
@@ -29,7 +27,6 @@ func TestEC2InstanceKnobFidelityCLI(t *testing.T) {
 		t.Fatalf("instance knobs: got %q, want 'cli-key True required True'", out)
 	}
 
-	// ModifyInstanceAttribute must persist (was a no-op).
 	runCLI(t, awsCLI("ec2", "modify-instance-attribute", "--instance-id", instID, "--no-source-dest-check"))
 	if v := q("ec2", "describe-instances", "--instance-ids", instID,
 		"--query", "Reservations[0].Instances[0].SourceDestCheck", "--output", "text"); v != "False" {

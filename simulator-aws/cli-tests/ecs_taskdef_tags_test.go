@@ -5,9 +5,9 @@ import (
 	"testing"
 )
 
-// TestECSCLI_TaskDefinitionTagsIncludePath drives the task-def tag read paths:
-// describe-task-definition --include TAGS surfaces top-level tags (the TF
-// provider's path), while without --include TAGS there are none.
+// TestECSCLI_TaskDefinitionTagsIncludePath expects describe-task-definition to
+// return top-level tags only with --include TAGS, terraform-provider-aws's
+// read path.
 func TestECSCLI_TaskDefinitionTagsIncludePath(t *testing.T) {
 	t.Parallel()
 	runCLI(t, awsCLI("ecs", "register-task-definition",
@@ -18,7 +18,6 @@ func TestECSCLI_TaskDefinitionTagsIncludePath(t *testing.T) {
 		"--container-definitions", `[{"name":"app","image":"mirror.gcr.io/library/nginx:latest","stopTimeout":2}]`,
 		"--tags", "key=Name,value=test", "key=env,value=ci"))
 
-	// --include TAGS surfaces the top-level tags.
 	withTags := strings.TrimSpace(runCLI(t, awsCLI("ecs", "describe-task-definition",
 		"--task-definition", "cli-taskdef-tags", "--include", "TAGS",
 		"--query", "tags[?key=='Name'].value | [0]", "--output", "text")))
@@ -26,7 +25,6 @@ func TestECSCLI_TaskDefinitionTagsIncludePath(t *testing.T) {
 		t.Fatalf("describe --include TAGS Name tag = %q, want test", withTags)
 	}
 
-	// Without --include TAGS, no top-level tags.
 	noTags := strings.TrimSpace(runCLI(t, awsCLI("ecs", "describe-task-definition",
 		"--task-definition", "cli-taskdef-tags",
 		"--query", "tags", "--output", "text")))
@@ -34,7 +32,6 @@ func TestECSCLI_TaskDefinitionTagsIncludePath(t *testing.T) {
 		t.Fatalf("describe without --include TAGS tags = %q, want None", noTags)
 	}
 
-	// ListTagsForResource path also returns them.
 	arn := strings.TrimSpace(runCLI(t, awsCLI("ecs", "describe-task-definition",
 		"--task-definition", "cli-taskdef-tags",
 		"--query", "taskDefinition.taskDefinitionArn", "--output", "text")))

@@ -80,7 +80,7 @@ func TestSecretsManagerCLI_GetResourcePolicy(t *testing.T) {
 			"--force-delete-without-recovery").Run()
 	})
 
-	// No policy attached — response must have ARN and Name.
+	// Without a policy the response still carries ARN and Name.
 	out := runCLI(t, awsCLI("secretsmanager", "get-resource-policy",
 		"--secret-id", "grp-cli-secret",
 		"--output", "json"))

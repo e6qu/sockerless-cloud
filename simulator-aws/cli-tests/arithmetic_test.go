@@ -9,8 +9,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// waitECSTaskStoppedCLI waits with `aws ecs wait tasks-stopped` and returns the
-// stopped task's description.
 func waitECSTaskStoppedCLI(t *testing.T, cluster, taskArn string) string {
 	t.Helper()
 	runCLI(t, awsCLI("ecs", "wait", "tasks-stopped", "--cluster", cluster, "--tasks", taskArn))
@@ -25,10 +23,8 @@ func TestECS_CLI_ArithmeticEval(t *testing.T) {
 	t.Parallel()
 	subnetID := createCLIECSTestSubnet(t, "cli-arith-cluster", "10.140.0.0/16")
 
-	// Create cluster
 	runCLI(t, awsCLI("ecs", "create-cluster", "--cluster-name", "cli-arith-cluster"))
 
-	// Register task definition with eval-arithmetic command
 	out := runCLI(t, awsCLI("ecs", "register-task-definition",
 		"--family", "cli-arith-task",
 		"--requires-compatibilities", "FARGATE",
@@ -59,7 +55,6 @@ func TestECS_CLI_ArithmeticEval(t *testing.T) {
 	parseJSON(t, out, &tdResult)
 	require.NotEmpty(t, tdResult.TaskDefinition.TaskDefinitionArn)
 
-	// Run task
 	out = runCLI(t, awsCLI("ecs", "run-task",
 		"--cluster", "cli-arith-cluster",
 		"--task-definition", tdResult.TaskDefinition.TaskDefinitionArn,
@@ -78,7 +73,6 @@ func TestECS_CLI_ArithmeticEval(t *testing.T) {
 	require.Len(t, runResult.Tasks, 1)
 	taskArn := runResult.Tasks[0].TaskArn
 
-	// Poll until the task reaches STOPPED (or timeout).
 	out = waitECSTaskStoppedCLI(t, "cli-arith-cluster", taskArn)
 
 	var descResult struct {
@@ -96,7 +90,6 @@ func TestECS_CLI_ArithmeticEval(t *testing.T) {
 	require.NotNil(t, descResult.Tasks[0].Containers[0].ExitCode)
 	assert.Equal(t, 0, *descResult.Tasks[0].Containers[0].ExitCode)
 
-	// Verify CloudWatch logs contain the result
 	out = runCLI(t, awsCLI("logs", "filter-log-events",
 		"--log-group-name", "/ecs/cli-arith-task",
 		"--output", "json",
@@ -123,10 +116,8 @@ func TestECS_CLI_ArithmeticInvalid(t *testing.T) {
 	t.Parallel()
 	subnetID := createCLIECSTestSubnet(t, "cli-arith-fail-cluster", "10.147.0.0/16")
 
-	// Create cluster
 	runCLI(t, awsCLI("ecs", "create-cluster", "--cluster-name", "cli-arith-fail-cluster"))
 
-	// Register task definition with invalid expression
 	out := runCLI(t, awsCLI("ecs", "register-task-definition",
 		"--family", "cli-arith-fail-task",
 		"--requires-compatibilities", "FARGATE",
@@ -156,7 +147,6 @@ func TestECS_CLI_ArithmeticInvalid(t *testing.T) {
 	}
 	parseJSON(t, out, &tdResult)
 
-	// Run task
 	out = runCLI(t, awsCLI("ecs", "run-task",
 		"--cluster", "cli-arith-fail-cluster",
 		"--task-definition", tdResult.TaskDefinition.TaskDefinitionArn,
@@ -175,7 +165,6 @@ func TestECS_CLI_ArithmeticInvalid(t *testing.T) {
 	require.Len(t, runResult.Tasks, 1)
 	taskArn := runResult.Tasks[0].TaskArn
 
-	// Poll until the task reaches STOPPED (or timeout).
 	out = waitECSTaskStoppedCLI(t, "cli-arith-fail-cluster", taskArn)
 
 	var descResult struct {

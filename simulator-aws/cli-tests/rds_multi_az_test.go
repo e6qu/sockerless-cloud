@@ -32,11 +32,11 @@ func cliAvailableMultiAZInstance(t *testing.T, instanceID string) cliMultiAZInst
 	return described.DBInstances[0]
 }
 
-// aws rds create-db-instance --multi-az runs an RDS for PostgreSQL instance
-// with a synchronous standby in a second Availability Zone, and aws rds
-// reboot-db-instance --force-failover promotes it: the endpoint then serves
-// the rows committed before the failover, the Availability Zones swap, and
-// aws rds describe-events lists the failover's start and completion.
+// create-db-instance --multi-az runs an RDS for PostgreSQL instance with a
+// synchronous standby in a second Availability Zone, and reboot-db-instance
+// --force-failover promotes it: the endpoint serves the rows committed before
+// the failover, the zones swap, and describe-events lists the failover's start
+// and completion.
 func TestRDSCLI_MultiAZFailover(t *testing.T) {
 	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Minute)

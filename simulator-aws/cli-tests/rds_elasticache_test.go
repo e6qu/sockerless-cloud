@@ -9,8 +9,8 @@ import (
 )
 
 // waitForRDSSnapshotAvailableCLI waits with `aws rds wait
-// db-snapshot-available`: creates and copies answer "creating", exactly as real
-// RDS does.
+// db-snapshot-available`: creates and copies answer "creating", as on Amazon
+// RDS.
 func waitForRDSSnapshotAvailableCLI(t *testing.T, snapshotID string) {
 	t.Helper()
 	runCLI(t, awsCLI("rds", "wait", "db-snapshot-available", "--db-snapshot-identifier", snapshotID))
@@ -76,7 +76,6 @@ func TestRDSCLI_DBInstanceLifecycle(t *testing.T) {
 		"--db-instance-identifier", id,
 		"--db-instance-class", "db.t3.small",
 		"--apply-immediately"))
-	// The class change restarts the engine with the instance modifying.
 	runCLI(t, awsCLI("rds", "wait", "db-instance-available", "--db-instance-identifier", id))
 
 	runCLI(t, awsCLI("rds", "add-tags-to-resource",
@@ -107,9 +106,7 @@ func TestRDSCLI_DBInstanceLifecycle(t *testing.T) {
 	parseJSON(t, out, &createdSnapshot)
 	require.Equal(t, snapshotID, createdSnapshot.DBSnapshot.DBSnapshotIdentifier)
 	assert.Equal(t, id, createdSnapshot.DBSnapshot.DBInstanceIdentifier)
-	// Real RDS answers "creating" and settles asynchronously once the data is
-	// captured; the simulator now does the same (the capture is copy-on-write
-	// where the volume store supports it, a full copy elsewhere).
+	// Amazon RDS answers "creating" and settles once the data is captured.
 	assert.Equal(t, "creating", createdSnapshot.DBSnapshot.Status)
 	require.NotEmpty(t, createdSnapshot.DBSnapshot.DBSnapshotArn)
 	waitForRDSSnapshotAvailableCLI(t, snapshotID)
@@ -251,7 +248,6 @@ func TestElastiCacheCLI_ClusterLifecycle(t *testing.T) {
 
 func TestElastiCacheCLI_ReplicationGroupAndReboot(t *testing.T) {
 	t.Parallel()
-	// Reboot a standalone cluster.
 	clusterID := "cli-reboot-cache"
 	runCLI(t, awsCLI("elasticache", "create-cache-cluster",
 		"--cache-cluster-id", clusterID,
@@ -275,7 +271,6 @@ func TestElastiCacheCLI_ReplicationGroupAndReboot(t *testing.T) {
 	assert.Equal(t, "rebooting cluster nodes", rebooted.CacheCluster.CacheClusterStatus)
 	ecCLIAwaitCluster(t, clusterID)
 
-	// Replication group lifecycle.
 	rgID := "cli-repl-group"
 	out = runCLI(t, awsCLI("elasticache", "create-replication-group",
 		"--replication-group-id", rgID,
@@ -356,7 +351,6 @@ func TestElastiCacheCLI_ReplicationGroupAndReboot(t *testing.T) {
 
 func TestElastiCacheCLI_SubnetAndParameterGroups(t *testing.T) {
 	t.Parallel()
-	// Cache subnet group lifecycle.
 	sgName := "cli-cache-subnet-group"
 	out := runCLI(t, awsCLI("elasticache", "create-cache-subnet-group",
 		"--cache-subnet-group-name", sgName,
@@ -396,7 +390,6 @@ func TestElastiCacheCLI_SubnetAndParameterGroups(t *testing.T) {
 	runCLI(t, awsCLI("elasticache", "delete-cache-subnet-group",
 		"--cache-subnet-group-name", sgName))
 
-	// Cache parameter group lifecycle.
 	pgName := "cli-cache-param-group"
 	out = runCLI(t, awsCLI("elasticache", "create-cache-parameter-group",
 		"--cache-parameter-group-name", pgName,

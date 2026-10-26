@@ -5,8 +5,6 @@ import (
 	"testing"
 )
 
-// TestDynamoDBCLI_SSEDescription drives the SSE round-trip via the aws CLI:
-// create-table with --sse-specification, then read it back from describe-table.
 func TestDynamoDBCLI_SSEDescription(t *testing.T) {
 	t.Parallel()
 	keyArn := "arn:aws:kms:us-east-1:123456789012:key/cli-sse-key"

@@ -74,7 +74,7 @@ func TestSSMParameterCLI_ListTagsForResource(t *testing.T) {
 		_ = awsCLI("ssm", "delete-parameter", "--name", name).Run()
 	})
 
-	// No tags yet — TagList must be an empty array, not absent.
+	// With no tags, TagList is an empty array, not absent.
 	emptyOut := runCLI(t, awsCLI("ssm", "list-tags-for-resource",
 		"--resource-type", "Parameter",
 		"--resource-id", name,
@@ -89,7 +89,6 @@ func TestSSMParameterCLI_ListTagsForResource(t *testing.T) {
 	assert.NotNil(t, empty.TagList)
 	assert.Empty(t, empty.TagList)
 
-	// Add a tag then verify it appears in the list.
 	runCLI(t, awsCLI("ssm", "add-tags-to-resource",
 		"--resource-type", "Parameter",
 		"--resource-id", name,
@@ -112,11 +111,10 @@ func TestSSMParameterCLI_ListTagsForResource(t *testing.T) {
 	assert.Equal(t, "prod", tagged.TagList[0].Value)
 }
 
-// TestSSMParameterCLI_ListTagsForResourceWithoutLeadingSlash pins the
-// resolution the Terraform provider depends on: a parameter is stored under a
-// leading slash, and a resource id given without one still names it. The tag
-// read back is what proves the name resolved — an unresolved id would answer
-// with an empty list just as convincingly.
+// TestSSMParameterCLI_ListTagsForResourceWithoutLeadingSlash covers the
+// resolution terraform-provider-aws depends on: a resource id without the
+// stored name's leading slash still names the parameter, which the tag read
+// back proves.
 func TestSSMParameterCLI_ListTagsForResourceWithoutLeadingSlash(t *testing.T) {
 	t.Parallel()
 	name := "terraform-compatible-parameter"
@@ -139,8 +137,7 @@ func TestSSMParameterCLI_ListTagsForResourceWithoutLeadingSlash(t *testing.T) {
 	assert.Equal(t, "owner", tagged.TagList[0].Key)
 	assert.Equal(t, "terraform", tagged.TagList[0].Value)
 
-	// A name no parameter carries does not resolve, so the read above is
-	// resolution rather than indifference.
+	// A name no parameter carries does not resolve.
 	missing := runCLIExpectError(t, awsCLI("ssm", "list-tags-for-resource",
 		"--resource-type", "Parameter", "--resource-id", name+"-absent", "--output", "json"))
 	assert.Contains(t, missing, "InvalidResourceId")

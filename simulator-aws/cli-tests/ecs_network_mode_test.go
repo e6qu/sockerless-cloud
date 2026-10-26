@@ -10,22 +10,16 @@ import (
 	"testing"
 )
 
-// The Amazon Elastic Container Service (ECS) task definition's networkMode
-// decides the network fabric every container in the task lands on. These tests
-// assert the fabric the container actually joined, read back from the container
-// runtime, not just the shape of the API response:
+// An Amazon ECS task definition's networkMode decides the network every
+// container in the task joins. These tests read the joined network back from
+// the container runtime:
 //
-//   - awsvpc — the task gets its own elastic network interface in the VPC, so
-//     the container is never on the container instance's default bridge.
-//   - bridge — the container instance's default Docker bridge.
-//   - host   — the container instance's own network stack.
-//   - none   — no connectivity.
-//
-// An awsvpc task is pinned to the per-VPC user-defined Docker network, never
-// the default bridge.
+//   - awsvpc: the task's own elastic network interface in the VPC, so never
+//     the container instance's default bridge.
+//   - bridge: the container instance's default Docker bridge.
+//   - host: the container instance's own network stack.
+//   - none: no connectivity.
 
-// registerNetworkModeTaskDef registers a single-container task definition in
-// the requested network mode running a long sleep.
 func registerNetworkModeTaskDef(q func(...string) string, family, mode string) {
 	args := []string{"ecs", "register-task-definition", "--family", family, "--network-mode", mode}
 	if mode == "awsvpc" {
@@ -37,8 +31,6 @@ func registerNetworkModeTaskDef(q func(...string) string, family, mode string) {
 	q(args...)
 }
 
-// containerNetworkNames lists the Docker networks a task's container is
-// attached to.
 func containerNetworkNames(t *testing.T, taskArn string) []string {
 	t.Helper()
 	out := dockerOut(t, "inspect", "-f",
@@ -46,16 +38,13 @@ func containerNetworkNames(t *testing.T, taskArn string) []string {
 	return strings.Fields(out)
 }
 
-// containerNetworkMode reads the container's configured network mode.
 func containerNetworkMode(t *testing.T, taskArn string) string {
 	t.Helper()
 	return strings.TrimSpace(dockerOut(t, "inspect", "-f", "{{.HostConfig.NetworkMode}}", taskContainerID(t, taskArn)))
 }
 
-// defaultContainerNetworkName is the network the container runtime attaches a
-// container to when none is requested — the container instance's own bridge.
-// It is read from the runtime rather than assumed, because the name differs by
-// runtime ("bridge" under Docker, "podman" under Podman).
+// defaultContainerNetworkName reads the network the runtime attaches a
+// container to by default: "bridge" under Docker, "podman" under Podman.
 func defaultContainerNetworkName(t *testing.T) string {
 	t.Helper()
 	defaultNetworkOnce.Do(func() {
@@ -92,10 +81,9 @@ var (
 	defaultNetworkErr  error
 )
 
-// TestECSNetworkModeAwsvpcKeepsTaskOffTheDefaultBridge proves an awsvpc task's
-// container is wired into its VPC's own network rather than the container
-// instance's shared default bridge — the elastic-network-interface-per-task
-// model real ECS implements.
+// TestECSNetworkModeAwsvpcKeepsTaskOffTheDefaultBridge expects an awsvpc task's
+// container on its VPC's network, not the shared default bridge: an elastic
+// network interface per task.
 func TestECSNetworkModeAwsvpcKeepsTaskOffTheDefaultBridge(t *testing.T) {
 	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
@@ -124,16 +112,14 @@ func TestECSNetworkModeAwsvpcKeepsTaskOffTheDefaultBridge(t *testing.T) {
 		}
 	}
 
-	// The task's reported ENI address must come from the subnet's CIDR.
 	if eniIP := taskENIIP(q, task); !strings.HasPrefix(eniIP, prefixOf(vpcRange)) {
 		t.Fatalf("awsvpc task ENI IP %q is not in the subnet CIDR %s", eniIP, subnetOf(vpcRange))
 	}
 }
 
-// TestECSNetworkModeBridgeUsesTheContainerInstanceNetwork proves a
-// bridge-mode task runs on the container instance's own network — never the
-// engine's default bridge, never a VPC's network — and is allocated no
-// elastic network interface.
+// TestECSNetworkModeBridgeUsesTheContainerInstanceNetwork expects a bridge-mode
+// task on the container instance's own network, neither the engine's default
+// bridge nor a VPC's network, with no elastic network interface.
 func TestECSNetworkModeBridgeUsesTheContainerInstanceNetwork(t *testing.T) {
 	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
@@ -164,8 +150,6 @@ func TestECSNetworkModeBridgeUsesTheContainerInstanceNetwork(t *testing.T) {
 	}
 }
 
-// TestECSNetworkModeHostUsesTheContainerInstanceNetworkStack proves a host-mode
-// task's container runs in the container instance's own network namespace.
 func TestECSNetworkModeHostUsesTheContainerInstanceNetworkStack(t *testing.T) {
 	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
@@ -182,8 +166,8 @@ func TestECSNetworkModeHostUsesTheContainerInstanceNetworkStack(t *testing.T) {
 		t.Fatalf("host-mode task container network mode = %q, want host", mode)
 	}
 
-	// The task metadata endpoint is served on the container instance's own
-	// stack, so a host-mode container must still reach it.
+	// The container instance's stack serves the task metadata endpoint, so a
+	// host-mode container still reaches it.
 	cid := taskContainerID(t, task)
 	out, err := exec.Command("docker", "exec", cid, "sh", "-c",
 		`wget -T 5 -q -O - "$ECS_CONTAINER_METADATA_URI_V4/task"`).CombinedOutput()
@@ -195,8 +179,6 @@ func TestECSNetworkModeHostUsesTheContainerInstanceNetworkStack(t *testing.T) {
 	}
 }
 
-// TestECSNetworkModeNoneHasNoConnectivity proves a none-mode task's container
-// gets no network at all.
 func TestECSNetworkModeNoneHasNoConnectivity(t *testing.T) {
 	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
@@ -214,9 +196,8 @@ func TestECSNetworkModeNoneHasNoConnectivity(t *testing.T) {
 	}
 }
 
-// TestECSNetworkModeRejectsMismatchedNetworkConfiguration proves run-task
-// enforces the networkMode ↔ networkConfiguration contract in both directions:
-// awsvpc requires it, every other mode refuses it.
+// TestECSNetworkModeRejectsMismatchedNetworkConfiguration expects run-task to
+// require networkConfiguration for awsvpc and refuse it for every other mode.
 func TestECSNetworkModeRejectsMismatchedNetworkConfiguration(t *testing.T) {
 	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }

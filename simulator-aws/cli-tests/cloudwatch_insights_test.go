@@ -8,8 +8,6 @@ import (
 	"time"
 )
 
-// TestCloudWatchLogsCLI_InsightsQuery covers start-query / get-query-results
-// over the CLI surface.
 func TestCloudWatchLogsCLI_InsightsQuery(t *testing.T) {
 	t.Parallel()
 	group, stream := "/cli/insights", "s1"

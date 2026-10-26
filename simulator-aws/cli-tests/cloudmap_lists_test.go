@@ -8,18 +8,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// cmDataEndpoint returns the simulator's servicediscovery endpoint coordinate.
-// It has the same shape as the real endpoint a CLI resolves
-// (`servicediscovery.us-east-1.amazonaws.com`), so botocore prepends the `data-`
-// host prefix that DiscoverInstances and DiscoverInstancesRevision carry and
-// sends the request to `data-servicediscovery.localhost`. Callers pair it with
-// awsCLIHostPrefixed, which is what makes that name reach the loopback sim.
+// cmDataEndpoint returns an endpoint shaped like the real
+// `servicediscovery.us-east-1.amazonaws.com`, so botocore prepends the `data-`
+// host prefix DiscoverInstances and DiscoverInstancesRevision carry. Pair it
+// with awsCLIHostPrefixed, which makes that name reach the simulator.
 func cmDataEndpoint(t *testing.T) string {
 	t.Helper()
 	return fmt.Sprintf("http://servicediscovery.localhost:%s", portFromBaseURL(t))
 }
 
-// cmCLIHTTPNamespace creates an HTTP namespace via the CLI and returns its ID.
 func cmCLIHTTPNamespace(t *testing.T, name string, extra ...string) string {
 	t.Helper()
 	args := append([]string{"servicediscovery", "create-http-namespace",
@@ -35,7 +32,6 @@ func cmCLIHTTPNamespace(t *testing.T, name string, extra ...string) string {
 	return id
 }
 
-// cmCLIService creates a service via the CLI and returns its ID and ARN.
 func cmCLIService(t *testing.T, nsID, name string, extra ...string) (string, string) {
 	t.Helper()
 	args := append([]string{"servicediscovery", "create-service",
@@ -55,8 +51,6 @@ func cmCLIService(t *testing.T, nsID, name string, extra ...string) (string, str
 	return created.Service.Id, created.Service.Arn
 }
 
-// TestCloudMapListServicesCLI covers list-services: the NAMESPACE_ID filter and
-// MaxResults/NextToken paging.
 func TestCloudMapListServicesCLI(t *testing.T) {
 	t.Parallel()
 	nsID := cmCLIHTTPNamespace(t, "cli-list-svc-ns")
@@ -87,14 +81,12 @@ func TestCloudMapListServicesCLI(t *testing.T) {
 	}
 	assert.True(t, ids[svcA] && ids[svcB])
 
-	// A namespace with no services matches nothing.
 	otherNs := cmCLIHTTPNamespace(t, "cli-list-svc-empty-ns")
 	out = runCLI(t, awsCLI("servicediscovery", "list-services",
 		"--filters", "Name=NAMESPACE_ID,Values="+otherNs, "--output", "json"))
 	parseJSON(t, out, &listed)
 	assert.Empty(t, listed.Services)
 
-	// Paging returns one service plus a token.
 	out = runCLI(t, awsCLI("servicediscovery", "list-services",
 		"--filters", "Name=NAMESPACE_ID,Values="+nsID,
 		"--page-size", "1", "--max-items", "1", "--output", "json"))
@@ -122,8 +114,6 @@ func TestCloudMapListServicesCLI(t *testing.T) {
 	assert.NotEqual(t, paged.Services[0].Id, second.Services[0].Id)
 }
 
-// TestCloudMapListNamespacesFiltersCLI covers list-namespaces filters and the
-// ServiceCount the NamespaceSummary carries.
 func TestCloudMapListNamespacesFiltersCLI(t *testing.T) {
 	t.Parallel()
 	nsID := cmCLIHTTPNamespace(t, "cli-filter-http-ns")
@@ -150,7 +140,6 @@ func TestCloudMapListNamespacesFiltersCLI(t *testing.T) {
 	assert.Equal(t, 1, listed.Namespaces[0].ServiceCount)
 	assert.Equal(t, "cli-filter-http-ns", listed.Namespaces[0].Properties.HttpProperties.HttpName)
 
-	// The TYPE filter excludes namespaces of other types.
 	out = runCLI(t, awsCLI("servicediscovery", "list-namespaces",
 		"--filters", "Name=TYPE,Values=DNS_PRIVATE", "--output", "json"))
 	parseJSON(t, out, &listed)
@@ -160,8 +149,6 @@ func TestCloudMapListNamespacesFiltersCLI(t *testing.T) {
 	}
 }
 
-// TestCloudMapTagsCLI covers list-tags-for-resource against the tags a create
-// call carried and against tag-resource / untag-resource edits.
 func TestCloudMapTagsCLI(t *testing.T) {
 	t.Parallel()
 	nsID := cmCLIHTTPNamespace(t, "cli-tags-ns", "--tags", "Key=env,Value=cli", "Key=owner,Value=platform")
@@ -207,7 +194,6 @@ func TestCloudMapTagsCLI(t *testing.T) {
 	assert.NotContains(t, tags, "env")
 	assert.Equal(t, "platform", tags["owner"])
 
-	// A service's tags live on the service ARN.
 	_, svcArn := cmCLIService(t, nsID, "cli-tags-svc", "--tags", "Key=role,Value=api")
 	out = runCLI(t, awsCLI("servicediscovery", "list-tags-for-resource",
 		"--resource-arn", svcArn, "--output", "json"))
@@ -222,14 +208,11 @@ func TestCloudMapTagsCLI(t *testing.T) {
 	assert.Equal(t, "role", svcTags.Tags[0].Key)
 	assert.Equal(t, "api", svcTags.Tags[0].Value)
 
-	// An ARN addressing nothing is a ResourceNotFoundException.
 	errOut := runCLIExpectError(t, awsCLI("servicediscovery", "list-tags-for-resource",
 		"--resource-arn", "arn:aws:servicediscovery:us-east-1:123456789012:namespace/ns-missing"))
 	assert.Contains(t, errOut, "ResourceNotFoundException")
 }
 
-// TestCloudMapNotFoundErrorsCLI covers the modeled errors the CLI surfaces for
-// unknown operations and services.
 func TestCloudMapNotFoundErrorsCLI(t *testing.T) {
 	t.Parallel()
 	errOut := runCLIExpectError(t, awsCLI("servicediscovery", "get-operation",
@@ -251,9 +234,8 @@ func TestCloudMapNotFoundErrorsCLI(t *testing.T) {
 	assert.Contains(t, errOut, "ServiceAlreadyExists")
 }
 
-// TestCloudMapDiscoverInstancesCLI covers discover-instances and
-// discover-instances-revision, the two Cloud Map data-plane operations the CLI
-// sends to the `data-` prefixed host.
+// TestCloudMapDiscoverInstancesCLI covers the two Cloud Map data-plane
+// operations, which the CLI sends to the `data-` prefixed host.
 func TestCloudMapDiscoverInstancesCLI(t *testing.T) {
 	t.Parallel()
 	endpoint := cmDataEndpoint(t)
@@ -301,7 +283,6 @@ func TestCloudMapDiscoverInstancesCLI(t *testing.T) {
 		assert.NotEmpty(t, inst.Attributes["AWS_INSTANCE_IPV4"])
 	}
 
-	// QueryParameters narrow discovery to the matching attribute.
 	out = runCLI(t, awsCLIHostPrefixed("servicediscovery", "discover-instances",
 		"--endpoint-url", endpoint,
 		"--namespace-name", "cli-discover-ns",

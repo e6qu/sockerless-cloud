@@ -5,9 +5,8 @@ import (
 	"testing"
 )
 
-// TestELBv2CLI_HTTPSListenerCertificate drives the HTTPS-listener certificate
-// round-trip: the cert ARN attached at CreateListener must come back from
-// DescribeListeners (the structured Certificates.member.N.CertificateArn parse).
+// TestELBv2CLI_HTTPSListenerCertificate expects the certificate ARN attached
+// at CreateListener back from DescribeListeners.
 func TestELBv2CLI_HTTPSListenerCertificate(t *testing.T) {
 	t.Parallel()
 	vpc := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-vpc",

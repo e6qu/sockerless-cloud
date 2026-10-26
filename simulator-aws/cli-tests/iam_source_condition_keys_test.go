@@ -12,8 +12,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// cliScopedUser creates an IAM user holding one inline policy and returns its
-// access key.
 func cliScopedUser(t *testing.T, user, policy string) (akid, secret string) {
 	t.Helper()
 	user = fmt.Sprintf("%s-%d", user, time.Now().UnixNano())
@@ -34,10 +32,9 @@ func cliAs(akid, secret string, args ...string) *exec.Cmd {
 	return cmd
 }
 
-// TestCloudWatch_DefaultDatasetResourceTagCLI covers the default metrics
-// dataset over the CLI: it exists without being created, no other dataset
-// does, and aws:ResourceTag on get-dataset reports the tags tag-resource gives
-// it.
+// TestCloudWatch_DefaultDatasetResourceTagCLI expects the default metrics
+// dataset to exist uncreated and alone, and aws:ResourceTag on get-dataset to
+// report the tags tag-resource gives it.
 func TestCloudWatch_DefaultDatasetResourceTagCLI(t *testing.T) {
 	t.Parallel()
 	var dataset struct{ DatasetId, Arn string }
@@ -61,8 +58,8 @@ func TestCloudWatch_DefaultDatasetResourceTagCLI(t *testing.T) {
 }
 
 // TestLambda_FunctionURLPermissionConditionsCLI covers the conditions
-// add-permission writes for a function URL: the auth type a public URL is
-// opened with, and lambda:InvokedViaFunctionUrl on the invoke it needs too.
+// add-permission writes for a function URL: the auth type a public URL opens
+// with, and lambda:InvokedViaFunctionUrl on the invoke it also needs.
 func TestLambda_FunctionURLPermissionConditionsCLI(t *testing.T) {
 	t.Parallel()
 	zipPath := createDummyZip(t)
@@ -98,7 +95,7 @@ func TestLambda_FunctionURLPermissionConditionsCLI(t *testing.T) {
 }
 
 // TestRDSCLI_BlueGreenSourceConditionKeys covers the keys a blue/green
-// deployment settles from the DB cluster it clones.
+// deployment takes from the DB cluster it clones.
 func TestRDSCLI_BlueGreenSourceConditionKeys(t *testing.T) {
 	t.Parallel()
 	cluster := func(team string) string {

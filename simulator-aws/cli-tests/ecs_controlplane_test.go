@@ -8,8 +8,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestECSCLI_CapacityProviders exercises create-capacity-provider,
-// describe-capacity-providers, update-capacity-provider, delete-capacity-provider.
 func TestECSCLI_CapacityProviders(t *testing.T) {
 	t.Parallel()
 	name := "cli-cap-provider"
@@ -37,8 +35,6 @@ func TestECSCLI_CapacityProviders(t *testing.T) {
 	runCLI(t, awsCLI("ecs", "delete-capacity-provider", "--capacity-provider", name, "--output", "json"))
 }
 
-// TestECSCLI_TaskSets exercises create-task-set, describe-task-sets,
-// update-task-set, update-service-primary-task-set, delete-task-set.
 func TestECSCLI_TaskSets(t *testing.T) {
 	t.Parallel()
 	cluster := "cli-ts-cluster"
@@ -77,11 +73,6 @@ func TestECSCLI_TaskSets(t *testing.T) {
 		"--cluster", cluster, "--service", "cli-ts-svc", "--task-set", id, "--force").Run()
 }
 
-// TestECSCLI_ContainerInstances exercises register-container-instance,
-// describe-container-instances, list-container-instances,
-// update-container-instances-state, update-container-agent,
-// deregister-container-instance, and the agent-poll submit ops +
-// discover-poll-endpoint.
 func TestECSCLI_ContainerInstances(t *testing.T) {
 	t.Parallel()
 	cluster := "cli-ci-cluster"
@@ -109,8 +100,7 @@ func TestECSCLI_ContainerInstances(t *testing.T) {
 	runCLI(t, awsCLI("ecs", "update-container-agent",
 		"--cluster", cluster, "--container-instance", ciArn, "--output", "json"))
 
-	// The agent's discovery call must point back at this simulator, not at the
-	// real Amazon endpoints it used to return.
+	// discover-poll-endpoint points the agent back at this simulator.
 	pollOut := runCLI(t, awsCLI("ecs", "discover-poll-endpoint",
 		"--cluster", cluster, "--container-instance", ciArn, "--output", "json"))
 	var poll struct {
@@ -123,13 +113,9 @@ func TestECSCLI_ContainerInstances(t *testing.T) {
 	assert.NotContains(t, poll.TelemetryEndpoint, "amazonaws.com",
 		"the telemetry endpoint must not send an agent to real AWS")
 
-	// The state-change reports are applied, not acknowledged. This block used
-	// to report against a made-up task id and assert only that the CLI exited
-	// zero, which the canned "ACK" satisfied while changing nothing.
-	// The container has to stay up: a task whose container exits on its own is
-	// stopped by the simulator's own lifecycle, which writes its own stopped
-	// reason, and the point here is what the agent's report writes. Held open,
-	// the report is the only writer.
+	// The state-change reports change the task. The container stays up, because
+	// the simulator stops a task whose container exits and writes its own stopped
+	// reason; held open, the agent's report is the only writer.
 	runCLI(t, awsCLI("ecs", "register-task-definition",
 		"--family", "cli-ci-task",
 		"--container-definitions", `[{"name":"app","image":"`+containerCommandImage+`","stopTimeout":2,"command":["hold"]}]`))
@@ -174,7 +160,6 @@ func TestECSCLI_ContainerInstances(t *testing.T) {
 		"the reported exit code must be recorded")
 	assert.Equal(t, 137, *described.Tasks[0].Containers[0].ExitCode)
 
-	// A report about something the control plane does not hold is refused.
 	runCLIExpectError(t, awsCLI("ecs", "submit-task-state-change",
 		"--cluster", cluster, "--task", "task-1", "--status", "RUNNING", "--output", "json"))
 	runCLIExpectError(t, awsCLI("ecs", "submit-attachment-state-changes",
@@ -184,8 +169,6 @@ func TestECSCLI_ContainerInstances(t *testing.T) {
 		"--cluster", cluster, "--container-instance", ciArn, "--force", "--output", "json"))
 }
 
-// TestECSCLI_AccountSettings exercises put-account-setting,
-// put-account-setting-default, list-account-settings, delete-account-setting.
 func TestECSCLI_AccountSettings(t *testing.T) {
 	runCLI(t, awsCLI("ecs", "put-account-setting",
 		"--name", "serviceLongArnFormat", "--value", "enabled", "--output", "json"))
@@ -204,7 +187,6 @@ func TestECSCLI_AccountSettings(t *testing.T) {
 	_ = awsCLI("ecs", "delete-account-setting", "--name", "serviceLongArnFormat").Run()
 }
 
-// TestECSCLI_Attributes exercises put-attributes, list-attributes, delete-attributes.
 func TestECSCLI_Attributes(t *testing.T) {
 	t.Parallel()
 	cluster := "cli-attr-cluster"
@@ -226,7 +208,6 @@ func TestECSCLI_Attributes(t *testing.T) {
 	_ = awsCLI("ecs", "delete-attributes", "--cluster", cluster, "--attributes", attr).Run()
 }
 
-// TestECSCLI_TaskProtection exercises update-task-protection and get-task-protection.
 func TestECSCLI_TaskProtection(t *testing.T) {
 	t.Parallel()
 	cluster := "cli-prot-cluster"
@@ -263,8 +244,7 @@ func TestECSCLI_TaskProtection(t *testing.T) {
 }
 
 // TestECSCLI_StartTask runs a task on a named registered container instance.
-// The definition's privileged flag is accepted; the simulator grants no
-// privilege, so the command asks for none.
+// The simulator grants no privilege, so the definition asks for none.
 func TestECSCLI_StartTask(t *testing.T) {
 	t.Parallel()
 	cluster := "cli-start-cluster"
@@ -303,7 +283,6 @@ func TestECSCLI_StartTask(t *testing.T) {
 	assert.Equal(t, "0", exitCode)
 }
 
-// TestECSCLI_DeleteTaskDefinitions deletes an INACTIVE revision.
 func TestECSCLI_DeleteTaskDefinitions(t *testing.T) {
 	t.Parallel()
 	out := runCLI(t, awsCLI("ecs", "register-task-definition",
@@ -329,9 +308,10 @@ func TestECSCLI_DeleteTaskDefinitions(t *testing.T) {
 	require.Len(t, del.TaskDefinitions, 1)
 }
 
-// TestECSCLI_ServiceDeployments exercises list-service-deployments,
-// describe-service-deployments, describe-service-revisions, list-services-by-namespace.
-// (stop/continue-service-deployment have no public CLI surface — SDK-tested only.)
+// TestECSCLI_ServiceDeployments covers list-service-deployments,
+// describe-service-deployments, describe-service-revisions and
+// list-services-by-namespace. stop- and continue-service-deployment have no
+// CLI command; the SDK test covers them.
 func TestECSCLI_ServiceDeployments(t *testing.T) {
 	t.Parallel()
 	cluster := "cli-sd-cluster"

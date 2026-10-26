@@ -5,9 +5,9 @@ import (
 	"testing"
 )
 
-// TestIAM_ResourceTagConditionCLI reproduces issue #661 over the aws CLI: a
-// `DeleteVolume` grant conditioned on `aws:ResourceTag/edd:managed=true` is
-// denied on an untagged volume and allowed once the volume carries the tag.
+// TestIAM_ResourceTagConditionCLI grants DeleteVolume on
+// `aws:ResourceTag/edd:managed=true`: the call is denied on an untagged
+// volume and allowed once the volume carries the tag.
 func TestIAM_ResourceTagConditionCLI(t *testing.T) {
 	t.Parallel()
 	user := "rt-cond-cli"
@@ -40,7 +40,6 @@ func TestIAM_ResourceTagConditionCLI(t *testing.T) {
 		t.Fatal("create-volume returned no VolumeId")
 	}
 
-	// Untagged → denied.
 	del := awsCLI("ec2", "delete-volume", "--volume-id", v.VolumeId)
 	del.Env = withCreds(del.Env, ck.AccessKey.AccessKeyId, ck.AccessKey.SecretAccessKey)
 	denied := runCLIExpectError(t, del)
@@ -48,12 +47,10 @@ func TestIAM_ResourceTagConditionCLI(t *testing.T) {
 		t.Fatalf("delete-volume on untagged volume expected UnauthorizedOperation; got: %s", denied)
 	}
 
-	// Tag it.
 	tag := awsCLI("ec2", "create-tags", "--resources", v.VolumeId, "--tags", "Key=edd:managed,Value=true")
 	tag.Env = withCreds(tag.Env, ck.AccessKey.AccessKeyId, ck.AccessKey.SecretAccessKey)
 	runCLI(t, tag)
 
-	// Now allowed.
 	del2 := awsCLI("ec2", "delete-volume", "--volume-id", v.VolumeId)
 	del2.Env = withCreds(del2.Env, ck.AccessKey.AccessKeyId, ck.AccessKey.SecretAccessKey)
 	runCLI(t, del2)

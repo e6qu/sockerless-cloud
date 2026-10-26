@@ -7,9 +7,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestRDSCLI_ClusterSnapshotAndParamGroup covers the DB cluster
-// snapshot and DB cluster parameter group families end-to-end through
-// the aws CLI. Grouped into one round-trip func (appdata2 carries RDS).
+// TestRDSCLI_ClusterSnapshotAndParamGroup covers DB cluster snapshots and DB
+// cluster parameter groups in one test for the appdata2 shard.
 func TestRDSCLI_ClusterSnapshotAndParamGroup(t *testing.T) {
 	t.Parallel()
 	clusterID := "cli-ext-aurora-cluster"
@@ -117,8 +116,6 @@ func TestRDSCLI_ClusterSnapshotAndParamGroup(t *testing.T) {
 		"--db-cluster-parameter-group-name", pgName))
 }
 
-// TestRDSCLI_OptionGroupAndReplica covers option groups,
-// read replicas, and CopyDBSnapshot through the aws CLI.
 func TestRDSCLI_OptionGroupAndReplica(t *testing.T) {
 	t.Parallel()
 	ogName := "cli-ext-option-group"
@@ -194,7 +191,6 @@ func TestRDSCLI_OptionGroupAndReplica(t *testing.T) {
 			"--skip-final-snapshot").Run()
 	})
 
-	// CopyDBSnapshot.
 	srcSnap := "cli-ext-copy-src"
 	runCLI(t, awsCLI("rds", "create-db-snapshot",
 		"--db-snapshot-identifier", srcSnap,
@@ -203,7 +199,7 @@ func TestRDSCLI_OptionGroupAndReplica(t *testing.T) {
 		_ = awsCLI("rds", "delete-db-snapshot",
 			"--db-snapshot-identifier", srcSnap).Run()
 	})
-	// Copying refuses a still-capturing source; wait for the settle first.
+	// Copying refuses a source still being captured.
 	waitForRDSSnapshotAvailableCLI(t, srcSnap)
 
 	dstSnap := "cli-ext-copy-dst"
@@ -219,8 +215,7 @@ func TestRDSCLI_OptionGroupAndReplica(t *testing.T) {
 	}
 	parseJSON(t, out, &copied)
 	require.Equal(t, dstSnap, copied.DBSnapshot.DBSnapshotIdentifier)
-	// The copy carries the source's data, so it answers "creating" and
-	// settles asynchronously, exactly like the create.
+	// The copy carries the source's data, so it too answers "creating".
 	assert.Equal(t, "creating", copied.DBSnapshot.Status)
 	assert.NotEmpty(t, copied.DBSnapshot.SourceDBSnapshotIdentifier)
 	waitForRDSSnapshotAvailableCLI(t, dstSnap)
@@ -230,9 +225,6 @@ func TestRDSCLI_OptionGroupAndReplica(t *testing.T) {
 	})
 }
 
-// TestRDSCLI_EventsAndEngineMetadata covers DescribeEvents,
-// DescribeEventCategories, DescribeDBEngineVersions, and
-// DescribeOrderableDBInstanceOptions.
 func TestRDSCLI_EventsAndEngineMetadata(t *testing.T) {
 	t.Parallel()
 	out := runCLI(t, awsCLI("rds", "describe-event-categories"))
@@ -249,7 +241,7 @@ func TestRDSCLI_EventsAndEngineMetadata(t *testing.T) {
 	var events struct {
 		Events []map[string]any `json:"Events"`
 	}
-	parseJSON(t, out, &events) // empty list is valid; shape must parse.
+	parseJSON(t, out, &events) // an empty list parses too
 
 	out = runCLI(t, awsCLI("rds", "describe-db-engine-versions",
 		"--engine", "postgres"))

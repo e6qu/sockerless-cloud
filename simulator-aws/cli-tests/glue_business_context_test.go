@@ -9,9 +9,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestGlueBusinessContextAndEntityRecords_CLI drives the complete AWS Glue
-// business-context surface and the DynamoDB connection metadata/preview path
-// through the official AWS Command Line Interface.
 func TestGlueBusinessContextAndEntityRecords_CLI(t *testing.T) {
 	t.Parallel()
 	runCLI(t, awsCLI("glue", "put-form-type",
@@ -78,14 +75,11 @@ func TestGlueBusinessContextAndEntityRecords_CLI(t *testing.T) {
 		"--asset-identifier", "cli-quarterly-sales",
 		"--glossary-term-identifiers", termID))
 
-	// list-iterable-forms and batch-get-iterable-forms are absent from the aws
-	// CLI bundled here, so driving them from this suite would only prove that
-	// botocore rejects an unknown command — never reaching the simulator. They
-	// are exercised through the SDK suite instead.
+	// The bundled aws CLI lacks list-iterable-forms and batch-get-iterable-forms,
+	// so botocore would reject them before reaching the simulator; the SDK suite
+	// covers them.
 
-	// A run id no evaluation run carries comes back under RunsNotFound rather
-	// than as a run: the batch reader distinguishes what it found from what it
-	// did not.
+	// A run id no evaluation run carries comes back under RunsNotFound.
 	batch := runCLI(t, awsCLI("glue", "batch-get-data-quality-ruleset-evaluation-run",
 		"--run-ids", "cli-missing-run", "--output", "json"))
 	var batchResult struct {

@@ -9,9 +9,6 @@ import (
 	"testing"
 )
 
-// TestCloudWatchCLI_ManagedInsightRules covers put-managed-insight-rules creating
-// a managed rule over a resource ARN and list-managed-insight-rules reading it
-// back with its template name and rule state.
 func TestCloudWatchCLI_ManagedInsightRules(t *testing.T) {
 	t.Parallel()
 	resourceARN := "arn:aws:ec2:us-east-1:000000000000:vpc/vpc-cli12345"
@@ -44,9 +41,8 @@ func TestCloudWatchCLI_ManagedInsightRules(t *testing.T) {
 	}
 }
 
-// TestCloudWatchCLI_InsightRuleReport covers get-insight-rule-report over an
-// existing insight rule: an honestly-empty report (zero aggregate, no
-// contributors) with the real shape.
+// TestCloudWatchCLI_InsightRuleReport expects an empty report (zero aggregate,
+// no contributors) in the real shape for a rule with no matching data.
 func TestCloudWatchCLI_InsightRuleReport(t *testing.T) {
 	t.Parallel()
 	name := "cli-report-rule"
@@ -74,12 +70,9 @@ func TestCloudWatchCLI_InsightRuleReport(t *testing.T) {
 	}
 }
 
-// TestCloudWatchCLI_MetricWidgetImage covers get-metric-widget-image returning a
-// base64-encoded PNG that decodes to the expected PNG magic bytes.
 func TestCloudWatchCLI_MetricWidgetImage(t *testing.T) {
 	t.Parallel()
 	widget := `{"metrics":[["AWS/EC2","CPUUtilization","InstanceId","i-1234567890abcdef0"]],"width":250,"height":150,"stat":"Average"}`
-	// --output text emits the MetricWidgetImage blob as base64 text.
 	b64 := strings.TrimSpace(runCLI(t, awsCLI("cloudwatch", "get-metric-widget-image",
 		"--metric-widget", widget, "--output-format", "png",
 		"--query", "MetricWidgetImage", "--output", "text")))

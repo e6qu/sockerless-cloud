@@ -5,11 +5,10 @@ import (
 	"testing"
 )
 
-// TestELBv2CLI_SubnetMappings drives create-load-balancer with
-// --subnet-mappings through the AWS CLI: a Network Load Balancer holds the
-// Elastic IP address a mapping names and lists it under the subnet, the same
-// request again answers the same load balancer, and an Application Load
-// Balancer is refused an Elastic IP address.
+// TestELBv2CLI_SubnetMappings expects a Network Load Balancer to hold the
+// Elastic IP address a mapping names and list it under the subnet, the same
+// request again to answer the same load balancer, and an Application Load
+// Balancer to be refused an Elastic IP address.
 func TestELBv2CLI_SubnetMappings(t *testing.T) {
 	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }

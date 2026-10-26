@@ -10,9 +10,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// A new topic carries the owner-only default policy, a misspelled attribute
-// is refused, and a message no subscription's filter admits is counted as
-// filtered out.
+// A new topic carries the owner-only default policy, a misspelled attribute is
+// refused, and a message no subscription's filter admits counts as filtered
+// out.
 func TestSNS_CLI_TopicDefaultsAttributeNamesAndFilterMetrics(t *testing.T) {
 	t.Parallel()
 	name := "cli-sns-fidelity-" + time.Now().Format("150405000")

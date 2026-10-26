@@ -8,7 +8,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestLogs_MetricFilterCLI exercises put/describe/test/delete-metric-filter.
 func TestLogs_MetricFilterCLI(t *testing.T) {
 	t.Parallel()
 	group := "/cli/metric-filter"
@@ -56,7 +55,6 @@ func TestLogs_MetricFilterCLI(t *testing.T) {
 		"--log-group-name", group, "--filter-name", "errors"))
 }
 
-// TestLogs_SubscriptionFilterCLI exercises put/describe/delete-subscription-filter.
 func TestLogs_SubscriptionFilterCLI(t *testing.T) {
 	t.Parallel()
 	group := "/cli/sub-filter"
@@ -88,8 +86,6 @@ func TestLogs_SubscriptionFilterCLI(t *testing.T) {
 		"--log-group-name", group, "--filter-name", "to-lambda"))
 }
 
-// TestLogs_RetentionAndTagsCLI exercises put/delete-retention-policy and the
-// tag-log-group / list-tags-log-group / untag-log-group verbs, plus delete-log-stream.
 func TestLogs_RetentionAndTagsCLI(t *testing.T) {
 	t.Parallel()
 	group := "/cli/retention"
@@ -124,14 +120,12 @@ func TestLogs_RetentionAndTagsCLI(t *testing.T) {
 	runCLI(t, awsCLI("logs", "untag-log-group",
 		"--log-group-name", group, "--tags", "team"))
 
-	// delete-log-stream round-trip.
 	runCLI(t, awsCLI("logs", "create-log-stream",
 		"--log-group-name", group, "--log-stream-name", "s1"))
 	runCLI(t, awsCLI("logs", "delete-log-stream",
 		"--log-group-name", group, "--log-stream-name", "s1"))
 }
 
-// TestLogs_ExportTaskCLI exercises create/describe/cancel-export-task.
 func TestLogs_ExportTaskCLI(t *testing.T) {
 	t.Parallel()
 	group := "/cli/export-task"
@@ -165,11 +159,10 @@ func TestLogs_ExportTaskCLI(t *testing.T) {
 	assert.Equal(t, group, dres.ExportTasks[0].LogGroupName)
 	assert.Equal(t, "COMPLETED", dres.ExportTasks[0].Status.Code)
 
-	// Completed tasks cannot be cancelled; tolerate the error.
+	// A completed task cannot be cancelled.
 	runCLIIgnore(awsCLI("logs", "cancel-export-task", "--task-id", created.TaskId))
 }
 
-// TestLogs_DataProtectionPolicyCLI exercises put/get/delete-data-protection-policy.
 func TestLogs_DataProtectionPolicyCLI(t *testing.T) {
 	t.Parallel()
 	group := "/cli/data-protection"
@@ -200,8 +193,8 @@ func TestLogs_DataProtectionPolicyCLI(t *testing.T) {
 		"--log-group-identifier", group))
 }
 
-// TestLogs_PutMetricFilterCLIRejectsInvalidPattern verifies that an invalid
-// filterPattern is rejected at put time, not silently stored.
+// TestLogs_PutMetricFilterCLIRejectsInvalidPattern expects put-metric-filter
+// to reject an invalid filterPattern rather than store it.
 func TestLogs_PutMetricFilterCLIRejectsInvalidPattern(t *testing.T) {
 	t.Parallel()
 	group := "/cli/metric-filter-invalid"
@@ -220,8 +213,6 @@ func TestLogs_PutMetricFilterCLIRejectsInvalidPattern(t *testing.T) {
 	}
 }
 
-// TestLogs_PutSubscriptionFilterCLIRejectsInvalidPattern verifies the same
-// validation on put-subscription-filter.
 func TestLogs_PutSubscriptionFilterCLIRejectsInvalidPattern(t *testing.T) {
 	t.Parallel()
 	group := "/cli/subscription-filter-invalid"

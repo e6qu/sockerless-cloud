@@ -7,8 +7,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestEFS_UpdateFileSystem_CLI switches an existing file system to provisioned
-// throughput and asserts the returned FileSystemDescription reflects it.
 func TestEFS_UpdateFileSystem_CLI(t *testing.T) {
 	t.Parallel()
 	out := runCLI(t, awsCLI("efs", "create-file-system",
@@ -39,7 +37,6 @@ func TestEFS_UpdateFileSystem_CLI(t *testing.T) {
 	assert.Equal(t, 64.0, upd.ProvisionedThroughputInMibps)
 }
 
-// TestEFS_UpdateFileSystemProtection_CLI toggles replication overwrite protection.
 func TestEFS_UpdateFileSystemProtection_CLI(t *testing.T) {
 	t.Parallel()
 	out := runCLI(t, awsCLI("efs", "create-file-system",

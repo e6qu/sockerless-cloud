@@ -8,9 +8,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestCLI_ECR_CreatePullThroughCache drives the official AWS CLI
-// against the simulator. Together with the SDK test, it exercises
-// both real-world client paths for the pull-through cache rule API.
 func TestCLI_ECR_CreatePullThroughCache(t *testing.T) {
 	t.Parallel()
 	out := runCLI(t, awsCLI(
@@ -28,8 +25,6 @@ func TestCLI_ECR_CreatePullThroughCache(t *testing.T) {
 	assert.Equal(t, "registry-1.docker.io", resp.UpstreamRegistryUrl)
 }
 
-// TestCLI_ECR_DescribePullThroughCache exercises the describe path
-// and confirms listing-all returns the rule the test created.
 func TestCLI_ECR_DescribePullThroughCache(t *testing.T) {
 	t.Parallel()
 	runCLI(t, awsCLI(
@@ -56,8 +51,6 @@ func TestCLI_ECR_DescribePullThroughCache(t *testing.T) {
 	assert.True(t, found, "describe should list the cli-describe prefix")
 }
 
-// TestCLI_ECR_DeletePullThroughCache deletes a registered rule and
-// confirms a second delete returns the not-found error.
 func TestCLI_ECR_DeletePullThroughCache(t *testing.T) {
 	t.Parallel()
 	runCLI(t, awsCLI(
@@ -76,7 +69,6 @@ func TestCLI_ECR_DeletePullThroughCache(t *testing.T) {
 	parseJSON(t, out, &resp)
 	assert.Equal(t, "cli-delete", resp.EcrRepositoryPrefix)
 
-	// Second delete: expect failure with PullThroughCacheRuleNotFound.
 	cmd := awsCLI("ecr", "delete-pull-through-cache-rule", "--ecr-repository-prefix", "cli-delete")
 	combined, err := cmd.CombinedOutput()
 	require.Error(t, err, "expected CLI failure on second delete")

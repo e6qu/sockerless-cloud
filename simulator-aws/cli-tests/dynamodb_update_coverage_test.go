@@ -13,8 +13,6 @@ func ddbCovTable(t *testing.T, name string) {
 		"--key-schema", "AttributeName=PK,KeyType=HASH"))
 }
 
-// TestDynamoDBCLI_UpdateItemExpression drives UpdateExpression via the aws CLI —
-// the path that was a silent no-op (only legacy AttributeUpdates was handled).
 func TestDynamoDBCLI_UpdateItemExpression(t *testing.T) {
 	t.Parallel()
 	ddbCovTable(t, "cli-cov-update")
@@ -44,7 +42,6 @@ func TestDynamoDBCLI_UpdateItemExpression(t *testing.T) {
 	}
 }
 
-// TestDynamoDBCLI_TimeToLiveAndContinuousBackups covers the TTL + PITR read/write paths.
 func TestDynamoDBCLI_TimeToLiveAndContinuousBackups(t *testing.T) {
 	t.Parallel()
 	ddbCovTable(t, "cli-cov-ttl")

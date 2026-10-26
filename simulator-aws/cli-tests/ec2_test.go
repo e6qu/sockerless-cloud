@@ -5,9 +5,9 @@ import (
 	"testing"
 )
 
-// terminateCLIInstanceOnCleanup terminates an instance once the test ends. On
-// a host that boots each instance as a real machine, an instance left running
-// keeps its machine running and slows every later test's boot.
+// terminateCLIInstanceOnCleanup terminates the instance when the test ends: on
+// a host that boots each instance as a real machine, a running one slows every
+// later boot.
 func terminateCLIInstanceOnCleanup(t *testing.T, instanceID string) {
 	t.Helper()
 	t.Cleanup(func() {

@@ -8,10 +8,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// TestEC2CLI_IdFormatRoundTrip exercises the account-level ID-format settings
-// via the aws CLI: describe-id-format, modify-id-format,
-// describe-identity-id-format, modify-identity-id-format,
-// describe-aggregate-id-format, describe-principal-id-format.
 func TestEC2CLI_IdFormatRoundTrip(t *testing.T) {
 	t.Parallel()
 	useLong := strings.TrimSpace(runCLI(t, awsCLI("ec2", "describe-id-format",
@@ -49,9 +45,6 @@ func TestEC2CLI_IdFormatRoundTrip(t *testing.T) {
 	}
 }
 
-// TestEC2CLI_AddressAttributeRoundTrip exercises modify-address-attribute,
-// reset-address-attribute, and the EC2-Classic ↔ VPC domain transitions
-// (move-address-to-vpc, restore-address-to-classic, describe-moving-addresses).
 func TestEC2CLI_AddressAttributeRoundTrip(t *testing.T) {
 	t.Parallel()
 	out := runCLI(t, awsCLI("ec2", "allocate-address", "--domain", "vpc",
@@ -99,8 +92,6 @@ func TestEC2CLI_AddressAttributeRoundTrip(t *testing.T) {
 	}
 }
 
-// TestEC2CLI_ClassicLinkRoundTrip exercises attach-classic-link-vpc and
-// detach-classic-link-vpc on a real instance + VPC.
 func TestEC2CLI_ClassicLinkRoundTrip(t *testing.T) {
 	t.Parallel()
 	vpcID := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-vpc",
@@ -127,10 +118,6 @@ func TestEC2CLI_ClassicLinkRoundTrip(t *testing.T) {
 	}
 }
 
-// TestEC2CLI_EnclaveCertificateRoundTrip exercises
-// associate-enclave-certificate-iam-role,
-// get-associated-enclave-certificate-iam-roles, and
-// disassociate-enclave-certificate-iam-role.
 func TestEC2CLI_EnclaveCertificateRoundTrip(t *testing.T) {
 	t.Parallel()
 	const certArn = "arn:aws:acm:us-east-1:000000000000:certificate/cli-1234"
@@ -154,8 +141,6 @@ func TestEC2CLI_EnclaveCertificateRoundTrip(t *testing.T) {
 		"--certificate-arn", certArn, "--role-arn", roleArn))
 }
 
-// TestEC2CLI_TgwConnectPeerRoundTrip exercises create/describe/delete of a
-// transit-gateway Connect peer over a real Connect attachment.
 func TestEC2CLI_TgwConnectPeerRoundTrip(t *testing.T) {
 	t.Parallel()
 	tgwID := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-transit-gateway",
@@ -199,8 +184,6 @@ func TestEC2CLI_TgwConnectPeerRoundTrip(t *testing.T) {
 		"--transit-gateway-connect-peer-id", peerID))
 }
 
-// TestEC2CLI_VpcPeeringOptionsRoundTrip exercises
-// modify-vpc-peering-connection-options and reject-vpc-peering-connection.
 func TestEC2CLI_VpcPeeringOptionsRoundTrip(t *testing.T) {
 	t.Parallel()
 	vpcA := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-vpc",
@@ -222,7 +205,7 @@ func TestEC2CLI_VpcPeeringOptionsRoundTrip(t *testing.T) {
 		t.Fatalf("modify-vpc-peering-connection-options AllowDnsResolutionFromRemoteVpc: got %q, want True", gotDns)
 	}
 
-	// Reject an independent peering so the cleanup of the one above stays simple.
+	// Reject a separate peering, leaving the one above to its cleanup.
 	vpcC := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-vpc",
 		"--cidr-block", "10.97.0.0/16", "--query", "Vpc.VpcId", "--output", "text")))
 	defer func() { _ = awsCLI("ec2", "delete-vpc", "--vpc-id", vpcC).Run() }()
@@ -239,8 +222,6 @@ func TestEC2CLI_VpcPeeringOptionsRoundTrip(t *testing.T) {
 	_ = awsCLI("ec2", "delete-vpc-peering-connection", "--vpc-peering-connection-id", pcxID).Run()
 }
 
-// TestEC2CLI_NetworkAclAssociationRoundTrip exercises
-// replace-network-acl-association.
 func TestEC2CLI_NetworkAclAssociationRoundTrip(t *testing.T) {
 	t.Parallel()
 	vpcID := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-vpc",
@@ -272,25 +253,22 @@ func TestEC2CLI_NetworkAclAssociationRoundTrip(t *testing.T) {
 	}
 }
 
-// TestEC2CLI_MiscHonestEmpty exercises the read-only / honest-empty operations
-// that round out the family and that aws CLI 2.26.6 supports:
-// describe-vpc-endpoint-associations, describe-elastic-gpus,
+// TestEC2CLI_MiscHonestEmpty covers the read-only operations aws CLI 2.26.6
+// supports: describe-vpc-endpoint-associations, describe-elastic-gpus and
 // enable-reachability-analyzer-organization-sharing.
 //
-// The remaining ops in this family lack an aws CLI 2.26.6 verb, so the SDK
-// suite (TestEC2_MiscHonestEmptySDK / TestEC2_OutpostLagsAndFlowLogsTemplateSDK)
-// owns the simulator-test-contract hook for them:
+// The rest lack an aws CLI 2.26.6 verb, so the SDK suite
+// (TestEC2_MiscHonestEmptySDK, TestEC2_OutpostLagsAndFlowLogsTemplateSDK,
+// TestEC2_TgwClientVpnAttachmentSDK) covers them:
 // describe-secondary-interfaces, describe-service-link-virtual-interfaces,
-// describe-outpost-lags, describe-transit-gateway-metering-policies (SDK in
-// TestEC2_TgwClientVpnAttachmentSDK), get-managed-resource-visibility,
-// modify-managed-resource-visibility,
-// get-vpc-resources-blocking-encryption-enforcement, and
+// describe-outpost-lags, describe-transit-gateway-metering-policies,
+// get-managed-resource-visibility, modify-managed-resource-visibility,
+// get-vpc-resources-blocking-encryption-enforcement and
 // get-flow-logs-integration-template.
 func TestEC2CLI_MiscHonestEmpty(t *testing.T) {
 	t.Parallel()
-	// The two readers answer with the empty collection the account really has,
-	// and the emptiness is asserted rather than assumed: a handler answering
-	// with someone else's resources would fail here.
+	// Assert the account's empty collections: a handler answering with another
+	// account's resources fails here.
 	var associations struct {
 		VpcEndpointAssociations []json.RawMessage `json:"VpcEndpointAssociations"`
 	}
@@ -303,8 +281,7 @@ func TestEC2CLI_MiscHonestEmpty(t *testing.T) {
 	parseJSON(t, runCLI(t, awsCLI("ec2", "describe-elastic-gpus", "--output", "json")), &gpus)
 	assert.Empty(t, gpus.ElasticGpuSet)
 
-	// Enabling organization sharing for the reachability analyzer reports
-	// whether it took, which is the only thing the operation returns.
+	// The operation returns only whether sharing took.
 	var sharing struct {
 		ReturnValue bool `json:"ReturnValue"`
 	}
@@ -312,10 +289,6 @@ func TestEC2CLI_MiscHonestEmpty(t *testing.T) {
 	assert.True(t, sharing.ReturnValue)
 }
 
-// TestEC2CLI_ClientVpnExportRoundTrip exercises
-// export-client-vpn-client-configuration,
-// import-client-vpn-client-certificate-revocation-list, and
-// export-client-vpn-client-certificate-revocation-list.
 func TestEC2CLI_ClientVpnExportRoundTrip(t *testing.T) {
 	t.Parallel()
 	epID := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-client-vpn-endpoint",

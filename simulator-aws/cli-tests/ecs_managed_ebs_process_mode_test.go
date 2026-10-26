@@ -11,9 +11,8 @@ import (
 	"github.com/e6qu/sockerless-cloud/testutil/simready"
 )
 
-// startProcessModeSim starts a second simulator-aws instance with
-// SIM_RUNTIME=process (the API-only mode that never initialises a Docker
-// client) on a fresh port and returns its base URL. Killed on test cleanup.
+// startProcessModeSim starts another simulator-aws with SIM_RUNTIME=process,
+// which never creates a Docker client, and returns its base URL.
 func startProcessModeSim(t *testing.T) string {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -45,11 +44,10 @@ func startProcessModeSim(t *testing.T) string {
 	return fmt.Sprintf("http://127.0.0.1:%d", port)
 }
 
-// TestECS_CLI_ManagedEBSProcessMode covers issue #569 via the aws CLI: a
-// managed-EBS run-task under SIM_RUNTIME=process must not panic the simulator
-// on the nil Docker client during the deleteOnTermination cleanup. After the
-// run-task transition, subsequent CLI calls must still succeed (a panic would
-// crash the process and every later call would get a connection error).
+// TestECS_CLI_ManagedEBSProcessMode runs a managed-EBS task under
+// SIM_RUNTIME=process. The deleteOnTermination cleanup runs without a Docker
+// client, and later CLI calls still succeed, which a crashed simulator would
+// refuse.
 func TestECS_CLI_ManagedEBSProcessMode(t *testing.T) {
 	t.Parallel()
 	url := startProcessModeSim(t)
@@ -104,8 +102,6 @@ func TestECS_CLI_ManagedEBSProcessMode(t *testing.T) {
 		t.Fatalf("parse register-task-definition: %v\n%s", err, tdOut)
 	}
 
-	// deleteOnTermination=true exercises the volume cleanup that dereferenced
-	// the nil Docker client in process mode.
 	volCfg := `[{"name":"workspace","managedEBSVolume":{"roleArn":"` + roleArn + `","sizeInGiB":1,"volumeType":"gp3","terminationPolicy":{"deleteOnTermination":true}}}]`
 	runOut := runCLI(t, cli("ecs", "run-task",
 		"--cluster", "managed-ebs-process-cli",
@@ -126,8 +122,7 @@ func TestECS_CLI_ManagedEBSProcessMode(t *testing.T) {
 		t.Fatalf("expected 1 task with an ARN, got: %s", runOut)
 	}
 
-	// The async transition runs the deleteOnTermination cleanup. Subsequent
-	// CLI calls must still succeed — a panic would have crashed the sim.
+	// The asynchronous transition runs the deleteOnTermination cleanup.
 	runCLI(t, cli("ecs", "describe-tasks", "--cluster", "managed-ebs-process-cli", "--tasks", run.Tasks[0].TaskArn))
 	runCLI(t, cli("ecs", "list-clusters"))
 }

@@ -5,10 +5,10 @@ import (
 	"testing"
 )
 
-// TestELBv2CLI_TargetGroupStickiness drives a weighted forward's target group
-// stickiness through the AWS CLI: create-rule holds the TargetGroupStickinessConfig
-// describe-rules reads back, and refuses one enabled without DurationSeconds,
-// which "You must specify ... when enabling target group stickiness."
+// TestELBv2CLI_TargetGroupStickiness expects create-rule to keep a weighted
+// forward's TargetGroupStickinessConfig for describe-rules, and to refuse one
+// enabled without DurationSeconds: "You must specify ... when enabling target
+// group stickiness."
 func TestELBv2CLI_TargetGroupStickiness(t *testing.T) {
 	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }

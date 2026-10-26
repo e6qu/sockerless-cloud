@@ -5,8 +5,6 @@ import (
 	"testing"
 )
 
-// TestCloudWatchCLI_ResourceMetricsConfiguration drives a resource's detailed
-// metrics configuration and enrichment's filters through the aws CLI.
 func TestCloudWatchCLI_ResourceMetricsConfiguration(t *testing.T) {
 	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }

@@ -5,10 +5,9 @@ import (
 	"testing"
 )
 
-// TestEC2LaunchTemplateCLI drives the EC2 Launch Template ops via the aws CLI
-// : create with launch-template-data, describe, describe-versions
-// (round-tripping the data), delete. This is the fck-nat aws_launch_template
-// shape exercised through botocore's query protocol.
+// TestEC2LaunchTemplateCLI drives the fck-nat aws_launch_template shape through
+// botocore's query protocol; describe-launch-template-versions returns the
+// submitted data.
 func TestEC2LaunchTemplateCLI(t *testing.T) {
 	t.Parallel()
 	data := `{"ImageId":"ami-12345678","InstanceType":"t4g.nano",` +
@@ -24,7 +23,6 @@ func TestEC2LaunchTemplateCLI(t *testing.T) {
 		t.Fatalf("expected an lt- id, got %q", ltID)
 	}
 
-	// describe-launch-templates by name resolves the template.
 	gotID := strings.TrimSpace(runCLI(t, awsCLI("ec2", "describe-launch-templates",
 		"--launch-template-names", "cli-fck-nat-lt",
 		"--query", "LaunchTemplates[0].LaunchTemplateId", "--output", "text")))
@@ -32,7 +30,6 @@ func TestEC2LaunchTemplateCLI(t *testing.T) {
 		t.Fatalf("describe-launch-templates returned %q, want %q", gotID, ltID)
 	}
 
-	// describe-launch-template-versions must echo the submitted data back.
 	img := strings.TrimSpace(runCLI(t, awsCLI("ec2", "describe-launch-template-versions",
 		"--launch-template-id", ltID, "--versions", "$Latest",
 		"--query", "LaunchTemplateVersions[0].LaunchTemplateData.ImageId", "--output", "text")))

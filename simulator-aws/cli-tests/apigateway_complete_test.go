@@ -10,12 +10,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestAPIGatewayCompleteCLIUpdateLifecycle drives the REST-API resource tree
-// through its Update* operations plus the stage-cache flush and test-invoke ops
-// via the aws CLI: update-rest-api, update-resource, update-method,
-// update-method-response, update-integration, update-model,
-// update-request-validator, update-deployment, update-stage,
-// flush-stage-cache, flush-stage-authorizers-cache, test-invoke-method,
+// TestAPIGatewayCompleteCLIUpdateLifecycle covers update-rest-api,
+// update-resource, update-method, update-method-response, update-integration,
+// update-model, update-request-validator, update-deployment, update-stage,
+// flush-stage-cache, flush-stage-authorizers-cache, test-invoke-method and
 // test-invoke-authorizer.
 func TestAPIGatewayCompleteCLIUpdateLifecycle(t *testing.T) {
 	t.Parallel()
@@ -151,8 +149,6 @@ func TestAPIGatewayCompleteCLIUpdateLifecycle(t *testing.T) {
 	assert.Equal(t, "test-principal", authResult.PrincipalID)
 }
 
-// TestAPIGatewayCompleteCLIImportAndTag covers import-rest-api, put-rest-api,
-// import-api-keys, tag-resource, and untag-resource via the aws CLI.
 func TestAPIGatewayCompleteCLIImportAndTag(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
@@ -223,9 +219,8 @@ func TestAPIGatewayCompleteCLIImportAndTag(t *testing.T) {
 }
 
 // TestAPIGatewayCompleteCLIDomainVpcUsageAndAccess covers update-domain-name,
-// update-vpc-link, update-usage, and the domain-name access-association ops
-// (create-domain-name-access-association, get-domain-name-access-associations,
-// reject-domain-name-access-association, delete-domain-name-access-association).
+// update-vpc-link, update-usage and the domain-name access-association
+// operations.
 func TestAPIGatewayCompleteCLIDomainVpcUsageAndAccess(t *testing.T) {
 	t.Parallel()
 	var domain struct {

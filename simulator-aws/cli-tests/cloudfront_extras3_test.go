@@ -9,16 +9,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// These tests exercise the CloudFront restXml surface added for distribution
-// tenants, connection groups, trust stores, resource policies, WebACL
-// associations, alias/domain conflicts, the ListDistributionsBy* projections,
-// and the CopyDistribution / UpdateDistributionWithStagingConfig /
-// UpdateAnycastIpList / GetManagedCertificateDetails variants — via the real
-// `aws` CLI. The CLI accepts JSON input and emits JSON output even though the
-// wire is restXml.
+// The aws CLI speaks JSON to the user and restXml on the CloudFront wire.
 
-// cfExtras3DistConfig returns a minimal enabled DistributionConfig JSON document
-// the create-distribution CLI accepts.
 func cfExtras3DistConfig(caller string) string {
 	return fmt.Sprintf(`{
 		"CallerReference":"%s",
@@ -31,8 +23,8 @@ func cfExtras3DistConfig(caller string) string {
 	}`, caller)
 }
 
-// cfExtras3CreateDistributionCLI creates a distribution and returns its id + ETag,
-// registering a tolerant cleanup that disables then deletes it.
+// cfExtras3CreateDistributionCLI creates a distribution and registers a
+// cleanup that disables, then deletes it.
 func cfExtras3CreateDistributionCLI(t *testing.T) (string, string) {
 	t.Helper()
 	caller := "cli-extras3-" + time.Now().Format("150405.000000000")
@@ -51,8 +43,8 @@ func cfExtras3CreateDistributionCLI(t *testing.T) (string, string) {
 	return id, create.ETag
 }
 
-// cfExtras3DeleteDistributionCLI disables then deletes a distribution, ignoring
-// errors (tolerant teardown).
+// cfExtras3DeleteDistributionCLI ignores errors: teardown tolerates a
+// distribution already gone.
 func cfExtras3DeleteDistributionCLI(id string) {
 	g := runCLIIgnoreErr(awsCLI("cloudfront", "get-distribution", "--id", id, "--output", "json"))
 	var gr struct {
@@ -80,8 +72,6 @@ func cfExtras3DeleteDistributionCLI(id string) {
 	}
 }
 
-// TestCloudFrontCopyAndStagingCLI covers copy-distribution and
-// update-distribution-with-staging-config.
 func TestCloudFrontCopyAndStagingCLI(t *testing.T) {
 	t.Parallel()
 	id, etag := cfExtras3CreateDistributionCLI(t)
@@ -118,8 +108,8 @@ func TestCloudFrontCopyAndStagingCLI(t *testing.T) {
 }
 
 // TestCloudFrontDistributionTenantCLI covers the distribution-tenant CRUD,
-// by-domain lookup, list, WebACL associate/disassociate, the tenant invalidation
-// trio, and get-managed-certificate-details.
+// by-domain lookup, list, WebACL associate and disassociate, the tenant
+// invalidation trio and get-managed-certificate-details.
 func TestCloudFrontDistributionTenantCLI(t *testing.T) {
 	t.Parallel()
 	distID, _ := cfExtras3CreateDistributionCLI(t)
@@ -222,8 +212,6 @@ func TestCloudFrontDistributionTenantCLI(t *testing.T) {
 	runCLI(t, awsCLI("cloudfront", "get-managed-certificate-details", "--identifier", tenantID, "--output", "json"))
 }
 
-// TestCloudFrontConnectionGroupCLI covers connection-group CRUD,
-// by-routing-endpoint lookup, and list.
 func TestCloudFrontConnectionGroupCLI(t *testing.T) {
 	t.Parallel()
 	out := runCLI(t, awsCLI("cloudfront", "create-connection-group",
@@ -273,8 +261,6 @@ func TestCloudFrontConnectionGroupCLI(t *testing.T) {
 	require.True(t, cfExtras2Contains(lcr.ConnectionGroups, id))
 }
 
-// TestCloudFrontTrustStoreCLI covers trust-store CRUD, list, and
-// list-distributions-by-trust-store.
 func TestCloudFrontTrustStoreCLI(t *testing.T) {
 	t.Parallel()
 	bundle := `{"CaCertificatesBundleS3Location":{"Bucket":"my-bucket","Key":"ca-bundle.pem","Region":"us-east-1"}}`
@@ -318,7 +304,6 @@ func TestCloudFrontTrustStoreCLI(t *testing.T) {
 		"--trust-store-identifier", id, "--output", "json"))
 }
 
-// TestCloudFrontResourcePolicyCLI covers put/get/delete-resource-policy.
 func TestCloudFrontResourcePolicyCLI(t *testing.T) {
 	t.Parallel()
 	arn := "arn:aws:cloudfront::111122223333:distribution-tenant/DT" + time.Now().Format("150405")
@@ -342,9 +327,10 @@ func TestCloudFrontResourcePolicyCLI(t *testing.T) {
 	runCLI(t, awsCLI("cloudfront", "delete-resource-policy", "--resource-arn", arn))
 }
 
-// TestCloudFrontWebACLAndAliasCLI covers distribution WebACL associate/disassociate,
-// associate-alias, list-conflicting-aliases, list-domain-conflicts,
-// update-domain-association, and verify-dns-configuration.
+// TestCloudFrontWebACLAndAliasCLI covers distribution WebACL associate and
+// disassociate, associate-alias, list-conflicting-aliases,
+// list-domain-conflicts, update-domain-association and
+// verify-dns-configuration.
 func TestCloudFrontWebACLAndAliasCLI(t *testing.T) {
 	t.Parallel()
 	id, etag := cfExtras3CreateDistributionCLI(t)
@@ -393,11 +379,10 @@ func TestCloudFrontWebACLAndAliasCLI(t *testing.T) {
 		"--identifier", id, "--domain", alias, "--output", "json"))
 }
 
-// TestCloudFrontListDistributionsByResourceCLI covers the ListDistributionsBy*
-// projections. Each is asserted against a distribution that really carries the
-// resource being projected on, and against an identifier no distribution
-// carries, so a projection that ignores its filter — answering with everything,
-// or with nothing — fails one arm or the other.
+// TestCloudFrontListDistributionsByResourceCLI asserts each ListDistributionsBy*
+// projection against a distribution that carries the resource and against an
+// identifier none carries, so a projection that ignores its filter fails one
+// arm or the other.
 func TestCloudFrontListDistributionsByResourceCLI(t *testing.T) {
 	t.Parallel()
 	stamp := time.Now().Format("150405.000000000")
@@ -432,7 +417,6 @@ func TestCloudFrontListDistributionsByResourceCLI(t *testing.T) {
 	require.NotEmpty(t, id)
 	t.Cleanup(func() { cfExtras3DeleteDistributionCLI(id) })
 
-	// The projections that answer with a DistributionIdList.
 	for _, projection := range []struct {
 		name      string
 		command   string
@@ -451,7 +435,6 @@ func TestCloudFrontListDistributionsByResourceCLI(t *testing.T) {
 		require.NotContainsf(t, unrelated, id, "a %s the distribution does not carry must not project it", projection.name)
 	}
 
-	// The projections that answer with a DistributionList.
 	require.Contains(t, cfDistributionSummaryIDsCLI(t, "cloudfront", "list-distributions-by-anycast-ip-list-id",
 		"--anycast-ip-list-id", anycastIPList, "--output", "json"), id)
 	require.NotContains(t, cfDistributionSummaryIDsCLI(t, "cloudfront", "list-distributions-by-anycast-ip-list-id",
@@ -462,8 +445,8 @@ func TestCloudFrontListDistributionsByResourceCLI(t *testing.T) {
 	require.NotContains(t, cfDistributionSummaryIDsCLI(t, "cloudfront", "list-distributions-by-web-acl-id",
 		"--web-acl-id", webACL+"-other", "--output", "json"), id)
 
-	// This distribution is tenant-only, so the direct projection must not carry
-	// it: the mode selects, not merely the distribution's existence.
+	// This distribution is tenant-only, so the direct projection omits it: the
+	// connection mode selects, not the distribution's existence.
 	require.Contains(t, cfDistributionSummaryIDsCLI(t, "cloudfront", "list-distributions-by-connection-mode",
 		"--connection-mode", "tenant-only", "--output", "json"), id)
 	require.NotContains(t, cfDistributionSummaryIDsCLI(t, "cloudfront", "list-distributions-by-connection-mode",
@@ -479,8 +462,6 @@ func TestCloudFrontListDistributionsByResourceCLI(t *testing.T) {
 		"--resource-arn", "arn:aws:wafv2:us-east-1:111122223333:global/webacl/x/y", "--output", "json"), id)
 }
 
-// cfDistributionIDsCLI runs a ListDistributionsBy* projection that answers with
-// a DistributionIdList and returns the identifiers in it.
 func cfDistributionIDsCLI(t *testing.T, args ...string) []string {
 	t.Helper()
 	var list struct {
@@ -495,8 +476,6 @@ func cfDistributionIDsCLI(t *testing.T, args ...string) []string {
 	return list.DistributionIdList.Items
 }
 
-// cfDistributionSummaryIDsCLI runs a ListDistributionsBy* projection that
-// answers with a DistributionList and returns the identifiers in it.
 func cfDistributionSummaryIDsCLI(t *testing.T, args ...string) []string {
 	t.Helper()
 	var list struct {
@@ -507,11 +486,9 @@ func cfDistributionSummaryIDsCLI(t *testing.T, args ...string) []string {
 			Quantity int `json:"Quantity"`
 		} `json:"DistributionList"`
 	}
-	// Quantity is deliberately not asserted here: these operations are
-	// paginated, and the CLI merges the pages it walks into one document whose
-	// Items are the concatenation while Quantity is whatever the client's merge
-	// left there. The wire's own Quantity is asserted against the response the
-	// SDK receives, in the sdk-tests twin of this test.
+	// Leave Quantity unasserted: the CLI merges the pages it walks into one
+	// document whose Quantity is whatever its merge left. The sdk-tests twin
+	// asserts the wire's Quantity.
 	require.NoError(t, json.Unmarshal([]byte(runCLI(t, awsCLI(args...))), &list))
 	ids := make([]string, 0, len(list.DistributionList.Items))
 	for _, item := range list.DistributionList.Items {

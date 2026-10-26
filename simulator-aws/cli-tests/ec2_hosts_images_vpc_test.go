@@ -5,10 +5,6 @@ import (
 	"testing"
 )
 
-// TestEC2CLI_HostsAndEventWindows covers the Dedicated Host control plane
-// (allocate-hosts / describe-hosts / modify-hosts / release-hosts /
-// describe-mac-hosts) and the Instance Event Window CRUD (create / describe /
-// modify / associate / disassociate / delete) via the aws CLI.
 func TestEC2CLI_HostsAndEventWindows(t *testing.T) {
 	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
@@ -25,8 +21,8 @@ func TestEC2CLI_HostsAndEventWindows(t *testing.T) {
 		"--query", "Hosts[0].[State,AvailabilityZone,HostProperties.InstanceFamily]", "--output", "text"); v != "available\tus-east-1a\tm5" {
 		t.Fatalf("describe-hosts: got %q, want 'available\tus-east-1a\tm5'", v)
 	}
-	// The m5 Dedicated Host's cores and vCPUs as the AWS Price List states
-	// them, and the capacity of each m5 size it runs.
+	// The AWS Price List states the m5 Dedicated Host's cores, vCPUs and the
+	// capacity of each m5 size it runs.
 	if v := q("ec2", "describe-hosts", "--host-ids", hostID,
 		"--query", "Hosts[0].[HostProperties.Cores,HostProperties.TotalVCpus,AvailableCapacity.AvailableVCpus]", "--output", "text"); v != "48\t96\t96" {
 		t.Fatalf("describe-hosts properties: got %q, want '48\t96\t96'", v)
@@ -42,7 +38,6 @@ func TestEC2CLI_HostsAndEventWindows(t *testing.T) {
 		t.Fatalf("modify-hosts auto-placement: got %q, want 'on'", v)
 	}
 
-	// describe-mac-hosts faithfully returns an empty list (no mac hosts).
 	if v := q("ec2", "describe-mac-hosts", "--query", "length(MacHosts)", "--output", "text"); v != "0" {
 		t.Fatalf("describe-mac-hosts: got %q macHosts, want 0", v)
 	}
@@ -85,10 +80,6 @@ func TestEC2CLI_HostsAndEventWindows(t *testing.T) {
 	}
 }
 
-// TestEC2CLI_ImageAndSnapshotAttributes covers per-AMI launchPermission +
-// description attributes (modify / describe / reset), AMI lifecycle (disable /
-// enable / export / import / restore), and per-snapshot createVolumePermission
-// + tier/lock/import ops via the aws CLI.
 func TestEC2CLI_ImageAndSnapshotAttributes(t *testing.T) {
 	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
@@ -177,9 +168,6 @@ func TestEC2CLI_ImageAndSnapshotAttributes(t *testing.T) {
 	}
 }
 
-// TestEC2CLI_VpcClassicLinkAndBpa covers VPC ClassicLink + ClassicLink-DNS
-// flags, VPC endpoint connection notifications, and the VPC Block Public Access
-// options + exclusions via the aws CLI.
 func TestEC2CLI_VpcClassicLinkAndBpa(t *testing.T) {
 	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }

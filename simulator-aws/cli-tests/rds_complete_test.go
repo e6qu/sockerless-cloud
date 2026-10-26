@@ -9,18 +9,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestRDSCLI_Complete exercises the final RDS operations through the aws
-// CLI in one grouped round-trip (the appdata2 shard carries RDS):
-// custom DB engine versions, DB recommendations, DB snapshot tenant
-// databases, valid DB instance modifications, Serverless v1 cluster
-// capacity, option-group option membership (the CLI exposes the
-// ModifyOptionGroup API as add-option-to-option-group /
-// remove-option-from-option-group), automated-backups replication, and
-// the global-cluster / read-replica switchovers.
-//
-// DescribeServerlessV2PlatformVersions is not exposed by aws CLI 2.26.6
-// (no `describe-serverless-v2-platform-versions` subcommand), so its
-// contract hook is covered SDK-side only.
+// TestRDSCLI_Complete covers custom DB engine versions, DB recommendations, DB
+// snapshot tenant databases, valid DB instance modifications, Serverless v1
+// cluster capacity, option-group membership (the CLI spells ModifyOptionGroup
+// as add-option-to-option-group and remove-option-from-option-group),
+// automated-backups replication, and the global-cluster and read-replica
+// switchovers. aws CLI 2.26.6 lacks describe-serverless-v2-platform-versions;
+// the SDK test covers it.
 func TestRDSCLI_Complete(t *testing.T) {
 	t.Parallel()
 	cevEngine := "custom-oracle-ee"
@@ -50,7 +45,6 @@ func TestRDSCLI_Complete(t *testing.T) {
 	runCLI(t, awsCLI("rds", "delete-custom-db-engine-version",
 		"--engine", cevEngine, "--engine-version", cevVersion))
 
-	// --- DB instance for recommendations / valid-modifications / backups ---
 	instID := "cli-cmpl-pg-db"
 	out = runCLI(t, awsCLI("rds", "create-db-instance",
 		"--db-instance-identifier", instID,
@@ -161,7 +155,7 @@ func TestRDSCLI_Complete(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(out), &deletedBak))
 	assert.Equal(t, "deleting", deletedBak.DBInstanceAutomatedBackup.Status)
 
-	// --- DB snapshot tenant databases (off an Oracle multi-tenant instance) ---
+	// DB snapshot tenant databases come off an Oracle multi-tenant instance.
 	oracleID := "cli-cmpl-oracle-db"
 	runCLI(t, awsCLI("rds", "create-db-instance",
 		"--db-instance-identifier", oracleID,

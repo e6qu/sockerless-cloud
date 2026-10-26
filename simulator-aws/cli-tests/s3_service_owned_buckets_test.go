@@ -13,10 +13,9 @@ import (
 )
 
 // TestS3_CLI_ServiceOwnedBucketsStayOutOfTheCallersAccount follows the
-// presigned URL `aws lambda get-function` reports for a function's deployment
-// package. The bucket it names belongs to AWS: `aws s3api list-buckets` does
-// not list it and the caller's own requests against it are refused, while the
-// URL itself downloads the package.
+// presigned URL get-function reports for a deployment package. AWS owns the
+// bucket it names: list-buckets omits it and the caller's own requests against
+// it are refused, while the URL downloads the package.
 func TestS3_CLI_ServiceOwnedBucketsStayOutOfTheCallersAccount(t *testing.T) {
 	t.Parallel()
 	fn := "cli-svc-owned-bucket-fn"

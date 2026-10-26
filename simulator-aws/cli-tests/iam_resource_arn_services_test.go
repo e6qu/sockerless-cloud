@@ -7,7 +7,7 @@ import (
 )
 
 // scopedKeyCLI mints an IAM user carrying policyDocument and returns its access
-// key pair, so a CLI call signed with it is evaluated as a real principal.
+// key, so a call signed with it evaluates as a real principal.
 func scopedKeyCLI(t *testing.T, user, policyName, policyDocument string) (id, secret string) {
 	t.Helper()
 	runCLI(t, awsCLI("iam", "create-user", "--user-name", user))
@@ -37,11 +37,10 @@ func asUser(cmd *exec.Cmd, id, secret string) *exec.Cmd {
 	return cmd
 }
 
-// A CloudWatch Logs grant written the way an operator writes it — the group ARN
-// and the ":*" form covering its streams — allows a group-scoped read and a
-// stream write under that group, and denies another group. This is what proves
-// the gate requests the group ARN without a trailing wildcard and the stream
-// ARN for the four stream-scoped actions.
+// A CloudWatch Logs grant written as an operator writes it (the group ARN and
+// its ":*" stream form) allows a group-scoped read and a stream write under
+// the group and denies another group: the gate requests the group ARN without
+// a trailing wildcard, and the stream ARN for the four stream-scoped actions.
 func TestIAM_CloudWatchLogsResourceScopedCLI(t *testing.T) {
 	t.Parallel()
 	for _, group := range []string{"/cli-scoped/app", "/cli-other/app"} {
@@ -136,10 +135,8 @@ func TestIAM_PassRoleResourceScopedCLI(t *testing.T) {
 	}
 }
 
-// `aws logs get-log-events` without --start-from-head reads the end of the
-// stream. A reader who takes the default and sees the beginning of history
-// concludes the workload is silent, which is why the default page is bounded
-// and anchored at the tail rather than returning everything from the oldest.
+// Without --start-from-head, `aws logs get-log-events` reads the stream's end,
+// in a bounded page.
 func TestCloudWatchLogsGetLogEventsReadsTheTailByDefaultCLI(t *testing.T) {
 	t.Parallel()
 	const group, stream = "/cli-tail/app", "s1"

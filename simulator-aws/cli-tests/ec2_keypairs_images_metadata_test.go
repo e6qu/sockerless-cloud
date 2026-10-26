@@ -7,13 +7,10 @@ import (
 	"testing"
 )
 
-// TestEC2KeyPairsImagesMetadataCLI covers key pairs, DescribeImages filters, and
-// ModifyInstanceMetadataOptions via the aws CLI.
 func TestEC2KeyPairsImagesMetadataCLI(t *testing.T) {
 	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
 
-	// Key pair create -> describe -> delete.
 	fp := q("ec2", "create-key-pair", "--key-name", "cli-kp", "--query", "KeyFingerprint", "--output", "text")
 	if fp == "" {
 		t.Fatal("create-key-pair returned no fingerprint")
@@ -28,9 +25,9 @@ func TestEC2KeyPairsImagesMetadataCLI(t *testing.T) {
 		t.Fatalf("describe-key-pairs after delete: got %q, want 0", n)
 	}
 
-	// An imported RSA key is fingerprinted by its public key's MD5 digest,
-	// which ssh-keygen -l -E md5 reports for it, and an ED25519 pair by its
-	// public key's base64 SHA-256 digest.
+	// AWS fingerprints an imported RSA key by its public key's MD5 digest, as
+	// ssh-keygen -l -E md5 reports it, and an ED25519 key by its public key's
+	// base64 SHA-256 digest.
 	keyFile := filepath.Join(t.TempDir(), "id_rsa.pub")
 	if err := os.WriteFile(keyFile, []byte("ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDTZERMdSlqD/Ot+7wjgU7BkrYryTecvQMxKvIVNkdzTuYr6DitxLO7j3mbGZT7ly8aNCcKWKXnRA0C1fp7q6GQ+rhttiBg0i6q5ArpUOIqrKt3BqjZPF+HEyWXb1/ip2flCP19PQHFmIhcceyineRE9pP5aeQ2fCBZOG9/JWFMUeSa269IxCs8XsJR1pQRVuI4wlsot0kuHTOYteMykgBjbwNnO7UhZTlJJVaoX0Prk1dFHjWnckgMYBA+ePIRoFWtHXcfhhM/bfQ5Got0JJET2umvr0Vb8Jh/el0rqNOBthz+uI+fAkLyvWmRwwRL1mkKe9G2dsltyDMYwYPV7WeN sockerless@test\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -50,7 +47,6 @@ func TestEC2KeyPairsImagesMetadataCLI(t *testing.T) {
 	}
 	t.Cleanup(func() { runCLI(t, awsCLI("ec2", "delete-key-pair", "--key-name", "cli-ed25519-kp")) })
 
-	// DescribeImages must honour the name + architecture filters.
 	out := q("ec2", "describe-images", "--owners", "amazon",
 		"--filters", "Name=name,Values=al2023-ami-2023*", "Name=architecture,Values=arm64",
 		"--query", "Images[0].[Name,Architecture,ImageOwnerAlias]", "--output", "text")
@@ -62,7 +58,6 @@ func TestEC2KeyPairsImagesMetadataCLI(t *testing.T) {
 		t.Fatalf("describe-images lists Debian 12 for amd64 and arm64, got %q", n)
 	}
 
-	// ModifyInstanceMetadataOptions in place.
 	vpcID := q("ec2", "create-vpc", "--cidr-block", "10.141.0.0/16", "--query", "Vpc.VpcId", "--output", "text")
 	subnetID := q("ec2", "create-subnet", "--vpc-id", vpcID, "--cidr-block", "10.141.1.0/24",
 		"--query", "Subnet.SubnetId", "--output", "text")

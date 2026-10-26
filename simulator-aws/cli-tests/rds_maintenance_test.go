@@ -41,14 +41,12 @@ func cliDescribeMaintainedInstance(t *testing.T, instanceID string) cliMaintaine
 	return described.DBInstances[0]
 }
 
-// aws rds modify-db-instance without --apply-immediately holds a class and a
-// storage change for the instance's maintenance window, which
-// describe-db-instances reports as pending modified values; a later
-// --apply-immediately applies them, and a window opening two minutes out,
-// still closed when the request arrives, applies what it holds when it
-// opens. describe-db-instances is the only signal of the window's work the
-// CLI has, so the test reads it at the db-instance-available waiter's
-// 30-second cadence.
+// modify-db-instance without --apply-immediately holds a class and a storage
+// change for the maintenance window, which describe-db-instances reports as
+// pending modified values; a later --apply-immediately applies them, and a
+// window opening two minutes out applies what it holds when it opens. The CLI
+// sees the window's work only through describe-db-instances, so the test reads
+// it at the db-instance-available waiter's 30-second cadence.
 func TestRDSCLI_MaintenanceWindowAppliesPendingModifications(t *testing.T) {
 	t.Parallel()
 	id := fmt.Sprintf("cli-maintenance-%d", time.Now().UnixNano())
@@ -107,12 +105,11 @@ func TestRDSCLI_MaintenanceWindowAppliesPendingModifications(t *testing.T) {
 	assert.Equal(t, 40, instance.AllocatedStorage)
 }
 
-// aws rds modify-db-parameter-group sets an RDS for PostgreSQL instance's
-// engine parameters: the engine starts with them, a dynamic one applied
-// immediately reaches the running engine, and a static one waits for aws rds
-// reboot-db-instance while describe-db-instances reports the group
-// pending-reboot. describe-engine-default-parameters pages through the
-// engine's whole catalog.
+// modify-db-parameter-group sets an RDS for PostgreSQL instance's engine
+// parameters: the engine starts with them, a dynamic one applied immediately
+// reaches the running engine, and a static one waits for reboot-db-instance
+// while describe-db-instances reports the group pending-reboot.
+// describe-engine-default-parameters pages through the whole catalog.
 func TestRDSCLI_ModifiedDBParameterGroupsReachTheEngine(t *testing.T) {
 	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)

@@ -53,12 +53,12 @@ func cliDescribeInstanceSettings(t *testing.T, instanceID string) cliInstanceSet
 	return described.DBInstances[0]
 }
 
-// aws rds create-db-instance takes the storage type, Provisioned IOPS, DB
-// subnet group, option group and CA certificate; aws rds modify-db-instance
-// holds MultiAZ and a storage change for the maintenance window and refuses a
-// storage combination the reference rules out. With --apply-immediately it
-// applies them, moves the endpoint to --db-port-number and renames the
-// instance with --new-db-instance-identifier, which keeps its data.
+// create-db-instance takes the storage type, Provisioned IOPS, DB subnet group,
+// option group and CA certificate; modify-db-instance holds MultiAZ and a
+// storage change for the maintenance window and refuses a storage combination
+// the reference rules out. --apply-immediately applies them, moves the
+// endpoint to --db-port-number and renames the instance with
+// --new-db-instance-identifier, keeping its data.
 func TestRDSCLI_ModifyDBInstanceSettingsPortAndRename(t *testing.T) {
 	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)

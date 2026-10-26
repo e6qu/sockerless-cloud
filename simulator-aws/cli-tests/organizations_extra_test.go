@@ -5,9 +5,8 @@ import (
 	"testing"
 )
 
-// TestOrganizationsCLI_GovCloudAccount exercises create-gov-cloud-account over
-// the aws CLI: the CreateAccountStatus settles to SUCCEEDED carrying both
-// AccountId (commercial) and GovCloudAccountId, and the status is readable via
+// TestOrganizationsCLI_GovCloudAccount expects the CreateAccountStatus to settle
+// to SUCCEEDED with both AccountId and GovCloudAccountId, readable through
 // describe-create-account-status.
 func TestOrganizationsCLI_GovCloudAccount(t *testing.T) {
 	out := runCLI(t, awsCLI("organizations", "create-gov-cloud-account",
@@ -39,9 +38,8 @@ func TestOrganizationsCLI_GovCloudAccount(t *testing.T) {
 	}
 }
 
-// TestOrganizationsCLI_LeaveOrganization asserts the management account cannot
-// leave its own organization — leave-organization fails with
-// MasterCannotLeaveOrganizationException for the sim's caller.
+// TestOrganizationsCLI_LeaveOrganization expects the management account's
+// leave-organization to fail with MasterCannotLeaveOrganizationException.
 func TestOrganizationsCLI_LeaveOrganization(t *testing.T) {
 	out := runCLIExpectError(t, awsCLI("organizations", "leave-organization", "--output", "json"))
 	if !strings.Contains(out, "MasterCannotLeaveOrganization") {
@@ -49,9 +47,6 @@ func TestOrganizationsCLI_LeaveOrganization(t *testing.T) {
 	}
 }
 
-// The remaining new Organizations operations — list-accounts-with-invalid-effective-policy,
-// list-effective-policy-validation-errors, and the responsibility-transfer family
-// (invite/describe/update/terminate + inbound/outbound lists) — are not present in
-// aws CLI 2.26.6 (the pinned local CLI), so they are covered by the SDK tests in
-// sdk-tests/organizations_extra_test.go, which exercise the same handlers and the
-// contract hook. They gain CLI coverage automatically once the CLI ships them.
+// aws CLI 2.26.6 lacks list-accounts-with-invalid-effective-policy,
+// list-effective-policy-validation-errors and the responsibility-transfer
+// family; sdk-tests/organizations_extra_test.go covers them.

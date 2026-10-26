@@ -75,9 +75,6 @@ func TestAutoScalingGroupLifecycleCLI(t *testing.T) {
 		"--launch-configuration-name", "cli-lc"))
 }
 
-// TestAutoScalingCLI_PoliciesAndHooks drives the `aws autoscaling`
-// scaling-policy, scheduled-action, lifecycle-hook, and per-instance verbs
-// against a real group.
 func TestAutoScalingCLI_PoliciesAndHooks(t *testing.T) {
 	t.Parallel()
 	out := runCLI(t, awsCLI("ec2", "create-vpc",

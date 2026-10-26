@@ -10,10 +10,9 @@ import (
 	"time"
 )
 
-// TestCloudWatchCLI_LogAlarms covers put-log-alarm creating a log alarm over a
-// CloudWatch Logs scheduled query, describe-alarms --alarm-types LogAlarm
-// reading it back in the state the query results imply, and delete-alarms
-// removing it along with the service-managed scheduled query.
+// TestCloudWatchCLI_LogAlarms creates a log alarm over a CloudWatch Logs
+// scheduled query, reads it back in the state the query results imply, and
+// deletes it together with its service-managed scheduled query.
 func TestCloudWatchCLI_LogAlarms(t *testing.T) {
 	t.Parallel()
 	group := "/cli/log-alarm/" + fmt.Sprint(time.Now().UnixNano())
@@ -70,7 +69,6 @@ func TestCloudWatchCLI_LogAlarms(t *testing.T) {
 		t.Fatalf("AggregationExpression = %q", agg)
 	}
 
-	// The QueryARN the alarm reports resolves to a real scheduled query.
 	queryArn := strings.TrimSpace(runCLI(t, awsCLI("cloudwatch", "describe-alarms",
 		"--alarm-names", name, "--alarm-types", "LogAlarm",
 		"--query", "LogAlarms[0].ScheduledQueryConfiguration.QueryARN", "--output", "text")))
@@ -83,8 +81,7 @@ func TestCloudWatchCLI_LogAlarms(t *testing.T) {
 		t.Fatalf("scheduled query scheduleExpression = %q", schedule)
 	}
 
-	// An empty AlarmTypes filter means metric alarms only — the log alarm is
-	// not returned unless it is asked for.
+	// An empty AlarmTypes filter means metric alarms only.
 	metricOnly := strings.TrimSpace(runCLI(t, awsCLI("cloudwatch", "describe-alarms",
 		"--alarm-names", name, "--query", "length(MetricAlarms)", "--output", "text")))
 	if metricOnly != "0" {
@@ -103,8 +100,7 @@ func TestCloudWatchCLI_LogAlarms(t *testing.T) {
 	}
 }
 
-// writeJSONDoc marshals v into a temp file and returns its path, for the CLI's
-// file:// argument form.
+// writeJSONDoc backs the CLI's file:// argument form.
 func writeJSONDoc(t *testing.T, name string, v any) string {
 	t.Helper()
 	b, err := json.Marshal(v)

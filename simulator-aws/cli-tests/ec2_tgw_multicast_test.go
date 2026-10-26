@@ -5,9 +5,6 @@ import (
 	"testing"
 )
 
-// tgwMcastCLIFixture builds a transit gateway, a multicast domain, a VPC +
-// subnet, and a VPC attachment over the aws CLI, returning their IDs and
-// registering tolerant cleanups.
 func tgwMcastCLIFixture(t *testing.T) (tgwID, domainID, attID, subnetID string) {
 	t.Helper()
 	tgwID = strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-transit-gateway",
@@ -46,8 +43,6 @@ func tgwMcastCLIFixture(t *testing.T) (tgwID, domainID, attID, subnetID string) 
 	return tgwID, domainID, attID, subnetID
 }
 
-// TestEC2CLI_TGWMulticast drives the multicast domain association + group
-// register/search/deregister path over the aws CLI.
 func TestEC2CLI_TGWMulticast(t *testing.T) {
 	t.Parallel()
 	_, domainID, attID, subnetID := tgwMcastCLIFixture(t)
@@ -71,7 +66,6 @@ func TestEC2CLI_TGWMulticast(t *testing.T) {
 		"--transit-gateway-multicast-domain-id", domainID,
 		"--transit-gateway-attachment-id", attID, "--subnet-ids", subnetID))
 
-	// Group members + sources.
 	const groupIP = "224.0.2.0"
 	const memberENI = "eni-cli-mcast01"
 	const sourceENI = "eni-cli-mcast02"
@@ -105,7 +99,6 @@ func TestEC2CLI_TGWMulticast(t *testing.T) {
 		"--transit-gateway-attachment-id", attID, "--subnet-ids", subnetID))
 }
 
-// TestEC2CLI_TGWPolicyTable drives the policy-table CRUD + association path.
 func TestEC2CLI_TGWPolicyTable(t *testing.T) {
 	t.Parallel()
 	tgwID, _, attID, _ := tgwMcastCLIFixture(t)
@@ -149,9 +142,6 @@ func TestEC2CLI_TGWPolicyTable(t *testing.T) {
 		t.Fatalf("expected 0 policy table entries, got %q", entryCount)
 	}
 
-	// The policy rules the table exists to hold: create, read back, modify in
-	// place, delete. The entries read reported a fixed empty list until the API
-	// modelled a way to put a rule in a table.
 	rtID := strings.TrimSpace(runCLI(t, awsCLI("ec2", "describe-transit-gateway-route-tables",
 		"--filters", "Name=transit-gateway-id,Values="+tgwID,
 		"--query", "TransitGatewayRouteTables[0].TransitGatewayRouteTableId", "--output", "text")))
@@ -199,12 +189,6 @@ func TestEC2CLI_TGWPolicyTable(t *testing.T) {
 		"--transit-gateway-policy-table-id", ptID, "--transit-gateway-attachment-id", attID))
 }
 
-// TestEC2CLI_TGWMeteringPolicy drives the metering-policy CRUD + entries path.
-// It is skipped only if the installed aws CLI does not support the operation
-// (the command prints the CLI help/invalid-choice banner). The suite controls
-// its own reference adaptor version by installing the latest AWS CLI v2 in
-// TestMain, so an unsupported operation surfaces explicitly rather than
-// silently passing or failing cryptically.
 func TestEC2CLI_TGWMeteringPolicy(t *testing.T) {
 	t.Parallel()
 	tgwID, _, attID, _ := tgwMcastCLIFixture(t)
@@ -224,7 +208,7 @@ func TestEC2CLI_TGWMeteringPolicy(t *testing.T) {
 	mid := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-transit-gateway-metering-policy",
 		"--transit-gateway-id", tgwID, "--middlebox-attachment-ids", attID,
 		"--query", "TransitGatewayMeteringPolicy.MiddleboxAttachmentIds[0]", "--output", "text")))
-	_ = mid // first create captured the id; this second call verifies middlebox echo on a throwaway.
+	_ = mid
 
 	ruleNum := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-transit-gateway-metering-policy-entry",
 		"--transit-gateway-metering-policy-id", mpID, "--policy-rule-number", "100",
@@ -247,8 +231,6 @@ func TestEC2CLI_TGWMeteringPolicy(t *testing.T) {
 		"--transit-gateway-metering-policy-id", mpID, "--policy-rule-number", "100"))
 }
 
-// TestEC2CLI_TGWRouteTableAnnouncement drives the route-table-announcement
-// create/describe/delete path over the aws CLI.
 func TestEC2CLI_TGWRouteTableAnnouncement(t *testing.T) {
 	t.Parallel()
 	tgwID, _, _, _ := tgwMcastCLIFixture(t)

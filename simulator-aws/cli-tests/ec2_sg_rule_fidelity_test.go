@@ -5,9 +5,8 @@ import (
 	"testing"
 )
 
-// TestEC2CLI_SecurityGroupRuleFidelity drives the all-traffic port omission
-// (#-1 rules report no ports) and the bare referenced-sg-id (no account prefix,
-// no UserId) via the aws CLI.
+// TestEC2CLI_SecurityGroupRuleFidelity expects an all-traffic (-1) rule to
+// report no ports, and a referenced group as a bare sg- id with no UserId.
 func TestEC2CLI_SecurityGroupRuleFidelity(t *testing.T) {
 	t.Parallel()
 	vpc := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-vpc",
@@ -20,7 +19,7 @@ func TestEC2CLI_SecurityGroupRuleFidelity(t *testing.T) {
 	sgAlb := mkSG("cli-fidelity-alb")
 	sgTasks := mkSG("cli-fidelity-tasks")
 
-	// Revoke the default ALLOW ALL egress rule before authorizing a test rule.
+	// Revoke the default allow-all egress rule so the test rule is new.
 	runCLI(t, awsCLI("ec2", "revoke-security-group-egress", "--group-id", sgTasks,
 		"--ip-permissions", `[{"IpProtocol":"-1","IpRanges":[{"CidrIp":"0.0.0.0/0"}]}]`))
 	runCLI(t, awsCLI("ec2", "authorize-security-group-egress", "--group-id", sgTasks,
@@ -28,7 +27,7 @@ func TestEC2CLI_SecurityGroupRuleFidelity(t *testing.T) {
 	runCLI(t, awsCLI("ec2", "authorize-security-group-ingress", "--group-id", sgTasks,
 		"--ip-permissions", `[{"IpProtocol":"tcp","FromPort":3000,"ToPort":3000,"UserIdGroupPairs":[{"GroupId":"`+sgAlb+`"}]}]`))
 
-	// #457: the all-traffic rule reports no ports (CLI renders null as "None").
+	// The CLI renders the absent ports as "None".
 	from := strings.TrimSpace(runCLI(t, awsCLI("ec2", "describe-security-group-rules",
 		"--filters", "Name=group-id,Values="+sgTasks,
 		"--query", "SecurityGroupRules[?IpProtocol=='-1'].FromPort | [0]", "--output", "text")))
@@ -36,7 +35,7 @@ func TestEC2CLI_SecurityGroupRuleFidelity(t *testing.T) {
 		t.Fatalf("all-traffic FromPort = %q, want None", from)
 	}
 
-	// #458: referenced sg-id is bare; no UserId so the provider keeps the bare id.
+	// Without a UserId terraform-provider-aws keeps the bare id.
 	ref := strings.TrimSpace(runCLI(t, awsCLI("ec2", "describe-security-group-rules",
 		"--filters", "Name=group-id,Values="+sgTasks,
 		"--query", "SecurityGroupRules[?IpProtocol=='tcp'].ReferencedGroupInfo.GroupId | [0]", "--output", "text")))

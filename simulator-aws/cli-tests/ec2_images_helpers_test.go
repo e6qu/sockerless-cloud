@@ -11,8 +11,8 @@ var (
 	ec2PublicAMIs  = map[string]string{}
 )
 
-// ec2PublicAMI resolves a public AMI by owner and name through describe-images,
-// the way a client finds an AMI on AWS, once per process.
+// ec2PublicAMI resolves a public AMI by owner and name through
+// describe-images, as a client finds one on AWS, once per process.
 func ec2PublicAMI(t *testing.T, owner, namePattern string) string {
 	t.Helper()
 	ec2PublicAMIMu.Lock()
@@ -31,7 +31,6 @@ func ec2PublicAMI(t *testing.T, owner, namePattern string) string {
 	return id
 }
 
-// ec2AmazonLinuxAMI is the Amazon Linux 2023 x86_64 AMI.
 func ec2AmazonLinuxAMI(t *testing.T) string {
 	return ec2PublicAMI(t, "amazon", "al2023-ami-2023.*-kernel-6.1-x86_64")
 }

@@ -5,8 +5,6 @@ import (
 	"testing"
 )
 
-// TestEC2CLI_ModifySecurityGroupRules drives an in-place security-group-rule
-// update via the aws CLI: authorize a rule, find its id, then modify it.
 func TestEC2CLI_ModifySecurityGroupRules(t *testing.T) {
 	t.Parallel()
 	vpcID := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-vpc",

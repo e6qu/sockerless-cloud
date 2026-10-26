@@ -11,10 +11,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// wafStamp is a unique suffix built only from characters an AWS WAFV2 name
-// admits. The model's EntityName pattern is ^[\w\-]+$, so the fractional-
-// seconds dot the other suites use would be rejected by the service — and the
-// load-balancer names built here forbid it too.
+// wafStamp is a unique suffix of characters an AWS WAF name admits: the
+// EntityName pattern is ^[\w\-]+$, so the fractional-seconds dot the other
+// suites use is refused, as it is in load balancer names.
 func wafStamp() string {
 	return strings.ReplaceAll(time.Now().Format("150405.000000"), ".", "-")
 }
@@ -233,9 +232,6 @@ func TestWAFv2_LoggingConfiguration_Lifecycle(t *testing.T) {
 		"--resource-arn", aclARN, "--output", "json"))
 }
 
-// TestWAFv2_APIKeys_And_Capacity exercises the API-key control plane and the
-// CheckCapacity estimator: create-api-key, list-api-keys, get-decrypted-api-key,
-// check-capacity, delete-api-key.
 func TestWAFv2_APIKeys_And_Capacity(t *testing.T) {
 	t.Parallel()
 	createOut := runCLI(t, awsCLI("wafv2", "create-api-key",
@@ -292,10 +288,6 @@ func TestWAFv2_APIKeys_And_Capacity(t *testing.T) {
 		"--scope", "CLOUDFRONT", "--api-key", apiKey, "--output", "json"))
 }
 
-// TestWAFv2_ManagedRuleGroupCatalog exercises the read-only managed rule group /
-// product catalog: list-available-managed-rule-groups,
-// list-available-managed-rule-group-versions, describe-managed-rule-group,
-// describe-all-managed-products, describe-managed-products-by-vendor.
 func TestWAFv2_ManagedRuleGroupCatalog(t *testing.T) {
 	t.Parallel()
 	listOut := runCLI(t, awsCLI("wafv2", "list-available-managed-rule-groups",
@@ -357,9 +349,6 @@ func TestWAFv2_ManagedRuleGroupCatalog(t *testing.T) {
 	require.NotEmpty(t, vendResult.ManagedProducts)
 }
 
-// TestWAFv2_ManagedRuleSet exercises the publisher-side managed rule set CRUD:
-// list-managed-rule-sets, get-managed-rule-set, put-managed-rule-set-versions,
-// update-managed-rule-set-version-expiry-date.
 func TestWAFv2_ManagedRuleSet(t *testing.T) {
 	t.Parallel()
 	listOut := runCLI(t, awsCLI("wafv2", "list-managed-rule-sets",
@@ -416,9 +405,6 @@ func TestWAFv2_ManagedRuleSet(t *testing.T) {
 	require.NotEmpty(t, updResult.NextLockToken)
 }
 
-// TestWAFv2_PermissionPolicyAndStats exercises permission-policy CRUD on a rule
-// group, the mobile SDK release catalog, delete-firewall-manager-rule-groups,
-// get-rate-based-statement-managed-keys, and get-top-path-statistics-by-traffic.
 func TestWAFv2_PermissionPolicyAndStats(t *testing.T) {
 	t.Parallel()
 	ts := wafStamp()
@@ -453,7 +439,6 @@ func TestWAFv2_PermissionPolicyAndStats(t *testing.T) {
 	runCLI(t, awsCLI("wafv2", "delete-permission-policy",
 		"--resource-arn", rgARN, "--output", "json"))
 
-	// Mobile SDK release catalog.
 	relListOut := runCLI(t, awsCLI("wafv2", "list-mobile-sdk-releases",
 		"--platform", "IOS", "--output", "json"))
 	var relList struct {
@@ -483,7 +468,6 @@ func TestWAFv2_PermissionPolicyAndStats(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(urlOut), &urlResult))
 	require.NotEmpty(t, urlResult.Url)
 
-	// Web ACL → rate-based keys + traffic stats + firewall-manager delete.
 	aclOut := runCLI(t, awsCLI("wafv2", "create-web-acl",
 		"--name", "cli-pp-acl-"+ts, "--scope", "CLOUDFRONT",
 		"--default-action", `{"Allow":{}}`,
@@ -522,7 +506,6 @@ func TestWAFv2_PermissionPolicyAndStats(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal([]byte(statsOut), &statsResult))
 
-	// delete-firewall-manager-rule-groups advances the web ACL lock token.
 	getACL := runCLI(t, awsCLI("wafv2", "get-web-acl",
 		"--name", aclName, "--scope", "CLOUDFRONT", "--id", aclID, "--output", "json"))
 	var getACLResult struct {
@@ -541,8 +524,7 @@ func TestWAFv2_PermissionPolicyAndStats(t *testing.T) {
 	wafCleanupCLI(awsCLI("wafv2", "delete-web-acl", "--name", aclName, "--scope", "CLOUDFRONT", "--id", aclID, "--lock-token", fmResult.NextWebACLLockToken))
 }
 
-// wafCleanupCLI runs a tolerant cleanup CLI command, ignoring any error so a
-// deferred teardown never fails the test.
+// wafCleanupCLI ignores errors, so a deferred teardown never fails the test.
 func wafCleanupCLI(cmd *exec.Cmd) {
 	_ = cmd.Run()
 }

@@ -7,9 +7,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestElastiCacheCLI_SnapshotsUsersGroups exercises the snapshot,
-// user, and user-group control-plane operations through the aws CLI.
-// Grouped into a single test to keep the appdata shard lean.
+// TestElastiCacheCLI_SnapshotsUsersGroups covers snapshots, users and user
+// groups in one test to keep the appdata shard lean.
 func TestElastiCacheCLI_SnapshotsUsersGroups(t *testing.T) {
 	t.Parallel()
 	clusterID := "cli-snap-cluster"
@@ -23,7 +22,6 @@ func TestElastiCacheCLI_SnapshotsUsersGroups(t *testing.T) {
 			"--cache-cluster-id", clusterID).Run()
 	})
 
-	// CreateSnapshot.
 	snapName := "cli-snap"
 	out := runCLI(t, awsCLI("elasticache", "create-snapshot",
 		"--snapshot-name", snapName,
@@ -44,7 +42,6 @@ func TestElastiCacheCLI_SnapshotsUsersGroups(t *testing.T) {
 		_ = awsCLI("elasticache", "delete-snapshot", "--snapshot-name", snapName).Run()
 	})
 
-	// DescribeSnapshots.
 	out = runCLI(t, awsCLI("elasticache", "describe-snapshots",
 		"--snapshot-name", snapName))
 	var snaps struct {
@@ -57,7 +54,6 @@ func TestElastiCacheCLI_SnapshotsUsersGroups(t *testing.T) {
 	require.Len(t, snaps.Snapshots, 1)
 	assert.Equal(t, "redis", snaps.Snapshots[0].Engine)
 
-	// CopySnapshot.
 	copyName := "cli-snap-copy"
 	runCLI(t, awsCLI("elasticache", "copy-snapshot",
 		"--source-snapshot-name", snapName,
@@ -66,10 +62,8 @@ func TestElastiCacheCLI_SnapshotsUsersGroups(t *testing.T) {
 		_ = awsCLI("elasticache", "delete-snapshot", "--snapshot-name", copyName).Run()
 	})
 
-	// DeleteSnapshot.
 	runCLI(t, awsCLI("elasticache", "delete-snapshot", "--snapshot-name", snapName))
 
-	// CreateUser.
 	userID := "cli-user-1"
 	out = runCLI(t, awsCLI("elasticache", "create-user",
 		"--user-id", userID,
@@ -89,7 +83,6 @@ func TestElastiCacheCLI_SnapshotsUsersGroups(t *testing.T) {
 		_ = awsCLI("elasticache", "delete-user", "--user-id", userID).Run()
 	})
 
-	// DescribeUsers.
 	out = runCLI(t, awsCLI("elasticache", "describe-users", "--user-id", userID))
 	var users struct {
 		Users []struct {
@@ -101,12 +94,10 @@ func TestElastiCacheCLI_SnapshotsUsersGroups(t *testing.T) {
 	require.Len(t, users.Users, 1)
 	assert.Equal(t, "cli-app", users.Users[0].UserName)
 
-	// ModifyUser.
 	runCLI(t, awsCLI("elasticache", "modify-user",
 		"--user-id", userID,
 		"--access-string", "on ~app:* +@read"))
 
-	// CreateUserGroup.
 	groupID := "cli-group-1"
 	out = runCLI(t, awsCLI("elasticache", "create-user-group",
 		"--user-group-id", groupID,
@@ -123,7 +114,6 @@ func TestElastiCacheCLI_SnapshotsUsersGroups(t *testing.T) {
 		_ = awsCLI("elasticache", "delete-user-group", "--user-group-id", groupID).Run()
 	})
 
-	// DescribeUserGroups.
 	out = runCLI(t, awsCLI("elasticache", "describe-user-groups", "--user-group-id", groupID))
 	var grps struct {
 		UserGroups []struct {
@@ -135,20 +125,17 @@ func TestElastiCacheCLI_SnapshotsUsersGroups(t *testing.T) {
 	require.Len(t, grps.UserGroups, 1)
 	assert.Contains(t, grps.UserGroups[0].UserIds, userID)
 
-	// ModifyUserGroup (remove the user).
 	runCLI(t, awsCLI("elasticache", "modify-user-group",
 		"--user-group-id", groupID,
 		"--user-ids-to-remove", userID))
 
-	// DeleteUserGroup + DeleteUser.
 	runCLI(t, awsCLI("elasticache", "delete-user-group", "--user-group-id", groupID))
 	runCLI(t, awsCLI("elasticache", "delete-user", "--user-id", userID))
 }
 
-// TestElastiCacheCLI_ParametersAndDescribes exercises the parameter
-// detail surface plus the read-only describe operations (events, engine
-// versions, reserved nodes, offerings, service updates, security
-// groups). Grouped to keep the appdata shard lean.
+// TestElastiCacheCLI_ParametersAndDescribes covers the parameter detail
+// operations and the read-only describes in one test to keep the appdata
+// shard lean.
 func TestElastiCacheCLI_ParametersAndDescribes(t *testing.T) {
 	t.Parallel()
 	pgName := "cli-param-detail"
@@ -161,7 +148,6 @@ func TestElastiCacheCLI_ParametersAndDescribes(t *testing.T) {
 			"--cache-parameter-group-name", pgName).Run()
 	})
 
-	// DescribeCacheParameters.
 	out := runCLI(t, awsCLI("elasticache", "describe-cache-parameters",
 		"--cache-parameter-group-name", pgName))
 	var params struct {
@@ -174,7 +160,6 @@ func TestElastiCacheCLI_ParametersAndDescribes(t *testing.T) {
 	parseJSON(t, out, &params)
 	require.NotEmpty(t, params.Parameters)
 
-	// ModifyCacheParameterGroup.
 	runCLI(t, awsCLI("elasticache", "modify-cache-parameter-group",
 		"--cache-parameter-group-name", pgName,
 		"--parameter-name-values", "ParameterName=maxmemory-policy,ParameterValue=allkeys-lru"))
@@ -192,12 +177,10 @@ func TestElastiCacheCLI_ParametersAndDescribes(t *testing.T) {
 	}
 	assert.True(t, found, "modified parameter present")
 
-	// ResetCacheParameterGroup.
 	runCLI(t, awsCLI("elasticache", "reset-cache-parameter-group",
 		"--cache-parameter-group-name", pgName,
 		"--reset-all-parameters"))
 
-	// DescribeEngineDefaultParameters.
 	out = runCLI(t, awsCLI("elasticache", "describe-engine-default-parameters",
 		"--cache-parameter-group-family", "redis7"))
 	var defaults struct {
@@ -208,13 +191,11 @@ func TestElastiCacheCLI_ParametersAndDescribes(t *testing.T) {
 		} `json:"EngineDefaults"`
 	}
 	parseJSON(t, out, &defaults)
-	// The aws CLI auto-paginates DescribeEngineDefaultParameters and
-	// flattens the result to the Parameters list (dropping the sibling
-	// CacheParameterGroupFamily / Marker fields); the SDK test asserts
-	// the family field directly.
+	// The aws CLI auto-paginates DescribeEngineDefaultParameters down to the
+	// Parameters list, dropping CacheParameterGroupFamily; the SDK test asserts
+	// the family.
 	require.NotEmpty(t, defaults.EngineDefaults.Parameters)
 
-	// DescribeEvents.
 	out = runCLI(t, awsCLI("elasticache", "describe-events",
 		"--source-type", "cache-cluster"))
 	var events struct {
@@ -223,10 +204,8 @@ func TestElastiCacheCLI_ParametersAndDescribes(t *testing.T) {
 		} `json:"Events"`
 	}
 	parseJSON(t, out, &events)
-	// Events may be empty if no clusters exist in this run; the shape is
-	// what matters. Just assert the call succeeds and decodes.
+	// A run with no clusters may have no events; the call decoding is the check.
 
-	// DescribeCacheEngineVersions.
 	out = runCLI(t, awsCLI("elasticache", "describe-cache-engine-versions",
 		"--engine", "redis"))
 	var versions struct {
@@ -239,7 +218,7 @@ func TestElastiCacheCLI_ParametersAndDescribes(t *testing.T) {
 	require.NotEmpty(t, versions.CacheEngineVersions)
 	assert.Equal(t, "redis", versions.CacheEngineVersions[0].Engine)
 
-	// DescribeReservedCacheNodes, filtered to a node type no test reserves.
+	// Filter to a node type no test reserves.
 	out = runCLI(t, awsCLI("elasticache", "describe-reserved-cache-nodes",
 		"--cache-node-type", "cache.r6g.large"))
 	var reserved struct {
@@ -248,7 +227,6 @@ func TestElastiCacheCLI_ParametersAndDescribes(t *testing.T) {
 	parseJSON(t, out, &reserved)
 	assert.Empty(t, reserved.ReservedCacheNodes)
 
-	// DescribeReservedCacheNodesOfferings.
 	out = runCLI(t, awsCLI("elasticache", "describe-reserved-cache-nodes-offerings"))
 	var offerings struct {
 		ReservedCacheNodesOfferings []struct {
@@ -258,7 +236,6 @@ func TestElastiCacheCLI_ParametersAndDescribes(t *testing.T) {
 	parseJSON(t, out, &offerings)
 	require.NotEmpty(t, offerings.ReservedCacheNodesOfferings)
 
-	// DescribeServiceUpdates.
 	out = runCLI(t, awsCLI("elasticache", "describe-service-updates"))
 	var updates struct {
 		ServiceUpdates []struct {
@@ -268,7 +245,7 @@ func TestElastiCacheCLI_ParametersAndDescribes(t *testing.T) {
 	parseJSON(t, out, &updates)
 	require.NotEmpty(t, updates.ServiceUpdates)
 
-	// DescribeCacheSecurityGroups (empty in a VPC-only account).
+	// A VPC-only account has no cache security groups.
 	out = runCLI(t, awsCLI("elasticache", "describe-cache-security-groups"))
 	var sgs struct {
 		CacheSecurityGroups []any `json:"CacheSecurityGroups"`

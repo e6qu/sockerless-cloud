@@ -9,10 +9,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestRDSCLI_StateAndGlobalCluster covers instance/cluster state
-// transitions (start/stop/failover, promote-read-replica) and the
-// Aurora global cluster family end-to-end through the aws CLI. Grouped
-// into one round-trip func (appdata2 carries RDS).
+// TestRDSCLI_StateAndGlobalCluster covers instance and cluster state
+// transitions and the Aurora global cluster family in one test for the
+// appdata2 shard.
 func TestRDSCLI_StateAndGlobalCluster(t *testing.T) {
 	t.Parallel()
 	instID := "cli-state-pg-db"
@@ -65,8 +64,8 @@ func TestRDSCLI_StateAndGlobalCluster(t *testing.T) {
 			"--db-instance-identifier", replicaID,
 			"--skip-final-snapshot").Run()
 	})
-	// A replica is promoted once it is available, as Amazon RDS requires: it
-	// answers InvalidDBInstanceState while its engine is still starting.
+	// Amazon RDS promotes only an available replica: it answers
+	// InvalidDBInstanceState while the engine starts.
 	cliWaitDBInstanceAvailable(t, replicaID)
 	out = runCLI(t, awsCLI("rds", "promote-read-replica", "--db-instance-identifier", replicaID))
 	var promResp struct {
@@ -147,10 +146,9 @@ func TestRDSCLI_StateAndGlobalCluster(t *testing.T) {
 		"--global-cluster-identifier", gid))
 }
 
-// TestRDSCLI_EventSubParamDetailEndpoint covers event subscriptions,
-// parameter detail (describe/modify/reset), snapshot attribute sharing,
-// DB cluster endpoints, and copy-db-cluster-snapshot end-to-end through
-// the aws CLI. Grouped into one round-trip func (appdata2 carries RDS).
+// TestRDSCLI_EventSubParamDetailEndpoint covers event subscriptions, parameter
+// detail, snapshot attribute sharing, DB cluster endpoints and
+// copy-db-cluster-snapshot in one test for the appdata2 shard.
 func TestRDSCLI_EventSubParamDetailEndpoint(t *testing.T) {
 	t.Parallel()
 	subName := "cli-rds-events"
@@ -346,8 +344,8 @@ func TestRDSCLI_EventSubParamDetailEndpoint(t *testing.T) {
 		"--db-cluster-snapshot-identifier", copySnap))
 }
 
-// waitForCLIRDSClusterStatus polls describe-db-clusters until the cluster
-// reports status; the AWS CLI has no waiter for a stopped cluster.
+// waitForCLIRDSClusterStatus polls describe-db-clusters: the AWS CLI has no
+// waiter for a stopped cluster.
 func waitForCLIRDSClusterStatus(t *testing.T, clusterID, status string) {
 	t.Helper()
 	require.Eventually(t, func() bool {

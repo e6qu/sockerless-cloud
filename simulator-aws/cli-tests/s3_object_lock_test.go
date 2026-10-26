@@ -11,11 +11,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestS3CLI_ObjectLockProtectsVersions drives Amazon S3 Object Lock through the
-// aws CLI: a bucket created with Object Lock keeps versioning enabled, its
-// default GOVERNANCE retention protects a new version until a delete bypasses
-// governance retention, COMPLIANCE retention and a legal hold refuse every
-// version delete, and a bucket without Object Lock refuses the operations.
+// TestS3CLI_ObjectLockProtectsVersions expects an Object Lock bucket to keep
+// versioning on, its default GOVERNANCE retention to protect a new version
+// until a delete bypasses governance retention, COMPLIANCE retention and a
+// legal hold to refuse every version delete, and a bucket without Object Lock
+// to refuse the operations.
 func TestS3CLI_ObjectLockProtectsVersions(t *testing.T) {
 	t.Parallel()
 	bucket := "cli-object-lock-protects"

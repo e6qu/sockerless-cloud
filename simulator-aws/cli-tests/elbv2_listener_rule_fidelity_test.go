@@ -7,9 +7,6 @@ import (
 	"testing"
 )
 
-// TestELBv2ListenerRuleFidelityCLI covers the authenticate-oidc default action,
-// the weighted forward rule, SetRulePriorities, and the listener-certificate
-// lifecycle via the aws CLI.
 func TestELBv2ListenerRuleFidelityCLI(t *testing.T) {
 	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
@@ -45,7 +42,7 @@ func TestELBv2ListenerRuleFidelityCLI(t *testing.T) {
 		"--port", port, "--certificates", "CertificateArn="+defCert, "--ssl-policy", "ELBSecurityPolicy-2016-08",
 		"--default-actions", string(defActions), "--query", "Listeners[0].ListenerArn", "--output", "text")
 
-	// authenticate-oidc round-trips; ClientSecret is never echoed.
+	// ELBv2 never echoes ClientSecret.
 	out := q("elbv2", "describe-listeners", "--listener-arns", listenerArn,
 		"--query", "Listeners[0].DefaultActions[0].AuthenticateOidcConfig.[Issuer,UserInfoEndpoint,ClientId]", "--output", "text")
 	if f := strings.Fields(out); len(f) != 3 || f[0] != "https://idp.example.test" || f[1] != "https://idp.example.test/userinfo" || f[2] != "cli-client" {
@@ -56,7 +53,6 @@ func TestELBv2ListenerRuleFidelityCLI(t *testing.T) {
 		t.Fatalf("ClientSecret must NOT be echoed, got %q", sec)
 	}
 
-	// Weighted forward rule.
 	conditions := `[{"Field":"path-pattern","PathPatternConfig":{"Values":["/api/*"]}}]`
 	actions := fmt.Sprintf(`[{"Type":"forward","ForwardConfig":{"TargetGroups":[{"TargetGroupArn":%q,"Weight":70},{"TargetGroupArn":%q,"Weight":30}],"TargetGroupStickinessConfig":{"Enabled":true,"DurationSeconds":600}}}]`, tg1, tg2)
 	ruleArn := q("elbv2", "create-rule", "--listener-arn", listenerArn, "--priority", "10",
@@ -67,7 +63,6 @@ func TestELBv2ListenerRuleFidelityCLI(t *testing.T) {
 		t.Fatalf("forward weights round-trip: got %q", weights)
 	}
 
-	// SetRulePriorities.
 	runCLI(t, awsCLI("elbv2", "set-rule-priorities", "--rule-priorities",
 		fmt.Sprintf("RuleArn=%s,Priority=20", ruleArn)))
 	if p := q("elbv2", "describe-rules", "--rule-arns", ruleArn,
@@ -75,7 +70,6 @@ func TestELBv2ListenerRuleFidelityCLI(t *testing.T) {
 		t.Fatalf("set-rule-priorities: got %q, want 20", p)
 	}
 
-	// Listener-certificate lifecycle.
 	runCLI(t, awsCLI("elbv2", "add-listener-certificates", "--listener-arn", listenerArn,
 		"--certificates", "CertificateArn="+sniCert))
 	sniSeen := q("elbv2", "describe-listener-certificates", "--listener-arn", listenerArn,

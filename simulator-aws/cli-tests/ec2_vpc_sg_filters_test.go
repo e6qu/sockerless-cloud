@@ -5,8 +5,6 @@ import (
 	"testing"
 )
 
-// TestEC2CLI_VpcAndSgFilters drives the DescribeVpcs / DescribeSecurityGroups
-// filter fixes via the aws CLI.
 func TestEC2CLI_VpcAndSgFilters(t *testing.T) {
 	t.Parallel()
 	vpcA := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-vpc",
@@ -14,7 +12,6 @@ func TestEC2CLI_VpcAndSgFilters(t *testing.T) {
 	vpcB := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-vpc",
 		"--cidr-block", "10.66.0.0/16", "--query", "Vpc.VpcId", "--output", "text")))
 
-	// vpc-id filter returns exactly the requested VPC.
 	gotID := strings.TrimSpace(runCLI(t, awsCLI("ec2", "describe-vpcs",
 		"--filters", "Name=vpc-id,Values="+vpcB,
 		"--query", "Vpcs[*].VpcId", "--output", "text")))
@@ -22,7 +19,6 @@ func TestEC2CLI_VpcAndSgFilters(t *testing.T) {
 		t.Fatalf("describe-vpcs vpc-id filter returned %q, want %q", gotID, vpcB)
 	}
 
-	// CidrBlockAssociationSet carries the primary CIDR.
 	assocCidr := strings.TrimSpace(runCLI(t, awsCLI("ec2", "describe-vpcs",
 		"--vpc-ids", vpcB,
 		"--query", "Vpcs[0].CidrBlockAssociationSet[0].CidrBlock", "--output", "text")))

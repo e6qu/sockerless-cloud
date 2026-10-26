@@ -5,20 +5,14 @@ import (
 	"testing"
 )
 
-// This file exercises the EC2 volume / snapshot / recycle-bin / CoIP /
-// default-VPC / prefix-list / security-group-reference / launch-template-data /
-// DNS-name-option / IPv6 family via the aws CLI.
-//
-// A handful of operations are absent from aws CLI 2.26.6 (copy-volumes,
-// import-volume, restore-volume-from-recycle-bin, list-volumes-in-recycle-bin,
+// aws CLI 2.26.6 lacks copy-volumes, import-volume,
+// restore-volume-from-recycle-bin, list-volumes-in-recycle-bin,
 // create-delegate-mac-volume-ownership-task,
 // create-mac-system-integrity-protection-modification-task,
-// modify-public-ip-dns-name-options,
-// create/update-interruptible-capacity-reservation-allocation). Those are
-// covered by the SDK tests (which exercise the same contract hook).
+// modify-public-ip-dns-name-options and
+// create/update-interruptible-capacity-reservation-allocation; the SDK tests
+// cover them.
 
-// TestEC2CLI_VolumesSnapshots covers create-snapshots, describe-volume-status,
-// and enable-volume-io over a running instance with an attached data volume.
 func TestEC2CLI_VolumesSnapshots(t *testing.T) {
 	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
@@ -35,7 +29,6 @@ func TestEC2CLI_VolumesSnapshots(t *testing.T) {
 		"--query", "VolumeId", "--output", "text")
 	runCLI(t, awsCLI("ec2", "attach-volume", "--volume-id", vol, "--instance-id", inst, "--device", "/dev/sdf"))
 
-	// create-snapshots covers root + data volume.
 	snaps := q("ec2", "create-snapshots", "--instance-specification", "InstanceId="+inst,
 		"--description", "cli-set", "--query", "Snapshots[].VolumeId", "--output", "text")
 	if !strings.Contains(snaps, vol) {
@@ -51,9 +44,6 @@ func TestEC2CLI_VolumesSnapshots(t *testing.T) {
 	runCLI(t, awsCLI("ec2", "enable-volume-io", "--volume-id", vol))
 }
 
-// TestEC2CLI_RecycleBinTasks covers the recycle-bin list surfaces (snapshots),
-// the locked-snapshots read-back, and the replace-root-volume
-// task lifecycle.
 func TestEC2CLI_RecycleBinTasks(t *testing.T) {
 	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
@@ -85,8 +75,6 @@ func TestEC2CLI_RecycleBinTasks(t *testing.T) {
 	}
 }
 
-// TestEC2CLI_CoipDefaultVpc covers CoIP CIDR add/delete and the
-// default-VPC/subnet surface.
 func TestEC2CLI_CoipDefaultVpc(t *testing.T) {
 	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
@@ -107,9 +95,8 @@ func TestEC2CLI_CoipDefaultVpc(t *testing.T) {
 		t.Fatalf("delete-coip-cidr: got %q, want 10.41.0.0/24", del)
 	}
 
-	// The account is provisioned with a default VPC and a default subnet per
-	// zone; create-default-vpc fails, and so does a second default subnet in
-	// a zone: "You can have only one default subnet per Availability Zone."
+	// The account holds a default VPC and a default subnet per zone, so
+	// create-default-vpc fails, as does a second default subnet in a zone.
 	runCLIExpectError(t, awsCLI("ec2", "create-default-vpc"))
 	out := runCLIExpectError(t, awsCLI("ec2", "create-default-subnet", "--availability-zone", "us-east-1c"))
 	if !strings.Contains(out, "DefaultSubnetAlreadyExistsInAvailabilityZone") {
@@ -126,9 +113,6 @@ func TestEC2CLI_CoipDefaultVpc(t *testing.T) {
 	}
 }
 
-// TestEC2CLI_PrefixListsSecurityGroups covers describe-prefix-lists, the managed
-// prefix-list association / version-restore surface, and the SG reference /
-// stale / for-vpc surfaces.
 func TestEC2CLI_PrefixListsSecurityGroups(t *testing.T) {
 	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
@@ -174,10 +158,6 @@ func TestEC2CLI_PrefixListsSecurityGroups(t *testing.T) {
 	}
 }
 
-// TestEC2CLI_LaunchTemplateDnsEni covers get-launch-template-data,
-// delete-launch-template-versions, the DNS-name-option / VPC-tenancy /
-// VPC-endpoint / route-table-association / ENI-attribute / diagnostic-interrupt
-// surfaces.
 func TestEC2CLI_LaunchTemplateDnsEni(t *testing.T) {
 	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
@@ -226,7 +206,6 @@ func TestEC2CLI_LaunchTemplateDnsEni(t *testing.T) {
 	runCLI(t, awsCLI("ec2", "reset-network-interface-attribute", "--network-interface-id", eni,
 		"--source-dest-check", "sourceDestCheck"))
 
-	// Route-table association replacement.
 	rt := q("ec2", "create-route-table", "--vpc-id", vpc, "--query", "RouteTable.RouteTableId", "--output", "text")
 	assoc := q("ec2", "associate-route-table", "--route-table-id", rt, "--subnet-id", subnet,
 		"--query", "AssociationId", "--output", "text")
@@ -246,9 +225,6 @@ func TestEC2CLI_LaunchTemplateDnsEni(t *testing.T) {
 	}
 }
 
-// TestEC2CLI_Ipv6Credit covers IPv6 assign/unassign, unassign-private-ip,
-// the IPv6-pool describe surface, default credit specification, AZ-group opt-in,
-// and the export/import-task surfaces.
 func TestEC2CLI_Ipv6Credit(t *testing.T) {
 	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
@@ -263,7 +239,7 @@ func TestEC2CLI_Ipv6Credit(t *testing.T) {
 	assigned := q("ec2", "assign-ipv6-addresses", "--network-interface-id", eni, "--ipv6-address-count", "2",
 		"--query", "AssignedIpv6Addresses", "--output", "json")
 	addrs := strings.Count(assigned, "\"")
-	if addrs != 4 { // 2 addresses => 4 quote chars in a JSON array
+	if addrs != 4 { // two addresses carry four quote characters
 		t.Fatalf("assign-ipv6-addresses: expected 2 addresses, got %q", assigned)
 	}
 	runCLI(t, awsCLI("ec2", "unassign-ipv6-addresses", "--network-interface-id", eni,

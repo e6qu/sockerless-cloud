@@ -8,7 +8,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// cmCLINamespaceID resolves a Create*Namespace operation's NAMESPACE target ID.
 func cmCLINamespaceID(t *testing.T, operationID string) string {
 	t.Helper()
 	out := runCLI(t, awsCLI("servicediscovery", "get-operation",
@@ -24,12 +23,8 @@ func cmCLINamespaceID(t *testing.T, operationID string) string {
 	return id
 }
 
-// TestCloudMapNamespacesCLI covers create-http-namespace,
-// create-public-dns-namespace, update-http-namespace,
-// update-public-dns-namespace and update-private-dns-namespace via the aws CLI.
 func TestCloudMapNamespacesCLI(t *testing.T) {
 	t.Parallel()
-	// HTTP namespace.
 	out := runCLI(t, awsCLI("servicediscovery", "create-http-namespace",
 		"--name", "cli-http-ns", "--output", "json"))
 	var httpCreate struct {
@@ -61,7 +56,6 @@ func TestCloudMapNamespacesCLI(t *testing.T) {
 	assert.Equal(t, "updated-http", httpNs.Namespace.Description)
 	assert.Equal(t, "cli-http-ns", httpNs.Namespace.Properties.HttpProperties.HttpName)
 
-	// Public DNS namespace.
 	out = runCLI(t, awsCLI("servicediscovery", "create-public-dns-namespace",
 		"--name", "cli-public.example.com", "--output", "json"))
 	var pubCreate struct {
@@ -86,7 +80,6 @@ func TestCloudMapNamespacesCLI(t *testing.T) {
 	assert.Equal(t, "DNS_PUBLIC", pubNs.Namespace.Type)
 	assert.Equal(t, "updated-public", pubNs.Namespace.Description)
 
-	// Private DNS namespace update.
 	out = runCLI(t, awsCLI("servicediscovery", "create-private-dns-namespace",
 		"--name", "cli-private.local", "--vpc", "vpc-cli123", "--output", "json"))
 	var privCreate struct {
@@ -110,7 +103,6 @@ func TestCloudMapNamespacesCLI(t *testing.T) {
 	parseJSON(t, out, &privNs)
 	assert.Equal(t, "updated-private", privNs.Namespace.Description)
 
-	// tag-resource / untag-resource round trip on the namespace ARN.
 	runCLI(t, awsCLI("servicediscovery", "tag-resource",
 		"--resource-arn", privNs.Namespace.Arn,
 		"--tags", "Key=env,Value=test"))
@@ -119,8 +111,6 @@ func TestCloudMapNamespacesCLI(t *testing.T) {
 		"--tag-keys", "env"))
 }
 
-// TestCloudMapServiceAttributesCLI covers update-service, get/update/delete
-// service-attributes and list-operations via the aws CLI.
 func TestCloudMapServiceAttributesCLI(t *testing.T) {
 	t.Parallel()
 	out := runCLI(t, awsCLI("servicediscovery", "create-http-namespace",
@@ -145,7 +135,6 @@ func TestCloudMapServiceAttributesCLI(t *testing.T) {
 	require.NotEmpty(t, svcID)
 	defer runCLIIgnore(awsCLI("servicediscovery", "delete-service", "--id", svcID))
 
-	// update-service.
 	runCLI(t, awsCLI("servicediscovery", "update-service",
 		"--id", svcID,
 		"--service", "Description=cli-updated-desc"))
@@ -158,7 +147,6 @@ func TestCloudMapServiceAttributesCLI(t *testing.T) {
 	parseJSON(t, out, &gotSvc)
 	assert.Equal(t, "cli-updated-desc", gotSvc.Service.Description)
 
-	// update/get/delete service-attributes.
 	runCLI(t, awsCLI("servicediscovery", "update-service-attributes",
 		"--service-id", svcID,
 		"--attributes", "k1=v1,k2=v2"))
@@ -190,7 +178,6 @@ func TestCloudMapServiceAttributesCLI(t *testing.T) {
 	assert.False(t, gone)
 	assert.Equal(t, "v2", afterDelete.ServiceAttributes.Attributes["k2"])
 
-	// list-operations filtered by namespace.
 	out = runCLI(t, awsCLI("servicediscovery", "list-operations",
 		"--filters", "Name=NAMESPACE_ID,Values="+nsID,
 		"--output", "json"))
@@ -204,9 +191,6 @@ func TestCloudMapServiceAttributesCLI(t *testing.T) {
 	require.NotEmpty(t, opsOut.Operations)
 }
 
-// TestCloudMapInstanceHealthCLI covers get-instance,
-// update-instance-custom-health-status, get-instances-health-status and
-// discover-instances-revision via the aws CLI.
 func TestCloudMapInstanceHealthCLI(t *testing.T) {
 	t.Parallel()
 	out := runCLI(t, awsCLI("servicediscovery", "create-http-namespace",
@@ -218,8 +202,8 @@ func TestCloudMapInstanceHealthCLI(t *testing.T) {
 	nsID := cmCLINamespaceID(t, nsCreate.OperationId)
 	defer runCLIIgnore(awsCLI("servicediscovery", "delete-namespace", "--id", nsID))
 
-	// update-instance-custom-health-status only applies to a service whose
-	// health is caller-reported, so the service carries a custom health config.
+	// update-instance-custom-health-status applies only to a service whose health
+	// is caller-reported.
 	out = runCLI(t, awsCLI("servicediscovery", "create-service",
 		"--name", "cli-inst-svc", "--namespace-id", nsID,
 		"--health-check-custom-config", "FailureThreshold=1", "--output", "json"))
@@ -239,7 +223,6 @@ func TestCloudMapInstanceHealthCLI(t *testing.T) {
 	defer runCLIIgnore(awsCLI("servicediscovery", "deregister-instance",
 		"--service-id", svcID, "--instance-id", "cli-inst-1"))
 
-	// get-instance.
 	out = runCLI(t, awsCLI("servicediscovery", "get-instance",
 		"--service-id", svcID, "--instance-id", "cli-inst-1", "--output", "json"))
 	var instOut struct {
@@ -252,7 +235,7 @@ func TestCloudMapInstanceHealthCLI(t *testing.T) {
 	assert.Equal(t, "cli-inst-1", instOut.Instance.Id)
 	assert.Equal(t, "10.0.0.9", instOut.Instance.Attributes["AWS_INSTANCE_IPV4"])
 
-	// Health defaults HEALTHY, then a custom status flips it.
+	// Health starts HEALTHY until a custom status changes it.
 	out = runCLI(t, awsCLI("servicediscovery", "get-instances-health-status",
 		"--service-id", svcID, "--output", "json"))
 	var healthOut struct {

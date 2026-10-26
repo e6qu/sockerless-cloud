@@ -9,9 +9,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestCloudFront_Distribution_Lifecycle exercises the CloudFront REST+XML
-// surface via the real `aws` CLI. The CLI accepts JSON on input (--cli-input-json
-// or --distribution-config '{...}') and emits JSON output even though the wire is XML.
+// TestCloudFront_Distribution_Lifecycle passes the aws CLI JSON
+// (--distribution-config) that it sends to CloudFront as XML.
 func TestCloudFront_Distribution_Lifecycle(t *testing.T) {
 	t.Parallel()
 	caller := "cli-test-" + time.Now().Format("150405.000000")
@@ -92,7 +91,6 @@ func TestCloudFront_Distribution_Lifecycle(t *testing.T) {
 	id := createResult.Distribution.Id
 	etag := createResult.ETag
 
-	// get
 	out = runCLI(t, awsCLI("cloudfront", "get-distribution", "--id", id, "--output", "json"))
 	var getResult struct {
 		Distribution struct {
@@ -102,7 +100,6 @@ func TestCloudFront_Distribution_Lifecycle(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(out), &getResult))
 	require.Equal(t, id, getResult.Distribution.Id)
 
-	// list (find ours)
 	out = runCLI(t, awsCLI("cloudfront", "list-distributions", "--output", "json"))
 	var listResult struct {
 		DistributionList struct {
@@ -120,7 +117,7 @@ func TestCloudFront_Distribution_Lifecycle(t *testing.T) {
 	}
 	require.True(t, found, "expected new distribution %q in list", id)
 
-	// disable so we can delete (set Enabled=false via update-distribution)
+	// CloudFront deletes only a disabled distribution.
 	getCfgOut := runCLI(t, awsCLI("cloudfront", "get-distribution-config", "--id", id, "--output", "json"))
 	var getCfg struct {
 		DistributionConfig map[string]interface{} `json:"DistributionConfig"`
@@ -143,7 +140,6 @@ func TestCloudFront_Distribution_Lifecycle(t *testing.T) {
 	require.NotEmpty(t, updResult.ETag)
 	require.NotEqual(t, etag, updResult.ETag, "ETag must rotate on update")
 
-	// delete
 	runCLI(t, awsCLI("cloudfront", "delete-distribution",
 		"--id", id,
 		"--if-match", updResult.ETag,

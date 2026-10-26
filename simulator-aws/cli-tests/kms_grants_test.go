@@ -5,8 +5,6 @@ import (
 	"testing"
 )
 
-// TestKMSCLI_Grants drives the KMS grant ops via the aws CLI:
-// create-grant → list-grants → revoke-grant, plus the encrypted-only data key.
 func TestKMSCLI_Grants(t *testing.T) {
 	t.Parallel()
 	keyID := strings.TrimSpace(runCLI(t, awsCLI("kms", "create-key",

@@ -9,10 +9,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestGlueSessionAndStatementsCLI exercises the Interactive Sessions +
-// Statements families via the aws CLI: create-session -> get-session ->
-// list-sessions -> get-session-endpoint -> run-statement -> get-statement ->
-// list-statements -> cancel-statement -> stop-session -> delete-session.
 func TestGlueSessionAndStatementsCLI(t *testing.T) {
 	t.Parallel()
 	id := "glue-cli-session"
@@ -118,10 +114,6 @@ func TestGlueSessionAndStatementsCLI(t *testing.T) {
 	assert.Contains(t, errOut, "EntityNotFoundException")
 }
 
-// TestGlueDevEndpointCLI exercises the Dev Endpoints family via the aws CLI:
-// create-dev-endpoint -> get-dev-endpoint -> get-dev-endpoints ->
-// batch-get-dev-endpoints -> list-dev-endpoints -> update-dev-endpoint ->
-// delete-dev-endpoint.
 func TestGlueDevEndpointCLI(t *testing.T) {
 	t.Parallel()
 	name := "glue-cli-devep"
@@ -196,10 +188,6 @@ func TestGlueDevEndpointCLI(t *testing.T) {
 	runCLIIgnore(awsCLI("glue", "delete-dev-endpoint", "--endpoint-name", name))
 }
 
-// TestGlueBlueprintCLI exercises the Blueprints family via the aws CLI:
-// create-blueprint -> get-blueprint -> batch-get-blueprints ->
-// list-blueprints -> update-blueprint -> start-blueprint-run ->
-// get-blueprint-run -> get-blueprint-runs -> delete-blueprint.
 func TestGlueBlueprintCLI(t *testing.T) {
 	t.Parallel()
 	name := "glue-cli-blueprint"

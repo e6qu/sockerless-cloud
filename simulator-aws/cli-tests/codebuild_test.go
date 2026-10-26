@@ -156,8 +156,6 @@ func TestCodeBuildCLI_StopAndRetryBuild(t *testing.T) {
 	assert.Equal(t, "cb-cli-stop-proj", retried.Build.ProjectName)
 }
 
-// TestCodeBuildCLI_ReportGroupsAndReports covers report-group CRUD and the
-// reports a build produces when its buildspec references the group.
 func TestCodeBuildCLI_ReportGroupsAndReports(t *testing.T) {
 	t.Parallel()
 	out := runCLI(t, awsCLI("codebuild", "create-report-group",
@@ -204,10 +202,8 @@ func TestCodeBuildCLI_ReportGroupsAndReports(t *testing.T) {
 	parseJSON(t, out, &lg)
 	require.Contains(t, lg.ReportGroups, rgArn)
 
-	// A build referencing the report group by ARN produces a Report in it, and
-	// writes the JUnit XML the entry declares so the report has raw data to
-	// settle from. Naming the group by a bare name would create
-	// "<project-name>-<report-group-name>" instead, which is a different group.
+	// The entry names the report group by ARN; a bare name would create a
+	// different "<project-name>-<report-group-name>" group.
 	buildspec := `version: 0.2\nphases:\n  build:\n    commands:\n` +
 		`      - mkdir -p test-results\n` +
 		`      - printf %s PHRlc3RzdWl0ZSBuYW1lPSJ1bml0Ij48dGVzdGNhc2UgY2xhc3NuYW1lPSJwa2cuVCIgbmFtZT0ib25lIiB0aW1lPSIwLjEiLz48L3Rlc3RzdWl0ZT4= | base64 -d > test-results/junit.xml\n` +
@@ -279,7 +275,6 @@ func TestCodeBuildCLI_ReportGroupsAndReports(t *testing.T) {
 	assert.Empty(t, br.ReportsNotFound)
 }
 
-// TestCodeBuildCLI_SourceCredentials covers import/list/delete source credentials.
 func TestCodeBuildCLI_SourceCredentials(t *testing.T) {
 	t.Parallel()
 	out := runCLI(t, awsCLI("codebuild", "import-source-credentials",
@@ -293,8 +288,7 @@ func TestCodeBuildCLI_SourceCredentials(t *testing.T) {
 	parseJSON(t, out, &imp)
 	require.NotEmpty(t, imp.Arn)
 	t.Cleanup(func() {
-		// Tolerant: the body deletes the credential explicitly, so cleanup is a
-		// best-effort safety net that may find it already gone.
+		// The body deletes the credential itself; the cleanup may find it gone.
 		runCLIIgnore(awsCLI("codebuild", "delete-source-credentials", "--arn", imp.Arn))
 	})
 

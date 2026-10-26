@@ -7,9 +7,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestGlueUnfilteredMetadataCLI exercises the Lake Formation credential-vending
-// reads (get-unfiltered-table-metadata / get-unfiltered-partition-metadata /
-// get-unfiltered-partitions-metadata) through the aws CLI.
+// TestGlueUnfilteredMetadataCLI covers the AWS Lake Formation
+// credential-vending reads.
 func TestGlueUnfilteredMetadataCLI(t *testing.T) {
 	t.Parallel()
 	db := "glue-unf-cli-db"
@@ -32,7 +31,6 @@ func TestGlueUnfilteredMetadataCLI(t *testing.T) {
 		"--partition-input", `{"Values":["2024-01-01"],"StorageDescriptor":{"Location":"s3://bucket/unf/dt=2024-01-01/"}}`,
 	))
 
-	// get-unfiltered-table-metadata.
 	out := runCLI(t, awsCLI("glue", "get-unfiltered-table-metadata",
 		"--catalog-id", "123456789012",
 		"--database-name", db,
@@ -50,7 +48,6 @@ func TestGlueUnfilteredMetadataCLI(t *testing.T) {
 	assert.ElementsMatch(t, []string{"id", "name"}, tm.AuthorizedColumns)
 	assert.False(t, tm.IsRegisteredWithLakeFormation)
 
-	// get-unfiltered-partition-metadata.
 	out = runCLI(t, awsCLI("glue", "get-unfiltered-partition-metadata",
 		"--catalog-id", "123456789012",
 		"--database-name", db,
@@ -67,7 +64,6 @@ func TestGlueUnfilteredMetadataCLI(t *testing.T) {
 	assert.Equal(t, []string{"2024-01-01"}, pm.Partition.Values)
 	assert.ElementsMatch(t, []string{"id", "name"}, pm.AuthorizedColumns)
 
-	// get-unfiltered-partitions-metadata.
 	out = runCLI(t, awsCLI("glue", "get-unfiltered-partitions-metadata",
 		"--catalog-id", "123456789012",
 		"--database-name", db,
@@ -87,17 +83,12 @@ func TestGlueUnfilteredMetadataCLI(t *testing.T) {
 	assert.ElementsMatch(t, []string{"id", "name"}, pms.UnfilteredPartitions[0].AuthorizedColumns)
 }
 
-// TestGlueDQAnnotationsCLI round-trips the Data Quality annotations through the
-// aws CLI: batch-put-data-quality-statistic-annotation +
-// put-data-quality-profile-annotation store,
-// list-data-quality-statistic-annotations reads back.
 func TestGlueDQAnnotationsCLI(t *testing.T) {
 	t.Parallel()
 	statisticID := "glue-dq-stat-cli"
 
-	// The profile an evaluation wrote its statistics to, obtained the only way
-	// a caller can: run one, and read the profile off the result. An
-	// annotation names a profile, and one nothing issued names nothing.
+	// An annotation names a profile, so run an evaluation and read the profile it
+	// wrote statistics to off the result: a profile nothing issued names nothing.
 	const rulesetName = "glue-dq-cli-annotations-ruleset"
 	runCLI(t, awsCLI("glue", "start-data-quality-ruleset-evaluation-run",
 		"--role", cliServiceRole(t, "glue.amazonaws.com"),
@@ -127,7 +118,7 @@ func TestGlueDQAnnotationsCLI(t *testing.T) {
 	}
 	require.NotEmpty(t, profileID)
 
-	// batch-put: one good entry, one missing StatisticId -> FailedInclusionAnnotations.
+	// One entry lacks StatisticId and lands in FailedInclusionAnnotations.
 	out = runCLI(t, awsCLI("glue", "batch-put-data-quality-statistic-annotation",
 		"--inclusion-annotations",
 		`[{"ProfileId":"`+profileID+`","StatisticId":"`+statisticID+`","InclusionAnnotation":"INCLUDE"},{"ProfileId":"`+profileID+`","InclusionAnnotation":"EXCLUDE"}]`))
@@ -143,12 +134,10 @@ func TestGlueDQAnnotationsCLI(t *testing.T) {
 	assert.Equal(t, profileID, batch.FailedInclusionAnnotations[0].ProfileId)
 	assert.NotEmpty(t, batch.FailedInclusionAnnotations[0].FailureReason)
 
-	// put-data-quality-profile-annotation.
 	runCLI(t, awsCLI("glue", "put-data-quality-profile-annotation",
 		"--profile-id", profileID,
 		"--inclusion-annotation", "INCLUDE"))
 
-	// list-data-quality-statistic-annotations reads back the stored annotation.
 	out = runCLI(t, awsCLI("glue", "list-data-quality-statistic-annotations",
 		"--profile-id", profileID))
 	var list struct {

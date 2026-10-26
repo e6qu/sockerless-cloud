@@ -7,8 +7,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestSchedulerCLI_ScheduleLifecycle drives `aws scheduler` create/get/delete
-// against the REST-JSON EventBridge Scheduler surface.
 func TestSchedulerCLI_ScheduleLifecycle(t *testing.T) {
 	t.Parallel()
 	const name = "cli-schedule"
@@ -47,13 +45,10 @@ func TestSchedulerCLI_ScheduleLifecycle(t *testing.T) {
 
 	runCLI(t, awsCLI("scheduler", "delete-schedule", "--name", name))
 
-	// Deleted schedule must 404.
 	err := awsCLI("scheduler", "get-schedule", "--name", name).Run()
 	require.Error(t, err, "get-schedule on a deleted schedule must fail")
 }
 
-// TestSchedulerCLI_EventBridgeAndUniversalTargets round-trips an EventBridge
-// PutEvents target and a universal target through `aws scheduler`.
 func TestSchedulerCLI_EventBridgeAndUniversalTargets(t *testing.T) {
 	t.Parallel()
 	for name, target := range map[string]string{
@@ -91,8 +86,8 @@ func TestSchedulerCLI_EventBridgeAndUniversalTargets(t *testing.T) {
 	}
 }
 
-// TestSchedulerCLI_RetryPolicyRange proves `aws scheduler create-schedule` is
-// refused a MaximumRetryAttempts above the model's 185.
+// TestSchedulerCLI_RetryPolicyRange expects create-schedule to refuse a
+// MaximumRetryAttempts above the model's 185.
 func TestSchedulerCLI_RetryPolicyRange(t *testing.T) {
 	t.Parallel()
 	out := runCLIExpectError(t, awsCLI("scheduler", "create-schedule", "--name", "cli-retry-range",

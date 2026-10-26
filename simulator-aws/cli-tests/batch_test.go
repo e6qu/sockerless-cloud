@@ -131,7 +131,6 @@ func TestBatch_JobDefinition_CLI(t *testing.T) {
 	assert.Equal(t, "ACTIVE", described.JobDefinitions[0].Status)
 	assert.Equal(t, 1, described.JobDefinitions[0].Revision)
 
-	// --job-definitions <name:rev> filters to only that definition.
 	out = runCLI(t, awsCLI("batch", "describe-job-definitions",
 		"--job-definitions", "batch-cli-jd:1"))
 	var filtered struct {
@@ -146,7 +145,6 @@ func TestBatch_JobDefinition_CLI(t *testing.T) {
 
 func TestBatch_SubmitJob_CLI(t *testing.T) {
 	t.Parallel()
-	// Setup
 	runCLI(t, awsCLI("batch", "create-compute-environment",
 		"--compute-environment-name", "batch-cli-ce-job",
 		"--type", "MANAGED",
@@ -571,9 +569,8 @@ func TestBatch_JobQueueSnapshot_CLI(t *testing.T) {
 	assert.NotNil(t, snap.FrontOfQueue.Jobs)
 }
 
-// submit-job takes --array-properties and --retry-strategy: each child runs
-// with its AWS_BATCH_JOB_ARRAY_INDEX, a failed attempt is retried in a new
-// container, and list-jobs --array-job-id lists the children.
+// Each array child runs with its AWS_BATCH_JOB_ARRAY_INDEX, a failed attempt
+// retries in a new container, and list-jobs --array-job-id lists the children.
 func TestBatch_SubmitArrayJobWithRetries_CLI(t *testing.T) {
 	t.Parallel()
 	runCLI(t, awsCLI("batch", "create-compute-environment",

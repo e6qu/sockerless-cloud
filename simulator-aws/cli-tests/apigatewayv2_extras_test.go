@@ -10,10 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestAPIGatewayV2IntegrationRouteResponsesCLI exercises the integration- and
-// route-response child surfaces through the aws CLI:
-// create/get/get-list/update/delete-integration-response and the route-response
-// counterparts.
 func TestAPIGatewayV2IntegrationRouteResponsesCLI(t *testing.T) {
 	t.Parallel()
 	apiOut := runCLI(t, awsCLI("apigatewayv2", "create-api",
@@ -69,7 +65,6 @@ func TestAPIGatewayV2IntegrationRouteResponsesCLI(t *testing.T) {
 		"--integration-response-id", ir.IntegrationResponseID,
 	))
 
-	// Route responses.
 	routeOut := runCLI(t, awsCLI("apigatewayv2", "create-route",
 		"--api-id", api.APIID, "--route-key", "$default",
 	))
@@ -110,8 +105,6 @@ func TestAPIGatewayV2IntegrationRouteResponsesCLI(t *testing.T) {
 	))
 }
 
-// TestAPIGatewayV2ImportExportTagsTemplateCLI exercises import-api, reimport-api,
-// export-api, get-model-template, and get-tags through the aws CLI.
 func TestAPIGatewayV2ImportExportTagsTemplateCLI(t *testing.T) {
 	t.Parallel()
 	openapi := `{"openapi":"3.0.1","info":{"title":"cli-imported-api","version":"1.0"},"paths":{"/pets":{"get":{"responses":{"200":{"description":"ok"}}}}}}`
@@ -158,7 +151,6 @@ func TestAPIGatewayV2ImportExportTagsTemplateCLI(t *testing.T) {
 		"--api-id", imp.APIID, "--model-id", model.ModelID,
 	)), "object")
 
-	// get-tags reads tags off a tagged API ARN.
 	taggedOut := runCLI(t, awsCLI("apigatewayv2", "create-api",
 		"--name", "cli-tagged-api",
 		"--protocol-type", "HTTP",
@@ -175,9 +167,6 @@ func TestAPIGatewayV2ImportExportTagsTemplateCLI(t *testing.T) {
 	)), `"env": "cli"`)
 }
 
-// TestAPIGatewayV2ConfigDeletesCLI exercises the per-stage / per-api config
-// deletes: delete-cors-configuration, delete-access-log-settings,
-// delete-route-request-parameter, delete-route-settings.
 func TestAPIGatewayV2ConfigDeletesCLI(t *testing.T) {
 	t.Parallel()
 	apiOut := runCLI(t, awsCLI("apigatewayv2", "create-api",

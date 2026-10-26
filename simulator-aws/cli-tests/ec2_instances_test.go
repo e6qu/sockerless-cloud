@@ -9,13 +9,10 @@ import (
 	"time"
 )
 
-// ssmManagedNodePolicyCLI is the permission SSM Agent needs to register the
-// instance as a managed node, which the AmazonSSMManagedInstanceCore managed
-// policy grants on AWS.
+// ssmManagedNodePolicyCLI grants what SSM Agent needs to register a managed
+// node, as AmazonSSMManagedInstanceCore does on AWS.
 const ssmManagedNodePolicyCLI = `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["ssm:UpdateInstanceInformation","ssmmessages:*","ec2messages:*"],"Resource":"*"}]}`
 
-// ssmManagedInstanceProfileCLI creates an instance profile whose role lets
-// SSM Agent register the instance as a managed node, and returns its name.
 func ssmManagedInstanceProfileCLI(t *testing.T) string {
 	t.Helper()
 	name := "cli-ssm-managed-" + strconv.FormatInt(time.Now().UnixNano(), 36)
@@ -33,8 +30,6 @@ func ssmManagedInstanceProfileCLI(t *testing.T) string {
 	return name
 }
 
-// ssmShellCLI runs a shell command on the instance through Run Command and
-// returns its standard output.
 func ssmShellCLI(t *testing.T, instanceID, command string) string {
 	t.Helper()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }

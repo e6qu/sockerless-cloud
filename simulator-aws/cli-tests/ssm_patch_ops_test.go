@@ -9,8 +9,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// ssmCLICreateBaseline creates an AMAZON_LINUX_2 patch baseline via the CLI
-// and returns its ID, registering a tolerant cleanup.
 func ssmCLICreateBaseline(t *testing.T, name string) string {
 	t.Helper()
 	out := runCLI(t, awsCLI("ssm", "create-patch-baseline",
@@ -218,7 +216,7 @@ func TestSSMCLI_OpsMetadata(t *testing.T) {
 	}
 	assert.True(t, found, "list-ops-metadata must include the created object")
 
-	// GetOpsSummary returns the real shape with an empty entity list.
+	// GetOpsSummary returns the real shape with no entities.
 	summaryOut := runCLI(t, awsCLI("ssm", "get-ops-summary",
 		"--result-attributes", "TypeName=AWS:OpsItem", "--output", "json"))
 	var summary struct {

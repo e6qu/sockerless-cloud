@@ -7,8 +7,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// TestEC2NetworkInterfaceCLI drives the standalone ENI ops via the aws CLI
-// : create, disable source/dest check, describe, delete.
 func TestEC2NetworkInterfaceCLI(t *testing.T) {
 	t.Parallel()
 	vpcID := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-vpc",

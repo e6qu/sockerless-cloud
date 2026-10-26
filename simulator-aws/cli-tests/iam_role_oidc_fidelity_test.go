@@ -5,8 +5,6 @@ import (
 	"testing"
 )
 
-// TestIAMRoleOIDCFidelityCLI covers the role attribute round-trip + UpdateRole +
-// TagRole/UntagRole and the OIDC provider tag lifecycle via the aws CLI.
 func TestIAMRoleOIDCFidelityCLI(t *testing.T) {
 	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
@@ -30,14 +28,12 @@ func TestIAMRoleOIDCFidelityCLI(t *testing.T) {
 		t.Fatalf("role attributes round-trip: got %q (boundary=%q)", out, boundaryArn)
 	}
 
-	// UpdateRole.
 	runCLI(t, awsCLI("iam", "update-role", "--role-name", "cli-fidelity-role",
 		"--description", "cli updated", "--max-session-duration", "3600"))
 	if d := q("iam", "get-role", "--role-name", "cli-fidelity-role", "--query", "Role.Description", "--output", "text"); d != "cli updated" {
 		t.Fatalf("update-role description: got %q", d)
 	}
 
-	// TagRole / UntagRole.
 	runCLI(t, awsCLI("iam", "tag-role", "--role-name", "cli-fidelity-role", "--tags", "Key=env,Value=ci"))
 	if v := q("iam", "get-role", "--role-name", "cli-fidelity-role",
 		"--query", "Role.Tags[?Key=='env'].Value | [0]", "--output", "text"); v != "ci" {
@@ -49,7 +45,6 @@ func TestIAMRoleOIDCFidelityCLI(t *testing.T) {
 		t.Fatalf("untag-role left the key: got %q", v)
 	}
 
-	// OIDC provider tags.
 	oidcArn := q("iam", "create-open-id-connect-provider",
 		"--url", "https://oidc-cli.fidelity.example.test", "--client-id-list", "sts.amazonaws.com",
 		"--thumbprint-list", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",

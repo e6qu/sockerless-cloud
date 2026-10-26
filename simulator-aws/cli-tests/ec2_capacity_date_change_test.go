@@ -7,7 +7,7 @@ import (
 )
 
 // TestEC2CLI_CapacityReservationDateChangeQuote postpones a future-dated
-// Capacity Reservation the way the EC2 user guide describes: quote, review,
+// Capacity Reservation as the Amazon EC2 User Guide describes: quote, review,
 // then modify with the quote and its terms accepted.
 func TestEC2CLI_CapacityReservationDateChangeQuote(t *testing.T) {
 	t.Parallel()

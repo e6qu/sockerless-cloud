@@ -29,9 +29,8 @@ func TestACM_ACMEControlPlaneAndAccountRegistration(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal([]byte(zoneOutput), &zone))
 	require.NotEmpty(t, zone.HostedZone.ID)
-	// Amazon Route 53 prefixes the id it returns with "/hostedzone/", and AWS
-	// Certificate Manager's HostedZoneId admits the bare id alone — so a caller
-	// carrying one API's answer into the other's request strips it, as here.
+	// Route 53 returns the id prefixed with "/hostedzone/", and ACM's
+	// HostedZoneId takes the bare id.
 	zoneID := strings.TrimPrefix(zone.HostedZone.ID, "/hostedzone/")
 
 	endpointOutput := runCLI(t, awsCLI("acm", "create-acme-endpoint",

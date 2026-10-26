@@ -8,13 +8,10 @@ import (
 	"time"
 )
 
-// TestCloudWatchCLI_AlarmSNSActionToSQS_ProcessMode exercises the full
-// CloudWatch→SNS→SQS chain through the real AWS CLI against a fresh
-// simulator-aws subprocess in SIM_RUNTIME=process: create topic, queue,
-// subscription and an alarm with AlarmActions, publish a breaching metric,
-// wait for ALARM with the CLI's alarm-exists waiter, and assert the SQS
-// subscriber receives the canonical CloudWatch alarm notification through one
-// long-poll receive-message.
+// TestCloudWatchCLI_AlarmSNSActionToSQS_ProcessMode runs the CloudWatch to
+// Amazon SNS to Amazon SQS chain against a simulator in SIM_RUNTIME=process: a
+// breaching metric drives the alarm to ALARM, and one long-poll
+// receive-message gets the alarm notification.
 func TestCloudWatchCLI_AlarmSNSActionToSQS_ProcessMode(t *testing.T) {
 	t.Parallel()
 	url := startProcessModeSim(t)
@@ -123,11 +120,8 @@ func TestCloudWatchCLI_AlarmSNSActionToSQS_ProcessMode(t *testing.T) {
 	}
 }
 
-// awaitCLISubscription waits until the topic reports the subscription just
-// made, so the alarm created next fires against a topic that can already
-// deliver. Waiting for the state the test depends on beats sleeping a fixed
-// window, which costs its full length every run and can still be too short on
-// a loaded machine.
+// awaitCLISubscription waits until the topic lists the subscription, so the
+// alarm created next fires against a topic that can deliver.
 func awaitCLISubscription(t *testing.T, cli func(...string) *exec.Cmd, queueARN, topicARN string) {
 	t.Helper()
 	deadline := time.Now().Add(30 * time.Second)
@@ -142,8 +136,6 @@ func awaitCLISubscription(t *testing.T, cli func(...string) *exec.Cmd, queueARN,
 	t.Fatalf("the topic never reported its subscription to %s", queueARN)
 }
 
-// awaitCLIQueueMessage waits for the message an alarm action delivers and
-// returns its body.
 func awaitCLIQueueMessage(t *testing.T, cli func(...string) *exec.Cmd, queueURL string) string {
 	t.Helper()
 	var recv struct {

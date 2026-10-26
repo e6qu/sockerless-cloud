@@ -7,8 +7,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// appASCLIRegister registers a scalable target via the CLI and registers a
-// deregister cleanup.
 func appASCLIRegister(t *testing.T, ns, resourceID, dim string) {
 	t.Helper()
 	runCLI(t, awsCLI("application-autoscaling", "register-scalable-target",
@@ -114,7 +112,7 @@ func TestApplicationAutoScalingCLI_DescribeScalingActivities(t *testing.T) {
 		} `json:"ScalingActivities"`
 	}
 	parseJSON(t, out, &res)
-	// No real capacity change has happened, so the activity log is empty.
+	// No capacity changed, so the activity log is empty.
 	assert.Empty(t, res.ScalingActivities)
 }
 

@@ -5,13 +5,11 @@ import (
 	"testing"
 )
 
-// TestEC2EBSFidelityCLI covers the EBS volume performance fields, filters, and
-// DescribeVolumesModifications via the aws CLI.
 func TestEC2EBSFidelityCLI(t *testing.T) {
 	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
 
-	// gp3 defaults: iops 3000, throughput 125.
+	// gp3 defaults to 3000 IOPS and 125 MiB/s throughput.
 	gp3 := q("ec2", "create-volume", "--availability-zone", "us-east-1a", "--size", "20",
 		"--volume-type", "gp3", "--query", "VolumeId", "--output", "text")
 	out := q("ec2", "describe-volumes", "--volume-ids", gp3,
@@ -20,7 +18,6 @@ func TestEC2EBSFidelityCLI(t *testing.T) {
 		t.Fatalf("gp3 iops/throughput: got %q, want '3000 125'", out)
 	}
 
-	// io1 explicit iops + modify + modifications.
 	io1 := q("ec2", "create-volume", "--availability-zone", "us-east-1a", "--size", "10",
 		"--volume-type", "io1", "--iops", "1500", "--query", "VolumeId", "--output", "text")
 	if v := q("ec2", "describe-volumes", "--volume-ids", io1,
@@ -34,7 +31,6 @@ func TestEC2EBSFidelityCLI(t *testing.T) {
 		t.Fatalf("volume modification: got %q, want 'completed 30 2000'", state)
 	}
 
-	// Filter by volume-type scopes the result.
 	n := q("ec2", "describe-volumes", "--filters", "Name=volume-type,Values=io1",
 		"--query", "length(Volumes[?VolumeId=='"+io1+"'])", "--output", "text")
 	if n != "1" {

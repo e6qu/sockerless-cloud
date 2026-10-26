@@ -40,7 +40,6 @@ func cliDescribeDBCluster(t *testing.T, clusterID string) cliDBCluster {
 	return described.DBClusters[0]
 }
 
-// cliAddAuroraWriter creates the cluster's writer instance and waits for it.
 func cliAddAuroraWriter(t *testing.T, clusterID, engine string) {
 	t.Helper()
 	instanceID := clusterID + "-1"
@@ -93,9 +92,9 @@ func cliLedger(t *testing.T, ctx context.Context, conn *pgx.Conn) []string {
 	return entries
 }
 
-// aws rds restore-db-cluster-to-point-in-time --restore-to-time returns an
-// Aurora PostgreSQL cluster to the rows committed by that time, inside the
-// window describe-db-clusters reports, and refuses a time before it.
+// restore-db-cluster-to-point-in-time --restore-to-time returns an Aurora
+// PostgreSQL cluster to the rows committed by then, inside the window
+// describe-db-clusters reports, and refuses a time before it.
 func TestRDSCLI_AuroraClusterRestoresToAPointInTime(t *testing.T) {
 	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
@@ -154,9 +153,8 @@ func TestRDSCLI_AuroraClusterRestoresToAPointInTime(t *testing.T) {
 		"the restored cluster holds the rows committed by the restore time and none after it")
 }
 
-// aws rds restore-db-cluster-from-snapshot migrates an RDS for PostgreSQL DB
-// snapshot, named by its ARN, into an Aurora PostgreSQL cluster that serves
-// the instance's data.
+// restore-db-cluster-from-snapshot migrates an RDS for PostgreSQL DB snapshot,
+// named by ARN, into an Aurora PostgreSQL cluster that serves its data.
 func TestRDSCLI_AuroraClusterRestoresFromADBInstanceSnapshot(t *testing.T) {
 	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)

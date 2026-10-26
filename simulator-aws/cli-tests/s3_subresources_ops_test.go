@@ -11,7 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// s3PutObjectCLI creates a bucket (tolerant) and puts a body file.
 func s3PutObjectCLI(t *testing.T, bucket, key, content string) {
 	t.Helper()
 	_ = awsCLI("s3api", "create-bucket", "--bucket", bucket).Run()
@@ -159,8 +158,8 @@ func TestS3CLI_RestoreObject(t *testing.T) {
 	t.Parallel()
 	bucket, key := "cli-obj-restore-bucket", "restore.txt"
 	s3PutObjectCLI(t, bucket, key, "restore payload")
-	// Only an archived object can be restored; a copy onto itself changes the
-	// object's storage class.
+	// Amazon S3 restores only an archived object; copying an object onto itself
+	// changes its storage class.
 	runCLI(t, awsCLI("s3api", "copy-object",
 		"--bucket", bucket, "--key", key, "--copy-source", bucket+"/"+key, "--storage-class", "GLACIER"))
 

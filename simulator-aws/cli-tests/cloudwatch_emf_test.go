@@ -8,9 +8,9 @@ import (
 	"time"
 )
 
-// TestCloudWatchCLI_EMFExtraction proves the CLI path: put-log-events with an
-// EMF message (an _aws.CloudWatchMetrics block) surfaces the metric via
-// list-metrics + get-metric-statistics, with no put-metric-data call.
+// TestCloudWatchCLI_EMFExtraction puts an EMF message (an
+// _aws.CloudWatchMetrics block) as a log event, and the metric appears in
+// list-metrics and get-metric-statistics without put-metric-data.
 func TestCloudWatchCLI_EMFExtraction(t *testing.T) {
 	t.Parallel()
 	group := "/cli/emf"

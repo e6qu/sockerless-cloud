@@ -5,8 +5,6 @@ import (
 	"testing"
 )
 
-// TestECSServiceClusterFidelityCLI covers the service knobs that round-trip on
-// create + update and the cluster-settings update path via the aws CLI.
 func TestECSServiceClusterFidelityCLI(t *testing.T) {
 	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
@@ -26,14 +24,13 @@ func TestECSServiceClusterFidelityCLI(t *testing.T) {
 
 	out := q("ecs", "describe-services", "--cluster", "cli-svc-cluster", "--services", "cli-svc",
 		"--query", "services[0].[enableECSManagedTags,healthCheckGracePeriodSeconds,placementConstraints[0].expression,placementStrategy[0].type]", "--output", "text")
-	// Tab-separated; the placement-constraint expression itself contains spaces.
+	// Split on tabs: the placement-constraint expression contains spaces.
 	f := strings.Split(out, "\t")
 	if len(f) != 4 || f[0] != "True" || f[1] != "90" ||
 		!strings.Contains(f[2], "t3.micro") || f[3] != "spread" {
 		t.Fatalf("service knobs round-trip: got %q", out)
 	}
 
-	// UpdateService persists more than desiredCount/taskDefinition.
 	q("ecs", "update-service", "--cluster", "cli-svc-cluster", "--service", "cli-svc",
 		"--desired-count", "3", "--health-check-grace-period-seconds", "240", "--enable-execute-command",
 		"--query", "service.serviceName", "--output", "text")
@@ -43,7 +40,6 @@ func TestECSServiceClusterFidelityCLI(t *testing.T) {
 		t.Fatalf("update-service round-trip: got %q", upd)
 	}
 
-	// UpdateClusterSettings flips containerInsights.
 	q("ecs", "update-cluster-settings", "--cluster", "cli-svc-cluster",
 		"--settings", "name=containerInsights,value=enabled", "--query", "cluster.clusterName", "--output", "text")
 	ci := q("ecs", "describe-clusters", "--clusters", "cli-svc-cluster", "--include", "SETTINGS",

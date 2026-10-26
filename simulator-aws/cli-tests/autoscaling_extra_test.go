@@ -10,9 +10,7 @@ import (
 )
 
 // asxSetupGroupCLI creates a VPC, subnet, launch configuration and Auto Scaling
-// group (desired capacity 0 so no real EC2 instance is launched) using the same
-// coordinates a real consumer drives. Returns the subnet ID; registers tolerant
-// cleanups.
+// group with the given desired capacity.
 func asxSetupGroupCLI(t *testing.T, lcName, groupName string, desired int) {
 	t.Helper()
 
@@ -54,15 +52,13 @@ func asxSetupGroupCLI(t *testing.T, lcName, groupName string, desired int) {
 	})
 }
 
-// TestAutoScalingCLI_ExtendedOps drives the extended Auto Scaling operations
-// through the real aws CLI, grouped into one test so the EDGE shard regex
-// (^TestAutoScaling) keeps them together.
+// TestAutoScalingCLI_ExtendedOps is one test so the EDGE shard regex
+// (^TestAutoScaling) keeps the extended operations together.
 func TestAutoScalingCLI_ExtendedOps(t *testing.T) {
 	t.Parallel()
 	const group = "asx-cli-grp"
 	asxSetupGroupCLI(t, "asx-cli-lc", group, 1)
 
-	// Load balancers.
 	runCLI(t, awsCLI("autoscaling", "attach-load-balancers",
 		"--auto-scaling-group-name", group, "--load-balancer-names", "asx-cli-clb"))
 	var lbOut struct {
@@ -78,7 +74,6 @@ func TestAutoScalingCLI_ExtendedOps(t *testing.T) {
 	runCLI(t, awsCLI("autoscaling", "detach-load-balancers",
 		"--auto-scaling-group-name", group, "--load-balancer-names", "asx-cli-clb"))
 
-	// Target groups.
 	const tgARN = "arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/asx-cli/aabbccddeeff0011"
 	runCLI(t, awsCLI("autoscaling", "attach-load-balancer-target-groups",
 		"--auto-scaling-group-name", group, "--target-group-arns", tgARN))
@@ -94,7 +89,6 @@ func TestAutoScalingCLI_ExtendedOps(t *testing.T) {
 	runCLI(t, awsCLI("autoscaling", "detach-load-balancer-target-groups",
 		"--auto-scaling-group-name", group, "--target-group-arns", tgARN))
 
-	// Traffic sources.
 	runCLI(t, awsCLI("autoscaling", "attach-traffic-sources",
 		"--auto-scaling-group-name", group,
 		"--traffic-sources", "Identifier="+tgARN+",Type=elbv2"))
@@ -112,8 +106,7 @@ func TestAutoScalingCLI_ExtendedOps(t *testing.T) {
 		"--auto-scaling-group-name", group,
 		"--traffic-sources", "Identifier="+tgARN+",Type=elbv2"))
 
-	// Instance refresh: it replaces the group's one member in the background,
-	// so describe-instance-refreshes is polled until the refresh ends.
+	// The instance refresh replaces the group's one member in the background.
 	var membersBefore struct {
 		AutoScalingGroups []struct {
 			Instances []struct {
@@ -168,7 +161,6 @@ func TestAutoScalingCLI_ExtendedOps(t *testing.T) {
 	assert.Contains(t, runCLIExpectError(t, awsCLI("autoscaling", "rollback-instance-refresh", "--auto-scaling-group-name", group)), "ActiveInstanceRefreshNotFound")
 	assert.Contains(t, runCLIExpectError(t, awsCLI("autoscaling", "cancel-instance-refresh", "--auto-scaling-group-name", group)), "ActiveInstanceRefreshNotFound")
 
-	// Warm pool.
 	runCLI(t, awsCLI("autoscaling", "put-warm-pool",
 		"--auto-scaling-group-name", group, "--min-size", "2", "--pool-state", "Stopped"))
 	var wpOut struct {
@@ -183,7 +175,6 @@ func TestAutoScalingCLI_ExtendedOps(t *testing.T) {
 	assert.Equal(t, "Stopped", wpOut.WarmPoolConfiguration.PoolState)
 	runCLI(t, awsCLI("autoscaling", "delete-warm-pool", "--auto-scaling-group-name", group))
 
-	// Notifications.
 	const topic = "arn:aws:sns:us-east-1:123456789012:asx-cli-topic"
 	runCLI(t, awsCLI("autoscaling", "put-notification-configuration",
 		"--auto-scaling-group-name", group, "--topic-arn", topic,
@@ -200,7 +191,6 @@ func TestAutoScalingCLI_ExtendedOps(t *testing.T) {
 	runCLI(t, awsCLI("autoscaling", "delete-notification-configuration",
 		"--auto-scaling-group-name", group, "--topic-arn", topic))
 
-	// Metrics + processes.
 	runCLI(t, awsCLI("autoscaling", "enable-metrics-collection",
 		"--auto-scaling-group-name", group, "--granularity", "1Minute"))
 	runCLI(t, awsCLI("autoscaling", "disable-metrics-collection", "--auto-scaling-group-name", group))
@@ -209,11 +199,10 @@ func TestAutoScalingCLI_ExtendedOps(t *testing.T) {
 	runCLI(t, awsCLI("autoscaling", "resume-processes",
 		"--auto-scaling-group-name", group, "--scaling-processes", "Terminate"))
 
-	// Lifecycle hook + actions.
 	runCLI(t, awsCLI("autoscaling", "put-lifecycle-hook",
 		"--auto-scaling-group-name", group, "--lifecycle-hook-name", "asx-cli-hook",
 		"--lifecycle-transition", "autoscaling:EC2_INSTANCE_LAUNCHING"))
-	// No launch is waiting on the hook, so no lifecycle action carries the token.
+	// No launch waits on the hook, so no lifecycle action carries the token.
 	runCLIExpectError(t, awsCLI("autoscaling", "record-lifecycle-action-heartbeat",
 		"--auto-scaling-group-name", group, "--lifecycle-hook-name", "asx-cli-hook",
 		"--lifecycle-action-token", "00000000-0000-0000-0000-0000000cli01"))
@@ -222,7 +211,6 @@ func TestAutoScalingCLI_ExtendedOps(t *testing.T) {
 		"--lifecycle-action-token", "00000000-0000-0000-0000-0000000cli01",
 		"--lifecycle-action-result", "CONTINUE"))
 
-	// Batch scheduled actions.
 	runCLI(t, awsCLI("autoscaling", "batch-put-scheduled-update-group-action",
 		"--auto-scaling-group-name", group,
 		"--scheduled-update-group-actions", "ScheduledActionName=asx-cli-sched,MinSize=0,MaxSize=3,DesiredCapacity=1,Recurrence=0 12 * * *"))
@@ -237,13 +225,11 @@ func TestAutoScalingCLI_ExtendedOps(t *testing.T) {
 	runCLI(t, awsCLI("autoscaling", "batch-delete-scheduled-action",
 		"--auto-scaling-group-name", group, "--scheduled-action-names", "asx-cli-sched"))
 
-	// Predictive forecast.
 	runCLI(t, awsCLI("autoscaling", "get-predictive-scaling-forecast",
 		"--auto-scaling-group-name", group, "--policy-name", "asx-cli-pred",
 		"--start-time", "2026-01-01T00:00:00Z", "--end-time", "2026-01-02T00:00:00Z"))
 
-	// Per-instance ops on the group's instance (LaunchInstances is covered by
-	// the SDK test; it is absent from older aws CLI builds).
+	// The SDK test covers LaunchInstances, which older aws CLI builds lack.
 	var groupOut struct {
 		AutoScalingGroups []struct {
 			Instances []struct {
@@ -277,7 +263,6 @@ func TestAutoScalingCLI_ExtendedOps(t *testing.T) {
 	runCLI(t, awsCLI("autoscaling", "attach-instances",
 		"--auto-scaling-group-name", group, "--instance-ids", instanceID))
 
-	// Static describe/enumeration operations.
 	var limOut struct {
 		MaxNumberOfAutoScalingGroups int `json:"MaxNumberOfAutoScalingGroups"`
 	}

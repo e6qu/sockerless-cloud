@@ -7,8 +7,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestCLI_ECR_AccountSettings drives put-account-setting / get-account-setting
-// through the official AWS CLI and confirms the value round-trips.
 func TestCLI_ECR_AccountSettings(t *testing.T) {
 	runCLI(t, awsCLI(
 		"ecr", "put-account-setting",
@@ -28,8 +26,6 @@ func TestCLI_ECR_AccountSettings(t *testing.T) {
 	assert.Equal(t, "AWS_NATIVE", resp.Value)
 }
 
-// TestCLI_ECR_RegistryScanningConfiguration round-trips the registry
-// scanning configuration and the per-repository batch-get path.
 func TestCLI_ECR_RegistryScanningConfiguration(t *testing.T) {
 	repo := "cli-scan-repo"
 	runCLI(t, awsCLI("ecr", "create-repository", "--repository-name", repo))
@@ -64,13 +60,10 @@ func TestCLI_ECR_RegistryScanningConfiguration(t *testing.T) {
 	assert.Equal(t, "CONTINUOUS_SCAN", batch.ScanningConfigurations[0].ScanFrequency)
 }
 
-// TestCLI_ECR_RepositoryCreationTemplates exercises the Create / Describe /
-// Update / Delete lifecycle of a repository creation template.
 func TestCLI_ECR_RepositoryCreationTemplates(t *testing.T) {
 	t.Parallel()
 	prefix := "cli-tmpl-prefix"
 
-	// Tolerant cleanup of a leftover template.
 	runCLIIgnore(awsCLI(
 		"ecr", "delete-repository-creation-template", "--prefix", prefix,
 	))
@@ -122,11 +115,8 @@ func TestCLI_ECR_RepositoryCreationTemplates(t *testing.T) {
 	))
 }
 
-// TestCLI_ECR_SigningConfiguration round-trips the managed-signing
-// configuration (put / get / delete) and the image-signing-status path.
 func TestCLI_ECR_SigningConfiguration(t *testing.T) {
 	t.Parallel()
-	// Tolerant cleanup of a leftover config.
 	runCLIIgnore(awsCLI("ecr", "delete-signing-configuration"))
 
 	runCLI(t, awsCLI(
@@ -164,13 +154,10 @@ func TestCLI_ECR_SigningConfiguration(t *testing.T) {
 	runCLI(t, awsCLI("ecr", "delete-signing-configuration"))
 }
 
-// TestCLI_ECR_PullTimeUpdateExclusions round-trips register / list /
-// deregister of pull-time update exclusions.
 func TestCLI_ECR_PullTimeUpdateExclusions(t *testing.T) {
 	t.Parallel()
 	principal := "arn:aws:iam::123456789012:role/CLIECRAccess"
 
-	// Tolerant cleanup.
 	runCLIIgnore(awsCLI(
 		"ecr", "deregister-pull-time-update-exclusion", "--principal-arn", principal,
 	))
@@ -196,8 +183,6 @@ func TestCLI_ECR_PullTimeUpdateExclusions(t *testing.T) {
 	))
 }
 
-// TestCLI_ECR_PullThroughCacheUpdateValidate exercises
-// update-pull-through-cache-rule and validate-pull-through-cache-rule.
 func TestCLI_ECR_PullThroughCacheUpdateValidate(t *testing.T) {
 	t.Parallel()
 	prefix := "cli-ptc-update"
@@ -241,8 +226,6 @@ func TestCLI_ECR_PullThroughCacheUpdateValidate(t *testing.T) {
 	))
 }
 
-// TestCLI_ECR_ListImageReferrersAndStorageClass exercises list-image-referrers
-// (honest empty) and update-image-storage-class.
 func TestCLI_ECR_ListImageReferrersAndStorageClass(t *testing.T) {
 	t.Parallel()
 	repo := "cli-referrers-repo"
@@ -272,8 +255,8 @@ func TestCLI_ECR_ListImageReferrersAndStorageClass(t *testing.T) {
 	assert.Equal(t, "ARCHIVED", sc.ImageStatus)
 }
 
-// cliECRPutTestImage creates a repository (ignoring already-exists) and pushes
-// one image via the AWS CLI, returning its digest.
+// cliECRPutTestImage creates the repository unless it exists and pushes one
+// image, returning its digest.
 func cliECRPutTestImage(t *testing.T, repo, tag string) string {
 	t.Helper()
 	runCLIIgnore(awsCLI("ecr", "create-repository", "--repository-name", repo))

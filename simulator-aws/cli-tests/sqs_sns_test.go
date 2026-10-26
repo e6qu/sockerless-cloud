@@ -10,9 +10,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// setQueuePolicyAllowingSNSCLI attaches, via `aws sqs set-queue-attributes`, a
-// resource policy granting sns.amazonaws.com sqs:SendMessage scoped to the
-// topic — the policy real SNS→SQS delivery requires on the subscriber queue.
+// setQueuePolicyAllowingSNSCLI grants sns.amazonaws.com sqs:SendMessage scoped
+// to the topic, which Amazon SNS delivery to the queue requires.
 func setQueuePolicyAllowingSNSCLI(t *testing.T, queueURL, queueARN, topicARN string) {
 	t.Helper()
 	policy := fmt.Sprintf(`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"sns.amazonaws.com"},"Action":"sqs:SendMessage","Resource":%q,"Condition":{"ArnEquals":{"aws:SourceArn":%q}}}]}`, queueARN, topicARN)
@@ -128,15 +127,13 @@ func TestSNSCLI_TopicSQSFanout(t *testing.T) {
 	assert.Contains(t, recv.Messages[0].Body, `"Message":"{\"source\":\"sns-cli\"}"`)
 }
 
-// TestSQSCLI_FifoCouplingAndGroupId asserts the FIFO name↔attribute
-// coupling at create-queue and the MessageGroupId requirement on send.
+// TestSQSCLI_FifoCouplingAndGroupId expects create-queue to couple the .fifo
+// name with FifoQueue and send-message to require MessageGroupId.
 func TestSQSCLI_FifoCouplingAndGroupId(t *testing.T) {
 	t.Parallel()
-	// .fifo name without FifoQueue=true → InvalidParameterValue.
 	errOut := runCLIExpectError(t, awsCLI("sqs", "create-queue", "--queue-name", "cli-bad.fifo"))
 	assert.Contains(t, errOut, "InvalidParameterValue")
 
-	// Proper FIFO queue.
 	out := runCLI(t, awsCLI("sqs", "create-queue",
 		"--queue-name", "cli-fifo.fifo",
 		"--attributes", "FifoQueue=true,ContentBasedDeduplication=true"))
@@ -149,14 +146,13 @@ func TestSQSCLI_FifoCouplingAndGroupId(t *testing.T) {
 		_ = awsCLI("sqs", "delete-queue", "--queue-url", created.QueueUrl).Run()
 	})
 
-	// Send without MessageGroupId → MissingParameter.
 	errOut = runCLIExpectError(t, awsCLI("sqs", "send-message",
 		"--queue-url", created.QueueUrl,
 		"--message-body", "nogroup"))
 	assert.Contains(t, errOut, "MissingParameter")
 
-	// Sending the same content twice within the FIFO deduplication window
-	// returns the original identifiers and enqueues one message.
+	// The same content twice within the deduplication window returns the original
+	// identifiers and enqueues one message.
 	firstOut := runCLI(t, awsCLI("sqs", "send-message",
 		"--queue-url", created.QueueUrl,
 		"--message-body", "withgroup",
@@ -191,8 +187,6 @@ func TestSQSCLI_FifoCouplingAndGroupId(t *testing.T) {
 	assert.Equal(t, first.SequenceNumber, received.Messages[0].Attributes["SequenceNumber"])
 }
 
-// TestSQSCLI_SendMessageBatch exercises a batch send plus a duplicate-Id
-// batch-level error.
 func TestSQSCLI_SendMessageBatch(t *testing.T) {
 	t.Parallel()
 	out := runCLI(t, awsCLI("sqs", "create-queue", "--queue-name", "cli-batch-q"))
@@ -222,7 +216,6 @@ func TestSQSCLI_SendMessageBatch(t *testing.T) {
 	require.Len(t, batch.Successful, 2)
 	assert.Empty(t, batch.Failed)
 
-	// Both messages landed in the queue.
 	out = runCLI(t, awsCLI("sqs", "receive-message",
 		"--queue-url", created.QueueUrl,
 		"--max-number-of-messages", "10"))
@@ -234,7 +227,6 @@ func TestSQSCLI_SendMessageBatch(t *testing.T) {
 	parseJSON(t, out, &recv)
 	require.Len(t, recv.Messages, 2)
 
-	// Duplicate Ids → BatchEntryIdsNotDistinct.
 	errOut := runCLIExpectError(t, awsCLI("sqs", "send-message-batch",
 		"--queue-url", created.QueueUrl,
 		"--entries",
@@ -242,9 +234,9 @@ func TestSQSCLI_SendMessageBatch(t *testing.T) {
 	assert.Contains(t, errOut, "BatchEntryIdsNotDistinct")
 }
 
-// TestSQSCLI_ChangeMessageVisibility asserts that resetting an in-flight
-// message's visibility to 0 returns it to the visible pool, and that a bogus
-// receipt handle is rejected.
+// TestSQSCLI_ChangeMessageVisibility expects a zero visibility timeout to
+// return an in-flight message to the visible pool, and a bogus receipt handle
+// to be rejected.
 func TestSQSCLI_ChangeMessageVisibility(t *testing.T) {
 	t.Parallel()
 	out := runCLI(t, awsCLI("sqs", "create-queue", "--queue-name", "cli-cmv-q"))
@@ -289,8 +281,6 @@ func TestSQSCLI_ChangeMessageVisibility(t *testing.T) {
 	assert.Contains(t, errOut, "ReceiptHandleIsInvalid")
 }
 
-// TestSQSCLI_DeleteMessageBatch sends two messages, receives them, batch-deletes
-// them by receipt handle, and asserts the queue is empty.
 func TestSQSCLI_DeleteMessageBatch(t *testing.T) {
 	t.Parallel()
 	out := runCLI(t, awsCLI("sqs", "create-queue", "--queue-name", "cli-dmb-q"))
@@ -341,8 +331,8 @@ func TestSQSCLI_DeleteMessageBatch(t *testing.T) {
 	assert.Equal(t, "0", attrs.Attributes["ApproximateNumberOfMessagesNotVisible"])
 }
 
-// TestSQSCLI_AddRemovePermission asserts add-permission writes a labelled
-// statement into the Policy attribute and remove-permission strips it.
+// TestSQSCLI_AddRemovePermission expects add-permission to write a labelled
+// statement into the Policy attribute and remove-permission to strip it.
 func TestSQSCLI_AddRemovePermission(t *testing.T) {
 	t.Parallel()
 	out := runCLI(t, awsCLI("sqs", "create-queue", "--queue-name", "cli-perm-q"))
@@ -382,11 +372,10 @@ func TestSQSCLI_AddRemovePermission(t *testing.T) {
 	assert.Empty(t, attrs2.Attributes["Policy"], "remove-permission must clear the last statement")
 }
 
-// TestSNSCLI_FifoCouplingAndGroupId asserts the SNS FIFO name↔attribute
-// coupling at create-topic and the MessageGroupId requirement on publish.
+// TestSNSCLI_FifoCouplingAndGroupId expects create-topic to couple the .fifo
+// name with FifoTopic and publish to require MessageGroupId.
 func TestSNSCLI_FifoCouplingAndGroupId(t *testing.T) {
 	t.Parallel()
-	// .fifo name without FifoTopic=true → InvalidParameter.
 	errOut := runCLIExpectError(t, awsCLI("sns", "create-topic", "--name", "cli-sns-bad.fifo"))
 	assert.Contains(t, errOut, "InvalidParameter")
 
@@ -402,21 +391,17 @@ func TestSNSCLI_FifoCouplingAndGroupId(t *testing.T) {
 		_ = awsCLI("sns", "delete-topic", "--topic-arn", topic.TopicArn).Run()
 	})
 
-	// Publish without MessageGroupId → InvalidParameter.
 	errOut = runCLIExpectError(t, awsCLI("sns", "publish",
 		"--topic-arn", topic.TopicArn,
 		"--message", "nogroup"))
 	assert.Contains(t, errOut, "InvalidParameter")
 
-	// Publish with MessageGroupId → succeeds.
 	runCLI(t, awsCLI("sns", "publish",
 		"--topic-arn", topic.TopicArn,
 		"--message", "withgroup",
 		"--message-group-id", "g1"))
 }
 
-// TestSNSCLI_PublishBatch exercises a batch publish, fan-out to an SQS
-// subscriber, and a duplicate-Id batch-level error.
 func TestSNSCLI_PublishBatch(t *testing.T) {
 	t.Parallel()
 	out := runCLI(t, awsCLI("sns", "create-topic", "--name", "cli-pubbatch-t"))
@@ -466,7 +451,6 @@ func TestSNSCLI_PublishBatch(t *testing.T) {
 	require.Len(t, batch.Successful, 2)
 	assert.Empty(t, batch.Failed)
 
-	// Both fanned out to the SQS subscriber.
 	out = runCLI(t, awsCLI("sqs", "receive-message",
 		"--queue-url", queue.QueueUrl,
 		"--max-number-of-messages", "10"))
@@ -481,7 +465,6 @@ func TestSNSCLI_PublishBatch(t *testing.T) {
 		strings.Contains(recv.Messages[0].Body, `"Message":"msg-1"`) ||
 			strings.Contains(recv.Messages[0].Body, `"Message":"msg-2"`))
 
-	// Duplicate Ids → BatchEntryIdsNotDistinct.
 	errOut := runCLIExpectError(t, awsCLI("sns", "publish-batch",
 		"--topic-arn", topic.TopicArn,
 		"--publish-batch-request-entries",

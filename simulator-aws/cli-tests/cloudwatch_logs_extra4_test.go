@@ -10,22 +10,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// aws CLI 2.26.6 does not yet ship the following CloudWatch Logs commands, so
-// they are exercised only through the SDK test (which covers the simulator's
-// contract hook for each). They are named here so the test-contract scan sees
-// every operation referenced from a test surface:
+// aws CLI 2.26.6 lacks these CloudWatch Logs commands, so only the SDK test
+// exercises them; naming them here records them for the testing-contract
+// scan:
 //
 //	"associate-source-to-s3-table-integration"
 //	"disassociate-source-from-s3-table-integration"
 //	"list-sources-for-s3-table-integration"
 //	"get-log-fields"
 //	"put-bearer-token-authentication"
-//
-// The two operations the CLI does support — list-log-groups-for-query and
-// update-delivery-configuration — are exercised for real below.
 
-// TestLogsListLogGroupsForQueryCLI starts an Insights query against a log group
-// and reads the query's processed log groups back via list-log-groups-for-query.
 func TestLogsListLogGroupsForQueryCLI(t *testing.T) {
 	t.Parallel()
 	group, stream := "/cli/lgforquery", "s1"
@@ -55,8 +49,6 @@ func TestLogsListLogGroupsForQueryCLI(t *testing.T) {
 	assert.Contains(t, resp.LogGroupIdentifiers, group)
 }
 
-// TestLogsUpdateDeliveryConfigurationCLI creates a vended-log delivery and
-// updates its record fields and delimiter via update-delivery-configuration.
 func TestLogsUpdateDeliveryConfigurationCLI(t *testing.T) {
 	t.Parallel()
 	srcName := "cli-update-delivery-source"

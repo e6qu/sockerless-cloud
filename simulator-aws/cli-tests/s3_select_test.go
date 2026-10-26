@@ -9,10 +9,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestS3CLI_SelectObjectContent exercises `aws s3api select-object-content`,
-// which streams the SelectObjectContentEventStream and writes the decoded
-// Records payload to the outfile positional. The test asserts the outfile
-// round-trips the stored rows faithfully for both CSV and JSON-Lines input.
+// TestS3CLI_SelectObjectContent expects select-object-content to decode the
+// SelectObjectContentEventStream's Records into the outfile, holding the
+// stored rows for both CSV and JSON Lines input.
 func TestS3CLI_SelectObjectContent(t *testing.T) {
 	t.Parallel()
 	t.Run("CSV", func(t *testing.T) {

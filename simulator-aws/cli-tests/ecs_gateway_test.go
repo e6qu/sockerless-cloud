@@ -29,10 +29,10 @@ func awaitCLIGatewayRoutes(t *testing.T, done func(cliGatewayRoutes) bool, args 
 	return routes
 }
 
-// TestECSGateway_CLI walks a gateway through the AWS CLI: create, describe,
-// list, associate, a service connecting with --gateway-connectors, the route
-// and the infrastructure behind it, an update, and the disconnection,
-// disassociation and deletion that remove it.
+// TestECSGateway_CLI creates, describes, lists and associates a gateway,
+// connects a service through --gateway-connectors, checks the route and the
+// infrastructure behind it, updates it, and disconnects, disassociates and
+// deletes it.
 func TestECSGateway_CLI(t *testing.T) {
 	t.Parallel()
 	const (

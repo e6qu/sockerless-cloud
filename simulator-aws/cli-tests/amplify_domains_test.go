@@ -23,7 +23,6 @@ func TestAmplify_DomainAndBackend_Lifecycle(t *testing.T) {
 	runCLI(t, awsCLI("amplify", "create-branch",
 		"--app-id", appID, "--branch-name", "main"))
 
-	// Domain
 	domOut := runCLI(t, awsCLI("amplify", "create-domain-association",
 		"--app-id", appID,
 		"--domain-name", "cli.example.com",
@@ -38,8 +37,8 @@ func TestAmplify_DomainAndBackend_Lifecycle(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal([]byte(domOut), &domResult))
 	require.Equal(t, "cli.example.com", domResult.DomainAssociation.DomainName)
-	// No verification records exist in the sim's Route 53, so the
-	// association honestly reports PENDING_VERIFICATION.
+	// No verification record exists in Route 53, so the association stays
+	// PENDING_VERIFICATION.
 	require.Equal(t, "PENDING_VERIFICATION", domResult.DomainAssociation.DomainStatus)
 
 	runCLI(t, awsCLI("amplify", "get-domain-association",
@@ -47,7 +46,6 @@ func TestAmplify_DomainAndBackend_Lifecycle(t *testing.T) {
 	runCLI(t, awsCLI("amplify", "list-domain-associations",
 		"--app-id", appID, "--output", "json"))
 
-	// Backend environment
 	beOut := runCLI(t, awsCLI("amplify", "create-backend-environment",
 		"--app-id", appID,
 		"--environment-name", "cli-staging",
@@ -62,7 +60,6 @@ func TestAmplify_DomainAndBackend_Lifecycle(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(beOut), &beResult))
 	require.Equal(t, "cli-staging", beResult.BackendEnvironment.EnvironmentName)
 
-	// Cleanup
 	runCLI(t, awsCLI("amplify", "delete-domain-association",
 		"--app-id", appID, "--domain-name", "cli.example.com"))
 	runCLI(t, awsCLI("amplify", "delete-backend-environment",

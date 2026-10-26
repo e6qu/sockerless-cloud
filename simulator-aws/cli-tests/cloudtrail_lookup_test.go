@@ -5,16 +5,14 @@ import (
 	"testing"
 )
 
-// TestCloudTrailLookupFilterKeysCLI verifies `cloudtrail lookup-events` honours
-// the ResourceName / ResourceType / EventId / ReadOnly attribute keys, not only
-// EventName.
+// TestCloudTrailLookupFilterKeysCLI covers the ResourceName, ResourceType,
+// EventId and ReadOnly lookup attribute keys beside EventName.
 func TestCloudTrailLookupFilterKeysCLI(t *testing.T) {
 	t.Parallel()
 	const cluster = "cli-ct-filter-cluster"
 	runCLI(t, awsCLI("ecs", "create-cluster", "--cluster-name", cluster))
 	t.Cleanup(func() { _ = awsCLI("ecs", "delete-cluster", "--cluster", cluster).Run() })
 
-	// EventId filter — capture the id via EventName, then look it up exactly.
 	eventID := strings.TrimSpace(runCLI(t, awsCLI("cloudtrail", "lookup-events",
 		"--lookup-attributes", "AttributeKey=EventName,AttributeValue=CreateCluster",
 		"--query", "Events[0].EventId", "--output", "text")))
@@ -28,7 +26,6 @@ func TestCloudTrailLookupFilterKeysCLI(t *testing.T) {
 		t.Fatalf("EventId filter: got %q, want CreateCluster", got)
 	}
 
-	// ResourceName filter — the cluster the call acted on.
 	got = strings.TrimSpace(runCLI(t, awsCLI("cloudtrail", "lookup-events",
 		"--lookup-attributes", "AttributeKey=ResourceName,AttributeValue="+cluster,
 		"--query", "Events[0].EventName", "--output", "text")))
@@ -36,7 +33,6 @@ func TestCloudTrailLookupFilterKeysCLI(t *testing.T) {
 		t.Fatalf("ResourceName filter: got %q, want CreateCluster", got)
 	}
 
-	// ResourceType filter — AWS::ECS::Cluster.
 	got = strings.TrimSpace(runCLI(t, awsCLI("cloudtrail", "lookup-events",
 		"--lookup-attributes", "AttributeKey=ResourceType,AttributeValue=AWS::ECS::Cluster",
 		"--query", "length(Events[?EventName=='CreateCluster'])", "--output", "text")))
@@ -44,8 +40,7 @@ func TestCloudTrailLookupFilterKeysCLI(t *testing.T) {
 		t.Fatalf("ResourceType filter returned no CreateCluster event (got %q)", got)
 	}
 
-	// Negative: a non-matching ResourceName must return no CreateCluster event —
-	// proves the filter is applied, not silently ignored.
+	// A non-matching ResourceName returns no event, so the filter applies.
 	got = strings.TrimSpace(runCLI(t, awsCLI("cloudtrail", "lookup-events",
 		"--lookup-attributes", "AttributeKey=ResourceName,AttributeValue=cli-no-such-resource",
 		"--query", "length(Events[?EventName=='CreateCluster'])", "--output", "text")))
@@ -54,8 +49,8 @@ func TestCloudTrailLookupFilterKeysCLI(t *testing.T) {
 	}
 }
 
-// TestCloudTrailRecordsSchedulerAPICallCLI verifies EventBridge Scheduler API
-// calls are recorded in CloudTrail against scheduler.amazonaws.com.
+// TestCloudTrailRecordsSchedulerAPICallCLI expects EventBridge Scheduler calls
+// recorded against scheduler.amazonaws.com.
 func TestCloudTrailRecordsSchedulerAPICallCLI(t *testing.T) {
 	t.Parallel()
 	const name = "cli-ct-schedule"
@@ -124,10 +119,9 @@ func TestCloudTrailRecordsRESTServiceAPICallsCLI(t *testing.T) {
 	}
 }
 
-// TestCloudTrailLookupEventsPaginationCLI proves the lookup-events NextToken is
-// a stable cursor: an event ingested mid-pagination must not make a previously
-// returned EventId reappear on a later page (the old absolute-offset token
-// overlapped pages on head-insertion).
+// TestCloudTrailLookupEventsPaginationCLI holds the lookup-events NextToken to
+// a stable cursor: an event ingested mid-pagination must not bring an earlier
+// page's EventId back on a later page.
 func TestCloudTrailLookupEventsPaginationCLI(t *testing.T) {
 	t.Parallel()
 	for i := 0; i < 6; i++ {

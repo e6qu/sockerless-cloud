@@ -34,9 +34,8 @@ func cliTakeXtraBackup(t *testing.T, name string, statements ...string) string {
 	docker(&bytes.Buffer{}, "run", "-d", "--name", name, "-e", "MYSQL_ROOT_PASSWORD=source-root", "-v", volume+":/var/lib/mysql",
 		"mirror.gcr.io/library/mysql:8.0")
 	t.Cleanup(func() { _ = exec.Command("docker", "rm", "-f", name).Run() })
-	// The image's initialisation server listens on no TCP port, so a TCP
-	// client reaches only the server that stays; mysqld offers nothing to
-	// wait on until it answers one.
+	// The image's initialisation server listens on no TCP port, so a TCP client
+	// reaches only the final server.
 	client := []string{"exec", name, "mysql", "--protocol=TCP", "--host=127.0.0.1", "--user=root", "--password=source-root"}
 	for exec.Command("docker", append(client, "--execute=SELECT 1")...).Run() != nil {
 		time.Sleep(250 * time.Millisecond)
@@ -51,9 +50,9 @@ func cliTakeXtraBackup(t *testing.T, name string, statements ...string) string {
 	return path
 }
 
-// aws rds restore-db-cluster-from-s3 imports a Percona XtraBackup from an
-// Amazon S3 prefix the ingestion role reads into a new Aurora MySQL cluster,
-// which serves the backup's data to its master user.
+// restore-db-cluster-from-s3 imports a Percona XtraBackup from an Amazon S3
+// prefix the ingestion role reads into a new Aurora MySQL cluster serving the
+// backup's data to its master user.
 func TestRDSCLI_AuroraClusterRestoresFromS3XtraBackup(t *testing.T) {
 	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
@@ -121,10 +120,9 @@ func TestRDSCLI_AuroraClusterRestoresFromS3XtraBackup(t *testing.T) {
 	assert.Equal(t, []string{"kettle", "teapot"}, items, "the cluster serves the backup's data")
 }
 
-// An Aurora cluster lists the automated DB cluster snapshot Amazon Aurora
-// takes when it creates the cluster, though no client connects, which aws rds
-// delete-db-cluster-snapshot refuses to delete, and refuses a malformed
-// backup window.
+// An Aurora cluster lists the automated DB cluster snapshot Aurora takes at
+// creation, with no client connected; delete-db-cluster-snapshot refuses to
+// delete it, and a malformed backup window is refused.
 func TestRDSCLI_AuroraAutomatedSnapshots(t *testing.T) {
 	t.Parallel()
 	clusterID := "cli-automated-backups"
@@ -144,8 +142,8 @@ func TestRDSCLI_AuroraAutomatedSnapshots(t *testing.T) {
 			Status                      string `json:"Status"`
 		} `json:"DBClusterSnapshots"`
 	}
-	// aws rds wait db-cluster-snapshot-available polls every 30 seconds, so
-	// read the snapshot's status at the SDK waiter's cadence instead.
+	// `aws rds wait db-cluster-snapshot-available` polls every 30 seconds; poll
+	// at the SDK waiter's cadence instead.
 	require.Eventually(t, func() bool {
 		parseJSON(t, runCLI(t, awsCLI("rds", "describe-db-cluster-snapshots",
 			"--db-cluster-identifier", clusterID, "--snapshot-type", "automated")), &snapshots)

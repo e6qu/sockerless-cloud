@@ -10,18 +10,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// sfnSyncEndpoint returns the simulator's Step Functions endpoint coordinate.
-// It has the same shape as the real endpoint a CLI resolves
-// (`states.us-east-1.amazonaws.com`), so botocore prepends the `sync-` host
-// prefix that StartSyncExecution and TestState carry and sends the request to
-// `sync-states.localhost`. Callers pair it with awsCLIHostPrefixed, which is
-// what makes that name reach the loopback sim.
+// sfnSyncEndpoint returns an endpoint shaped like the real
+// `states.us-east-1.amazonaws.com`, so botocore prepends the `sync-` host
+// prefix StartSyncExecution and TestState carry. Pair it with
+// awsCLIHostPrefixed, which makes that name reach the simulator.
 func sfnSyncEndpoint(t *testing.T) string {
 	t.Helper()
 	return fmt.Sprintf("http://states.localhost:%s", portFromBaseURL(t))
 }
 
-// portFromBaseURL extracts the port from the suite baseURL (http://127.0.0.1:PORT).
 func portFromBaseURL(t *testing.T) string {
 	t.Helper()
 	i := strings.LastIndex(baseURL, ":")
@@ -29,9 +26,6 @@ func portFromBaseURL(t *testing.T) string {
 	return baseURL[i+1:]
 }
 
-// TestSFNCLI_Activities covers create-activity / describe-activity /
-// list-activities / get-activity-task / send-task-success /
-// send-task-failure / send-task-heartbeat / delete-activity.
 func TestSFNCLI_Activities(t *testing.T) {
 	t.Parallel()
 	out := runCLI(t, awsCLI("stepfunctions", "create-activity", "--name", "sfn-cli-activity"))
@@ -143,11 +137,6 @@ func TestSFNCLI_Activities(t *testing.T) {
 	}, 10*time.Second, 100*time.Millisecond)
 }
 
-// TestSFNCLI_VersionsAndAliases covers publish-state-machine-version,
-// list-state-machine-versions,
-// create-state-machine-alias, describe-state-machine-alias,
-// list-state-machine-aliases, update-state-machine-alias,
-// delete-state-machine-alias, delete-state-machine-version.
 func TestSFNCLI_VersionsAndAliases(t *testing.T) {
 	t.Parallel()
 	definition := `{"StartAt":"P","States":{"P":{"Type":"Pass","End":true}}}`
@@ -235,8 +224,8 @@ func TestSFNCLI_VersionsAndAliases(t *testing.T) {
 		"--state-machine-version-arn", pub.StateMachineVersionArn))
 }
 
-// TestSFNCLI_TestState runs a single Pass state synchronously. test-state
-// carries a `sync-` host prefix, so it targets the sync endpoint.
+// TestSFNCLI_TestState runs one Pass state synchronously; test-state carries
+// the `sync-` host prefix.
 func TestSFNCLI_TestState(t *testing.T) {
 	t.Parallel()
 	endpoint := sfnSyncEndpoint(t)
@@ -254,9 +243,8 @@ func TestSFNCLI_TestState(t *testing.T) {
 	assert.JSONEq(t, `{"hello":"world"}`, res.Output)
 }
 
-// TestSFNCLI_StartSyncExecution runs a whole EXPRESS state machine
-// synchronously. start-sync-execution carries a `sync-` host prefix, so it
-// targets the sync endpoint.
+// TestSFNCLI_StartSyncExecution runs an EXPRESS state machine synchronously;
+// start-sync-execution carries the `sync-` host prefix.
 func TestSFNCLI_StartSyncExecution(t *testing.T) {
 	t.Parallel()
 	endpoint := sfnSyncEndpoint(t)
@@ -286,9 +274,8 @@ func TestSFNCLI_StartSyncExecution(t *testing.T) {
 	assert.JSONEq(t, `{"ok":true}`, res.Output)
 }
 
-// TestSFNCLI_NestedWorkflowIntegration exercises the optimized
-// states:startExecution.sync:2 Task resource with state machines created,
-// started, described, and listed exclusively through the AWS CLI.
+// TestSFNCLI_NestedWorkflowIntegration covers the optimized
+// states:startExecution.sync:2 Task resource.
 func TestSFNCLI_NestedWorkflowIntegration(t *testing.T) {
 	t.Parallel()
 	childDefinition := `{"StartAt":"Complete","States":{"Complete":{"Type":"Pass","Parameters":{"child.$":"$"},"End":true}}}`
@@ -345,9 +332,6 @@ func TestSFNCLI_NestedWorkflowIntegration(t *testing.T) {
 	assert.Equal(t, "SUCCEEDED", listed.Executions[0].Status)
 }
 
-// TestSFNCLI_DescribeForExecutionAndRedrive covers
-// describe-state-machine-for-execution and redrive-execution, plus
-// list-map-runs (empty).
 func TestSFNCLI_DescribeForExecutionAndRedrive(t *testing.T) {
 	t.Parallel()
 	definition := `{"StartAt":"F","States":{"F":{"Type":"Fail","Error":"E","Cause":"boom"}}}`
@@ -390,7 +374,7 @@ func TestSFNCLI_DescribeForExecutionAndRedrive(t *testing.T) {
 	}, 10*time.Second, 100*time.Millisecond)
 
 	out = runCLI(t, awsCLI("stepfunctions", "redrive-execution", "--execution-arn", started.ExecutionArn))
-	// The CLI renders the epoch redriveDate as an ISO-8601 timestamp string.
+	// The CLI renders the epoch redriveDate as an ISO-8601 string.
 	var rd struct {
 		RedriveDate string `json:"redriveDate"`
 	}
@@ -405,31 +389,18 @@ func TestSFNCLI_DescribeForExecutionAndRedrive(t *testing.T) {
 	assert.Empty(t, lmr.MapRuns)
 }
 
-// Budgets for the Distributed Map run below, named because the numbers are a
-// judgement rather than a habit.
-//
-// This test failed once on main (b391232c) after 13.51s, in a shard whose whole
-// run took 392s. It was not a simulator fault: every poll here spawns the real
-// vendor CLI through runCLI, which is a Python process with its own 60s
-// per-command ceiling. A 100ms poll interval against that is fiction -- the
-// loop cannot iterate faster than a CLI process starts, so the interval only
-// decides how hard the runner is hammered, and a "10 second" budget really buys
-// however many CLI invocations happen to fit. On a loaded runner that is very
-// few, and the work itself is not instant: two items through a Wait of one
-// second each, initially at MaxConcurrency 1.
-//
-// So the budgets are sized against the work plus CLI overhead rather than
-// against a stopwatch, and the interval is raised to something a CLI round trip
-// can actually meet. The same 10s/100ms pairing appears elsewhere in this
-// package for CLI-driven polls and is worth revisiting for the same reason.
+// Each poll spawns the Python aws CLI, so a poll cannot run faster than a CLI
+// process starts: the budgets cover the work (two items through a one-second
+// Wait, at MaxConcurrency 1 at first) plus CLI overhead on a loaded runner,
+// and the interval is one a CLI round trip can meet.
 const (
 	sfnMapRunAppears   = 30 * time.Second
 	sfnMapRunCompletes = 60 * time.Second
 	sfnMapRunPoll      = 500 * time.Millisecond
 )
 
-// TestSFNCLI_DistributedMapRun drives a real Distributed Map through the
-// vendor CLI, then observes and updates its Map Run while child workflows run.
+// TestSFNCLI_DistributedMapRun observes and updates a Distributed Map's Map
+// Run while its child workflows run.
 func TestSFNCLI_DistributedMapRun(t *testing.T) {
 	t.Parallel()
 	definition := `{

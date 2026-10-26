@@ -9,14 +9,13 @@ import (
 
 const vpcNetBusybox = "mirror.gcr.io/library/busybox:latest"
 
-// vpcServerScript runs a long-lived HTTP server serving "ok" on :80, so probes
-// can test real TCP reachability/isolation between tasks.
+// vpcServerScript serves "ok" over HTTP on :80, so probes test real TCP
+// reachability and isolation between tasks.
 const vpcServerScript = "mkdir -p /www && echo ok > /www/index.html && httpd -f -p 80 -h /www"
 
-// TestECSVPCNetworking proves the VPC task-networking contract end-to-end,
-// probing through the task containers themselves: an ECS task's ENI
-// privateIPv4Address is the container's real eth0 address, reachable from
-// another task in the same VPC and isolated from a task in a different VPC.
+// TestECSVPCNetworking probes from inside the task containers: a task's ENI
+// privateIPv4Address is the container's eth0 address, reachable from another
+// task in the same VPC and isolated from a task in a different VPC.
 func TestECSVPCNetworking(t *testing.T) {
 	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
@@ -41,8 +40,6 @@ func TestECSVPCNetworking(t *testing.T) {
 	waitRunning(t, q, clientSame)
 	waitRunning(t, q, clientOther)
 
-	// The reported ENI IP is the address the engine gave the container's
-	// eth0 on the VPC's network.
 	eniIP := taskENIIP(q, server)
 	if !strings.HasPrefix(eniIP, prefixOf(rangeA)) {
 		t.Fatalf("server ENI IP not in subnet-A CIDR: %q", eniIP)
@@ -51,7 +48,6 @@ func TestECSVPCNetworking(t *testing.T) {
 		t.Fatalf("reported ENI IP %q is not on the container's eth0 (addresses: %v)", eniIP, ips)
 	}
 
-	// Intra-VPC reachable; cross-VPC isolated.
 	if code, out := taskWget(t, clientSame, eniIP); code != 0 || !strings.Contains(out, "ok") {
 		t.Fatalf("same-VPC task should reach %s: exit=%d out=%q", eniIP, code, out)
 	}
@@ -140,15 +136,12 @@ func mkVPCSubnet(t *testing.T, q func(...string) string, vpcCidr, snCidr string)
 	return vpcID, subnetID
 }
 
-// A test names its VPC's /16 as a literal, which is what
-// scripts/check-test-network-ranges.go holds apart across the suite: two
-// tests that probe the engine for a free range at the same moment both find
-// the same one, since neither has placed a task on it yet.
+// Each test names its VPC's /16 as a literal, which
+// scripts/check-test-network-ranges.go keeps apart: two tests probing the
+// engine for a free range at once would find the same one.
 
-// subnetOf is the first /24 of a VPC's /16.
 func subnetOf(vpcRange string) string { return strings.TrimSuffix(vpcRange, "/16") + "/24" }
 
-// prefixOf is the dotted prefix every address of a VPC's first /24 starts with.
 func prefixOf(vpcRange string) string { return strings.TrimSuffix(vpcRange, "0.0/16") + "0." }
 
 func registerTaskDef(q func(...string) string, family, script string) {
@@ -202,8 +195,6 @@ func taskContainerID(t *testing.T, taskArn string) string {
 	return cid
 }
 
-// taskEth0IPs reads every IPv4 address on the container's eth0, among which
-// the reported ENI IP must be.
 func taskEth0IPs(t *testing.T, taskArn string) []string {
 	t.Helper()
 	cid := taskContainerID(t, taskArn)
@@ -235,7 +226,6 @@ func containsIP(ips []string, want string) bool {
 	return false
 }
 
-// taskWget fetches http://ip/index.html from inside a task container.
 func taskWget(t *testing.T, taskArn, ip string) (int, string) {
 	t.Helper()
 	return taskWgetURL(t, taskArn, "http://"+ip+"/index.html")
@@ -263,8 +253,8 @@ func dockerOut(t *testing.T, args ...string) string {
 	return string(out)
 }
 
-// waitRunning waits with `aws ecs wait tasks-running`, which fails when the
-// task stops instead of running.
+// waitRunning uses `aws ecs wait tasks-running`, which fails when the task
+// stops instead.
 func waitRunning(t *testing.T, q func(...string) string, taskArn string) {
 	t.Helper()
 	q("ecs", "wait", "tasks-running", "--cluster", "default", "--tasks", taskArn)
@@ -272,9 +262,8 @@ func waitRunning(t *testing.T, q func(...string) string, taskArn string) {
 
 func waitTaskContainersGone(t *testing.T, taskArns ...string) {
 	t.Helper()
-	// Generous deadline: after stop-task the container takes the SIGTERM grace +
-	// Docker stop to disappear, which on a loaded CI runner can exceed a tight
-	// 30s window (the failure was an intermittent "still running" under load).
+	// After stop-task the container takes the SIGTERM grace period and the
+	// engine's stop to disappear, which a loaded runner stretches.
 	deadline := time.Now().Add(90 * time.Second)
 	for time.Now().Before(deadline) {
 		allGone := true
@@ -293,7 +282,7 @@ func waitTaskContainersGone(t *testing.T, taskArns ...string) {
 }
 
 // rmDockerNetworks removes simulator VPC networks, retrying while task
-// containers detach. No-op for names that don't exist.
+// containers detach; it ignores names that do not exist.
 func rmDockerNetworks(names ...string) {
 	for attempt := 0; attempt < 12; attempt++ {
 		pending := false
@@ -312,9 +301,9 @@ func rmDockerNetworks(names ...string) {
 	}
 }
 
-// TestECSVPCDeleteVpcAllowsCIDRReuse covers the network cleanup a terraform
-// destroy/apply cycle needs: once the task and subnet are gone, DeleteVpc
-// removes the VPC's engine network so a new VPC can reuse the same CIDR.
+// TestECSVPCDeleteVpcAllowsCIDRReuse covers the cleanup a terraform destroy and
+// apply cycle needs: once the task and subnet are gone, DeleteVpc removes the
+// VPC's engine network so a new VPC can reuse the CIDR.
 func TestECSVPCDeleteVpcAllowsCIDRReuse(t *testing.T) {
 	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }

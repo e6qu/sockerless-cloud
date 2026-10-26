@@ -5,10 +5,9 @@ import (
 	"testing"
 )
 
-// TestIAM_RESTRoutesAreGatedCLI proves the call-time gate on a REST service's
-// routes: a restricted user's key reaches Amazon EventBridge Scheduler's
-// GetSchedule only once its policy grants scheduler:GetSchedule on the
-// schedule, and is refused AccessDeniedException until then.
+// TestIAM_RESTRoutesAreGatedCLI expects a restricted user's key to reach
+// Amazon EventBridge Scheduler's GetSchedule only once its policy grants
+// scheduler:GetSchedule on the schedule, and AccessDeniedException before.
 func TestIAM_RESTRoutesAreGatedCLI(t *testing.T) {
 	t.Parallel()
 	const schedule = "cli-rest-gate"

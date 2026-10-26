@@ -5,8 +5,6 @@ import (
 	"testing"
 )
 
-// TestCloudWatchCLI_Dashboards covers put/get/list/delete-dashboards over the
-// CLI surface (issue #608).
 func TestCloudWatchCLI_Dashboards(t *testing.T) {
 	t.Parallel()
 	body := `{"widgets":[{"type":"text","x":0,"y":0,"width":6,"height":2,"properties":{"markdown":"hi"}}]}`
@@ -24,8 +22,6 @@ func TestCloudWatchCLI_Dashboards(t *testing.T) {
 	}
 }
 
-// TestCloudWatchCLI_AlarmExtendedStatistic covers the percentile round-trip
-// over the CLI surface (issue #609).
 func TestCloudWatchCLI_AlarmExtendedStatistic(t *testing.T) {
 	t.Parallel()
 	runCLI(t, awsCLI("cloudwatch", "put-metric-alarm",

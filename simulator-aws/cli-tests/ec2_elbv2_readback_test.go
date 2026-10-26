@@ -6,8 +6,8 @@ import (
 	"testing"
 )
 
-// TestEC2CLI_LaunchTemplateProvenanceTags drives the launch-template system tags
-// (aws:ec2launchtemplate:id/version) that the provider reads back.
+// TestEC2CLI_LaunchTemplateProvenanceTags covers the aws:ec2launchtemplate:id
+// and :version system tags terraform-provider-aws reads back.
 func TestEC2CLI_LaunchTemplateProvenanceTags(t *testing.T) {
 	t.Parallel()
 	lt := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-launch-template",
@@ -32,7 +32,6 @@ func TestEC2CLI_LaunchTemplateProvenanceTags(t *testing.T) {
 	}
 }
 
-// TestEC2CLI_RouteNetworkInterfaceId drives the route NetworkInterfaceId round-trip.
 func TestEC2CLI_RouteNetworkInterfaceId(t *testing.T) {
 	t.Parallel()
 	vpc := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-vpc", "--cidr-block", "10.44.0.0/16", "--query", "Vpc.VpcId", "--output", "text")))
@@ -48,13 +47,12 @@ func TestEC2CLI_RouteNetworkInterfaceId(t *testing.T) {
 	}
 }
 
-// TestEC2CLI_SecurityGroupEgressIpv6Ranges drives the egress Ipv6Ranges round-trip.
 func TestEC2CLI_SecurityGroupEgressIpv6Ranges(t *testing.T) {
 	t.Parallel()
 	vpc := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-vpc", "--cidr-block", "10.45.0.0/16", "--query", "Vpc.VpcId", "--output", "text")))
 	sg := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-security-group", "--group-name", "cli-ipv6-egress", "--description", "ipv6", "--vpc-id", vpc, "--query", "GroupId", "--output", "text")))
-	// Revoke the default ALLOW ALL IPv4 egress rule before authorizing a
-	// combined IPv4+IPv6 all-traffic rule.
+	// Revoke the default allow-all IPv4 egress rule so the combined IPv4 and IPv6
+	// all-traffic rule is new.
 	runCLI(t, awsCLI("ec2", "revoke-security-group-egress", "--group-id", sg,
 		"--ip-permissions", `[{"IpProtocol":"-1","IpRanges":[{"CidrIp":"0.0.0.0/0"}]}]`))
 	runCLI(t, awsCLI("ec2", "authorize-security-group-egress", "--group-id", sg,
@@ -67,7 +65,6 @@ func TestEC2CLI_SecurityGroupEgressIpv6Ranges(t *testing.T) {
 	}
 }
 
-// TestELBv2CLI_ListenerSslPolicy drives the HTTPS listener SslPolicy round-trip.
 func TestELBv2CLI_ListenerSslPolicy(t *testing.T) {
 	t.Parallel()
 	vpc := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-vpc", "--cidr-block", "10.46.0.0/16", "--query", "Vpc.VpcId", "--output", "text")))

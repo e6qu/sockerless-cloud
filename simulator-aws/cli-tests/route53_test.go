@@ -32,7 +32,6 @@ func TestRoute53_ZoneAndRecord(t *testing.T) {
 	require.NotEmpty(t, zoneID)
 	require.Equal(t, "INSYNC", createResult.ChangeInfo.Status)
 
-	// Add an A record + alias record via change-batch JSON
 	changeJSON := `{
 		"Changes": [
 			{
@@ -78,7 +77,7 @@ func TestRoute53_ZoneAndRecord(t *testing.T) {
 		} `json:"ResourceRecordSets"`
 	}
 	require.NoError(t, json.Unmarshal([]byte(listOut), &listResult))
-	// Initial 2 (NS+SOA) + 2 new (A + alias)
+	// A new zone holds NS and SOA; the batch adds an A and an alias record.
 	require.GreaterOrEqual(t, len(listResult.ResourceRecordSets), 4)
 	aliasFound := false
 	for _, r := range listResult.ResourceRecordSets {
@@ -90,7 +89,6 @@ func TestRoute53_ZoneAndRecord(t *testing.T) {
 	}
 	require.True(t, aliasFound)
 
-	// Cleanup
 	delJSON := `{
 		"Changes": [
 			{"Action": "DELETE", "ResourceRecordSet": {"Name": "api.cli-route53-test.local.", "Type": "A", "TTL": 300, "ResourceRecords": [{"Value": "203.0.113.1"}]}},
@@ -263,8 +261,8 @@ func TestRoute53_TrafficPolicyCLI(t *testing.T) {
 	require.Equal(t, 1, created.TrafficPolicy.Version)
 	require.Equal(t, "A", created.TrafficPolicy.Type)
 	defer func() {
-		// aws CLI's global `--version` flag shadows the traffic-policy
-		// `--version` param, so address the version via --cli-input-json.
+		// The aws CLI's global `--version` shadows the traffic-policy `--version`
+		// parameter, so pass the version through --cli-input-json.
 		_ = awsCLI("route53", "delete-traffic-policy", "--cli-input-json", `{"Id":"`+tpID+`","Version":1}`).Run()
 		_ = awsCLI("route53", "delete-traffic-policy", "--cli-input-json", `{"Id":"`+tpID+`","Version":2}`).Run()
 	}()
@@ -340,7 +338,6 @@ func TestRoute53_VPCQueryLoggingGeoCLI(t *testing.T) {
 	qlList := runCLI(t, awsCLI("route53", "list-query-logging-configs", "--hosted-zone-id", zoneID, "--output", "json"))
 	require.Contains(t, qlList, qlID)
 
-	// Counts + geolocation.
 	countOut := runCLI(t, awsCLI("route53", "get-hosted-zone-count", "--output", "json"))
 	require.Contains(t, countOut, "HostedZoneCount")
 

@@ -50,8 +50,8 @@ func TestEC2CLI_ClientVpnEndpointAuthorizationPolicy(t *testing.T) {
 }
 
 // waitForClientVpnAuthorizationPolicyCLI polls
-// get-client-vpn-endpoint-authorization-policy until the policy's status is
-// want ("None" once it is gone): the CLI has no waiter for the policy.
+// get-client-vpn-endpoint-authorization-policy until the status is want
+// ("None" once the policy is gone): the CLI has no waiter for it.
 func waitForClientVpnAuthorizationPolicyCLI(t *testing.T, ep, want string) {
 	t.Helper()
 	delay := 250 * time.Millisecond

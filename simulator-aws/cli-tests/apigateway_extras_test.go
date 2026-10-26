@@ -10,8 +10,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// apigwCLINewAPIWithStage creates a REST API + GET method on root + a
-// deployed "prod" stage, returning the api id and stage name.
+// apigwCLINewAPIWithStage creates a REST API with a GET method on the root and
+// a deployed "prod" stage.
 func apigwCLINewAPIWithStage(t *testing.T, name string) (string, string) {
 	t.Helper()
 	out := runCLI(t, awsCLI("apigateway", "create-rest-api", "--name", name))
@@ -43,8 +43,6 @@ func apigwCLINewAPIWithStage(t *testing.T, name string) (string, string) {
 	return created.ID, "prod"
 }
 
-// TestAPIGatewayCLI_BasePathMappings drives the base-path-mapping CRUD cycle
-// via the aws CLI.
 func TestAPIGatewayCLI_BasePathMappings(t *testing.T) {
 	t.Parallel()
 	apiID, stage := apigwCLINewAPIWithStage(t, "cli-bpm-api")
@@ -77,7 +75,6 @@ func TestAPIGatewayCLI_BasePathMappings(t *testing.T) {
 	runCLI(t, awsCLI("apigateway", "delete-base-path-mapping", "--domain-name", domain, "--base-path", "v1"))
 }
 
-// TestAPIGatewayCLI_ClientCertificates drives the client-certificate cycle.
 func TestAPIGatewayCLI_ClientCertificates(t *testing.T) {
 	t.Parallel()
 	genOut := runCLI(t, awsCLI("apigateway", "generate-client-certificate", "--description", "cli cert"))
@@ -107,7 +104,6 @@ func TestAPIGatewayCLI_ClientCertificates(t *testing.T) {
 	runCLI(t, awsCLI("apigateway", "delete-client-certificate", "--client-certificate-id", cert.ID))
 }
 
-// TestAPIGatewayCLI_Documentation drives documentation parts + versions.
 func TestAPIGatewayCLI_Documentation(t *testing.T) {
 	t.Parallel()
 	apiID, _ := apigwCLINewAPIWithStage(t, "cli-doc-api")
@@ -129,8 +125,8 @@ func TestAPIGatewayCLI_Documentation(t *testing.T) {
 		"--rest-api-id", apiID, "--documentation-part-id", part.ID,
 		"--patch-operations", "op=replace,path=/properties,value=updated-properties",
 	))
-	// --body is a Blob: feed the OpenAPI document from a file so the CLI
-	// passes it verbatim rather than base64-decoding the literal argument.
+	// --body is a blob: a file makes the CLI pass the OpenAPI document verbatim
+	// rather than base64-decoding the argument.
 	bodyFile := filepath.Join(t.TempDir(), "doc.json")
 	require.NoError(t, os.WriteFile(bodyFile, []byte(`{"openapi":"3.0.1","info":{"title":"x"}}`), 0o644))
 	runCLI(t, awsCLI("apigateway", "import-documentation-parts",
@@ -154,7 +150,6 @@ func TestAPIGatewayCLI_Documentation(t *testing.T) {
 	runCLI(t, awsCLI("apigateway", "delete-documentation-part", "--rest-api-id", apiID, "--documentation-part-id", part.ID))
 }
 
-// TestAPIGatewayCLI_GatewayResponses drives the gateway-response slice.
 func TestAPIGatewayCLI_GatewayResponses(t *testing.T) {
 	t.Parallel()
 	apiID, _ := apigwCLINewAPIWithStage(t, "cli-gr-api")
@@ -177,9 +172,6 @@ func TestAPIGatewayCLI_GatewayResponses(t *testing.T) {
 	runCLI(t, awsCLI("apigateway", "delete-gateway-response", "--rest-api-id", apiID, "--response-type", "DEFAULT_4XX"))
 }
 
-// TestAPIGatewayCLI_AccountExportSdkUsageTags drives account settings, OpenAPI
-// export, SDK generation, the SDK-type catalog, request validator + model
-// template, usage, and tag reads.
 func TestAPIGatewayCLI_AccountExportSdkUsageTags(t *testing.T) {
 	apiID, stage := apigwCLINewAPIWithStage(t, "cli-export-api")
 
@@ -193,7 +185,6 @@ func TestAPIGatewayCLI_AccountExportSdkUsageTags(t *testing.T) {
 	assert.Contains(t, sdkTypesOut, "java")
 	runCLI(t, awsCLI("apigateway", "get-sdk-type", "--id", "java"))
 
-	// Request validator + model template.
 	rvOut := runCLI(t, awsCLI("apigateway", "create-request-validator",
 		"--rest-api-id", apiID, "--name", "validate-body", "--validate-request-body",
 	))
@@ -209,7 +200,7 @@ func TestAPIGatewayCLI_AccountExportSdkUsageTags(t *testing.T) {
 	))
 	runCLI(t, awsCLI("apigateway", "get-model-template", "--rest-api-id", apiID, "--model-name", "Pet"))
 
-	// Export + SDK (CLI writes the binary blob to an output file argument).
+	// The CLI writes the exported blob to the output file argument.
 	exportFile := t.TempDir() + "/export.json"
 	runCLI(t, awsCLI("apigateway", "get-export",
 		"--rest-api-id", apiID, "--stage-name", stage, "--export-type", "oas30", exportFile,
@@ -219,7 +210,6 @@ func TestAPIGatewayCLI_AccountExportSdkUsageTags(t *testing.T) {
 		"--rest-api-id", apiID, "--stage-name", stage, "--sdk-type", "java", sdkFile,
 	))
 
-	// Usage plan + GetUsage.
 	upOut := runCLI(t, awsCLI("apigateway", "create-usage-plan",
 		"--name", "cli-export-plan",
 		"--api-stages", "apiId="+apiID+",stage="+stage,
@@ -236,7 +226,6 @@ func TestAPIGatewayCLI_AccountExportSdkUsageTags(t *testing.T) {
 		"--usage-plan-id", up.ID, "--start-date", "2024-01-01", "--end-date", "2024-01-02",
 	))
 
-	// GetTags off the REST API ARN.
 	arn := "arn:aws:apigateway:us-east-1::/restapis/" + apiID
 	runCLI(t, awsCLI("apigateway", "get-tags", "--resource-arn", arn))
 }

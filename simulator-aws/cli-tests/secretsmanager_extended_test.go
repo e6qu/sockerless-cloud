@@ -9,12 +9,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// smCLIName returns a per-test unique secret name.
 func smCLIName(prefix string) string {
 	return prefix + "-" + strings.ReplaceAll(time.Now().Format("150405.000000000"), ".", "-")
 }
 
-// smCLICreate creates a secret via the CLI and registers a force-delete cleanup.
 func smCLICreate(t *testing.T, name, value string) {
 	t.Helper()
 	runCLI(t, awsCLI("secretsmanager", "create-secret",
@@ -102,7 +100,6 @@ func TestSecretsManagerCLI_DeleteRestore(t *testing.T) {
 	assert.Equal(t, name, del.Name)
 	assert.NotEmpty(t, del.DeletionDate)
 
-	// Reading the value of a scheduled-for-deletion secret fails.
 	require.Error(t, awsCLI("secretsmanager", "get-secret-value", "--secret-id", name).Run())
 
 	restOut := runCLI(t, awsCLI("secretsmanager", "restore-secret",
@@ -114,7 +111,6 @@ func TestSecretsManagerCLI_DeleteRestore(t *testing.T) {
 	parseJSON(t, restOut, &rest)
 	assert.Equal(t, name, rest.Name)
 
-	// Now readable again.
 	getOut := runCLI(t, awsCLI("secretsmanager", "get-secret-value",
 		"--secret-id", name,
 		"--output", "json"))
@@ -205,7 +201,6 @@ func TestSecretsManagerCLI_UpdateSecretVersionStage(t *testing.T) {
 	}
 	parseJSON(t, putOut, &put)
 
-	// Move AWSCURRENT from v2 back to v1.
 	updOut := runCLI(t, awsCLI("secretsmanager", "update-secret-version-stage",
 		"--secret-id", name,
 		"--version-stage", "AWSCURRENT",
