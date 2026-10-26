@@ -383,6 +383,7 @@ func handleCreateSubnet(w http.ResponseWriter, r *http.Request) {
 		PrivateDnsHostnameTypeOnLaunch: "ip-name",
 	}
 	ec2Subnets.Put(id, subnet)
+	ec2ReconcileRegionalNatGatewaysLogged(r.Context(), vpcId)
 
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<CreateSubnetResponse %s>
@@ -607,7 +608,8 @@ func handleModifySubnetAttribute(w http.ResponseWriter, r *http.Request) {
 
 func handleDeleteSubnet(w http.ResponseWriter, r *http.Request) {
 	id := r.FormValue("SubnetId")
-	if _, ok := ec2Subnets.Get(id); !ok {
+	deleted, ok := ec2Subnets.Get(id)
+	if !ok {
 		ec2ErrorXML(w, "InvalidSubnetID.NotFound", fmt.Sprintf("The subnet ID '%s' does not exist", id), http.StatusBadRequest)
 		return
 	}
@@ -637,6 +639,7 @@ func handleDeleteSubnet(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	ec2ReconcileRegionalNatGatewaysLogged(r.Context(), deleted.VpcId)
 
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DeleteSubnetResponse %s>

@@ -105,7 +105,7 @@ func arTestErrorBody(t *testing.T, body string) (string, string) {
 func arTestCreateRepository(t *testing.T, baseURL, project, location, repoID string) {
 	t.Helper()
 	now := time.Now()
-	token := arTestAccessToken("sockerless-sim", now, now.Add(time.Hour))
+	token := arTestAccessToken(gcpBootstrapServiceAccountEmail, now, now.Add(time.Hour))
 	url := fmt.Sprintf("%s/v1/projects/%s/locations/%s/repositories?repositoryId=%s",
 		baseURL, project, location, repoID)
 	req, err := http.NewRequest(http.MethodPost, url, strings.NewReader(`{"format":"DOCKER"}`))

@@ -5,13 +5,12 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log"
-	"net"
 	"os"
-	"strconv"
 	"strings"
 
 	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/blobstore"
+	"github.com/e6qu/sockerless-cloud/sim/cacheengine"
 )
 
 // msRedisEnginesEnabled is whether the simulator runs workloads; one started
@@ -130,19 +129,22 @@ func msRedisInstallInstance(inst *MSRedisInstance, record *msRedisPlaneRecord, s
 	if spec.CA != "" {
 		port = msRedisTLSPort
 	}
-	primary, primaryIP, err := msRedisListen(inst.Name, port)
+	listeners, endpoints, err := cacheengine.Bind(inst.Name, []cacheengine.Endpoint{{Role: cacheengine.PrimaryEndpoint, Port: port}})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "[sim-memorystore] instance %s has no endpoint: %v\n", inst.Name, err)
 		return nil
 	}
-	var read net.Listener
-	var readIP string
 	if inst.ReadReplicasMode == "READ_REPLICAS_ENABLED" {
-		if read, readIP, err = msRedisListen(inst.Name+"#read", port); err != nil {
-			_ = primary.Close()
+		read, readEndpoints, err := cacheengine.Bind(inst.Name, []cacheengine.Endpoint{{Role: cacheengine.ReadEndpoint, Port: port}})
+		if err != nil {
+			cacheengine.CloseListeners(listeners)
 			fmt.Fprintf(os.Stderr, "[sim-memorystore] instance %s has no read endpoint: %v\n", inst.Name, err)
 			return nil
 		}
+		for key, listener := range read {
+			listeners[key] = listener
+		}
+		endpoints = append(endpoints, readEndpoints...)
 	}
 	record.Replicas = inst.ReplicaCount
 	record.Primary = 0
@@ -150,23 +152,20 @@ func msRedisInstallInstance(inst *MSRedisInstance, record *msRedisPlaneRecord, s
 	for node := 0; node <= inst.ReplicaCount; node++ {
 		record.Nodes = append(record.Nodes, node)
 	}
-	record.Endpoints = []msRedisEndpointRecord{{Role: msRedisPrimaryEndpoint, Address: primaryIP, Port: port}}
-	if read != nil {
-		record.Endpoints = append(record.Endpoints, msRedisEndpointRecord{Role: msRedisReadEndpoint, Address: readIP, Port: port})
-	}
+	record.Endpoints = endpoints
 	plane, err := msRedisNewPlane(inst.Name, spec, *record)
 	if err != nil {
-		_ = primary.Close()
-		if read != nil {
-			_ = read.Close()
-		}
+		cacheengine.CloseListeners(listeners)
 		return err
 	}
-	plane.serve(string(msRedisPrimaryEndpoint), primary, plane.primaryTarget)
-	inst.Host, inst.Port = primaryIP, port
-	if read != nil {
-		plane.serve(string(msRedisReadEndpoint), read, plane.readTarget)
-		inst.ReadEndpoint, inst.ReadEndpointPort = readIP, port
+	plane.ServeEndpoints(listeners)
+	for _, endpoint := range endpoints {
+		switch endpoint.Role {
+		case cacheengine.PrimaryEndpoint:
+			inst.Host, inst.Port = endpoint.Address, port
+		case cacheengine.ReadEndpoint:
+			inst.ReadEndpoint, inst.ReadEndpointPort = endpoint.Address, port
+		}
 	}
 	return nil
 }
@@ -178,31 +177,16 @@ func msRedisInstallCluster(cluster *MSRedisCluster, record *msRedisPlaneRecord, 
 		return nil
 	}
 	nodes := cluster.ShardCount * (cluster.ReplicaCount + 1)
-	listeners := map[string]net.Listener{}
-	fail := func(err error) {
-		for _, listener := range listeners {
-			_ = listener.Close()
-		}
-		fmt.Fprintf(os.Stderr, "[sim-memorystore] cluster %s has no endpoint: %v\n", cluster.Name, err)
-	}
-	discovery, discoveryIP, err := msRedisListen(cluster.Name, msRedisPort)
-	if err != nil {
-		fail(err)
-		return nil
-	}
-	listeners[string(msRedisDiscoveryEndpoint)] = discovery
-	endpoints := []msRedisEndpointRecord{{Role: msRedisDiscoveryEndpoint, Address: discoveryIP, Port: msRedisPort}}
+	wanted := []cacheengine.Endpoint{{Role: cacheengine.DiscoveryEndpoint, Port: msRedisPort}}
 	record.Nodes = nil
 	for node := 0; node < nodes; node++ {
-		key := "node-" + strconv.Itoa(node)
-		listener, ip, err := msRedisListen(cluster.Name+"#"+key, msRedisPort)
-		if err != nil {
-			fail(err)
-			return nil
-		}
-		listeners[key] = listener
-		endpoints = append(endpoints, msRedisEndpointRecord{Role: msRedisNodeEndpoint, Address: ip, Port: msRedisPort, Node: node})
+		wanted = append(wanted, cacheengine.Endpoint{Role: cacheengine.NodeEndpoint, Port: msRedisPort, Node: node})
 		record.Nodes = append(record.Nodes, node)
+	}
+	listeners, endpoints, err := cacheengine.Bind(cluster.Name, wanted)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "[sim-memorystore] cluster %s has no endpoint: %v\n", cluster.Name, err)
+		return nil
 	}
 	record.Endpoints, record.Shards, record.Replicas = endpoints, cluster.ShardCount, cluster.ReplicaCount
 	if spec.IAMAuth || spec.TokenAuth {
@@ -210,48 +194,12 @@ func msRedisInstallCluster(cluster *MSRedisCluster, record *msRedisPlaneRecord, 
 	}
 	plane, err := msRedisNewPlane(cluster.Name, spec, *record)
 	if err != nil {
-		for _, listener := range listeners {
-			_ = listener.Close()
-		}
+		cacheengine.CloseListeners(listeners)
 		return err
 	}
-	plane.serveEndpoints(listeners)
-	cluster.DiscoveryEndpoints = []MSRedisDiscoveryEndpoint{{Address: discoveryIP, Port: msRedisPort}}
+	plane.ServeEndpoints(listeners)
+	cluster.DiscoveryEndpoints = []MSRedisDiscoveryEndpoint{{Address: endpoints[0].Address, Port: msRedisPort}}
 	return nil
-}
-
-// serveEndpoints serves each endpoint the plane records from the listener
-// bound for it.
-func (p *msRedisPlane) serveEndpoints(listeners map[string]net.Listener) {
-	p.mu.RLock()
-	endpoints := append([]msRedisEndpointRecord(nil), p.endpoints...)
-	p.mu.RUnlock()
-	for _, endpoint := range endpoints {
-		listener, ok := listeners[endpoint.key()]
-		if !ok {
-			continue
-		}
-		switch endpoint.Role {
-		case msRedisPrimaryEndpoint:
-			p.serve(endpoint.key(), listener, p.primaryTarget)
-		case msRedisReadEndpoint:
-			p.serve(endpoint.key(), listener, p.readTarget)
-		case msRedisDiscoveryEndpoint:
-			p.serve(endpoint.key(), listener, p.discoveryTarget)
-		case msRedisNodeEndpoint:
-			p.serve(endpoint.key(), listener, fixedTarget(endpoint.Node))
-		}
-	}
-}
-
-// discoveryTarget is the node a cluster's discovery endpoint reaches; every
-// node answers a client's topology queries.
-func (p *msRedisPlane) discoveryTarget() (int, bool) {
-	order := p.nodeOrder()
-	if len(order) == 0 {
-		return 0, false
-	}
-	return order[int(p.readCursor.Add(1)-1)%len(order)], true
 }
 
 // msRedisStartEngine brings a new resource's engine up inside the create, so
@@ -264,7 +212,7 @@ func msRedisStartEngine(name string) error {
 	if !ok {
 		return nil
 	}
-	sim.RemoveVolumeSettled(plane.volume, "memorystore")
+	sim.RemoveVolumeSettled(plane.Volume(), "memorystore")
 	if err := plane.Ensure(); err != nil {
 		msRedisRemovePlane(name)
 		return err
@@ -333,15 +281,11 @@ func msRedisRecoverEndpoints(name string, spec msRedisPlaneSpec, record msRedisP
 	if err := plane.Adopt(); err != nil {
 		return fmt.Errorf("re-adopt the Redis engine of %s: %w", name, err)
 	}
-	listeners := map[string]net.Listener{}
-	for _, endpoint := range record.Endpoints {
-		listener, err := net.Listen("tcp", net.JoinHostPort(endpoint.Address, strconv.Itoa(endpoint.port())))
-		if err != nil {
-			return fmt.Errorf("rebind %s at %s: %w", name, endpoint.Address, err)
-		}
-		listeners[endpoint.key()] = listener
+	listeners, err := cacheengine.Rebind(name, record.Endpoints)
+	if err != nil {
+		return err
 	}
-	plane.serveEndpoints(listeners)
+	plane.ServeEndpoints(listeners)
 	return nil
 }
 

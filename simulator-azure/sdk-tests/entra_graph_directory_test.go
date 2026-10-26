@@ -194,6 +194,7 @@ func runGraphDirectorySurface(t *testing.T, version int, label string, visited m
 		"userPrincipalName": memberUPN,
 		"mailNickname":      "graph-surface-member" + suffix,
 		"accountEnabled":    true,
+		"passwordProfile":   map[string]any{"password": "Test1234!", "forceChangePasswordNextSignIn": false},
 	}, "", nil)
 	require.Equal(t, http.StatusCreated, status)
 	memberID, _ := member["id"].(string)
@@ -463,7 +464,7 @@ func runGraphDirectorySurface(t *testing.T, version int, label string, visited m
 		"grant_type": {"password"},
 		"client_id":  {"client-graph-surface"},
 		"username":   {memberUPN},
-		"password":   {"irrelevant"},
+		"password":   {"Test1234!"},
 		"scope":      {"https://graph.microsoft.com/.default"},
 	})
 	bearer := map[string]string{"Authorization": "Bearer " + memberToken.AccessToken}

@@ -2,7 +2,6 @@ package gcp_sdk_test
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
 	"net"
@@ -15,7 +14,6 @@ import (
 	"strconv"
 	"strings"
 	"testing"
-	"time"
 
 	resourcemanager "cloud.google.com/go/resourcemanager/apiv3"
 	"cloud.google.com/go/resourcemanager/apiv3/resourcemanagerpb"
@@ -23,8 +21,11 @@ import (
 	"github.com/e6qu/sockerless-cloud/testutil/simready"
 
 	"github.com/e6qu/sockerless-cloud/testutil/freeports"
+	"github.com/e6qu/sockerless-cloud/testutil/gcpbootstrap"
+	"github.com/e6qu/sockerless-cloud/testutil/loopbacktls"
 	"github.com/e6qu/sockerless-cloud/testutil/scratchimage"
 	"golang.org/x/oauth2"
+	"golang.org/x/oauth2/google"
 	"google.golang.org/api/option"
 )
 
@@ -139,12 +140,23 @@ func TestMain(m *testing.M) {
 		log.Fatalf("Failed to find a free DNS port: %v", err)
 	}
 
+	tlsDir, err := os.MkdirTemp("", "gcp-sdk-grpc-tls-*")
+	if err != nil {
+		log.Fatalf("Failed to create the gRPC certificate directory: %v", err)
+	}
+	if grpcTLS, err = loopbacktls.Write(tlsDir); err != nil {
+		log.Fatalf("Failed to issue the gRPC port's certificate: %v", err)
+	}
+	if grpcRoots, err = grpcTLS.Pool(); err != nil {
+		log.Fatalf("Failed to load the gRPC port's authority: %v", err)
+	}
+
 	simCmd = exec.Command(binaryPath)
-	simCmd.Env = append(os.Environ(),
+	simCmd.Env = append(append(os.Environ(),
 		fmt.Sprintf("SIM_LISTEN_ADDR=:%d", port),
 		fmt.Sprintf("SIM_GCP_GRPC_PORT=%d", grpcPort),
 		fmt.Sprintf("SIM_DNS_PORT=%d", dnsPort),
-	)
+	), simGRPCEnv()...)
 	simCmd.Stdout = os.Stdout
 	if err := simready.Start(simCmd, os.Stderr); err != nil {
 		simCmd.Process.Kill()
@@ -155,17 +167,13 @@ func TestMain(m *testing.M) {
 	grpcAddr = fmt.Sprintf("127.0.0.1:%d", grpcPort)
 	dnsAddr = fmt.Sprintf("127.0.0.1:%d", dnsPort)
 
-	// The Cloud Storage, Bigtable and Spanner clients read their endpoint from
-	// these variables. Set them once for the process, since every test talks to
-	// the same simulator and a test that sets one cannot run in parallel.
-	for name, value := range map[string]string{
-		"STORAGE_EMULATOR_HOST":  strings.TrimPrefix(baseURL, "http://"),
-		"BIGTABLE_EMULATOR_HOST": grpcAddr,
-		"SPANNER_EMULATOR_HOST":  grpcAddr,
-	} {
-		if err := os.Setenv(name, value); err != nil {
-			log.Fatalf("set %s: %v", name, err)
-		}
+	// The Cloud Storage client reads its endpoint from this variable. Set it
+	// once for the process, since every test talks to the same simulator and a
+	// test that sets one cannot run in parallel. The Bigtable and Spanner
+	// clients take the gRPC endpoint as an option instead: their emulator
+	// variables make them send no credential.
+	if err := os.Setenv("STORAGE_EMULATOR_HOST", strings.TrimPrefix(baseURL, "http://")); err != nil {
+		log.Fatalf("set STORAGE_EMULATOR_HOST: %v", err)
 	}
 
 	// The data plane now verifies an OAuth2 access token on every request, so
@@ -191,6 +199,7 @@ func TestMain(m *testing.M) {
 	code := m.Run()
 	simCmd.Process.Kill()
 	simCmd.Wait()
+	os.RemoveAll(tlsDir)
 	os.Exit(code)
 }
 
@@ -223,13 +232,11 @@ func createHarnessProject() (string, error) {
 	return strings.TrimPrefix(project.GetName(), "projects/"), nil
 }
 
-// simTokenSource returns an oauth2.TokenSource that fetches a real access token
-// from the simulator's OAuth2 token endpoint — the same endpoint a
-// service-account JWT-bearer flow hits against Google. The simulator signs the
-// token with its access-token key and the data-plane bearer middleware verifies
-// it, so this is the genuine credential path a client uses, differing from the
-// real cloud only in the endpoint coordinate. The token is cached and refreshed
-// by oauth2.ReuseTokenSource until it nears expiry.
+// simTokenSource returns an oauth2.TokenSource for the simulator's bootstrap
+// service account, minted through the service-account JWT-bearer flow a client
+// runs against Google, differing only in the token endpoint coordinate. The
+// token is cached and refreshed by oauth2.ReuseTokenSource until it nears
+// expiry.
 func simTokenSource() oauth2.TokenSource {
 	return simTokenSourceFor(baseURL)
 }
@@ -323,35 +330,19 @@ const (
 	cloudBuildHost = "cloudbuild.googleapis.com"
 )
 
+// simTokenFetcher mints a fresh access token for the simulator's bootstrap
+// service account on every call: the client library reads the account's
+// credential file, signs a JWT-bearer assertion with its key and exchanges it
+// at the file's token_uri, the simulator's token endpoint.
 type simTokenFetcher struct{ base string }
 
 func (f simTokenFetcher) Token() (*oauth2.Token, error) {
-	resp, err := http.PostForm(f.base+"/token", url.Values{
-		"grant_type": {"urn:ietf:params:oauth:grant-type:jwt-bearer"},
-	})
+	config, err := google.JWTConfigFromJSON(gcpbootstrap.CredentialJSON(f.base+"/token"),
+		"https://www.googleapis.com/auth/cloud-platform")
 	if err != nil {
-		return nil, fmt.Errorf("fetch simulator access token: %w", err)
+		return nil, fmt.Errorf("read the bootstrap credential: %w", err)
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("simulator token endpoint returned %d", resp.StatusCode)
-	}
-	var body struct {
-		AccessToken string `json:"access_token"`
-		ExpiresIn   int    `json:"expires_in"`
-		TokenType   string `json:"token_type"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
-		return nil, fmt.Errorf("decode simulator token response: %w", err)
-	}
-	if body.AccessToken == "" {
-		return nil, fmt.Errorf("simulator token endpoint returned an empty access token")
-	}
-	return &oauth2.Token{
-		AccessToken: body.AccessToken,
-		TokenType:   body.TokenType,
-		Expiry:      time.Now().Add(time.Duration(body.ExpiresIn) * time.Second),
-	}, nil
+	return config.TokenSource(context.Background()).Token()
 }
 
 // simWorkloadImage is the base image these suites run as a container workload

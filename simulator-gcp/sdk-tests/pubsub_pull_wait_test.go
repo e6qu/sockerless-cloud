@@ -11,20 +11,13 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/option"
 	pubsub "google.golang.org/api/pubsub/v1"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 )
 
 // psGapicClients builds the generated cloud.google.com/go/pubsub/apiv1
 // Publisher and Subscriber clients against the simulator's gRPC endpoint.
 func psGapicClients(t *testing.T) (*vkit.PublisherClient, *vkit.SubscriberClient) {
 	t.Helper()
-	opts := []option.ClientOption{
-		option.WithEndpoint(grpcAddr),
-		option.WithoutAuthentication(),
-		option.WithGRPCDialOption(grpc.WithTransportCredentials(insecure.NewCredentials())),
-		option.WithTelemetryDisabled(),
-	}
+	opts := append(simGRPCClientOptions(), option.WithTelemetryDisabled())
 	pub, err := vkit.NewPublisherClient(ctx, opts...)
 	require.NoError(t, err)
 	t.Cleanup(func() { pub.Close() })

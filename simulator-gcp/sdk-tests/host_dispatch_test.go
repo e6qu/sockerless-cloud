@@ -31,7 +31,7 @@ var execCallForms = []string{
 
 // Workload-dispatch invariant. No sim handler may execute a workload via
 // `os/exec`. Workloads run in the container engine honouring the workload's
-// Architecture field, as specs/SIMULATOR_EXECUTION.md describes.
+// Architecture field, as docs/architecture.md describes.
 //
 // The scan walks every non-test Go file of the simulator module and of the
 // framework module `sim/` it is built on, so the framework cannot host what
@@ -177,7 +177,7 @@ func TestNoOsExecOfWorkloads(t *testing.T) {
 			}
 		}
 		if len(fileSites) == 0 {
-			t.Errorf("%s imports os/exec but has no sanctioned call site — workloads must dispatch through the container engine. See specs/SIMULATOR_EXECUTION.md.", rel)
+			t.Errorf("%s imports os/exec but has no sanctioned call site — workloads must dispatch through the container engine. See docs/architecture.md.", rel)
 			return nil
 		}
 
@@ -195,7 +195,7 @@ func TestNoOsExecOfWorkloads(t *testing.T) {
 				}
 			}
 			if containsAny(residue, execCallForms) {
-				t.Errorf("%s:%d reaches os/exec at an unsanctioned call site:\n\t%s\nWorkloads must dispatch through the container engine. See specs/SIMULATOR_EXECUTION.md.",
+				t.Errorf("%s:%d reaches os/exec at an unsanctioned call site:\n\t%s\nWorkloads must dispatch through the container engine. See docs/architecture.md.",
 					rel, lineNo+1, strings.TrimSpace(line))
 			}
 		}

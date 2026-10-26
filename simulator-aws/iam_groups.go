@@ -84,14 +84,15 @@ func registerIAMGroups(r *AWSQueryRouter, srv *sim.Server) {
 // iamPolicyDocsForRole collects a role's inline + attached managed policy docs.
 func iamPolicyDocsForRole(roleName string) []iamPolicyDoc {
 	var docs []iamPolicyDoc
-	for _, rp := range iamRolePolicies.List() {
-		if rp.RoleName == roleName {
+	for _, row := range iamRolePolicies.ListPrefix(iamOwnedKeyPrefix(roleName)) {
+		if rp := row.Item; rp.RoleName == roleName {
 			if doc, err := parseIAMPolicy(rp.PolicyDocument); err == nil {
 				docs = append(docs, doc)
 			}
 		}
 	}
-	for _, ap := range iamAttachedPolicies.List() {
+	for _, row := range iamAttachedPolicies.ListPrefix(iamOwnedKeyPrefix(roleName)) {
+		ap := row.Item
 		if ap.RoleName != roleName {
 			continue
 		}
@@ -144,25 +145,36 @@ func handleIAMDeleteUserBoundary(w http.ResponseWriter, r *http.Request) {
 // every group the user belongs to (IAM group inheritance).
 func iamEffectivePolicyDocsForUser(userName string) []iamPolicyDoc {
 	docs := iamPolicyDocsForUser(userName)
-	for _, m := range iamGroupMembers.List() {
-		if m.UserName != userName {
-			continue
-		}
+	for _, m := range iamGroupMembersByUser.LookupAll(iamGroupMembers, userName, func(m IAMGroupMember) []string {
+		return []string{m.UserName}
+	}) {
 		docs = append(docs, iamPolicyDocsForGroup(m.GroupName)...)
 	}
 	return docs
 }
 
+// iamGroupMembersByUser answers which groups a user belongs to; the store is
+// keyed by group first.
+var iamGroupMembersByUser sim.GenerationIndex[IAMGroupMember]
+
+// iamOwnedKeyPrefix is the key prefix of the rows a user, group or role owns
+// in the stores keyed "<owner>/<policy>". IAM names cannot contain "/", so the
+// prefix names exactly one owner.
+func iamOwnedKeyPrefix(owner string) string {
+	return owner + "/"
+}
+
 func iamPolicyDocsForGroup(groupName string) []iamPolicyDoc {
 	var docs []iamPolicyDoc
-	for _, gp := range iamGroupPolicies.List() {
-		if gp.GroupName == groupName {
+	for _, row := range iamGroupPolicies.ListPrefix(iamOwnedKeyPrefix(groupName)) {
+		if gp := row.Item; gp.GroupName == groupName {
 			if doc, err := parseIAMPolicy(gp.PolicyDocument); err == nil {
 				docs = append(docs, doc)
 			}
 		}
 	}
-	for _, ga := range iamGroupAttached.List() {
+	for _, row := range iamGroupAttached.ListPrefix(iamOwnedKeyPrefix(groupName)) {
+		ga := row.Item
 		if ga.GroupName != groupName {
 			continue
 		}

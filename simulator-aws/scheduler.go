@@ -113,6 +113,9 @@ func registerScheduler(srv *sim.Server) {
 func schedulerRecorded(eventName string, h http.HandlerFunc) http.HandlerFunc {
 	restRegisterOp("scheduler.amazonaws.com", eventName)
 	return func(w http.ResponseWriter, r *http.Request) {
+		if !awsRESTAuthenticateBody(w, r, "scheduler.amazonaws.com") {
+			return
+		}
 		rec := &cloudTrailStatusRecorder{ResponseWriter: w}
 		if iamEnforceRESTRoute(rec, r, "scheduler.amazonaws.com") {
 			h(rec, r)
@@ -585,8 +588,13 @@ func schedulerServeTags(w http.ResponseWriter, r *http.Request) {
 		schedulerError(w, "ValidationException", http.StatusBadRequest, "unsupported method %s", r.Method)
 		return
 	}
+	if !awsRESTAuthenticateBody(w, r, "scheduler.amazonaws.com") {
+		return
+	}
 	rec := &cloudTrailStatusRecorder{ResponseWriter: w}
-	h(rec, r)
+	if iamEnforceRESTRoute(rec, r, "scheduler.amazonaws.com") {
+		h(rec, r)
+	}
 	if rec.statusCode() >= 500 {
 		return
 	}

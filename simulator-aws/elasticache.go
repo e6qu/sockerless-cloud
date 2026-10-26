@@ -10,46 +10,8 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// ElastiCache — awsQuery protocol. Surface scoped to the 90th-
-// percentile lifecycle: CreateCacheCluster, DescribeCacheClusters
-// (waiter), ModifyCacheCluster, DeleteCacheCluster, plus tags.
-// Engine itself (Redis / Memcached) is not simulated; the sim
-// reports Status=available immediately.
-
-type ECCluster struct {
-	CacheClusterId         string
-	CacheNodeType          string
-	Engine                 string
-	EngineVersion          string
-	CacheClusterStatus     string
-	NumCacheNodes          int
-	CacheClusterCreateTime string
-	ARN                    string
-	Endpoint               string
-	Port                   int
-	Tags                   map[string]string
-}
-
-// ECReplicationGroup models the subset of the ReplicationGroup shape
-// the SDK + terraform-provider-aws read back after Create/Modify.
-type ECReplicationGroup struct {
-	ReplicationGroupId     string
-	Description            string
-	Status                 string
-	CacheNodeType          string
-	Engine                 string
-	AutomaticFailover      string
-	MultiAZ                string
-	ClusterEnabled         bool
-	MemberClusters         []string
-	SnapshotRetentionLimit int
-	SnapshotWindow         string
-	ConfigEndpointAddress  string
-	ConfigEndpointPort     int
-	ARN                    string
-	CreateTime             string
-	Tags                   map[string]string
-}
+// Amazon ElastiCache — awsQuery protocol. Cache clusters, replication
+// groups and serverless caches run real engines (elasticache_engine.go).
 
 // ECSubnetGroup models the CacheSubnetGroup shape.
 type ECSubnetGroup struct {
@@ -250,6 +212,16 @@ func registerElastiCache(r *AWSQueryRouter, srv *sim.Server) {
 	r.RegisterVersioned(ecAPIVersion, "DescribeServiceUpdates", handleECDescribeServiceUpdates)
 	r.RegisterVersioned(ecAPIVersion, "DescribeCacheSecurityGroups", handleECDescribeCacheSecurityGroups)
 	registerElastiCacheServerless(r, srv)
+	ecEngineRecords = sim.MakeStore[ecEngineRecord](srv.DB(), "elasticache_engines")
+	// A persistent control-plane restart rebinds every endpoint, re-adopts the
+	// engine workloads the earlier process left and resumes the transitions
+	// it left unfinished. The API-only tier runs no engines.
+	if ecRunsEngines() {
+		if err := ecRecoverEngines(); err != nil {
+			panic(fmt.Sprintf("recover Amazon ElastiCache data planes: %v", err))
+		}
+	}
+	ecRecoverTransitions()
 }
 
 func ecReservedNodeARN(id string) string {
@@ -293,285 +265,6 @@ func ecXMLResponse(w http.ResponseWriter, op string, body string, requestID stri
 
 func ecErrorXML(w http.ResponseWriter, code, message string, status int, requestID string) {
 	awsWriteError(w, awsErrorEnvelope{Protocol: awsQuery, Namespace: "http://elasticache.amazonaws.com/doc/2015-02-02/"}, status, code, message, requestID)
-}
-
-func renderECCluster(c ECCluster) string {
-	var b strings.Builder
-	b.WriteString("<CacheCluster>")
-	fmt.Fprintf(&b, "<CacheClusterId>%s</CacheClusterId>", xmlEscape(c.CacheClusterId))
-	fmt.Fprintf(&b, "<CacheNodeType>%s</CacheNodeType>", xmlEscape(c.CacheNodeType))
-	fmt.Fprintf(&b, "<Engine>%s</Engine>", xmlEscape(c.Engine))
-	fmt.Fprintf(&b, "<EngineVersion>%s</EngineVersion>", xmlEscape(c.EngineVersion))
-	fmt.Fprintf(&b, "<CacheClusterStatus>%s</CacheClusterStatus>", xmlEscape(c.CacheClusterStatus))
-	fmt.Fprintf(&b, "<NumCacheNodes>%d</NumCacheNodes>", c.NumCacheNodes)
-	fmt.Fprintf(&b, "<CacheClusterCreateTime>%s</CacheClusterCreateTime>", xmlEscape(c.CacheClusterCreateTime))
-	fmt.Fprintf(&b, "<ARN>%s</ARN>", xmlEscape(c.ARN))
-	fmt.Fprintf(&b, "<ConfigurationEndpoint><Address>%s</Address><Port>%d</Port></ConfigurationEndpoint>", xmlEscape(c.Endpoint), c.Port)
-	b.WriteString("</CacheCluster>")
-	return b.String()
-}
-
-func handleECCreate(w http.ResponseWriter, r *http.Request) {
-	id := r.FormValue("CacheClusterId")
-	if id == "" {
-		ecErrorXML(w, "MissingParameter", "CacheClusterId is required", http.StatusBadRequest, sim.RequestID(r.Context()))
-		return
-	}
-	if _, ok := ecClusters.Get(id); ok {
-		ecErrorXML(w, "CacheClusterAlreadyExists", "Cluster already exists", http.StatusBadRequest, sim.RequestID(r.Context()))
-		return
-	}
-	engine := r.FormValue("Engine")
-	port := 6379
-	if engine == "memcached" {
-		port = 11211
-	}
-	if p := atoiOrZero(r.FormValue("Port")); p > 0 {
-		port = p
-	}
-	num := atoiOrZero(r.FormValue("NumCacheNodes"))
-	if num == 0 {
-		num = 1
-	}
-	engineVersion := r.FormValue("EngineVersion")
-	if engineVersion == "" {
-		engineVersion = ecDefaultEngineVersion(engine)
-	}
-	c := ECCluster{
-		CacheClusterId:         id,
-		CacheNodeType:          r.FormValue("CacheNodeType"),
-		Engine:                 engine,
-		EngineVersion:          engineVersion,
-		CacheClusterStatus:     "available",
-		NumCacheNodes:          num,
-		CacheClusterCreateTime: time.Now().UTC().Format(time.RFC3339),
-		ARN:                    ecClusterARN(id),
-		Endpoint:               fmt.Sprintf("%s.%s.cache.amazonaws.com", id, awsRegion()),
-		Port:                   port,
-		Tags:                   parseAWSQueryTagMap(r, "Tags.Tag"),
-	}
-	ecClusters.Put(id, c)
-	ecXMLResponse(w, "CreateCacheCluster", renderECCluster(c), sim.RequestID(r.Context()))
-}
-
-func handleECDescribe(w http.ResponseWriter, r *http.Request) {
-	wanted := r.FormValue("CacheClusterId")
-	var b strings.Builder
-	b.WriteString("<CacheClusters>")
-	matched := false
-	for _, c := range ecClusters.List() {
-		if wanted != "" && c.CacheClusterId != wanted {
-			continue
-		}
-		matched = true
-		b.WriteString(renderECCluster(c))
-	}
-	if wanted != "" && !matched {
-		ecErrorXML(w, "CacheClusterNotFound", fmt.Sprintf("Cache cluster %q not found", wanted), http.StatusNotFound, sim.RequestID(r.Context()))
-		return
-	}
-	b.WriteString("</CacheClusters>")
-	ecXMLResponse(w, "DescribeCacheClusters", b.String(), sim.RequestID(r.Context()))
-}
-
-func handleECModify(w http.ResponseWriter, r *http.Request) {
-	id := r.FormValue("CacheClusterId")
-	if _, ok := ecClusters.Get(id); !ok {
-		ecErrorXML(w, "CacheClusterNotFound", "Cluster not found", http.StatusNotFound, sim.RequestID(r.Context()))
-		return
-	}
-	ecClusters.Update(id, func(c *ECCluster) {
-		if v := r.FormValue("CacheNodeType"); v != "" {
-			c.CacheNodeType = v
-		}
-		if v := r.FormValue("EngineVersion"); v != "" {
-			c.EngineVersion = v
-		}
-		if v := r.FormValue("NumCacheNodes"); v != "" {
-			c.NumCacheNodes = atoiOrZero(v)
-		}
-	})
-	updated, _ := ecClusters.Get(id)
-	ecXMLResponse(w, "ModifyCacheCluster", renderECCluster(updated), sim.RequestID(r.Context()))
-}
-
-func handleECDelete(w http.ResponseWriter, r *http.Request) {
-	id := r.FormValue("CacheClusterId")
-	c, ok := ecClusters.Get(id)
-	if !ok {
-		ecErrorXML(w, "CacheClusterNotFound", "Cluster not found", http.StatusNotFound, sim.RequestID(r.Context()))
-		return
-	}
-	c.CacheClusterStatus = "deleting"
-	ecClusters.Delete(id)
-	ecXMLResponse(w, "DeleteCacheCluster", renderECCluster(c), sim.RequestID(r.Context()))
-}
-
-func handleECReboot(w http.ResponseWriter, r *http.Request) {
-	id := r.FormValue("CacheClusterId")
-	if _, ok := ecClusters.Get(id); !ok {
-		ecErrorXML(w, "CacheClusterNotFound", "Cluster not found", http.StatusNotFound, sim.RequestID(r.Context()))
-		return
-	}
-	ecClusters.Update(id, func(c *ECCluster) {
-		c.CacheClusterStatus = "rebooting cache cluster nodes"
-	})
-	updated, _ := ecClusters.Get(id)
-	ecXMLResponse(w, "RebootCacheCluster", renderECCluster(updated), sim.RequestID(r.Context()))
-}
-
-func renderECReplGroup(g ECReplicationGroup) string {
-	var b strings.Builder
-	b.WriteString("<ReplicationGroup>")
-	fmt.Fprintf(&b, "<ReplicationGroupId>%s</ReplicationGroupId>", xmlEscape(g.ReplicationGroupId))
-	fmt.Fprintf(&b, "<Description>%s</Description>", xmlEscape(g.Description))
-	fmt.Fprintf(&b, "<Status>%s</Status>", xmlEscape(g.Status))
-	fmt.Fprintf(&b, "<CacheNodeType>%s</CacheNodeType>", xmlEscape(g.CacheNodeType))
-	fmt.Fprintf(&b, "<Engine>%s</Engine>", xmlEscape(g.Engine))
-	fmt.Fprintf(&b, "<AutomaticFailover>%s</AutomaticFailover>", xmlEscape(g.AutomaticFailover))
-	fmt.Fprintf(&b, "<MultiAZ>%s</MultiAZ>", xmlEscape(g.MultiAZ))
-	fmt.Fprintf(&b, "<ClusterEnabled>%t</ClusterEnabled>", g.ClusterEnabled)
-	fmt.Fprintf(&b, "<SnapshotRetentionLimit>%d</SnapshotRetentionLimit>", g.SnapshotRetentionLimit)
-	if g.SnapshotWindow != "" {
-		fmt.Fprintf(&b, "<SnapshotWindow>%s</SnapshotWindow>", xmlEscape(g.SnapshotWindow))
-	}
-	fmt.Fprintf(&b, "<ReplicationGroupCreateTime>%s</ReplicationGroupCreateTime>", xmlEscape(g.CreateTime))
-	fmt.Fprintf(&b, "<ARN>%s</ARN>", xmlEscape(g.ARN))
-	b.WriteString("<MemberClusters>")
-	for _, m := range g.MemberClusters {
-		fmt.Fprintf(&b, "<ClusterId>%s</ClusterId>", xmlEscape(m))
-	}
-	b.WriteString("</MemberClusters>")
-	fmt.Fprintf(&b, "<ConfigurationEndpoint><Address>%s</Address><Port>%d</Port></ConfigurationEndpoint>", xmlEscape(g.ConfigEndpointAddress), g.ConfigEndpointPort)
-	b.WriteString("</ReplicationGroup>")
-	return b.String()
-}
-
-func handleECCreateReplGroup(w http.ResponseWriter, r *http.Request) {
-	id := r.FormValue("ReplicationGroupId")
-	if id == "" {
-		ecErrorXML(w, "MissingParameter", "ReplicationGroupId is required", http.StatusBadRequest, sim.RequestID(r.Context()))
-		return
-	}
-	if _, ok := ecReplGroups.Get(id); ok {
-		ecErrorXML(w, "ReplicationGroupAlreadyExistsFault", "Replication group already exists", http.StatusBadRequest, sim.RequestID(r.Context()))
-		return
-	}
-	engine := r.FormValue("Engine")
-	if engine == "" {
-		engine = "redis"
-	}
-	port := 6379
-	if p := atoiOrZero(r.FormValue("Port")); p > 0 {
-		port = p
-	}
-	failover := "disabled"
-	if strings.EqualFold(r.FormValue("AutomaticFailoverEnabled"), "true") {
-		failover = "enabled"
-	}
-	multiAZ := "disabled"
-	if strings.EqualFold(r.FormValue("MultiAZEnabled"), "true") {
-		multiAZ = "enabled"
-	}
-	clusterEnabled := strings.EqualFold(r.FormValue("ClusterMode"), "enabled") || atoiOrZero(r.FormValue("NumNodeGroups")) > 1
-	num := atoiOrZero(r.FormValue("NumCacheClusters"))
-	if num == 0 {
-		num = 1
-	}
-	members := make([]string, 0, num)
-	for i := 1; i <= num; i++ {
-		members = append(members, fmt.Sprintf("%s-%03d", id, i))
-	}
-	g := ECReplicationGroup{
-		ReplicationGroupId:     id,
-		Description:            r.FormValue("ReplicationGroupDescription"),
-		Status:                 "available",
-		CacheNodeType:          r.FormValue("CacheNodeType"),
-		Engine:                 engine,
-		AutomaticFailover:      failover,
-		MultiAZ:                multiAZ,
-		ClusterEnabled:         clusterEnabled,
-		MemberClusters:         members,
-		SnapshotRetentionLimit: atoiOrZero(r.FormValue("SnapshotRetentionLimit")),
-		SnapshotWindow:         r.FormValue("SnapshotWindow"),
-		ConfigEndpointAddress:  fmt.Sprintf("clustercfg.%s.%s.cache.amazonaws.com", id, awsRegion()),
-		ConfigEndpointPort:     port,
-		ARN:                    ecReplGroupARN(id),
-		CreateTime:             time.Now().UTC().Format(time.RFC3339),
-		Tags:                   parseAWSQueryTagMap(r, "Tags.Tag"),
-	}
-	ecReplGroups.Put(id, g)
-	ecXMLResponse(w, "CreateReplicationGroup", renderECReplGroup(g), sim.RequestID(r.Context()))
-}
-
-func handleECDescribeReplGroups(w http.ResponseWriter, r *http.Request) {
-	wanted := r.FormValue("ReplicationGroupId")
-	var b strings.Builder
-	b.WriteString("<ReplicationGroups>")
-	matched := false
-	for _, g := range ecReplGroups.List() {
-		if wanted != "" && g.ReplicationGroupId != wanted {
-			continue
-		}
-		matched = true
-		b.WriteString(renderECReplGroup(g))
-	}
-	if wanted != "" && !matched {
-		ecErrorXML(w, "ReplicationGroupNotFoundFault", fmt.Sprintf("Replication group %q not found", wanted), http.StatusNotFound, sim.RequestID(r.Context()))
-		return
-	}
-	b.WriteString("</ReplicationGroups>")
-	ecXMLResponse(w, "DescribeReplicationGroups", b.String(), sim.RequestID(r.Context()))
-}
-
-func handleECModifyReplGroup(w http.ResponseWriter, r *http.Request) {
-	id := r.FormValue("ReplicationGroupId")
-	if _, ok := ecReplGroups.Get(id); !ok {
-		ecErrorXML(w, "ReplicationGroupNotFoundFault", "Replication group not found", http.StatusNotFound, sim.RequestID(r.Context()))
-		return
-	}
-	ecReplGroups.Update(id, func(g *ECReplicationGroup) {
-		if v := r.FormValue("ReplicationGroupDescription"); v != "" {
-			g.Description = v
-		}
-		if v := r.FormValue("CacheNodeType"); v != "" {
-			g.CacheNodeType = v
-		}
-		if v := r.FormValue("SnapshotRetentionLimit"); v != "" {
-			g.SnapshotRetentionLimit = atoiOrZero(v)
-		}
-		if v := r.FormValue("SnapshotWindow"); v != "" {
-			g.SnapshotWindow = v
-		}
-		if v := r.FormValue("AutomaticFailoverEnabled"); v != "" {
-			if strings.EqualFold(v, "true") {
-				g.AutomaticFailover = "enabled"
-			} else {
-				g.AutomaticFailover = "disabled"
-			}
-		}
-		if v := r.FormValue("MultiAZEnabled"); v != "" {
-			if strings.EqualFold(v, "true") {
-				g.MultiAZ = "enabled"
-			} else {
-				g.MultiAZ = "disabled"
-			}
-		}
-	})
-	updated, _ := ecReplGroups.Get(id)
-	ecXMLResponse(w, "ModifyReplicationGroup", renderECReplGroup(updated), sim.RequestID(r.Context()))
-}
-
-func handleECDeleteReplGroup(w http.ResponseWriter, r *http.Request) {
-	id := r.FormValue("ReplicationGroupId")
-	g, ok := ecReplGroups.Get(id)
-	if !ok {
-		ecErrorXML(w, "ReplicationGroupNotFoundFault", "Replication group not found", http.StatusNotFound, sim.RequestID(r.Context()))
-		return
-	}
-	g.Status = "deleting"
-	ecReplGroups.Delete(id)
-	ecXMLResponse(w, "DeleteReplicationGroup", renderECReplGroup(g), sim.RequestID(r.Context()))
 }
 
 func renderECSubnetGroup(g ECSubnetGroup) string {
@@ -1533,17 +1226,9 @@ func handleECDescribeEvents(w http.ResponseWriter, r *http.Request) {
 
 func handleECDescribeCacheEngineVersions(w http.ResponseWriter, r *http.Request) {
 	wantEngine := strings.ToLower(r.FormValue("Engine"))
-	versions := []struct {
-		Engine, Version, Family, Desc string
-	}{
-		{"redis", "7.1", "redis7", "Redis"},
-		{"redis", "6.2", "redis6.x", "Redis"},
-		{"valkey", "8.0", "valkey8", "Valkey"},
-		{"memcached", "1.6.22", "memcached1.6", "memcached"},
-	}
 	var b strings.Builder
 	b.WriteString("<CacheEngineVersions>")
-	for _, v := range versions {
+	for _, v := range ecEngineVersions {
 		if wantEngine != "" && v.Engine != wantEngine {
 			continue
 		}
@@ -1551,8 +1236,8 @@ func handleECDescribeCacheEngineVersions(w http.ResponseWriter, r *http.Request)
 		fmt.Fprintf(&b, "<Engine>%s</Engine>", xmlEscape(v.Engine))
 		fmt.Fprintf(&b, "<EngineVersion>%s</EngineVersion>", xmlEscape(v.Version))
 		fmt.Fprintf(&b, "<CacheParameterGroupFamily>%s</CacheParameterGroupFamily>", xmlEscape(v.Family))
-		fmt.Fprintf(&b, "<CacheEngineDescription>%s</CacheEngineDescription>", xmlEscape(v.Desc))
-		fmt.Fprintf(&b, "<CacheEngineVersionDescription>%s %s</CacheEngineVersionDescription>", xmlEscape(v.Desc), xmlEscape(v.Version))
+		fmt.Fprintf(&b, "<CacheEngineDescription>%s</CacheEngineDescription>", xmlEscape(v.Description))
+		fmt.Fprintf(&b, "<CacheEngineVersionDescription>%s %s</CacheEngineVersionDescription>", xmlEscape(v.Description), xmlEscape(v.Version))
 		b.WriteString("</CacheEngineVersion>")
 	}
 	b.WriteString("</CacheEngineVersions>")

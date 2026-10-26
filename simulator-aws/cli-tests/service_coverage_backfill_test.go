@@ -169,6 +169,7 @@ func TestElastiCacheCLI_RemoveTagsFromResource(t *testing.T) {
 	arn := strings.TrimSpace(runCLI(t, awsCLI("elasticache", "create-cache-cluster", "--cache-cluster-id", "cli-cov-cc",
 		"--engine", "redis", "--cache-node-type", "cache.t3.micro", "--num-cache-nodes", "1",
 		"--tags", "Key=Name,Value=cov", "--query", "CacheCluster.ARN", "--output", "text")))
+	t.Cleanup(func() { _ = awsCLI("elasticache", "delete-cache-cluster", "--cache-cluster-id", "cli-cov-cc").Run() })
 	runCLI(t, awsCLI("elasticache", "add-tags-to-resource", "--resource-name", arn, "--tags", "Key=env,Value=ci"))
 	runCLI(t, awsCLI("elasticache", "remove-tags-from-resource", "--resource-name", arn, "--tag-keys", "env"))
 	keys := runCLI(t, awsCLI("elasticache", "list-tags-for-resource", "--resource-name", arn, "--query", "TagList[].Key", "--output", "text"))

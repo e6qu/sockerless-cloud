@@ -29,7 +29,6 @@ import (
 	"google.golang.org/api/option"
 	spanneradmin "google.golang.org/api/spanner/v1"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 )
 
 // freePersistentSimPorts picks the HTTP and gRPC ports for a dedicated
@@ -94,14 +93,14 @@ func startPersistentSimulator(t *testing.T, stateDir string, httpPort, grpcPort 
 func startPersistentSimulatorOn(t *testing.T, runtime, stateDir string, httpPort, grpcPort int) *exec.Cmd {
 	t.Helper()
 	cmd := exec.Command(binaryPath)
-	cmd.Env = append(os.Environ(),
+	cmd.Env = append(append(os.Environ(),
 		fmt.Sprintf("SIM_LISTEN_ADDR=:%d", httpPort),
 		fmt.Sprintf("SIM_GCP_GRPC_PORT=%d", grpcPort),
 		"SIM_RUNTIME="+runtime,
 		"SIM_PERSIST=true",
 		"SIM_DATA_DIR="+stateDir,
 		"SIM_LOG_LEVEL=warn",
-	)
+	), simGRPCEnv()...)
 	cmd.Stdout = os.Stdout
 	// The gRPC listener binds before the HTTP one announces itself.
 	require.NoError(t, simready.Start(cmd, os.Stderr))
@@ -160,11 +159,10 @@ func TestGCPServiceStateSurvivesSimulatorRestart_SDK(t *testing.T) {
 	cmd := startPersistentSimulator(t, stateDir, httpPort, grpcPort)
 	t.Cleanup(func() { _ = shutdownPersistentSimulator(cmd) })
 
-	// The Google Cloud clients read the emulator coordinates from the same
-	// env vars they honor for Google's own emulators.
+	// The Cloud Storage client reads its endpoint from the variable it honors
+	// for Google's own emulator; the Spanner and Bigtable clients take theirs
+	// as an option.
 	t.Setenv("STORAGE_EMULATOR_HOST", host)
-	t.Setenv("SPANNER_EMULATOR_HOST", myGRPCAddr)
-	t.Setenv("BIGTABLE_EMULATOR_HOST", myGRPCAddr)
 
 	// ── GCS: bucket + object bytes ────────────────────────────────────────
 	const (
@@ -210,7 +208,7 @@ func TestGCPServiceStateSurvivesSimulatorRestart_SDK(t *testing.T) {
 	}).Do()
 	require.NoError(t, err)
 
-	spannerClient, err := spanner.NewClient(ctx, spannerDatabase)
+	spannerClient, err := spanner.NewClientWithConfig(ctx, spannerDatabase, spannerClientConfig, simGRPCClientOptionsAt(myGRPCAddr, simTokenSourceFor(endpoint))...)
 	require.NoError(t, err)
 	_, err = spannerClient.Apply(ctx, []*spanner.Mutation{
 		spanner.Insert("Survivors", []string{"Id", "Name"}, []interface{}{int64(1), "restart"}),
@@ -224,7 +222,7 @@ func TestGCPServiceStateSurvivesSimulatorRestart_SDK(t *testing.T) {
 		btTable    = "events"
 		btFamily   = "cf"
 	)
-	btInstanceAdmin, err := bigtable.NewInstanceAdminClient(ctx, project)
+	btInstanceAdmin, err := bigtable.NewInstanceAdminClient(ctx, project, simGRPCClientOptionsAt(myGRPCAddr, simTokenSourceFor(endpoint))...)
 	require.NoError(t, err)
 	require.NoError(t, btInstanceAdmin.CreateInstance(ctx, &bigtable.InstanceConf{
 		InstanceId:  btInstance,
@@ -234,12 +232,12 @@ func TestGCPServiceStateSurvivesSimulatorRestart_SDK(t *testing.T) {
 		NumNodes:    1,
 	}))
 	require.NoError(t, btInstanceAdmin.Close())
-	btAdmin, err := bigtable.NewAdminClient(ctx, project, btInstance)
+	btAdmin, err := bigtable.NewAdminClient(ctx, project, btInstance, simGRPCClientOptionsAt(myGRPCAddr, simTokenSourceFor(endpoint))...)
 	require.NoError(t, err)
 	require.NoError(t, btAdmin.CreateTable(ctx, btTable))
 	require.NoError(t, btAdmin.CreateColumnFamily(ctx, btTable, btFamily))
 	require.NoError(t, btAdmin.Close())
-	btClient, err := bigtable.NewClient(ctx, project, btInstance)
+	btClient, err := bigtable.NewClientWithConfig(ctx, project, btInstance, bigtableClientConfig, simGRPCClientOptionsAt(myGRPCAddr, simTokenSourceFor(endpoint))...)
 	require.NoError(t, err)
 	btMut := bigtable.NewMutation()
 	btMut.Set(btFamily, "name", bigtable.Now(), []byte("alice"))
@@ -253,7 +251,7 @@ func TestGCPServiceStateSurvivesSimulatorRestart_SDK(t *testing.T) {
 		psSnapshot = "projects/" + project + "/snapshots/persist-snap"
 		psPayload  = "snapshot replay survived restart"
 	)
-	psConn, err := grpc.NewClient(myGRPCAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	psConn, err := grpc.NewClient(myGRPCAddr, simGRPCDialOptions(simTokenSourceFor(endpoint))...)
 	require.NoError(t, err)
 	publisher := pubsubpb.NewPublisherClient(psConn)
 	subscriber := pubsubpb.NewSubscriberClient(psConn)
@@ -318,7 +316,7 @@ func TestGCPServiceStateSurvivesSimulatorRestart_SDK(t *testing.T) {
 	assert.Equal(t, objectContent, string(persistedBytes))
 
 	// (b) The committed Spanner row is readable after the restart.
-	spannerClient, err = spanner.NewClient(ctx, spannerDatabase)
+	spannerClient, err = spanner.NewClientWithConfig(ctx, spannerDatabase, spannerClientConfig, simGRPCClientOptionsAt(myGRPCAddr, simTokenSourceFor(endpoint))...)
 	require.NoError(t, err)
 	defer spannerClient.Close()
 	row, err := spannerClient.Single().ReadRow(ctx, "Survivors", spanner.Key{int64(1)}, []string{"Name"})
@@ -328,7 +326,7 @@ func TestGCPServiceStateSurvivesSimulatorRestart_SDK(t *testing.T) {
 	assert.Equal(t, "restart", persistedName)
 
 	// (c) The Bigtable row is readable after the restart.
-	btClient, err = bigtable.NewClient(ctx, project, btInstance)
+	btClient, err = bigtable.NewClientWithConfig(ctx, project, btInstance, bigtableClientConfig, simGRPCClientOptionsAt(myGRPCAddr, simTokenSourceFor(endpoint))...)
 	require.NoError(t, err)
 	defer btClient.Close()
 	persistedRow, err := btClient.Open(btTable).ReadRow(ctx, "user#1")
@@ -337,7 +335,7 @@ func TestGCPServiceStateSurvivesSimulatorRestart_SDK(t *testing.T) {
 	assert.Equal(t, "alice", string(persistedRow[btFamily][0].Value))
 
 	// (d) Seeking to the pre-restart snapshot replays its captured backlog.
-	psConn, err = grpc.NewClient(myGRPCAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	psConn, err = grpc.NewClient(myGRPCAddr, simGRPCDialOptions(simTokenSourceFor(endpoint))...)
 	require.NoError(t, err)
 	defer psConn.Close()
 	subscriber = pubsubpb.NewSubscriberClient(psConn)

@@ -24,6 +24,7 @@ func s3TestServer(t *testing.T) func(method, target string, headers map[string]s
 		for k, v := range headers {
 			req.Header.Set(k, v)
 		}
+		signSeedS3(req)
 		return doReq(t, srv, req)
 	}
 }

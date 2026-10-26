@@ -642,6 +642,15 @@ balancers, certificates and scaling through the services' APIs as the
 infrastructure role; writing straight into another service's store skipped
 that service's rules.
 
+A regional NAT gateway is a VPC-level gateway. In automatic mode it takes an
+address in every zone that has a subnet and follows subnets as they come and
+go; with `AvailabilityZoneAddresses` it covers exactly the zones and Elastic
+IP addresses given. Its data plane is the zonal gateway's: one egress sidecar
+per covered zone at an address in that zone's subnet, and each subnet routed
+to the gateway leaves through its own zone's sidecar. What the EC2 model
+leaves unstated is inferred from terraform-provider-aws's acceptance tests,
+which run against AWS, and recorded as a bug until a capture replaces it.
+
 A NAT gateway reports its `availabilityMode`: terraform-provider-aws reads a
 zonal gateway's addresses only when the mode says zonal, so a gateway without it
 left `public_ip` empty.
@@ -652,6 +661,17 @@ had passed invented role ARNs create real roles. A trust policy's `Service`
 principal matches the regional name as well as the global one.
 
 ### Managed databases
+
+Managed caches run as managed databases do: `sim/cacheengine` runs real
+Valkey, Redis and Memcached nodes on `placement.Backend` behind loopback
+endpoints the simulator owns, as primary/replica instances or Redis Cluster
+shards, with resharding, failover, reboot, restart and adoption, and TLS
+required, preferred or off per endpoint. Memorystore for Redis moved onto it
+unchanged. Amazon ElastiCache clusters, replication groups and serverless
+caches report `creating` until their engine answers, and report the
+endpoints it serves; a serverless migration copies the source's keys. Azure
+Cache for Redis serves its `hostName` on TLS 6380, and on plaintext 6379
+when enabled, to either access key.
 
 Amazon RDS, Cloud SQL and Azure Database for PostgreSQL run real engines on
 named volumes, readiness classified by SQLSTATE (57P03 is not ready whatever
@@ -720,6 +740,15 @@ one mutex, and a barrier makes each JSON API request wait for the events
 queued before it. Files open with `RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS`
 (BUG-3084 holds the rest).
 
+Azure Storage's CRC64 is computed in simulator-azure, with the polynomial
+and little-endian encoding the azblob SDK implements, rather than in
+`sim/blobstore`: it is Azure's alone. Which checksum header a write answers
+with depends on the request's service version (`x-ms-version`, then the SAS
+`sv`, then the account's `DefaultServiceVersion`), because Azure documents
+three regimes (before 2019-02-02, from 2019-02-02, from 2026-10-06). Where the
+vendored Swagger and the REST reference disagree, as on Put Blob's CRC64, the
+reference wins, as the newer SDK's generated client also does.
+
 Put Block List and Set Blob Properties store the blob's Content-MD5 only from
 `x-ms-blob-content-md5` and clear it otherwise, and Put Block List's response
 `Content-MD5` covers the block list, as the Blob Storage specification states.
@@ -737,6 +766,36 @@ since a timer could be late. An Azure cross-resource-group move rewrites
 references by walking every tracked store, because a hand-kept list rots.
 
 ### Authorization and identity
+
+Every surface that the cloud authenticates, the simulator authenticates:
+- the AWS REST management services (AWS Amplify, Amazon API Gateway, AWS
+  Batch, Amazon EFS, EventBridge Scheduler, Amazon CloudFront, Amazon
+  Route 53) verify SigV4 before IAM, and answer the front end's own 403
+  codes;
+- Amazon S3 treats an unsigned request as the anonymous principal, which
+  only a Principal `"*"` bucket policy or an AllUsers ACL grant admits, and
+  Block Public Access withdraws;
+- the Google Cloud gRPC listener verifies every call's bearer, over a TLS
+  front end because Google's clients send credentials only over TLS;
+- Google Cloud accepts a service account's self-signed JWT, as google-auth
+  sends by default;
+- Microsoft Graph requires a token with Graph's audience, and the password
+  grant checks a verifier of the password Graph stored.
+
+Each shortcut these replaced let a test pass without the credential its
+client sends against the cloud.
+
+Each simulator's first credential is seeded, the way a new account's is: the
+AWS simulator's IAM user with the `test` key, the Azure simulator's bootstrap
+application with its client secret, and the Google Cloud simulator's bootstrap
+service account `sockerless-bootstrap@sockerless.iam.gserviceaccount.com`
+with a published RSA key that IAM reports through `serviceAccounts.get` and
+`keys.list`. Clients sign in with it the real way: gcloud's
+`activate-service-account`, Application Default Credentials, the provider's
+`credentials`. The token endpoint therefore refuses a JWT-bearer grant
+without an assertion, as Google does; minting a token for one let every
+suite skip the flow its clients use against the cloud. The credential file
+is written on demand (`testutil/cmd/gcp-bootstrap-key`), never committed.
 
 AWS IAM derives each action's resources from the Service Reference's ARN
 formats; identifiers end at the next `/` except names AWS documents as paths.

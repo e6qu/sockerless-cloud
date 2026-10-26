@@ -31,10 +31,10 @@ import (
 // key, an expired temporary credential, or a session-token mismatch is
 // rejected with the same error the real service returns.
 //
-// The gate runs at the two authorization chokepoints that resolve a request to
-// a registered principal: the control-plane dispatcher (POST /) and the S3 REST
-// handlers. Both are the same places call-time IAM authorization already runs;
-// authentication (this gate) runs first, then authorization.
+// The gate runs at every chokepoint that resolves a request to a registered
+// principal: the control-plane dispatcher (POST /), the S3 REST handlers,
+// AWS Lambda's REST control plane, and the REST routes awsRESTAuthenticate
+// guards. Authentication (this gate) runs first, then authorization.
 
 // sigv4Result reports whether a request carried a credential at all. Whether an
 // absent credential is fatal depends on the surface (the control plane requires
@@ -131,7 +131,7 @@ func sigv4PresignedExpired(q url.Values, now time.Time) bool {
 func sigv4VerifyEncoding(r *http.Request, body []byte, doubleEncodePath bool) (sigv4Result, *sigv4Error) {
 	q := r.URL.Query()
 	if q.Get("X-Amz-Algorithm") != "" || q.Get("X-Amz-Signature") != "" {
-		return sigv4VerifyPresigned(r, q, doubleEncodePath)
+		return sigv4VerifyPresigned(r, q, body, doubleEncodePath)
 	}
 	auth := r.Header.Get("Authorization")
 	if !strings.HasPrefix(auth, "AWS4-HMAC-SHA256") {
@@ -170,10 +170,9 @@ func sigv4VerifyHeader(r *http.Request, auth string, body []byte, doubleEncodePa
 }
 
 // sigv4VerifyPresigned authenticates a query-string ("presigned URL") signature,
-// the form Amplify and S3 presigners emit: the algorithm, credential scope,
-// signed-header list, and signature all travel as X-Amz-* query parameters and
-// the payload hash is UNSIGNED-PAYLOAD.
-func sigv4VerifyPresigned(r *http.Request, q url.Values, doubleEncodePath bool) (sigv4Result, *sigv4Error) {
+// the form the SDKs' presigners emit: the algorithm, credential scope,
+// signed-header list, and signature all travel as X-Amz-* query parameters.
+func sigv4VerifyPresigned(r *http.Request, q url.Values, body []byte, doubleEncodePath bool) (sigv4Result, *sigv4Error) {
 	cred, ok := parseCredScope(q.Get("X-Amz-Credential"))
 	providedSig := q.Get("X-Amz-Signature")
 	amzDate := q.Get("X-Amz-Date")
@@ -185,7 +184,13 @@ func sigv4VerifyPresigned(r *http.Request, q url.Values, doubleEncodePath bool) 
 	if serr != nil {
 		return sigv4NoCredential, serr
 	}
-	payloadHash := "UNSIGNED-PAYLOAD"
+	// Amazon S3's presigners sign UNSIGNED-PAYLOAD; every other service's
+	// presigned URL covers the digest of the body, empty for a GET.
+	payloadHash := hexSHA256(body)
+	switch cred.service {
+	case "s3", "s3-object-lambda", "s3express":
+		payloadHash = "UNSIGNED-PAYLOAD"
+	}
 	if h := r.Header.Get("X-Amz-Content-Sha256"); h != "" {
 		payloadHash = h
 	}

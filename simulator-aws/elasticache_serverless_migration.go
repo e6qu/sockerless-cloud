@@ -1,18 +1,24 @@
 package main
 
 import (
+	"crypto/tls"
+	"crypto/x509"
 	"fmt"
+	"net"
 	"net/http"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/cacheengine"
 )
 
 // ECServerlessCacheMigration is the migration PrepareMigration opens on a
 // serverless cache, from the one source endpoint it names, until
 // CompleteMigration ends it. Phase is where the migration stands:
-// prepared until StartMigration starts the data sync, syncing while it runs,
-// stopped once StopMigration stopped it.
+// prepared until StartMigration syncs the source's data into the cache,
+// syncing from then, stopped once StopMigration stopped it.
 type ECServerlessCacheMigration struct {
 	SourceAddress        string
 	SourcePort           int    `json:",omitempty"`
@@ -105,6 +111,20 @@ func handleECPrepareMigration(w http.ResponseWriter, r *http.Request) {
 		invalid(fmt.Sprintf("Invalid SourceTlsMode %q. Valid values: none | verify-ca.", migration.SourceTlsMode))
 		return
 	}
+	if c.Engine == "memcached" {
+		ecErrorXML(w, "InvalidParameterCombination", "A serverless cache migration moves a Valkey or Redis OSS dataset.", http.StatusBadRequest, requestID)
+		return
+	}
+	if migration.SourceSecretArn != "" {
+		invalid("The simulator reads no Secrets Manager secret for a migration source; name a source that requires no authentication.")
+		return
+	}
+	source, err := ecDialMigrationSource(migration)
+	if err != nil {
+		invalid(fmt.Sprintf("The source endpoint %s:%d does not answer: %v", migration.SourceAddress, migration.SourcePort, err))
+		return
+	}
+	_ = source.Close()
 	migration.Phase = ecMigrationPrepared
 	ecServerlessCaches.Update(c.ServerlessCacheName, func(stored *ECServerlessCache) { stored.Migration = &migration })
 	updated, _ := ecServerlessCaches.Get(c.ServerlessCacheName)
@@ -164,7 +184,17 @@ func ecStartServerlessMigration(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	autoCutover := strings.EqualFold(r.FormValue("AutoCutover"), "true")
+	clear := strings.EqualFold(r.FormValue("ClearTargetCacheData"), "true")
+	if err := ecSyncMigration(c, *c.Migration, clear); err != nil {
+		ecErrorXML(w, "InvalidServerlessCacheStateFault",
+			fmt.Sprintf("The data sync of serverless cache %s failed: %v", c.ServerlessCacheName, err), http.StatusBadRequest, requestID)
+		return
+	}
 	ecServerlessCaches.Update(c.ServerlessCacheName, func(stored *ECServerlessCache) {
+		if autoCutover {
+			stored.Migration = nil
+			return
+		}
 		stored.Migration.Phase = ecMigrationSyncing
 		stored.Migration.AutoCutover = autoCutover
 	})
@@ -189,4 +219,57 @@ func ecCompleteServerlessMigration(w http.ResponseWriter, r *http.Request) {
 	ecServerlessCaches.Update(c.ServerlessCacheName, func(stored *ECServerlessCache) { stored.Migration = nil })
 	updated, _ := ecServerlessCaches.Get(c.ServerlessCacheName)
 	ecXMLResponse(w, "CompleteMigration", renderECServerlessCache(updated), requestID)
+}
+
+// ecDialMigrationSource connects to the endpoint a migration names, over TLS
+// trusting the certificate it names when its TLS mode is verify-ca, and
+// confirms that it answers PING.
+func ecDialMigrationSource(m ECServerlessCacheMigration) (*cacheengine.Conn, error) {
+	port := m.SourcePort
+	if port == 0 {
+		port = ecRedisPort
+	}
+	address := net.JoinHostPort(m.SourceAddress, strconv.Itoa(port))
+	var conn *cacheengine.Conn
+	var err error
+	if m.SourceTlsMode == "verify-ca" {
+		roots := x509.NewCertPool()
+		if !roots.AppendCertsFromPEM([]byte(m.SourceTlsCertificate)) {
+			return nil, fmt.Errorf("SourceTlsCertificate is not a PEM certificate")
+		}
+		conn, err = cacheengine.DialTLS(address, &tls.Config{RootCAs: roots, ServerName: m.SourceAddress, MinVersion: tls.VersionTLS12}, "", "", 10*time.Second)
+	} else {
+		conn, err = cacheengine.Dial(address, "", 10*time.Second)
+	}
+	if err != nil {
+		return nil, err
+	}
+	if reply, err := conn.Do("PING"); err != nil || reply != "PONG" {
+		_ = conn.Close()
+		return nil, fmt.Errorf("PING answered %v, %v", reply, err)
+	}
+	return conn, nil
+}
+
+// ecSyncMigration copies every key of the migration's source into the
+// serverless cache's engine, after emptying the cache when clear is set.
+func ecSyncMigration(c ECServerlessCache, m ECServerlessCacheMigration, clear bool) error {
+	engine, ok := ecLoadEngine(ecEngineKey(ecKindServerless, c.ServerlessCacheName))
+	if !ok || engine.redis == nil {
+		return fmt.Errorf("no engine serves the cache")
+	}
+	source, err := ecDialMigrationSource(m)
+	if err != nil {
+		return fmt.Errorf("connect to the source: %w", err)
+	}
+	defer source.Close()
+	engine.opMu.Lock()
+	defer engine.opMu.Unlock()
+	if clear {
+		if err := engine.redis.Flush(); err != nil {
+			return err
+		}
+	}
+	_, err = engine.redis.CopyFrom(source)
+	return err
 }

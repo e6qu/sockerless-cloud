@@ -1,17 +1,19 @@
 # sim
 
-The framework the three cloud simulators are built on: one HTTP server with
-graceful shutdown, health and console routes; a container-engine layer that
-runs every workload as a real container; durable state with a generation
-counter; the OCI Distribution data plane every registry slice mounts; request
-logging, tracing and diagnostics; and the parsing primitives that keep
-untrusted input bounds-safe.
+The cloud-neutral framework the three simulators are built on:
+- the HTTP server and the startup every binary runs;
+- configuration, and durable state on SQLite;
+- the container-engine layer and the placement backends;
+- cloud networks and their sidecars;
+- the mechanisms services share: queues, fan-out, delivery, jobs, function environments, replica sets, relational engines, object contents and lists;
+- the OCI Distribution data plane, and the bounds-safe parsing primitives.
 
 Each simulator imports it as `github.com/e6qu/sockerless-cloud/sim` and pins it
-by pseudo-version like the other support modules (see the module layout in
-[`AGENTS.md`](../AGENTS.md)). The framework is cloud-neutral: a cloud's own
-error shape, protocol router, sandbox profile and console coordinates live in
-that cloud's module and reach the framework through the hooks below.
+by pseudo-version ([Maintaining → Support-module pins](../docs/maintaining.md#support-module-pins)).
+A cloud's error shape, protocol router, sandbox profile and console coordinates
+live in that cloud's module and reach the framework through the hooks listed
+under [What stays with the cloud](#what-stays-with-the-cloud).
+[Architecture](../docs/architecture.md) shows how the pieces fit together.
 
 ## Files
 
@@ -51,6 +53,7 @@ that cloud's module and reach the framework through the hooks below.
 | `cron/` | cron schedules: `Parse` in the `Vixie` five-field dialect (0–7 day-of-week, names, the either-day rule when both day fields are restricted) or the `AWS` six-field dialect (year, `?`, `L`, `W`, `#`), bound to a time zone; `Schedule.Next` skips wall-clock times a daylight-saving jump removes; `Ticker` fires `Entry` schedules from `Server.StartBackground`, persisting each one's next occurrence (`Record`), collapsing occurrences missed while stopped into the latest, dropping those older than `MaxLate`, and forgetting schedules that no longer exist |
 | `bg/` | counted background work a test drains with `bg.Await` before it rebuilds the stores: `Go`, `JoinedGo`, `Handoff` (work handed to `Server.StartBackground`), `AfterFunc` (with `Timer.Pending`) and `WatchThen` |
 | `dbengine/` | the managed relational database data plane: `Instance` runs a real PostgreSQL, MySQL or MariaDB engine (`Postgres16`, `MySQL80`, `MariaDB114`) on a named volume behind an endpoint the simulator owns — start on first client, adopt after restart, readiness classified the way `pg_isready` does, `Exec`, `Stop` that returns once the volume is free; `ListenLoopback` keeps the advertised port or fails; `SelfSignedCertificate`; SQL and shell quoting |
+| `cacheengine/` | the managed cache data plane: `Plane` runs real Valkey or Redis nodes on `placement.Backend`, as an instance with replicas following a primary or as a Redis Cluster whose nodes announce their own endpoints, with failover, resharding, reboot, restart and adoption, RDB snapshots and import, ACL users, and TLS required, preferred or off per endpoint; `Memcached` runs independent nodes behind per-node and discovery endpoints; a RESP client (`Dial`, `Conn.Do`, `Pipeline`, `KeySlot`). Each cloud supplies its images, network, credentials and token exchange through `Config` hooks |
 | `logstore/` | log entries by scope (a log stream, a log, a table): one row per entry keyed by scope and arrival sequence plus a scope head, so `Append`, `Entries`, `Expire` (retention by the entry's own time, leaving gaps reads step over), `Cap`, `Edit` (rewrite or delete entries in place), `Drop` and `DropPrefix` never rewrite a scope; `Open` lists a scope before its first write and `Import` fills an empty scope from another layout |
 | `simkms/` | key material: AES-256-GCM `Seal`/`Open` (nonce followed by the sealed bytes, which every cloud's ciphertext framing ends with) and `SealWithNonce`/`OpenWithNonce` for raw-encryption APIs that return the IV; `NewKey`; `EnsureKey`, which creates a service-owned key on first use inside the store's `Upsert` over any row shape; RFC 5649 `WrapWithPadding`/`UnwrapWithPadding`. Each cloud keeps its ciphertext framing, key versions and key API |
 | `dnsserver/` | the DNS listener each simulator answers its zones on: one port on UDP and TCP, a `Catalog` hook that returns the zones and names a query can see — given the address it came from and the address it arrived at, which names a workload network — and everything that is DNS rather than cloud: longest-zone matching, RFC 4592 wildcards, CNAME chains across zones, delegations with glue, NXDOMAIN versus NODATA with the zone's SOA, EDNS0 and truncation on UDP, forwarding zones, and recursion through upstreams for names outside every zone |
@@ -98,24 +101,8 @@ that cloud's module and reach the framework through the hooks below.
 
 ## Configuration
 
-`ConfigFromEnv(provider, defaultPort)` reads:
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `SIM_<PROVIDER>_PORT` | — | Port to listen on, ahead of `SIM_LISTEN_ADDR` (`SIM_AWS_PORT`, `SIM_GCP_PORT`, `SIM_AZURE_PORT`) |
-| `SIM_LISTEN_ADDR` | `:<defaultPort>` | Listen address |
-| `SIM_TLS_CERT`, `SIM_TLS_KEY` | — | TLS certificate and key |
-| `SIM_LOG_LEVEL` | `info` | trace, debug, info, warn, error |
-| `SIM_RUNTIME` | `docker` | `process` starts API-only, with no container engine |
-| `SIM_PERSIST`, `SIM_DATA_DIR` | `false`, temp | SQLite persistence and its directory |
-| `SIM_PLACEMENT` | — | Per-service placement table, `service[:qualifier]=container\|microvm` |
-| `SIM_CALLBACK_LISTEN_ADDR` | free port | Plain-HTTP listener for workload callbacks when the API listener terminates TLS |
-| `SIM_UI_OIDC_ISSUER`, `SIM_UI_OIDC_CLIENT_ID`, `SIM_UI_OIDC_CLIENT_SECRET`, `SIM_UI_PUBLIC_URL`, `SIM_UI_SESSION_SECRET` | — | Console OpenID Connect layer; all or none |
-| `SIM_UI_INSECURE_COOKIES` | `false` | HTTP cookies for loopback integration tests only |
-| `APPLICATION_RELEASE_REVISION` | — | Immutable release revision the console and monitoring report |
-| `SIM_MONITORING_TOKEN` | — | Bearer for `GET /monitoring/observation` |
-| `SOCKERLESS_PARENT_PID` | — | The process the simulator must not outlive (set by every test harness) |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | — | Enables OpenTelemetry trace, metric and log export |
+`ConfigFromEnv(provider, defaultPort)` reads the `SIM_*` variables that
+[`docs/configuration.md`](../docs/configuration.md) lists.
 
 ## Usage
 

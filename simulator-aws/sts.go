@@ -508,9 +508,9 @@ func handleSTSGetFederationToken(w http.ResponseWriter, r *http.Request) {
 		xmlEscape(fedArn), xmlEscape(fedUserID), sim.NewUUID())
 }
 
-// handleSTSAssumeRoleWithSAML assumes a role from a SAML assertion, minting
-// temporary credentials exactly as AssumeRole does (the SAML assertion stands
-// in for the trust-policy check the sim does not enforce).
+// handleSTSAssumeRoleWithSAML assumes a role from a SAML assertion the named
+// provider signed, minting temporary credentials as AssumeRole does once the
+// role's trust policy admits the provider.
 func handleSTSAssumeRoleWithSAML(w http.ResponseWriter, r *http.Request) {
 	roleArn := r.FormValue("RoleArn")
 	providerArn := r.FormValue("PrincipalArn")

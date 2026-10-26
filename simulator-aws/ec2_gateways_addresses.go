@@ -347,17 +347,19 @@ func handleCreateNatGateway(w http.ResponseWriter, r *http.Request) {
 	if connectivityType == "" {
 		connectivityType = "public"
 	}
-	// A gateway placed in a subnet is zonal, the default; a regional gateway
-	// spans the VPC's zones without one, which this simulator does not run.
 	availabilityMode := r.FormValue("AvailabilityMode")
 	switch availabilityMode {
 	case "", "zonal":
 		availabilityMode = "zonal"
 	case "regional":
-		ec2ErrorXML(w, "UnsupportedOperation", "Regional NAT gateways are not supported by this simulator.", http.StatusBadRequest)
+		handleCreateRegionalNatGateway(w, r, connectivityType)
 		return
 	default:
 		ec2ErrorXML(w, "InvalidParameterValue", fmt.Sprintf("Value (%s) for parameter availabilityMode is invalid.", availabilityMode), http.StatusBadRequest)
+		return
+	}
+	if r.FormValue("AvailabilityZoneAddress.1.AvailabilityZone") != "" || r.FormValue("AvailabilityZoneAddress.1.AvailabilityZoneId") != "" {
+		ec2ErrorXML(w, "InvalidParameterCombination", "AvailabilityZoneAddress is supported only for a regional NAT gateway", http.StatusBadRequest)
 		return
 	}
 	tags := parseTags(r)
@@ -415,35 +417,38 @@ func handleCreateNatGateway(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	ec2ReapplyRoutes(vpcId)
+	writeCreateNatGatewayResponse(w, natgw)
+}
 
+func writeCreateNatGatewayResponse(w http.ResponseWriter, natgw EC2NatGateway) {
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<CreateNatGatewayResponse %s>
   <requestId>%s</requestId>
-  <natGateway>
-    <natGatewayId>%s</natGatewayId><subnetId>%s</subnetId>
-    <vpcId>%s</vpcId><state>available</state>
-    <connectivityType>%s</connectivityType>
-    <availabilityMode>%s</availabilityMode>
-    %s
-    <createTime>%s</createTime>
-    %s
-  </natGateway>
-</CreateNatGatewayResponse>`, ec2Xmlns(), sim.NewUUID(), id, subnetId, vpcId, connectivityType, availabilityMode, natgwAddrSetXML(natgw.NatGatewayAddresses), natgw.CreateTime, writeTagSetXML(tags))
+  <natGateway>%s</natGateway>
+</CreateNatGatewayResponse>`, ec2Xmlns(), sim.NewUUID(), natgwBodyXML(natgw))
 }
 
-// natgwAddrSetXML renders the natGatewayAddressSet shared by CreateNatGateway
-// and DescribeNatGateways — including associationId, networkInterfaceId,
-// isPrimary, and status (the fields aws_nat_gateway reads back as
-// association_id / network_interface_id).
-func natgwAddrSetXML(addrs []EC2NatGatewayAddress) string {
+// natgwAddrSetXML renders the natGatewayAddressSet shared by CreateNatGateway,
+// DescribeNatGateways and the address operations. A regional gateway's
+// address carries its zone, and the network interface and private address
+// of the gateway in that zone once the zone has a subnet to hold them.
+func natgwAddrSetXML(natgw EC2NatGateway) string {
 	var b strings.Builder
 	b.WriteString("<natGatewayAddressSet>")
-	for _, a := range addrs {
+	for _, a := range natgw.NatGatewayAddresses {
 		b.WriteString("<item>")
-		fmt.Fprintf(&b, "<allocationId>%s</allocationId><publicIp>%s</publicIp><privateIp>%s</privateIp>",
-			a.AllocationId, a.PublicIp, a.PrivateIp)
-		if a.NetworkInterfaceId != "" {
-			fmt.Fprintf(&b, "<networkInterfaceId>%s</networkInterfaceId>", a.NetworkInterfaceId)
+		fmt.Fprintf(&b, "<allocationId>%s</allocationId><publicIp>%s</publicIp>", a.AllocationId, a.PublicIp)
+		privateIP, networkInterfaceID := a.PrivateIp, a.NetworkInterfaceId
+		if a.AvailabilityZone != "" {
+			if zone, ok := ec2NatGatewayZoneOf(natgw, a.AvailabilityZone); ok {
+				privateIP, networkInterfaceID = zone.PrivateIp, zone.NetworkInterfaceId
+			}
+		}
+		if privateIP != "" {
+			fmt.Fprintf(&b, "<privateIp>%s</privateIp>", privateIP)
+		}
+		if networkInterfaceID != "" {
+			fmt.Fprintf(&b, "<networkInterfaceId>%s</networkInterfaceId>", networkInterfaceID)
 		}
 		if a.AssociationId != "" {
 			fmt.Fprintf(&b, "<associationId>%s</associationId>", a.AssociationId)
@@ -453,6 +458,9 @@ func natgwAddrSetXML(addrs []EC2NatGatewayAddress) string {
 			status = "succeeded"
 		}
 		fmt.Fprintf(&b, "<isPrimary>%t</isPrimary><status>%s</status>", a.IsPrimary, status)
+		if a.AvailabilityZone != "" {
+			fmt.Fprintf(&b, "<availabilityZone>%s</availabilityZone><availabilityZoneId>%s</availabilityZoneId>", a.AvailabilityZone, a.AvailabilityZoneId)
+		}
 		b.WriteString("</item>")
 	}
 	b.WriteString("</natGatewayAddressSet>")
@@ -477,12 +485,33 @@ func ec2NatAvailabilityMode(n EC2NatGateway) string {
 	return n.AvailabilityMode
 }
 
+// natgwBodyXML renders a NatGateway's members. A regional gateway has no
+// subnet and reports how it manages its zones and addresses.
+func natgwBodyXML(n EC2NatGateway) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "<natGatewayId>%s</natGatewayId>", n.NatGatewayId)
+	if n.SubnetId != "" {
+		fmt.Fprintf(&b, "<subnetId>%s</subnetId>", n.SubnetId)
+	}
+	fmt.Fprintf(&b, "<vpcId>%s</vpcId><state>%s</state><connectivityType>%s</connectivityType><availabilityMode>%s</availabilityMode>",
+		n.VpcId, n.State, ec2NatConnectivityType(n), ec2NatAvailabilityMode(n))
+	if n.FailureCode != "" {
+		fmt.Fprintf(&b, "<failureCode>%s</failureCode><failureMessage>%s</failureMessage>", n.FailureCode, n.FailureMessage)
+	}
+	if ec2NatAvailabilityMode(n) == "regional" {
+		// The model documents routeTableId as "For regional NAT gateways
+		// only, this is the ID of the NAT gateway."
+		fmt.Fprintf(&b, "<autoProvisionZones>%s</autoProvisionZones><autoScalingIps>%s</autoScalingIps><routeTableId>%s</routeTableId>",
+			n.AutoProvisionZones, n.AutoScalingIps, n.NatGatewayId)
+	}
+	b.WriteString(natgwAddrSetXML(n))
+	fmt.Fprintf(&b, "<createTime>%s</createTime>", n.CreateTime)
+	b.WriteString(writeTagSetXML(n.Tags))
+	return b.String()
+}
+
 func natgwItemXML(n EC2NatGateway) string {
-	return fmt.Sprintf(`<item>
-    <natGatewayId>%s</natGatewayId><subnetId>%s</subnetId><vpcId>%s</vpcId>
-    <state>%s</state><connectivityType>%s</connectivityType><availabilityMode>%s</availabilityMode>%s<createTime>%s</createTime>
-    %s
-  </item>`, n.NatGatewayId, n.SubnetId, n.VpcId, n.State, ec2NatConnectivityType(n), ec2NatAvailabilityMode(n), natgwAddrSetXML(n.NatGatewayAddresses), n.CreateTime, writeTagSetXML(n.Tags))
+	return "<item>" + natgwBodyXML(n) + "</item>"
 }
 
 func handleDescribeNatGateways(w http.ResponseWriter, r *http.Request) {
@@ -517,6 +546,7 @@ func handleDeleteNatGateway(w http.ResponseWriter, r *http.Request) {
 	natgw, _ := ec2NatGateways.Get(id)
 	ec2NatGateways.Delete(id)
 	ec2RemoveNatGatewayEgress(id)
+	ec2ReleaseAmazonProvidedNatAddresses(natgw.NatGatewayAddresses)
 	ec2ReapplyRoutes(natgw.VpcId)
 
 	w.Header().Set("Content-Type", "text/xml")

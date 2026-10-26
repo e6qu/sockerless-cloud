@@ -9,23 +9,29 @@
 //	SIM_LISTEN_ADDR     — HTTP listen address (default ":4567")
 //	SIM_GCP_PORT        — HTTP port to listen on, ahead of SIM_LISTEN_ADDR
 //	SIM_GCP_GRPC_PORT   — gRPC listen port (default: HTTP port + 2, so the default coexists with the Azure simulator's :4568)
+//	SIM_GCP_GRPC_TLS_CERT — TLS certificate file the gRPC port serves with (optional; with SIM_GCP_GRPC_TLS_KEY the port serves TLS only)
+//	SIM_GCP_GRPC_TLS_KEY  — TLS key file for SIM_GCP_GRPC_TLS_CERT
 //	SIM_TLS_CERT        — TLS certificate file (optional)
 //	SIM_TLS_KEY         — TLS key file (optional)
 //	SIM_CALLBACK_LISTEN_ADDR — plain-HTTP address the workloads' metadata requests reach beside a TLS listener (default: a free port on every interface)
 //	SIM_RUNTIME         — "docker" by default; "process" starts API-only mode for runs that do not execute workloads
 //	SIM_LOG_LEVEL       — log level: trace, debug, info, warn, error (default "info")
 //
-// SDK configuration:
+// SDK configuration: the endpoint, and the bootstrap service account's key
+// as the credential (see iam_bootstrap.go).
 //
 //	option.WithEndpoint("http://localhost:4567")
-//	option.WithoutAuthentication()
+//	option.WithAuthCredentialsFile(option.ServiceAccount, "bootstrap-key.json"),
+//	which go run ./testutil/cmd/gcp-bootstrap-key writes.
 package main
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"log"
 	"net"
+	"net/http"
 	"os"
 	"strconv"
 	"strings"
@@ -197,6 +203,9 @@ func buildSimulator(cfg sim.Config) (*sim.Server, error) {
 	registerCloudScheduler(srv)
 	registerCloudTasks(srv)
 	registerIAM(srv)
+	if err := iamSeedBootstrapServiceAccount(); err != nil {
+		log.Fatalf("seed the bootstrap service account: %v", err)
+	}
 	registerOAuth2(srv)
 	registerSTS(srv)
 	registerComputeMetadata(srv)
@@ -251,22 +260,90 @@ func registerAllGRPCServices(gs *grpc.Server) {
 	registerSecretManagerGRPC(gs)
 }
 
+// newGRPCServer is the gRPC server with every service mounted, verifying each
+// call's credential before it runs.
+func newGRPCServer() *grpc.Server {
+	gs := grpc.NewServer(
+		grpc.ChainUnaryInterceptor(authUnaryInterceptor, auditUnaryInterceptor),
+		grpc.ChainStreamInterceptor(authStreamInterceptor),
+	)
+	registerAllGRPCServices(gs)
+	return gs
+}
+
+// grpcFrontEnd routes a TLS front end's requests: gRPC calls to gs, the rest
+// to the REST surface.
+func grpcFrontEnd(srv *sim.Server, gs *grpc.Server) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.ProtoMajor == 2 && strings.HasPrefix(r.Header.Get("Content-Type"), "application/grpc") {
+			gs.ServeHTTP(w, r)
+			return
+		}
+		srv.ServeHTTP(w, r)
+	})
+}
+
 // startGRPCServer serves the gRPC surface on the server's lifecycle, so a
-// shutdown stops it with the other background workers.
+// shutdown stops it with the other background workers. Every call carries an
+// OAuth2 access token the simulator minted, as on the REST port.
+//
+// With a certificate configured the port is a TLS front end like Google's,
+// where one host answers both protocols: HTTP/2 requests of content type
+// application/grpc reach the gRPC services and every other request reaches the
+// REST surface. A client whose endpoint setting names one host for both, as
+// the Terraform provider's bigtable_custom_endpoint does, then reaches both.
+// Google's client libraries send an access token only over TLS, so this is the
+// port they authenticate on.
 func startGRPCServer(srv *sim.Server, port string) error {
+	certFile, keyFile := os.Getenv("SIM_GCP_GRPC_TLS_CERT"), os.Getenv("SIM_GCP_GRPC_TLS_KEY")
+	if (certFile == "") != (keyFile == "") {
+		return fmt.Errorf("gRPC: SIM_GCP_GRPC_TLS_CERT and SIM_GCP_GRPC_TLS_KEY must be set together")
+	}
+	var tlsConfig *tls.Config
+	if certFile != "" {
+		cert, err := tls.LoadX509KeyPair(certFile, keyFile)
+		if err != nil {
+			return fmt.Errorf("gRPC: load the TLS certificate: %w", err)
+		}
+		tlsConfig = &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12, NextProtos: []string{"h2", "http/1.1"}}
+	}
+
 	lis, err := net.Listen("tcp", ":"+port)
 	if err != nil {
 		return fmt.Errorf("gRPC: listen on :%s: %w", port, err)
 	}
 
-	gs := grpc.NewServer(grpc.ChainUnaryInterceptor(auditUnaryInterceptor))
-	registerAllGRPCServices(gs)
+	gs := newGRPCServer()
 
-	fmt.Fprintf(os.Stderr, "  gRPC Cloud Logging, Bigtable Admin + Data, Firestore, Pub/Sub, Spanner, Cloud KMS, Secret Manager on :%s\n", port)
+	scheme := "plaintext"
+	if tlsConfig != nil {
+		scheme = "TLS"
+	}
+	fmt.Fprintf(os.Stderr, "  gRPC Cloud Logging, Bigtable Admin + Data, Firestore, Pub/Sub, Spanner, Cloud KMS, Secret Manager on :%s (%s)\n", port, scheme)
+	if tlsConfig == nil {
+		srv.StartBackground("gRPC server", func(ctx context.Context) {
+			stop := context.AfterFunc(ctx, gs.Stop)
+			defer stop()
+			if err := gs.Serve(lis); err != nil {
+				log.Fatalf("gRPC: failed to serve: %v", err)
+			}
+		})
+		return nil
+	}
+	front := &http.Server{
+		Handler:           grpcFrontEnd(srv, gs),
+		TLSConfig:         tlsConfig,
+		ReadHeaderTimeout: 30 * time.Second,
+	}
 	srv.StartBackground("gRPC server", func(ctx context.Context) {
-		stop := context.AfterFunc(ctx, gs.Stop)
+		stop := context.AfterFunc(ctx, func() {
+			if err := front.Close(); err != nil {
+				log.Printf("gRPC: close the TLS front end: %v", err)
+			}
+			gs.Stop()
+		})
 		defer stop()
-		if err := gs.Serve(lis); err != nil {
+		if err := front.Serve(tls.NewListener(lis, tlsConfig)); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("gRPC: failed to serve: %v", err)
 		}
 	})

@@ -104,7 +104,7 @@ Before committing:
 - [ ] SDK test `simulator-<cloud>/sdk-tests/<service>_test.go` covering each verb's happy path + the error envelope for at least one failure mode.
 - [ ] CLI test `simulator-<cloud>/cli-tests/<service>_test.go` covering the same verbs via the real `aws` / `gcloud` / `az` binary.
 - [ ] Terraform test entry in `simulator-<cloud>/terraform-tests/main.tf` for each TF resource your new handler unlocks, plus assertions in `apply_test.go` (see the `cross-resource-stack-test` skill).
-- [ ] `simulator-<cloud>/API_SPEC.md` updated with the new verbs in the per-service section + REST path appendix.
+- [ ] `specs/SIM_SURFACE_TABLES/<cloud>-<service>.md` lists the new operations (`scripts/seed-surface-tables.sh` seeds it; `scripts/check-surface-tables-generated.sh` checks it).
 - [ ] Real-AWS error codes returned on missing resources, never synthesised 200 (per `avoid-vibe-slop`).
 
 ## Failure modes this skill catches
@@ -120,7 +120,7 @@ Before committing:
 - `simulator-aws/cloudfront.go` — `cfNormalizeConfig` is the canonical fill-empty-containers pattern.
 - `simulator-aws/iam_slr_oidc.go` — the canonical shadow-write pattern for asymmetric Create/Read APIs.
 - `simulator-aws/route53.go` — the canonical "both `/rrset` and `/rrset/`" registration.
-- `simulator-aws/API_SPEC.md` §8–13 — wire shapes documented for the six P159 services as a template for new ones.
+- `specs/cloud-api/aws/` — the vendored Smithy models that define each operation's wire shape.
 - `.claude/skills/adaptor-fidelity-check/SKILL.md` — the broader wire-fidelity discipline this skill specialises.
 
 ## Output

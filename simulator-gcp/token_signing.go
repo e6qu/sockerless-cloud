@@ -195,9 +195,11 @@ func verifyAccessToken(raw string) error {
 	return err
 }
 
-// verifiedAccessTokenClaims verifies a simulator-minted access token and
-// returns its claims: a well-formed RS256 JWT, signed by the simulator's key,
-// carrying the simulator's issuer and audience, and unexpired.
+// verifiedAccessTokenClaims verifies a bearer token and returns its claims:
+// either an access token the simulator minted (a well-formed RS256 JWT, signed
+// by the simulator's key, carrying the simulator's issuer and audience, and
+// unexpired) or a JWT a service account signed itself, which Google accepts in
+// place of an access token.
 func verifiedAccessTokenClaims(raw string) (accessTokenClaims, error) {
 	var claims accessTokenClaims
 	if accessSigner == nil {
@@ -208,6 +210,9 @@ func verifiedAccessTokenClaims(raw string) (accessTokenClaims, error) {
 		Audience:      simAccessTokenAudience,
 		RequireExpiry: true,
 	}, accessSigner)
+	if err != nil && isServiceAccountSelfSignedJWT(raw) {
+		claims, err = verifySelfSignedServiceAccountJWT(raw, time.Now())
+	}
 	if err == nil && workforceSessionRevoked(claims.Sub, claims.Iat) {
 		err = fmt.Errorf("the session of %s was revoked", claims.Sub)
 	}

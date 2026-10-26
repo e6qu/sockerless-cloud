@@ -7,14 +7,17 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
+	"github.com/e6qu/sockerless-cloud/sim/cacheengine"
 )
 
 // ElastiCache serverless caches, serverless cache snapshots, global
 // replication groups, cache security groups, update actions, replica /
 // shard reconfiguration, online migration, and reserved-node purchase.
 // awsQuery protocol; XML responses match the real ElastiCache shapes the
-// AWS SDK for Go v2 and the aws CLI parse. Lifecycle states settle
-// synchronously (Create returns the resource already "available").
+// AWS SDK for Go v2 and the aws CLI parse. A serverless cache runs a real
+// engine (elasticache_engine.go): it reports creating until the engine
+// answers on its endpoint.
 
 // ECServerlessCache models the ServerlessCache shape.
 type ECServerlessCache struct {
@@ -45,6 +48,7 @@ type ECServerlessCache struct {
 	NetworkType            string
 	Tags                   map[string]string
 	Migration              *ECServerlessCacheMigration `json:",omitempty"`
+	Incarnation            string                      `json:",omitempty"`
 }
 
 // ECServerlessCacheSnapshot models the ServerlessCacheSnapshot shape.
@@ -235,21 +239,32 @@ func renderECServerlessCacheBody(c ECServerlessCache) string {
 	fmt.Fprintf(&b, "<Engine>%s</Engine>", xmlEscape(c.Engine))
 	fmt.Fprintf(&b, "<MajorEngineVersion>%s</MajorEngineVersion>", xmlEscape(c.MajorEngineVersion))
 	fmt.Fprintf(&b, "<FullEngineVersion>%s</FullEngineVersion>", xmlEscape(c.FullEngineVersion))
-	b.WriteString("<CacheUsageLimits>")
-	b.WriteString("<DataStorage>")
-	fmt.Fprintf(&b, "<Maximum>%d</Maximum>", c.UsageDataStorageMax)
-	if c.UsageDataStorageMin > 0 {
-		fmt.Fprintf(&b, "<Minimum>%d</Minimum>", c.UsageDataStorageMin)
+	// A cache that sets no usage limits reports none.
+	if c.UsageDataStorageMax > 0 || c.UsageDataStorageMin > 0 || c.UsageECPUMax > 0 || c.UsageECPUMin > 0 {
+		b.WriteString("<CacheUsageLimits>")
+		if c.UsageDataStorageMax > 0 || c.UsageDataStorageMin > 0 {
+			b.WriteString("<DataStorage>")
+			if c.UsageDataStorageMax > 0 {
+				fmt.Fprintf(&b, "<Maximum>%d</Maximum>", c.UsageDataStorageMax)
+			}
+			if c.UsageDataStorageMin > 0 {
+				fmt.Fprintf(&b, "<Minimum>%d</Minimum>", c.UsageDataStorageMin)
+			}
+			fmt.Fprintf(&b, "<Unit>%s</Unit>", xmlEscape(c.UsageDataStorageUnit))
+			b.WriteString("</DataStorage>")
+		}
+		if c.UsageECPUMax > 0 || c.UsageECPUMin > 0 {
+			b.WriteString("<ECPUPerSecond>")
+			if c.UsageECPUMax > 0 {
+				fmt.Fprintf(&b, "<Maximum>%d</Maximum>", c.UsageECPUMax)
+			}
+			if c.UsageECPUMin > 0 {
+				fmt.Fprintf(&b, "<Minimum>%d</Minimum>", c.UsageECPUMin)
+			}
+			b.WriteString("</ECPUPerSecond>")
+		}
+		b.WriteString("</CacheUsageLimits>")
 	}
-	fmt.Fprintf(&b, "<Unit>%s</Unit>", xmlEscape(c.UsageDataStorageUnit))
-	b.WriteString("</DataStorage>")
-	b.WriteString("<ECPUPerSecond>")
-	fmt.Fprintf(&b, "<Maximum>%d</Maximum>", c.UsageECPUMax)
-	if c.UsageECPUMin > 0 {
-		fmt.Fprintf(&b, "<Minimum>%d</Minimum>", c.UsageECPUMin)
-	}
-	b.WriteString("</ECPUPerSecond>")
-	b.WriteString("</CacheUsageLimits>")
 	if c.KmsKeyId != "" {
 		fmt.Fprintf(&b, "<KmsKeyId>%s</KmsKeyId>", xmlEscape(c.KmsKeyId))
 	}
@@ -301,14 +316,17 @@ func ecParseUsageLimits(r *http.Request, c *ECServerlessCache) {
 	}
 }
 
+// A serverless cache's endpoint is a cluster-mode endpoint of one shard that
+// requires TLS, and its reader endpoint serves the port after it.
 func handleECCreateServerlessCache(w http.ResponseWriter, r *http.Request) {
+	requestID := sim.RequestID(r.Context())
 	name := r.FormValue("ServerlessCacheName")
 	if name == "" {
-		ecErrorXML(w, "MissingParameter", "ServerlessCacheName is required", http.StatusBadRequest, sim.RequestID(r.Context()))
+		ecErrorXML(w, "MissingParameter", "ServerlessCacheName is required", http.StatusBadRequest, requestID)
 		return
 	}
 	if _, ok := ecServerlessCaches.Get(name); ok {
-		ecErrorXML(w, "ServerlessCacheAlreadyExistsFault", "Serverless cache already exists", http.StatusBadRequest, sim.RequestID(r.Context()))
+		ecErrorXML(w, "ServerlessCacheAlreadyExistsFault", "Serverless cache already exists", http.StatusBadRequest, requestID)
 		return
 	}
 	engine := r.FormValue("Engine")
@@ -316,8 +334,16 @@ func handleECCreateServerlessCache(w http.ResponseWriter, r *http.Request) {
 		engine = "redis"
 	}
 	major := r.FormValue("MajorEngineVersion")
+	version, known := ecServerlessEngineVersion(engine, major)
+	if !known {
+		ecErrorXML(w, "InvalidParameterCombination", fmt.Sprintf("Cannot find major version %s for %s", major, engine), http.StatusBadRequest, requestID)
+		return
+	}
 	if major == "" {
-		major = "7"
+		major, _, _ = strings.Cut(version.Version, ".")
+		if engine == "memcached" {
+			major = "1.6"
+		}
 	}
 	storageType := "sse-elasticache"
 	if r.FormValue("KmsKeyId") != "" {
@@ -327,24 +353,25 @@ func handleECCreateServerlessCache(w http.ResponseWriter, r *http.Request) {
 	if netType == "" {
 		netType = "ipv4"
 	}
+	port := ecRedisPort
+	wanted := []cacheengine.Endpoint{{Role: cacheengine.NodeEndpoint, Port: port, Node: 0}, {Role: cacheengine.DiscoveryEndpoint, Port: port + ecServerlessReaderOffset}}
+	if engine == "memcached" {
+		port = ecMemcachedPort
+		wanted = []cacheengine.Endpoint{{Role: cacheengine.DiscoveryEndpoint, Port: port}, {Role: cacheengine.NodeEndpoint, Port: port + ecServerlessReaderOffset, Node: 0}}
+	}
 	c := ECServerlessCache{
 		ServerlessCacheName:    name,
 		Description:            r.FormValue("Description"),
-		CreateTime:             time.Now().UTC().Format(time.RFC3339),
-		Status:                 "available",
+		CreateTime:             ecNow(),
+		Status:                 "creating",
 		Engine:                 engine,
 		MajorEngineVersion:     major,
-		FullEngineVersion:      ecDefaultEngineVersion(engine),
-		UsageDataStorageMax:    5000,
-		UsageDataStorageUnit:   "GB",
-		UsageECPUMax:           15000,
+		FullEngineVersion:      version.Version,
 		KmsKeyId:               r.FormValue("KmsKeyId"),
 		StorageEncryptionType:  storageType,
 		SecurityGroupIds:       ecParseStringList(r, "SecurityGroupIds", "SecurityGroupId"),
-		EndpointAddress:        fmt.Sprintf("%s.serverless.%s.cache.amazonaws.com", name, awsRegion()),
-		EndpointPort:           6379,
-		ReaderEndpointAddress:  fmt.Sprintf("%s-ro.serverless.%s.cache.amazonaws.com", name, awsRegion()),
-		ReaderEndpointPort:     6380,
+		EndpointPort:           port,
+		ReaderEndpointPort:     port + ecServerlessReaderOffset,
 		ARN:                    ecServerlessCacheARN(name),
 		UserGroupId:            r.FormValue("UserGroupId"),
 		SubnetIds:              ecParseStringList(r, "SubnetIds", "SubnetId"),
@@ -352,16 +379,48 @@ func handleECCreateServerlessCache(w http.ResponseWriter, r *http.Request) {
 		DailySnapshotTime:      r.FormValue("DailySnapshotTime"),
 		NetworkType:            netType,
 		Tags:                   parseAWSQueryTagMap(r, "Tags.Tag"),
-	}
-	if c.FullEngineVersion == "" {
-		c.FullEngineVersion = major + ".0"
+		Incarnation:            sim.NewUUID(),
 	}
 	ecParseUsageLimits(r, &c)
 	if c.UsageDataStorageUnit == "" {
 		c.UsageDataStorageUnit = "GB"
 	}
+	record := ecEngineRecord{Kind: ecKindServerless, ID: name, Engine: engine, Image: version.Image, Cluster: engine != "memcached", TLS: true}
+	record.Nodes = []int{0}
+	if record.Cluster {
+		record.Shards = 1
+	}
+	running, endpoints, err := ecInstallEngine(record, wanted)
+	if err != nil {
+		ecErrorXML(w, "ServerlessCacheQuotaForCustomerExceededFault", err.Error(), http.StatusBadRequest, requestID)
+		return
+	}
+	if engine == "memcached" {
+		c.EndpointAddress, _ = ecEndpointOf(endpoints, cacheengine.DiscoveryEndpoint, 0)
+		c.ReaderEndpointAddress, _ = ecEndpointOf(endpoints, cacheengine.NodeEndpoint, 0)
+	} else {
+		c.EndpointAddress, _ = ecEndpointOf(endpoints, cacheengine.NodeEndpoint, 0)
+		c.ReaderEndpointAddress, _ = ecEndpointOf(endpoints, cacheengine.DiscoveryEndpoint, 0)
+	}
 	ecServerlessCaches.Put(name, c)
-	ecXMLResponse(w, "CreateServerlessCache", renderECServerlessCache(c), sim.RequestID(r.Context()))
+	ecRunInBackground(running, (*ecEngine).start, func(err error) {
+		ecSettleServerlessCache(name, c.Incarnation, err)
+	})
+	ecXMLResponse(w, "CreateServerlessCache", renderECServerlessCache(c), requestID)
+}
+
+// ecSettleServerlessCache moves a serverless cache whose engine settled to
+// available, or to create-failed when the engine did not start.
+func ecSettleServerlessCache(name, incarnation string, err error) {
+	ecServerlessCaches.Update(name, func(c *ECServerlessCache) {
+		if c.Incarnation != incarnation || c.Status != "creating" {
+			return
+		}
+		c.Status = "available"
+		if err != nil {
+			c.Status = "create-failed"
+		}
+	})
 }
 
 func handleECDescribeServerlessCaches(w http.ResponseWriter, r *http.Request) {
@@ -421,9 +480,39 @@ func handleECDeleteServerlessCache(w http.ResponseWriter, r *http.Request) {
 		ecErrorXML(w, "ServerlessCacheNotFoundFault", "Serverless cache not found", http.StatusNotFound, sim.RequestID(r.Context()))
 		return
 	}
-	c.Status = "deleting"
-	ecServerlessCaches.Delete(name)
+	if c.Status == "deleting" {
+		ecErrorXML(w, "InvalidServerlessCacheStateFault",
+			fmt.Sprintf("Serverless cache %s is already being deleted.", name), http.StatusBadRequest, sim.RequestID(r.Context()))
+		return
+	}
+	ecServerlessCaches.Update(name, func(stored *ECServerlessCache) { stored.Status = "deleting" })
+	c, _ = ecServerlessCaches.Get(name)
+	ecDeleteServerlessInBackground(name, c.Incarnation)
 	ecXMLResponse(w, "DeleteServerlessCache", renderECServerlessCache(c), sim.RequestID(r.Context()))
+}
+
+func ecDeleteServerlessInBackground(name, incarnation string) {
+	bg.Go(func() {
+		ecRemoveEngine(ecEngineKey(ecKindServerless, name))
+		if c, ok := ecServerlessCaches.Get(name); ok && c.Incarnation == incarnation {
+			ecServerlessCaches.Delete(name)
+		}
+	})
+}
+
+// ecRecoverServerlessTransitions finishes the creates and deletes the previous
+// control-plane process left unfinished.
+func ecRecoverServerlessTransitions() {
+	for _, c := range ecServerlessCaches.List() {
+		name, incarnation := c.ServerlessCacheName, c.Incarnation
+		switch c.Status {
+		case "deleting":
+			ecDeleteServerlessInBackground(name, incarnation)
+		case "creating":
+			engine, _ := ecLoadEngine(ecEngineKey(ecKindServerless, name))
+			ecRunInBackground(engine, (*ecEngine).start, func(err error) { ecSettleServerlessCache(name, incarnation, err) })
+		}
+	}
 }
 
 // Serverless cache snapshots
@@ -976,45 +1065,6 @@ func ecReplGroupAction(w http.ResponseWriter, r *http.Request, op string, fn fun
 	}
 	updated, _ := ecReplGroups.Get(id)
 	ecXMLResponse(w, op, renderECReplGroup(updated), sim.RequestID(r.Context()))
-}
-
-func handleECIncreaseReplicaCount(w http.ResponseWriter, r *http.Request) {
-	newCount := atoiOrZero(r.FormValue("NewReplicaCount"))
-	ecReplGroupAction(w, r, "IncreaseReplicaCount", func(g *ECReplicationGroup) {
-		// MemberClusters = 1 primary + N replicas per node group.
-		want := newCount + 1
-		for len(g.MemberClusters) < want {
-			n := len(g.MemberClusters) + 1
-			g.MemberClusters = append(g.MemberClusters, fmt.Sprintf("%s-%03d", g.ReplicationGroupId, n))
-		}
-	})
-}
-
-func handleECDecreaseReplicaCount(w http.ResponseWriter, r *http.Request) {
-	newCount := atoiOrZero(r.FormValue("NewReplicaCount"))
-	ecReplGroupAction(w, r, "DecreaseReplicaCount", func(g *ECReplicationGroup) {
-		want := newCount + 1
-		if want >= 1 && want < len(g.MemberClusters) {
-			g.MemberClusters = g.MemberClusters[:want]
-		}
-	})
-}
-
-func handleECModifyReplGroupShardConfig(w http.ResponseWriter, r *http.Request) {
-	nodeGroupCount := atoiOrZero(r.FormValue("NodeGroupCount"))
-	ecReplGroupAction(w, r, "ModifyReplicationGroupShardConfiguration", func(g *ECReplicationGroup) {
-		if nodeGroupCount > 1 {
-			g.ClusterEnabled = true
-		}
-	})
-}
-
-func handleECTestFailover(w http.ResponseWriter, r *http.Request) {
-	if r.FormValue("NodeGroupId") == "" {
-		ecErrorXML(w, "MissingParameter", "NodeGroupId is required", http.StatusBadRequest, sim.RequestID(r.Context()))
-		return
-	}
-	ecReplGroupAction(w, r, "TestFailover", nil)
 }
 
 // Node-type modifications + reserved-node purchase + online migration

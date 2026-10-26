@@ -11,7 +11,7 @@ provider "google" {
   project = "test-project"
   region  = "us-central1"
 
-  access_token          = var.access_token
+  credentials           = var.credentials
   user_project_override = false
 
   # google_service_account is routed through iambeta.NewClient; the
@@ -26,7 +26,7 @@ variable "endpoint" {
   type        = string
 }
 
-variable "access_token" {
+variable "credentials" {
   type = string
 }
 

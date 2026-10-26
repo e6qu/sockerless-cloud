@@ -18,7 +18,8 @@
 //
 // SDK configuration:
 //
-//	Use custom cloud.Configuration with ARM endpoint http://localhost:4568
+//	Use a custom cloud.Configuration whose ResourceManager endpoint is
+//	http://localhost:4568 and audience https://management.azure.com/.
 package main
 
 import (
@@ -144,6 +145,9 @@ func buildSimulatorWithUI(cfg sim.Config, includeUI bool) (*sim.Server, error) {
 	// endpoints are handled and returned before reaching it and never need a
 	// bearer.
 	srv.WrapHandler(AzureBearerVerificationMiddleware)
+	// Microsoft Graph authenticates its own routes with a Graph-audience
+	// bearer, beside the ARM check.
+	srv.WrapHandler(graphBearerVerificationMiddleware(srv))
 	// The Cosmos DB data plane authenticates with the account's shared keys
 	// rather than an ARM bearer, and on its own paths, so its check sits
 	// alongside the ARM one — covering every data-plane route rather than

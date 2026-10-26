@@ -570,13 +570,13 @@ func resolveKMSKey(idOrArn string) (string, bool) {
 		}
 		return "", false
 	}
-	for _, k := range kmsKeys.List() {
-		if k.Arn == idOrArn {
-			return k.KeyId, true
-		}
+	if k, ok := kmsKeysByARN.Lookup(kmsKeys, idOrArn, func(k KMSKey) []string { return []string{k.Arn} }); ok {
+		return k.KeyId, true
 	}
 	return "", false
 }
+
+var kmsKeysByARN sim.GenerationIndex[KMSKey]
 
 func handleKMSDescribeKey(w http.ResponseWriter, r *http.Request) {
 	var req struct {

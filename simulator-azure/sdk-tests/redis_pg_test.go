@@ -92,7 +92,7 @@ func TestAzureRedisCache_ARMLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
 	opURL := resp.Header.Get("Azure-AsyncOperation")
 	require.NotEmpty(t, opURL)
-	assert.Empty(t, resp.Header.Get("Retry-After"), "an operation already complete advertises no Retry-After")
+	assert.NotEmpty(t, resp.Header.Get("Retry-After"), "the create runs while the cache's engine starts, so it advertises when to poll")
 	body, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
 	assert.Contains(t, string(body), `"provisioningState":"Creating"`)

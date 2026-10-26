@@ -71,31 +71,40 @@ func blobAppendBlobFor(w http.ResponseWriter, r *http.Request, account, containe
 }
 
 func handleAppendBlock(w http.ResponseWriter, r *http.Request, account, container, blob string) {
+	if !blobBodyChecksums.exclusive(w, r) {
+		return
+	}
 	data, err := io.ReadAll(r.Body)
 	if err != nil {
 		writeStorageError(w, "InternalError", err.Error(), http.StatusInternalServerError)
 		return
 	}
-	b, ok := blobAppendBlobFor(w, r, account, container, blob, int64(len(data)))
-	if !ok {
-		return
-	}
-	blobAppendBytes(w, b, data)
+	blobAppendChecked(w, r, account, container, blob, data, blobBodyChecksums)
 }
 
 func handleAppendBlockFromURL(w http.ResponseWriter, r *http.Request, account, container, blob string) {
+	if !blobSourceChecksums.exclusive(w, r) {
+		return
+	}
 	data, ok := blobReadCopySourceRange(w, r, r.Header.Get("x-ms-copy-source"), r.Header.Get("x-ms-source-range"))
 	if !ok {
 		return
 	}
+	blobAppendChecked(w, r, account, container, blob, data, blobSourceChecksums)
+}
+
+// blobAppendChecked appends data once it matches the checksums the request
+// states in checksums' headers, and answers with the block's own checksums.
+func blobAppendChecked(w http.ResponseWriter, r *http.Request, account, container, blob string, data []byte, checksums blobChecksumHeaders) {
+	blockMD5 := blobstore.Digest(data).MD5Base64()
+	crc := blobCRC64(data)
+	if !checksums.match(w, r, blockMD5, crc) {
+		return
+	}
 	b, ok := blobAppendBlobFor(w, r, account, container, blob, int64(len(data)))
 	if !ok {
 		return
 	}
-	blobAppendBytes(w, b, data)
-}
-
-func blobAppendBytes(w http.ResponseWriter, b BlobObject, data []byte) {
 	b, existing, err := blobOpen(b)
 	if err != nil {
 		writeStorageError(w, "InternalError", err.Error(), http.StatusInternalServerError)
@@ -115,7 +124,7 @@ func blobAppendBytes(w http.ResponseWriter, b BlobObject, data []byte) {
 
 	w.Header().Set("ETag", b.ETag)
 	w.Header().Set("Last-Modified", b.LastModified)
-	w.Header().Set("Content-MD5", blobstore.Digest(data).MD5Base64())
+	checksums.respond(w, r, account, blockMD5, crc, blobVersionBothDigests)
 	w.Header().Set("x-ms-blob-append-offset", strconv.FormatInt(offset, 10))
 	w.Header().Set("x-ms-blob-committed-block-count", strconv.FormatInt(int64(b.CommittedBlockCount), 10))
 	w.Header().Set("x-ms-request-server-encrypted", "true")

@@ -5,6 +5,8 @@ import (
 	"log"
 	"strings"
 	"time"
+
+	"github.com/e6qu/sockerless-cloud/sim/cacheengine"
 )
 
 // Memorystore persistence: RDB snapshots taken every rdbSnapshotPeriod,
@@ -214,13 +216,14 @@ func (p msRedisPersistence) nextSnapshot(now time.Time) time.Time {
 	return p.Start.Add((elapsed/period + 1) * period)
 }
 
-// engineArgs are the redis-server directives the persistence runs with. RDB
+// engine is what the engine keeps of its dataset under the persistence. RDB
 // snapshots are the service's own schedule, not the engine's save points.
-func (p msRedisPersistence) engineArgs() []string {
-	if p.Mode != msRedisPersistenceAOF {
-		return []string{"--appendonly", "no"}
+func (p msRedisPersistence) engine() cacheengine.Persistence {
+	return cacheengine.Persistence{
+		AOF:         p.Mode == msRedisPersistenceAOF,
+		AppendFsync: msRedisAppendFsyncs[p.AppendFsync],
+		RDB:         p.Mode == msRedisPersistenceRDB,
 	}
-	return []string{"--appendonly", "yes", "--appendfsync", msRedisAppendFsyncs[p.AppendFsync]}
 }
 
 // scheduleSnapshots arms the timer for the next RDB snapshot.
@@ -239,9 +242,10 @@ func (p *msRedisPlane) scheduleSnapshots() {
 }
 
 // takeScheduledSnapshot snapshots a running engine. A snapshot owed at the
-// start time waits for the engine to come up, and Ensure arms it then.
+// start time waits for the engine to come up, and the engine's start arms it
+// then.
 func (p *msRedisPlane) takeScheduledSnapshot() {
-	if !p.running() {
+	if !p.Running() {
 		p.mu.RLock()
 		owed := p.persistence.startDue
 		p.mu.RUnlock()
@@ -254,7 +258,7 @@ func (p *msRedisPlane) takeScheduledSnapshot() {
 	start := p.persistence.Start
 	p.mu.RUnlock()
 	p.opMu.Lock()
-	err := p.backgroundSave()
+	err := p.BackgroundSave()
 	p.opMu.Unlock()
 	if err != nil {
 		log.Printf("Memorystore %s: RDB snapshot: %v", p.name, err)
@@ -267,44 +271,14 @@ func (p *msRedisPlane) takeScheduledSnapshot() {
 	p.scheduleSnapshots()
 }
 
-// backgroundSave has every primary write its RDB snapshot.
-func (p *msRedisPlane) backgroundSave() error {
-	primaries := []int{p.Primary()}
-	if p.cluster {
-		var err error
-		if primaries, _, err = p.shardMap(); err != nil {
-			return err
-		}
-	}
-	for _, node := range primaries {
-		if _, err := p.command(node, "BGSAVE"); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 // SetPersistence changes how the engine persists, live: the append-only file
 // starts or stops at once and the snapshot schedule moves.
 func (p *msRedisPlane) SetPersistence(next msRedisPersistence) error {
 	p.mu.Lock()
-	previous := p.persistence
 	p.persistence = next
 	p.mu.Unlock()
-	if p.running() {
-		switch {
-		case next.Mode == msRedisPersistenceAOF:
-			if err := p.everyNode("CONFIG", "SET", "appendfsync", msRedisAppendFsyncs[next.AppendFsync]); err != nil {
-				return err
-			}
-			if err := p.everyNode("CONFIG", "SET", "appendonly", "yes"); err != nil {
-				return err
-			}
-		case previous.Mode == msRedisPersistenceAOF:
-			if err := p.everyNode("CONFIG", "SET", "appendonly", "no"); err != nil {
-				return err
-			}
-		}
+	if err := p.Plane.SetPersistence(next.engine()); err != nil {
+		return err
 	}
 	p.scheduleSnapshots()
 	return nil

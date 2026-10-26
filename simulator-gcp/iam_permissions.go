@@ -25,16 +25,11 @@ import (
 // and the custom roles a tenant defines; and the bearer token the request
 // carries names the principal, because the simulator minted and signed it.
 //
-// The one caller the simulator cannot look up is the one holding the
-// credentials it was configured with rather than a token it issued to a service
-// account. That caller is the owner of the account the simulator serves — it is
-// the identity everything here was created under — and an owner holds whatever
-// it asks about, which is what real Google answers for one. This mirrors the
-// AWS slice, where a credential no IAM user registered is the account itself.
-
-// gcpDefaultPrincipal is the subject the token endpoint mints for a caller that
-// presents no service-account assertion: the account's own operator.
-const gcpDefaultPrincipal = "sockerless-sim"
+// The bootstrap service account administers the organization the simulator
+// serves: it is the identity everything here is created under, and an owner
+// holds whatever it asks about, which is what real Google answers for one. This
+// mirrors the AWS slice, where the seeded "test" credential is the account
+// itself.
 
 // gcpRequestPrincipal is the IAM member the request's bearer token names, and
 // whether the caller is the account's owner rather than a bound principal.
@@ -73,12 +68,15 @@ func gcpBearerPrincipal(authorization string) (member string, owner bool) {
 // gcpSubjectPrincipal is the IAM member a token's subject names, and whether
 // the subject is the account's operator rather than a bound principal.
 func gcpSubjectPrincipal(subject string) (member string, owner bool) {
-	if subject == "" || subject == gcpDefaultPrincipal {
+	if subject == "" {
 		return "", true
 	}
 	// A service account's subject is its email, and its policy member spells
 	// it with the serviceAccount: prefix.
 	if strings.Contains(subject, "@") {
+		if subject == gcpBootstrapServiceAccountEmail {
+			return "serviceAccount:" + subject, true
+		}
 		return "serviceAccount:" + subject, false
 	}
 	return subject, false

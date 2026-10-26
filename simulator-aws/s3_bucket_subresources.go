@@ -184,6 +184,11 @@ func handleS3PutBucketSubresource(w http.ResponseWriter, r *http.Request, sub st
 		return
 	case sub == "versioning" && s3VersioningChangeRefused(w, r, bucket, body):
 		return
+	case sub == "acl":
+		var ok bool
+		if body, ok = s3RequestACL(w, r, body); !ok {
+			return
+		}
 	}
 	var notification s3NotificationConfiguration
 	validateNotification := sub == "notification" && r.Header.Get("x-amz-skip-destination-validation") != "true"

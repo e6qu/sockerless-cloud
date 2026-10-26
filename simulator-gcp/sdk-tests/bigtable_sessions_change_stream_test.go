@@ -15,7 +15,6 @@ import (
 	"google.golang.org/api/option"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -42,7 +41,7 @@ type btFixture struct {
 func newBTFixture(t *testing.T, project, instanceID, tableID, family string) btFixture {
 	t.Helper()
 
-	instanceAdmin, err := bigtable.NewInstanceAdminClient(ctx, project)
+	instanceAdmin, err := bigtable.NewInstanceAdminClient(ctx, project, simGRPCClientOptions()...)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = instanceAdmin.Close() })
 	require.NoError(t, instanceAdmin.CreateInstance(ctx, &bigtable.InstanceConf{
@@ -53,17 +52,17 @@ func newBTFixture(t *testing.T, project, instanceID, tableID, family string) btF
 		NumNodes:    1,
 	}))
 
-	tableAdmin, err := bigtable.NewAdminClient(ctx, project, instanceID)
+	tableAdmin, err := bigtable.NewAdminClient(ctx, project, instanceID, simGRPCClientOptions()...)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = tableAdmin.Close() })
 	require.NoError(t, tableAdmin.CreateTable(ctx, tableID))
 	require.NoError(t, tableAdmin.CreateColumnFamily(ctx, tableID, family))
 
-	client, err := bigtable.NewClient(ctx, project, instanceID)
+	client, err := bigtable.NewClientWithConfig(ctx, project, instanceID, bigtableClientConfig, simGRPCClientOptions()...)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = client.Close() })
 
-	conn, err := grpc.NewClient(grpcAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.NewClient(grpcAddr, simGRPCDialOptions(simTokenSource())...)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = conn.Close() })
 

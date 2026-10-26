@@ -944,13 +944,12 @@ func glueResolveIntegration(identifier string) (GlueIntegration, bool) {
 	if integ, ok := glueIntegrations.Get(identifier); ok {
 		return integ, true
 	}
-	for _, integ := range glueIntegrations.List() {
-		if integ.IntegrationArn == identifier {
-			return integ, true
-		}
-	}
-	return GlueIntegration{}, false
+	return glueIntegrationsByARN.Lookup(glueIntegrations, identifier, func(integ GlueIntegration) []string {
+		return []string{integ.IntegrationArn}
+	})
 }
+
+var glueIntegrationsByARN sim.GenerationIndex[GlueIntegration]
 
 func handleGlueDescribeInboundIntegrations(w http.ResponseWriter, r *http.Request) {
 	var req struct {

@@ -100,6 +100,7 @@ func runEntraGraphDirectoryCLI(t *testing.T, version string) {
 		"userPrincipalName": memberUPN,
 		"mailNickname":      "graph-cli-member" + suffix,
 		"accountEnabled":    true,
+		"passwordProfile":   map[string]any{"password": "Test1234!", "forceChangePasswordNextSignIn": false},
 	})
 	memberID, _ := member["id"].(string)
 	require.NotEmpty(t, memberID)
@@ -124,7 +125,7 @@ func runEntraGraphDirectoryCLI(t *testing.T, version string) {
 	assert.Equal(t, []string{memberID}, azGraphIDs(t, filtered))
 
 	counted := runCLI(t, azRest("GET", baseURL+"/"+version+"/users?$count=true", "",
-		"--headers", "Authorization=Bearer "+armBearer, "ConsistencyLevel=eventual"))
+		"--headers", "Authorization=Bearer "+graphBearer, "ConsistencyLevel=eventual"))
 	var countedBody map[string]any
 	parseJSON(t, counted, &countedBody)
 	assert.Contains(t, countedBody, "@odata.count")
@@ -351,7 +352,7 @@ func graphUserBearer(t *testing.T, upn string) string {
 		"grant_type": {"password"},
 		"client_id":  {"graph-cli-directory"},
 		"username":   {upn},
-		"password":   {"irrelevant"},
+		"password":   {"Test1234!"},
 		"scope":      {"https://graph.microsoft.com/.default"},
 	})
 	require.NoError(t, err)

@@ -40,40 +40,40 @@ import (
 // accepts the access token, and the Cloud Run front end accepts the ID token
 // at the service URL its audience names.
 //
-// Test surfaces that only need an access token POST a bare grant_type with no
-// assertion, in which case the sim mints an access token for the default
-// principal and returns no ID token — matching real Google in that an
-// id_token is returned only when target_audience is requested.
+// A request with no assertion, or with a grant type other than JWT bearer, is
+// refused with the RFC 6749 error Google answers it with. The first credential
+// a client holds is the seeded bootstrap service account's key (see
+// iam_bootstrap.go), which signs its assertions like any other key.
 func registerOAuth2(srv *sim.Server) {
 	handler := func(w http.ResponseWriter, r *http.Request) {
-		_ = r.ParseForm()
+		if err := r.ParseForm(); err != nil {
+			writeOAuth2GrantError(w, &oauth2GrantError{code: "invalid_request", description: "Invalid request body"})
+			return
+		}
+		if grantType := r.Form.Get("grant_type"); grantType != grantTypeJWTBearer {
+			writeOAuth2GrantError(w, &oauth2GrantError{code: "unsupported_grant_type", description: "Invalid grant_type: " + grantType})
+			return
+		}
+		assertion := r.Form.Get("assertion")
+		if assertion == "" {
+			writeOAuth2GrantError(w, &oauth2GrantError{code: "invalid_request", description: "Missing required parameter: assertion"})
+			return
+		}
 		now := time.Now()
 		expires := now.Add(1 * time.Hour)
-
-		principal := "sockerless-sim"
-		targetAudience := ""
-		if assertion := r.Form.Get("assertion"); assertion != "" {
-			claims, grantErr := verifyServiceAccountAssertion(assertion, now)
-			if grantErr != nil {
-				// The real token endpoint answers a failed grant with the
-				// RFC 6749 error body, not the Google API error envelope.
-				sim.WriteJSON(w, http.StatusBadRequest, map[string]string{
-					"error":             grantErr.code,
-					"error_description": grantErr.description,
-				})
-				return
-			}
-			principal = claims.issuer
-			targetAudience = claims.targetAudience
+		claims, grantErr := verifyServiceAccountAssertion(assertion, now)
+		if grantErr != nil {
+			writeOAuth2GrantError(w, grantErr)
+			return
 		}
 
 		resp := map[string]any{
-			"access_token": signAccessToken(principal, now, expires),
+			"access_token": signAccessToken(claims.issuer, now, expires),
 			"expires_in":   int(time.Until(expires).Seconds()),
 			"token_type":   "Bearer",
 		}
-		if targetAudience != "" {
-			resp["id_token"] = signInvokeIDToken(principal, targetAudience, now, expires)
+		if claims.targetAudience != "" {
+			resp["id_token"] = signInvokeIDToken(claims.issuer, claims.targetAudience, now, expires)
 		}
 		sim.WriteJSON(w, http.StatusOK, resp)
 	}
@@ -93,6 +93,17 @@ func registerOAuth2(srv *sim.Server) {
 type oauth2GrantError struct {
 	code        string
 	description string
+}
+
+const grantTypeJWTBearer = "urn:ietf:params:oauth:grant-type:jwt-bearer"
+
+// writeOAuth2GrantError answers a failed grant with the RFC 6749 error body,
+// not the Google API error envelope, as the real token endpoint does.
+func writeOAuth2GrantError(w http.ResponseWriter, grantErr *oauth2GrantError) {
+	sim.WriteJSON(w, http.StatusBadRequest, map[string]string{
+		"error":             grantErr.code,
+		"error_description": grantErr.description,
+	})
 }
 
 func invalidGrant(description string) *oauth2GrantError {
@@ -117,8 +128,38 @@ type saAssertionClaims struct {
 // there, and pinning Google's would reject every coordinate-swapped client.
 func verifyServiceAccountAssertion(assertion string, now time.Time) (saAssertionClaims, *oauth2GrantError) {
 	var none saAssertionClaims
+	signed, grantErr := verifyServiceAccountJWT(assertion)
+	if grantErr != nil {
+		return none, grantErr
+	}
+	var claims struct {
+		TargetAudience string `json:"target_audience"`
+		Exp            int64  `json:"exp"`
+	}
+	if err := json.Unmarshal(signed.claims, &claims); err != nil {
+		return none, invalidGrant("Invalid JWT: Failed to parse token payload")
+	}
+	if claims.Exp == 0 || now.After(time.Unix(claims.Exp, 0)) {
+		return none, invalidGrant("Invalid JWT: Token must be a short-lived token (60 minutes) and in a reasonable timeframe. Check your iat and exp values in the JWT claim.")
+	}
+	return saAssertionClaims{issuer: signed.issuer, targetAudience: claims.TargetAudience}, nil
+}
 
-	parts := strings.Split(assertion, ".")
+// serviceAccountJWT is a JWT whose signature verified against a key of the
+// enabled service account its iss claim names.
+type serviceAccountJWT struct {
+	kid    string
+	issuer string
+	claims []byte
+}
+
+// verifyServiceAccountJWT checks that one of the enabled keys IAM registered
+// for the service account the JWT's iss claim names signed it with RS256: the
+// key the kid header names, or with no kid any of the account's keys. It
+// leaves the claims beyond iss to the caller.
+func verifyServiceAccountJWT(raw string) (serviceAccountJWT, *oauth2GrantError) {
+	var none serviceAccountJWT
+	parts := strings.Split(raw, ".")
 	if len(parts) != 3 {
 		return none, invalidGrant("Invalid JWT: Token must consist of header, claims, and signature")
 	}
@@ -142,9 +183,7 @@ func verifyServiceAccountAssertion(assertion string, now time.Time) (saAssertion
 		return none, invalidGrant("Invalid JWT: Failed to parse token payload")
 	}
 	var claims struct {
-		Iss            string `json:"iss"`
-		TargetAudience string `json:"target_audience"`
-		Exp            int64  `json:"exp"`
+		Iss string `json:"iss"`
 	}
 	if err := json.Unmarshal(claimsJSON, &claims); err != nil {
 		return none, invalidGrant("Invalid JWT: Failed to parse token payload")
@@ -167,16 +206,10 @@ func verifyServiceAccountAssertion(assertion string, now time.Time) (saAssertion
 		return none, invalidGrant("Invalid JWT Signature.")
 	}
 	digest := sha256.Sum256([]byte(parts[0] + "." + parts[1]))
-	verified := serviceAccountSigned(saName, header.Kid, digest[:], signature)
-	if !verified {
+	if !serviceAccountSigned(saName, header.Kid, digest[:], signature) {
 		return none, invalidGrant("Invalid JWT Signature.")
 	}
-
-	if claims.Exp == 0 || now.After(time.Unix(claims.Exp, 0)) {
-		return none, invalidGrant("Invalid JWT: Token must be a short-lived token (60 minutes) and in a reasonable timeframe. Check your iat and exp values in the JWT claim.")
-	}
-
-	return saAssertionClaims{issuer: claims.Iss, targetAudience: claims.TargetAudience}, nil
+	return serviceAccountJWT{kid: header.Kid, issuer: claims.Iss, claims: claimsJSON}, nil
 }
 
 // serviceAccountSigned reports whether one of the service account's enabled
@@ -192,10 +225,9 @@ func serviceAccountSigned(account, kid string, digest, signature []byte) bool {
 		}
 		candidates = []GCPServiceAccountKeyMaterial{material}
 	} else {
-		keyPrefix := account + "/keys/"
-		candidates = iamSAKeyPublics.Filter(func(m GCPServiceAccountKeyMaterial) bool {
-			return strings.HasPrefix(m.Name, keyPrefix)
-		})
+		for _, kv := range iamSAKeyPublics.ListPrefix(account + "/keys/") {
+			candidates = append(candidates, kv.Item)
+		}
 	}
 	for _, candidate := range candidates {
 		if key, ok := iamSAKeys.Get(candidate.Name); ok && key.Disabled {

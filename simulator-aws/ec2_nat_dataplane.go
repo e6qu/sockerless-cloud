@@ -21,7 +21,8 @@ import (
 // table sends 0.0.0.0/0 to the gateway has its default route pointed at
 // that address, so what it sends out of the VPC leaves from the gateway's
 // address, with the gateway's idle timeout, and counts in the gateway's
-// metrics.
+// metrics. A regional gateway runs one sidecar in each zone it covers, at
+// its address in that zone, and a subnet leaves through its own zone's.
 
 // ec2NatGatewayIdleTimeout is how long a NAT gateway keeps an idle
 // connection: 350 seconds, after which it sends nothing on it.
@@ -32,6 +33,8 @@ const ec2NatGatewayIdleTimeout = 350 * time.Second
 const ec2NatGatewayStopGrace = 10 * time.Second
 
 type ec2NatEgress struct {
+	gateway string
+	address string
 	handle  *sim.ContainerHandle
 	token   string
 	network string
@@ -39,8 +42,17 @@ type ec2NatEgress struct {
 
 var (
 	ec2NatEgressMu sync.Mutex
+	// ec2NatEgresses holds the running sidecars by gateway id, and a
+	// regional gateway's by gateway id and zone.
 	ec2NatEgresses = map[string]*ec2NatEgress{}
 )
+
+func ec2NatEgressKey(natID, zone string) string {
+	if zone == "" {
+		return natID
+	}
+	return natID + "/" + zone
+}
 
 // ec2EnsureVPCNatGateways runs the egress sidecar of every available NAT
 // gateway of the VPC on the VPC's network, which exists by now.
@@ -56,16 +68,47 @@ func ec2EnsureVPCNatGateways(ctx context.Context, vpcID string, network awsWorkl
 	return nil
 }
 
-// ec2EnsureNatGatewayEgress starts the gateway's sidecar once; a container
-// a previous simulator process left for the gateway is replaced, its token
-// having died with that process.
+// ec2EnsureNatGatewayEgress starts the gateway's sidecars once: a zonal
+// gateway's at its primary address, a regional gateway's at its address in
+// each zone it covers, and replaces one a zone's address moved away from.
 func ec2EnsureNatGatewayEgress(ctx context.Context, natgw EC2NatGateway, network awsWorkloadNetwork) error {
-	if natgw.State != "available" || len(natgw.NatGatewayAddresses) == 0 {
+	if natgw.State != "available" {
 		return nil
+	}
+	if ec2NatAvailabilityMode(natgw) != "regional" {
+		if len(natgw.NatGatewayAddresses) == 0 {
+			return nil
+		}
+		return ec2EnsureNatEgress(ctx, natgw, "", natgw.NatGatewayAddresses[0].PrivateIp, network)
+	}
+	for _, zone := range natgw.Zones {
+		if zone.PrivateIp == "" {
+			continue
+		}
+		if err := ec2EnsureNatEgress(ctx, natgw, zone.AvailabilityZone, zone.PrivateIp, network); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// ec2EnsureNatEgress starts one sidecar of the gateway; a container a
+// previous simulator process left for it is replaced, its token having died
+// with that process.
+func ec2EnsureNatEgress(ctx context.Context, natgw EC2NatGateway, zone, privateIP string, network awsWorkloadNetwork) error {
+	key := ec2NatEgressKey(natgw.NatGatewayId, zone)
+	ec2NatEgressMu.Lock()
+	running, ok := ec2NatEgresses[key]
+	ec2NatEgressMu.Unlock()
+	if ok {
+		if running.address == privateIP {
+			return nil
+		}
+		ec2StopNatEgress(key)
 	}
 	ec2NatEgressMu.Lock()
 	defer ec2NatEgressMu.Unlock()
-	if _, ok := ec2NatEgresses[natgw.NatGatewayId]; ok {
+	if _, ok := ec2NatEgresses[key]; ok {
 		return nil
 	}
 	vpc, ok := ec2Vpcs.Get(natgw.VpcId)
@@ -76,15 +119,21 @@ func ec2EnsureNatGatewayEgress(ctx context.Context, natgw EC2NatGateway, network
 	if err != nil {
 		return fmt.Errorf("vpc %s CIDR %q: %w", vpc.VpcId, vpc.CidrBlock, err)
 	}
-	address, err := netip.ParseAddr(natgw.NatGatewayAddresses[0].PrivateIp)
+	address, err := netip.ParseAddr(privateIP)
 	if err != nil {
-		return fmt.Errorf("NAT gateway %s private address %q: %w", natgw.NatGatewayId, natgw.NatGatewayAddresses[0].PrivateIp, err)
+		return fmt.Errorf("NAT gateway %s private address %q: %w", natgw.NatGatewayId, privateIP, err)
 	}
 	origin, err := workloadhost.CallbackAddr(simCallbackListenAddr)
 	if err != nil {
 		return fmt.Errorf("NAT gateway %s: workload callback: %w", natgw.NatGatewayId, err)
 	}
-	if stale, err := sim.FindExistingContainers(map[string]string{"sockerless-sim-nat-gateway": natgw.NatGatewayId}); err == nil {
+	labels := map[string]string{"sockerless-sim-nat-gateway": natgw.NatGatewayId}
+	name := "sockerless-sim-nat-" + natgw.NatGatewayId
+	if zone != "" {
+		labels["sockerless-sim-nat-gateway-zone"] = zone
+		name += "-" + zone
+	}
+	if stale, err := sim.FindExistingContainers(labels); err == nil {
 		for _, c := range stale {
 			sim.StopAndRemoveContainer(c.ID, 0)
 		}
@@ -94,7 +143,7 @@ func ec2EnsureNatGatewayEgress(ctx context.Context, natgw EC2NatGateway, network
 	handle, err := sidecar.StartEgress(ctx, sidecar.EgressSpec{
 		Network:      network.Name,
 		Address:      address,
-		Name:         "sockerless-sim-nat-" + natgw.NatGatewayId,
+		Name:         name,
 		Gateway:      natgw.NatGatewayId,
 		Sources:      []netip.Prefix{cidr},
 		Local:        []netip.Prefix{cidr},
@@ -103,22 +152,37 @@ func ec2EnsureNatGatewayEgress(ctx context.Context, natgw EC2NatGateway, network
 		HTTPUpstream: "http://" + origin,
 		Token:        token,
 		ExtraHosts:   workloadhost.ExtraHosts(),
-		Labels:       map[string]string{"sockerless-sim-nat-gateway": natgw.NatGatewayId},
+		Labels:       labels,
 	}, sim.NoopSink{})
 	if err != nil {
 		sim.UnregisterSidecarToken(token)
 		return fmt.Errorf("NAT gateway %s: %w", natgw.NatGatewayId, err)
 	}
-	ec2NatEgresses[natgw.NatGatewayId] = &ec2NatEgress{handle: handle, token: token, network: network.Name}
+	ec2NatEgresses[key] = &ec2NatEgress{gateway: natgw.NatGatewayId, address: privateIP, handle: handle, token: token, network: network.Name}
 	return nil
 }
 
-// ec2RemoveNatGatewayEgress stops the gateway's sidecar, with the grace it
-// needs to report what its connections carried.
+// ec2RemoveNatGatewayEgress stops every sidecar of the gateway.
 func ec2RemoveNatGatewayEgress(natID string) {
 	ec2NatEgressMu.Lock()
-	e := ec2NatEgresses[natID]
-	delete(ec2NatEgresses, natID)
+	var keys []string
+	for key, e := range ec2NatEgresses {
+		if e.gateway == natID {
+			keys = append(keys, key)
+		}
+	}
+	ec2NatEgressMu.Unlock()
+	for _, key := range keys {
+		ec2StopNatEgress(key)
+	}
+}
+
+// ec2StopNatEgress stops one sidecar, with the grace it needs to report what
+// its connections carried.
+func ec2StopNatEgress(key string) {
+	ec2NatEgressMu.Lock()
+	e := ec2NatEgresses[key]
+	delete(ec2NatEgresses, key)
 	ec2NatEgressMu.Unlock()
 	if e == nil {
 		return
@@ -131,13 +195,13 @@ func ec2RemoveNatGatewayEgress(natID string) {
 // ec2StopNatGatewayEgresses stops every gateway's sidecar at shutdown.
 func ec2StopNatGatewayEgresses() {
 	ec2NatEgressMu.Lock()
-	ids := make([]string, 0, len(ec2NatEgresses))
-	for id := range ec2NatEgresses {
-		ids = append(ids, id)
+	keys := make([]string, 0, len(ec2NatEgresses))
+	for key := range ec2NatEgresses {
+		keys = append(keys, key)
 	}
 	ec2NatEgressMu.Unlock()
-	for _, id := range ids {
-		ec2RemoveNatGatewayEgress(id)
+	for _, key := range keys {
+		ec2StopNatEgress(key)
 	}
 }
 
@@ -165,9 +229,10 @@ func ec2SubnetRouteTable(subnetID string) (EC2RouteTable, bool) {
 
 // ec2SubnetGateway is where a workload in the subnet sends what leaves the
 // VPC, in the terms of sim.ContainerConfig.Gateway: the private address of
-// the NAT gateway its route table's 0.0.0.0/0 route names, no route at all
-// for one naming a gateway that is gone, and the network's own gateway for
-// an internet gateway. A table with no route out leaves the workload on
+// the NAT gateway its route table's 0.0.0.0/0 route names (a regional
+// gateway's address in the subnet's zone), no route at all for one naming a
+// gateway that is gone or, regional, does not cover the zone, and the
+// network's own gateway for an internet gateway. A table with no route out leaves the workload on
 // the network's gateway too, the gap BUGS.md records.
 func ec2SubnetGateway(subnetID string) string {
 	rt, ok := ec2SubnetRouteTable(subnetID)
@@ -183,6 +248,13 @@ func ec2SubnetGateway(subnetID string) string {
 		}
 		natgw, ok := ec2NatGateways.Get(route.NatGatewayId)
 		if !ok || natgw.State != "available" || len(natgw.NatGatewayAddresses) == 0 {
+			return sim.NoGateway
+		}
+		if ec2NatAvailabilityMode(natgw) == "regional" {
+			subnet, _ := ec2Subnets.Get(subnetID)
+			if zone, ok := ec2NatGatewayZoneOf(natgw, subnet.AvailabilityZone); ok && zone.PrivateIp != "" {
+				return zone.PrivateIp
+			}
 			return sim.NoGateway
 		}
 		return natgw.NatGatewayAddresses[0].PrivateIp

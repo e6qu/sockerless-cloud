@@ -11,7 +11,7 @@ provider "google" {
   project = "test-project"
   region  = "us-central1"
 
-  access_token          = var.access_token
+  credentials           = var.credentials
   user_project_override = false
 
   eventarc_custom_endpoint = "${var.endpoint}/v1/"
@@ -23,7 +23,7 @@ variable "endpoint" {
   type        = string
 }
 
-variable "access_token" {
+variable "credentials" {
   type = string
 }
 

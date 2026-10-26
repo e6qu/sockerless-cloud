@@ -34,7 +34,7 @@ to:
 |---|---|
 | `sim` | the framework the three simulators are built on |
 | `ui-auth` | the consoles' OpenID Connect session layer and the application-monitoring endpoint |
-| `testutil` | test-only helpers: simulator readiness (`simready`), port picking (`freeports`), base-image acquisition (`baseimage`), the Caddy HTTPS gateway (`httpsgateway`), a git HTTP server (`githttp`), registry trust material (`registrytrust`) and a SAML identity provider (`samlidp`) |
+| `testutil` | test-only helpers: simulator readiness (`simready`), port picking (`freeports`), base-image acquisition (`baseimage`), a scratch image (`scratchimage`), unique resource names (`uniquename`), the Caddy HTTPS gateway (`httpsgateway`), a git HTTP server (`githttp`), registry trust material (`registrytrust`) and a SAML identity provider (`samlidp`) |
 
 ### UI packages (4)
 

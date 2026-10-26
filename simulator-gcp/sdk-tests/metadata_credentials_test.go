@@ -74,6 +74,11 @@ func TestMetadataSDK_CloudRunWorkloadIdentity(t *testing.T) {
 		status, _, region := invokeService(t, token, svc.Uri, http.MethodGet, "/instance/region", "")
 		require.Equal(t, http.StatusOK, status, "%s /instance/region: %q", tc.prefix, region)
 		assert.Equal(t, "projects/"+harnessProjectNumber+"/regions/us-central1", region)
+		// Cloud Run names no zone; its container contract answers the region's
+		// "-1" zone.
+		status, _, zone := invokeService(t, token, svc.Uri, http.MethodGet, "/instance/zone", "")
+		require.Equal(t, http.StatusOK, status, "%s /instance/zone: %q", tc.prefix, zone)
+		assert.Equal(t, "projects/"+harnessProjectNumber+"/zones/us-central1-1", zone)
 		_, _, first := invokeService(t, token, svc.Uri, http.MethodGet, "/instance/id", "")
 		_, _, second := invokeService(t, token, svc.Uri, http.MethodGet, "/instance/id", "")
 		assert.Regexp(t, `^[0-9a-f]{32,}$`, first, "%s /instance/id", tc.prefix)

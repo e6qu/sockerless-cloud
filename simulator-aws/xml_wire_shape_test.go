@@ -23,6 +23,7 @@ func TestS3BucketConfigurationListRoots(t *testing.T) {
 
 	put := httptest.NewRequest("PUT", "/shape-probe-bucket", nil)
 	put.SetPathValue("bucket", "shape-probe-bucket")
+	signSeedS3(put)
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, put)
 	if rr.Code != 200 {
@@ -36,7 +37,7 @@ func TestS3BucketConfigurationListRoots(t *testing.T) {
 		"intelligent-tiering": "ListBucketIntelligentTieringConfigurationsOutput",
 	} {
 		rr := httptest.NewRecorder()
-		srv.ServeHTTP(rr, httptest.NewRequest("GET", "/shape-probe-bucket?"+sub, nil))
+		srv.ServeHTTP(rr, s3SeedReq("GET", "/shape-probe-bucket?"+sub, nil))
 		if rr.Code != 200 {
 			t.Errorf("GET ?%s: status %d: %s", sub, rr.Code, rr.Body.String())
 			continue

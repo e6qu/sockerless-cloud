@@ -12,8 +12,7 @@ Three clouds built side by side show what a cloud is made of. The same dozen
 mechanisms turn up under every vendor's names, and once a mechanism exists
 once, each cloud's service on top of it is mostly wire shapes. This post
 covers, in order:
-- where each cloud's API specification comes from, what is generated from it,
-  how coverage of it is checked, and how a slice of it is chosen;
+- how a cloud's own API specification becomes the contract;
 - the services a cloud cannot do without, and the APIs to build first;
 - the libraries those services stand on;
 - the control-plane machinery behind the public API;
@@ -47,126 +46,33 @@ works, never the client.
 
 ## From specification to served slice
 
-Every cloud publishes its API as a machine-readable specification, and the
-SDKs are generated from it. This project treats those files as the contract:
-it vendors them, decides which ones it serves, checks every handler and every
-response against them, and gates the build on how much of each one it serves.
-The pipeline is the same for the three clouds; the formats and the gates
-differ.
+Every cloud publishes its API as a machine-readable specification, and its
+SDKs are generated from it: Smithy models for AWS, API Discovery documents and
+Protocol Buffers definitions for Google Cloud, OpenAPI (Swagger) for Azure.
+Treat those files as the contract.
 
-```mermaid
-flowchart LR
-    upstream["Upstream specifications<br/>Smithy · Discovery · Swagger<br/>+ documentation pages"] -->|"fetch-*-spec.sh<br/>pinned, never edited"| vendored[("specs/cloud-api/&lt;cloud&gt;<br/>+ SOURCES.md")]
-    vendored -->|"gen-spec-derived.sh"| tables["Generated tables<br/>*_gen.go"]
-    vendored --> gates["Coverage gates<br/>implemented-or-exempt ·<br/>served floors · declared 501s ·<br/>no phantom coverage"]
-    vendored --> validator["Run-time shape validation<br/>SOCKERLESS_SPEC_VALIDATE"]
-    handlers["Handwritten handlers<br/>simulator-&lt;cloud&gt;/*.go"] --> gates
-    tables --> handlers
-    suites["SDK · CLI · Terraform suites"] --> validator
-    validator -->|"violations not on the<br/>shrinking allowlist fail CI"| ci["CI"]
-    gates --> ci
-    freshness["Daily freshness job"] -->|"re-vendor what moved"| vendored
-```
+- **Vendor them, pinned.** Copy each document into the repository, never edit
+  it, and record where it came from and at which revision. A daily job
+  compares every pin with upstream and re-vendors what moved.
+- **Choose the slice by vendoring.** Vendoring a document commits you to
+  serving every operation in it, or to saying, operation by operation, why
+  not.
+- **Generate tables, not handlers.** A generated stub would compile, answer
+  and count as served while doing no work. Generate the things a hand would
+  get wrong instead: the member an error's message lives under, the signing
+  name of each service, the resource types each action authorizes.
+- **Gate coverage.** Probe every documented method through the real handler
+  chain, and fail the build when the served count moves without a reason. An
+  unserved method answers a declared `501`, not a router's `404`.
+- **Validate every response.** While the client suites run, check each
+  response member by member against the specification.
+- **Read the documentation for behaviour.** A specification states shapes. It
+  says `RunInstances` returns a `Reservation`, not that the instance waits in
+  `pending` until it boots. Vendor the documentation pages that state the
+  behaviour, and capture the real cloud where they're silent.
 
-### Where the specifications come from
-
-| Cloud | Specification | Upstream | Vendored by |
-|---|---|---|---|
-| AWS | Smithy 2.0 JSON models, one per service (42 vendored) | The models the AWS SDKs are generated from, `codegen/sdk-codegen/aws-models/<service>.json` in [`aws/aws-sdk-go-v2`](https://github.com/aws/aws-sdk-go-v2) | `scripts/fetch-aws-spec.sh <service> [<ref>]`, which resolves the ref to a commit SHA |
-| AWS | The Service Reference: each action's resource types, ARN formats and condition keys (43 services) | `servicereference.us-east-1.amazonaws.com`, the JSON behind the Service Authorization Reference | `scripts/fetch-aws-service-reference.sh <service>` |
-| Google Cloud | Discovery documents, one per API version (33 vendored) | `https://<api>.googleapis.com/$discovery/rest?version=<v>`, or `https://www.googleapis.com/discovery/v1/apis/<api>/<v>/rest` | `scripts/fetch-gcp-discovery.sh`, pinned by the document's `revision` |
-| Google Cloud | Protocol buffer definitions of the gRPC services | [`googleapis/googleapis`](https://github.com/googleapis/googleapis), compiled into the Go client libraries | The `cloud.google.com/go` `…pb` packages the simulator imports for its gRPC door |
-| Azure | OpenAPI 2.0 (Swagger) documents, per resource provider and API version (129 files, 122 of them with operations) | `specification/<service>/resource-manager/…` and `…/data-plane/…` in [`Azure/azure-rest-api-specs`](https://github.com/Azure/azure-rest-api-specs) | `scripts/fetch-azure-spec.sh`, pinned to a commit SHA |
-| All | What the specification leaves out: timeouts, defaults, state machines, error texts, event tables | The services' documentation pages | `scripts/fetch-{aws,gcp,azure}-doc.sh`, dated copies beside the models |
-
-Each `specs/cloud-api/<cloud>/SOURCES.md` records every file's upstream path,
-license, pin and fetch time. `scripts/check-spec-freshness.sh` compares each
-pin with its upstream, and a scheduled job runs it daily at 06:00 UTC and
-pushes the refresh onto the open pull request. A refresh lands together with
-whatever it changes: regenerated tables, moved floors, and the operations it
-added served or declared.
-
-The specification states shapes, not behaviour. It says `RunInstances` takes
-an `InstanceType` and returns a `Reservation`; it does not say the instance
-waits in `pending` until its machine boots, or that a deleted KMS key waits
-seven to thirty days. That part comes from the documentation pages, and where
-they are silent, from a capture against the real cloud, recorded as a
-`BUGS.md` row until one exists.
-
-### What is generated, and what is not
-
-The handlers are handwritten. A generated stub per operation would compile and
-answer, and that is the problem: it would count as served while doing no real
-work, which this project treats as a bug. What the specifications generate
-instead is the tables a handler would otherwise get wrong by hand.
-`scripts/gen-spec-derived.sh` regenerates them all after every re-vendor:
-
-| Generated file | From | What it gives the handlers |
-|---|---|---|
-| `simulator-aws/aws_error_members_gen.go` | Every vendored Smithy model | The member each error shape carries its message under (`message` or `Message`; the models disagree and the SDKs read exactly one), the service shape behind each `X-Amz-Target`, and each service's SigV4 signing name |
-| `simulator-aws/cloudwatch_cbor_shapes_gen.go` | The CloudWatch model | Every operation's shapes reduced to what Smithy RPC v2 CBOR and awsJson 1.0 encode differently, so one JSON handler serves both protocols |
-| `simulator-aws/stepfunctions_rest_integrations_gen.go` | The models' HTTP traits | The REST routing table for Step Functions' AWS SDK integrations, and the route table the IAM gate names a REST request's operation with |
-| `simulator-aws/iam_resource_types_gen.go` | The Service Reference | The resource types and ARN formats each action authorizes against, which the Smithy models do not carry |
-| `simulator-gcp/audit_methods_vendored.json` | The vendored audit-logging pages | Which methods a service audits, under which `methodName` and log category, checking which permissions |
-
-The tables compile, and the conformance tests check them against the
-specifications they came from.
-
-### How coverage is checked
-
-Each cloud measures how much of every vendored specification it serves, and
-the build fails when that number moves without someone saying why.
-
-| Check | AWS | Google Cloud | Azure |
-|---|---|---|---|
-| Every route names a real operation | `TestJSONTargetsExistInSmithyModels`, `TestQueryActionsExistInSmithyModels`, `TestRESTRoutesExistInSmithyModels` | Routes are probed per Discovery method (below) | Routes are probed per Swagger operation (below) |
-| Every operation is served or accounted for | `TestVendoredModelOperationsAreImplementedOrExempt`: an operation of a vendored model that no handwritten source names fails the build unless it is exempt with a reason, either a routing equivalence or an open `BUGS.md` row it must cite | `TestServiceConformance_GCPCoverageFloor`: every documented method is rendered into a concrete request and sent through the real handler chain; the served count per document is an exact-equality floor | `TestServiceConformance_AzureCoverageFloor`: the same probe and floor per Swagger document |
-| A re-vendor cannot add operations silently | The same test: a new operation is unnamed until it is served or exempt | `gcpDeclaredMethodTotals` locks each document's declared method count | `azureDeclaredOperationTotals` locks each document's declared operation count |
-| An unserved operation says so | Unimplemented operations answer the protocol's own unknown-operation error | `TestServiceConformance_GCPUnservedMethodsDeclareThemselves`: every unserved method answers a declared `501` naming what is missing, never the router's `404` | `TestServiceConformance_AzureUnservedOperationsDeclareThemselves`, the same rule |
-| No phantom coverage | `TestServiceConformance_LegacyQueryShadowing`: an operation one service does not serve must not be answered by another service's handler | `TestServiceConformance_GCPNoPhantomCoverage`: a method counts only if the route that answered it names it, so a wildcard route cannot answer for its siblings | `TestServiceConformance_AzureNoPhantomCoverage`, case-insensitive as Azure Resource Manager paths are |
-| The probe itself is sound | — | `TestServiceConformance_GCPCoverageProbeIsSound`, and a gRPC floor per service (`TestGRPCCoverageFloor`) | `TestServiceConformance_AzureCoverageProbeIsSound`, and `TestServiceConformance_AzureProbedHandlersAreHealthy` (no panic, no 5xx) |
-| Responses match the shapes | Run-time validation: with `SOCKERLESS_SPEC_VALIDATE` set, every response in the SDK, CLI and Terraform suites is checked against the vendored specification, and `scripts/check-spec-violations.sh` fails CI on any divergence not on `spec-violation-allowlist.txt`, whose every entry cites a bug and which only shrinks | The same | The same |
-| Every operation is exercised by real clients | `scripts/check-simulator-tests.sh`, a pre-commit hook: a commit that registers an operation must add an SDK, CLI or Terraform test that references it, or a `tests-exempt.txt` entry with its reason | The same | The same |
-| The record is readable | `specs/SIM_SURFACE_TABLES/<surface>.md`, generated by `scripts/seed-surface-tables.sh`: per operation, its handler and its SDK and Terraform tests | The same | The same |
-
-The probe is what makes the Google Cloud and Azure numbers honest. Matching a
-documented path against registered route patterns by shape alone counts a
-method as served whenever any pattern could spell its URI: a `{+name}`
-template under an unrelated route, or a colon-verb handler that matches every
-custom method and then rejects the verb. Only the response says whether a
-handler serves it.
-
-### How a slice is chosen
-
-A slice is chosen by vendoring. Vendoring a specification is a commitment:
-from then on, every operation in it must be served, or be accounted for
-operation by operation.
-
-- **AWS: by service model.** Vendor a service's Smithy model and every
-  operation in it must be implemented or exempt.
-  `TestVendoredModelsAreConsumed` refuses a vendored model nothing uses, so
-  a model is vendored when its service is built. The 42 vendored models are
-  served or exempt in full. An exemption is either a routing equivalence —
-  the S3 bucket operations a handler serves through subresources such as
-  `?acl` and `?cors` without naming them, which
-  `TestS3SubresourceExemptionsAreRouted` holds to their routes — or an open
-  bug, such as an operation newer than the SDK release the tests can pin.
-- **Google Cloud: by Discovery document.** A service enters with its Discovery
-  document; every method spelling must then reach a route that serves it or
-  answers a declared `501`. The per-document floor records the honest served
-  count. Compute Engine's 2,000-odd methods are far from fully served, and the
-  floor says so rather than hiding the gap.
-- **Azure: by Swagger document.** A resource provider enters with its Swagger
-  documents at one API version; 2,653 of the 2,660 operations across them are
-  served, and the other seven answer a declared `501`.
-
-Which services to vendor follows [the core services](#the-must-have-core-services):
-identity first, then the resource hierarchy, keys, networking, compute,
-storage, the registry, messaging, databases and observability. Within a
-service, the [APIs to build first](#the-apis-to-build-first) are the calls a
-client's create, wait, read, update, tag, delete loop makes. The floors and
-exemptions then keep the slice's boundary visible: anything outside it either
-answers a declared `501` or appears on a list with its reason.
+[Specifications](specifications.md) covers each cloud's sources, the generated
+tables, every gate and how to vendor a new document.
 
 ## Before the first service: the foundation
 
@@ -217,7 +123,7 @@ allows the action on the resource.
 
 Libraries: `sim/simjwt` and `sim/oidcfed`. Policy evaluation stays per cloud,
 because the three policy languages share little beyond wildcard matching
-(`sim.Wildcard`).
+(`sim.Wildcard`). [Identity and access](iam.md) documents all three.
 
 ### 2. Resource organisation
 
@@ -266,6 +172,8 @@ each cloud network an engine network over its own range; `sim/sidecar` stands
 at the addresses the cloud reserves inside the range and forwards the resolver
 and metadata to the simulator; `sim/dnsserver` answers every zone; `sim/lbplane`
 is the load-balancer data plane with its HTTP, TCP and gRPC health probes.
+[Instance metadata](instance-metadata.md) documents what workloads read at
+the reserved addresses.
 
 The constraint worth stating: **no host privilege.** The simulator holds no
 capability, device or `nftables` rule. An engine network stands in for the
@@ -338,7 +246,9 @@ The glue between services, and the place where three clouds look most alike.
   locks, expiry sweeps, change logs, entity-tag preconditions); each query
   language stays with its cloud.
 - **Caches**: Amazon ElastiCache, Memorystore for Redis, Azure Cache for
-  Redis. Only Memorystore runs a real Redis today (see the gaps).
+  Redis. Library: `sim/cacheengine` runs real Valkey, Redis and Memcached
+  nodes, as instances with replicas or as Redis Cluster shards, behind
+  endpoints the simulator owns.
 
 ### 10. Observability
 
@@ -386,7 +296,7 @@ pages** (every `Describe*` and `list` call, and every data source).
 
 ## The library map
 
-The 34 packages under `sim/`, by the layer they serve:
+The 35 packages under `sim/`, by the layer they serve:
 
 | Layer | Packages |
 |---|---|
@@ -397,9 +307,11 @@ The 34 packages under `sim/`, by the layer they serve:
 | Compute | `placement`, `nodeagent`, `machine`, `vminstance`, `workload`, `workloadhost`, `replicas`, `revisions`, `jobrun`, `funcrt`, `procimage` |
 | Storage | `blobstore`, `sparse`, `fileshare` |
 | Messaging | `msgq`, `streamlog`, `eventbus`, `delivery`, `cron` |
-| Data | `dbengine`, `kvstore`, `logstore` |
+| Data | `dbengine`, `cacheengine`, `kvstore`, `logstore` |
 
-Each package states its contract in its package documentation and proves it
+[`sim/README.md`](../sim/README.md) describes each one, and
+[Architecture](architecture.md) shows how they fit together. Each package
+states its contract in its package documentation and proves it
 in unit tests without a simulator. Each consumer keeps its SDK, CLI and
 Terraform tests, which show that moving a cloud onto a library changed no
 wire behaviour.
@@ -455,12 +367,6 @@ flowchart LR
 
 ### Gaps in the core services
 
-- **A managed cache engine.** Memorystore for Redis runs a real Redis
-  topology; Amazon ElastiCache reports a cluster `available` without starting
-  an engine, and Azure Cache for Redis serves only its Azure Resource Manager
-  lifecycle. The fix is the same move `sim/dbengine` made for relational
-  databases: lift Memorystore's engine into a `sim/cacheengine` and put all
-  three caches on it.
 - **Azure Managed Disks.** Azure's block storage, and with it disk snapshots
   and attaching data disks, is not served.
 - **Cloud Monitoring.** Google Cloud has no metrics service, so nothing on
@@ -468,6 +374,13 @@ flowchart LR
 - **Azure Monitor metric alerts.** Azure Monitor serves metrics but no metric
   alert rules, so nothing on Azure can alarm on a metric.
 - **Filestore.** Google Cloud has no managed file share.
+- **Authorization outside AWS.** Every simulator verifies every credential,
+  but only AWS evaluates its policy language on every call. Google Cloud
+  applies IAM policies in four places and Azure applies Azure RBAC to Key
+  Vault data actions only ([Identity and access](iam.md) lists where). The
+  fix is the gate AWS has: derive each operation's permission or action from
+  the specification, evaluate the resource hierarchy's policies or role
+  assignments, and refuse.
 
 ### Extractions, ranked by value over effort
 
@@ -482,21 +395,20 @@ Mechanisms two or three clouds still implement separately (`PLAN.md`, M3):
 3. **Time-bounded soft delete.** Key Vault, AWS KMS pending deletion, Secrets
    Manager recovery windows, Cloud Storage soft delete, Cloud KMS version
    destruction, Blob and Files soft delete, the EC2 Recycle Bin.
-4. **Managed cache engine** (above).
-5. **Simulated certificate authority.** Nine sites call
+4. **Simulated certificate authority.** Nine sites call
    `x509.CreateCertificate` on their own.
-6. **Versioned secrets.** Versions, stages and password generation shared by
+5. **Versioned secrets.** Versions, stages and password generation shared by
    Secrets Manager, Parameter Store, Secret Manager and Key Vault.
-7. **Metric time series and alarms.** CloudWatch's aggregation beside Azure
+6. **Metric time series and alarms.** CloudWatch's aggregation beside Azure
    Monitor's, as the base for Cloud Monitoring and for autoscalers that read
    metrics.
-8. **Audit capture middleware.** CloudTrail and Cloud Audit Logs capture,
+7. **Audit capture middleware.** CloudTrail and Cloud Audit Logs capture,
    extended to the Azure Activity Log.
-9. **Build runner.** The step pipeline, workspace and push shared by CodeBuild,
+8. **Build runner.** The step pipeline, workspace and push shared by CodeBuild,
    Cloud Build and ACR Tasks.
-10. **Registry ingest.** Image ingestion behind ECR pull-through cache and
+9. **Registry ingest.** Image ingestion behind ECR pull-through cache and
     Artifact Registry remote repositories, extended to ACR cache rules.
-11. **Field masks and merge patch, idempotency tokens.** Small, repeated
+10. **Field masks and merge patch, idempotency tokens.** Small, repeated
     request semantics.
 
 ### Refactorings inside each cloud
@@ -520,8 +432,8 @@ relying on a row.
 | **Built with** | Go, on a shared `sim` framework | Python | Java on Quarkus, compiled to a GraalVM native image |
 | **Breadth** | Every operation of 42 vendored AWS Smithy models served or exempt; every method spelling of 33 Google Cloud Discovery documents routed; 2,653 of 2,660 Azure Swagger operations served | Broad AWS coverage; which services a user gets depends on the tier | Its site claims 126 AWS services; an independent review counted 85 in its service matrix |
 | **Contract** | The cloud's own specification, vendored; responses validated against it at run time; coverage ratchets in CI | Not stated in the pages consulted | "Real wire protocols"; compatibility tests (below) |
-| **Authentication** | SigV4 verified on every AWS request; an IAM gate authorizes every operation, always on | IAM enforcement off by default, enabled with `ENFORCE_IAM=1`; not on the Hobby tier | Any non-empty credentials by default; stricter checks opt-in per service |
-| **Heavy services** | Real engines: PostgreSQL, MySQL and MariaDB for the managed databases, Redis for Memorystore, containers or Firecracker microVMs for compute | Container-backed RDS and ECS from the Base tier, EKS from Ultimate | Real engines in containers: Lambda runtimes, RDS, ElastiCache on Valkey, DocumentDB on MongoDB, MSK on Redpanda, EKS on k3s, and more |
+| **Authentication** | SigV4 verified on AWS requests and an IAM gate on every operation; Google Cloud and Azure verify every token, and enforce authorization in fewer places ([Identity and access](iam.md)) | IAM enforcement off by default, enabled with `ENFORCE_IAM=1`; not on the Hobby tier | Any non-empty credentials by default; stricter checks opt-in per service |
+| **Heavy services** | Real engines: PostgreSQL, MySQL and MariaDB for the managed databases, Valkey, Redis and Memcached for the managed caches, containers or Firecracker microVMs for compute | Container-backed RDS and ECS from the Base tier, EKS from Ultimate | Real engines in containers: Lambda runtimes, RDS, ElastiCache on Valkey, DocumentDB on MongoDB, MSK on Redpanda, EKS on k3s, and more |
 | **Networks** | Each VPC, subnetwork or virtual network is an engine network over its own range, with the resolver, metadata and NAT at the addresses the cloud reserves | A DNS server that answers `*.amazonaws.com` with LocalStack's address; network behaviour not described | One Docker network per VPC; NAT gateways and routing are records |
 | **State** | SQLite; with `SIM_PERSIST`, kept across restarts, and a restarted simulator adopts its workloads and resumes background work | Persistence and Cloud Pods from the Base tier | Four modes: memory, persistent, hybrid and write-ahead log |
 | **Tests** | Every operation through the official Go SDK, the vendor CLI and the Terraform provider, enforced by a pre-commit hook | Not compared here | 2,576 compatibility tests across five SDKs (Java, Node.js, Python, Go, AWS CLI) and three IaC tools (Terraform, OpenTofu, CDK) |
@@ -649,8 +561,7 @@ Where each one fits:
   paid plan.
 - **Floci** is the fast, MIT-licensed AWS stand-in with a wide AWS service
   list and a small native-image footprint. It runs more of AWS's
-  heavy services on real engines than sockerless-cloud does today, Amazon
-  ElastiCache among them (BUG-3732). Its compatibility tests check the SDK and
+  heavy services on real engines than sockerless-cloud does today. Its compatibility tests check the SDK and
   IaC calls they exercise; by default it accepts any credentials.
 - **sockerless-cloud** is narrower per cloud and trades breadth for a contract:
   each operation it serves is checked against the cloud's own specification,

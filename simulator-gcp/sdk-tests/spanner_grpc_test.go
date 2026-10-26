@@ -16,7 +16,6 @@ import (
 	spanneradmin "google.golang.org/api/spanner/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/structpb"
 )
@@ -25,8 +24,8 @@ import (
 // using the high-level cloud.google.com/go/spanner client — the gRPC-only
 // surface that previously could not target the simulator at all. Provisioning
 // (instance / database / DDL) goes through the REST admin SDK; every read and
-// write below rides the gRPC data plane through SPANNER_EMULATOR_HOST, the same
-// coordinate the real Spanner emulator honors.
+// write below rides the gRPC data plane at the simulator's endpoint with the
+// bootstrap credential.
 func TestSpanner_GRPC(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -46,7 +45,7 @@ func TestSpanner_GRPC(t *testing.T) {
 	// Point the high-level client at the simulator's gRPC port — the same env
 	// var the real Spanner emulator uses.
 
-	client, err := spanner.NewClient(ctx, database)
+	client, err := spanner.NewClientWithConfig(ctx, database, spannerClientConfig, simGRPCClientOptions()...)
 	require.NoError(t, err)
 	defer client.Close()
 
@@ -221,7 +220,7 @@ func TestSpanner_GRPCBatchDMLAndBatchWrite(t *testing.T) {
 		"CREATE TABLE Accounts (AccountId STRING(36) NOT NULL, Balance INT64 NOT NULL) PRIMARY KEY (AccountId)",
 	})
 
-	conn, err := grpc.NewClient(grpcAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.NewClient(grpcAddr, simGRPCDialOptions(simTokenSource())...)
 	require.NoError(t, err)
 	defer conn.Close()
 	client := sppb.NewSpannerClient(conn)

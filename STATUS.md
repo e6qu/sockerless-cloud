@@ -26,20 +26,19 @@ The state of the sockerless-cloud repository. `PLAN.md` holds the roadmap,
 - **Consoles.** `ui/` (Bun and Turborepo) builds `ui/packages/simulator-*`
   and `core`. A console reads only real cloud APIs and federates operator
   credentials through its cloud's own federation primitive.
-- **Docs.** `docs/so-you-want-to-build-a-cloud.md` explains what a cloud is
-  made of:
-  - where the API specifications come from, and the core services in build
-    order with the APIs to build first;
-  - the `sim` library behind each service, and the control-plane mechanisms
-    behind the public API;
-  - what is still missing;
-  - a comparison with LocalStack and Floci, with per-service feature tables
-    and Mermaid diagrams of the three control planes.
+- **Docs.** `README.md` is the front door; `docs/` holds the rest:
+  - `tutorial.md`, one stack on all three simulators with Terraform, whose
+    configurations live beside the tests that apply them (CI runs them as
+    `tf (aws tutorial)`, `tf (gcp tutorial)` and `tf (azure tutorial)`);
+  - `tutorial-contributing.md`, one change from specification to pull request;
+  - `configuration.md`, `iam.md` and `instance-metadata.md` for users;
+  - `architecture.md`, `specifications.md`, `maintaining.md` and
+    `MAKEFILE_STANDARD.md` for maintainers;
+  - `so-you-want-to-build-a-cloud.md`, what a cloud is made of and how the
+    project compares with LocalStack and Floci.
 
-  `docs/tutorial.md` builds one stack on all three simulators with Terraform.
-  Its configurations live beside the tests that apply them (the `tutorial`
-  directories of each simulator's `terraform-tests`), and CI runs them as
-  `tf (aws tutorial)`, `tf (gcp tutorial)` and `tf (azure tutorial)`.
+  Each simulator's README covers its services, its clients' configuration and
+  its workloads.
 - **Specifications.** `specs/cloud-api/{aws,gcp,azure}` vendors the Smithy
   models, Discovery documents, Swagger documents, the AWS Service Reference
   and dated documentation pages, each row of a `SOURCES.md` pinned and

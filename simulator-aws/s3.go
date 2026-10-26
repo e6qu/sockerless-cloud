@@ -385,23 +385,36 @@ func registerS3(srv *sim.Server) {
 
 // s3Enforced applies call-time IAM enforcement to an S3 REST handler. The IAM
 // action is "s3:" + the request's S3 operation name; the resource is the
-// bucket/object ARN. Enforcement is a no-op for unregistered/test credentials
-// (the permissive default), so existing S3 tests keep working — only a caller
-// with a registered restricted key, or a bucket policy that denies, is blocked.
+// bucket/object ARN. A signed caller is held to its own policies and the
+// bucket policy; an unsigned one is the anonymous principal, which only the
+// bucket's grants to everyone authorize (s3RefuseAnonymous).
 func s3Enforced(opName func(*http.Request, []byte) string, h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Authenticate the SigV4 signature first. A request that presents no
-		// credential (sigv4NoCredential) is anonymous — allowed through so a
-		// bucket/object policy granting Principal:"*" still serves public
-		// reads; a present-but-invalid signature is rejected. The object body
-		// is never read here (nil): S3 clients always declare the payload hash
-		// in x-amz-content-sha256, so large uploads are not buffered.
-		if _, serr := sigv4VerifyS3(r, nil); serr != nil {
+		// credential is anonymous, and only what its bucket grants everyone
+		// authorizes it; a present-but-invalid signature is rejected. The
+		// object body is never read here (nil): S3 clients always declare the
+		// payload hash in x-amz-content-sha256, so large uploads are not
+		// buffered.
+		result, serr := sigv4VerifyS3(r, nil)
+		if serr != nil {
 			sigv4WriteS3Error(w, r, serr)
 			return
 		}
 		op := opName(r, nil)
 		if s3RefuseForeignBucket(w, r, op) {
+			return
+		}
+		if result == sigv4NoCredential {
+			if op == "" {
+				s3WriteAnonymousDeny(w, r)
+				return
+			}
+			var refused bool
+			if r, refused = s3RefuseAnonymous(w, r, op, s3AuthorizationTargets(r, op, []string{s3RequestResourceARN(r)})); refused {
+				return
+			}
+			h(w, r)
 			return
 		}
 		if op != "" {

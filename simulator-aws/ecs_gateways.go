@@ -180,13 +180,12 @@ func ecsResolveGateway(ref string) (ECSGateway, bool) {
 	if strings.HasPrefix(ref, "arn:") {
 		return ecsGateways.Get(ref)
 	}
-	for _, gateway := range ecsGateways.List() {
-		if gateway.Name == ref {
-			return gateway, true
-		}
-	}
-	return ECSGateway{}, false
+	return ecsGatewaysByName.Lookup(ecsGateways, ref, func(gateway ECSGateway) []string {
+		return []string{gateway.Name}
+	})
 }
+
+var ecsGatewaysByName sim.GenerationIndex[ECSGateway]
 
 // ecsResolveCluster finds an ACTIVE cluster by its name or its ARN.
 func ecsResolveCluster(ref string) (ECSCluster, bool) {

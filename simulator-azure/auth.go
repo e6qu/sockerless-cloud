@@ -160,6 +160,10 @@ func AzureAuthMiddleware(next http.Handler) http.Handler {
 			handleAzureInstanceDiscovery(w, r)
 			return
 		}
+		if r.Method == http.MethodGet && isUserRealmPath(path) {
+			handleAzureUserRealm(w, r)
+			return
+		}
 
 		// Authorization endpoint: GET /{tenantId}/oauth2/v2.0/authorize
 		if r.Method == http.MethodGet && strings.Contains(path, "/oauth2/v2.0/authorize") {
@@ -925,8 +929,9 @@ func mintAzureSimIDTokenForUser(u EntraUser, tenantID, clientID, nonce, scope, i
 // handleAzureROPC implements the Resource Owner Password Credentials grant
 // (grant_type=password). Real Entra supports this for non-interactive test
 // flows where a specific user's id_token is needed without a browser.
-// The sim looks up the user by userPrincipalName (the username field) and
-// mints tokens carrying that user's identity and group memberships.
+// The sim looks up the user by userPrincipalName (the username field), checks
+// the password against the verifier passwordProfile stored, and mints tokens
+// carrying that user's identity and group memberships.
 func handleAzureROPC(w http.ResponseWriter, r *http.Request, tenantID, clientID string) {
 	username := strings.TrimSpace(r.Form.Get("username"))
 	scope := strings.TrimSpace(r.Form.Get("scope"))
@@ -937,7 +942,13 @@ func handleAzureROPC(w http.ResponseWriter, r *http.Request, tenantID, clientID 
 
 	u, ok := findEntraUserByUPN(username)
 	if !ok {
-		azureOAuthError(w, "invalid_grant", "user not found: "+username, http.StatusBadRequest)
+		entraSTSError(w, http.StatusBadRequest, "invalid_grant", 50034,
+			fmt.Sprintf("The user account {EUII Hidden} does not exist in the %s directory. To sign into this application, the account must be added to the directory.", tenantID))
+		return
+	}
+	if !entraPasswordMatches(u.PasswordHash, r.Form.Get("password")) {
+		entraSTSError(w, http.StatusBadRequest, "invalid_grant", 50126,
+			"Error validating credentials due to invalid username or password.")
 		return
 	}
 

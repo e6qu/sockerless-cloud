@@ -82,11 +82,8 @@ sdk-test-local: build-api ## go test the SDK-driven sim tests on a Linux host wi
 cli-test: build-api ## go test the CLI-driven sim tests
 	cd cli-tests && $(GO_ENV) bash ../../scripts/go-test-summary.sh -count=1 -timeout $(CLI_TEST_TIMEOUT) $(CLI_TEST_ARGS)
 
-# The azure terraform stack is Docker-only: this outer `go test` wraps a
-# `docker run go test` (terraform-tests/helpers_test.go) that does the real
-# apply+destroy bounded by TERRAFORM_TEST_TIMEOUT. The outer timeout just has
-# to outlast the inner run + docker startup, so it's deliberately generous;
-# the apply/destroy deadline the tests honour is TERRAFORM_TEST_TIMEOUT.
+# TERRAFORM_TEST_TIMEOUT bounds each apply and destroy; the outer go test
+# timeout only has to outlast it.
 TERRAFORM_TEST_TIMEOUT ?= 600s
 
 # TERRAFORM_TEST_ARGS carries extra `go test` flags — CI's tf shards use it to

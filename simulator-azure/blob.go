@@ -1309,12 +1309,16 @@ func handlePutBlob(w http.ResponseWriter, r *http.Request, account, container, b
 		b.AccessTierInferred = true
 	}
 	blobTouch(&b)
-	digests, err := blobSetContentsFrom(&b, contents)
+	if !blobBodyChecksums.exclusive(w, r) {
+		return
+	}
+	crc := newBlobCRC64()
+	digests, err := blobSetContentsFrom(&b, io.TeeReader(contents, crc))
 	if err != nil {
 		writeStorageError(w, "InternalError", err.Error(), http.StatusInternalServerError)
 		return
 	}
-	if !blobContentMD5Matches(w, r, digests) {
+	if !blobBodyChecksums.match(w, r, digests.MD5Base64(), crc.Sum64()) {
 		blobReleaseBody(b.Body)
 		return
 	}
@@ -1324,6 +1328,10 @@ func handlePutBlob(w http.ResponseWriter, r *http.Request, account, container, b
 	w.Header().Set("ETag", b.ETag)
 	w.Header().Set("Last-Modified", b.LastModified)
 	w.Header().Set("Content-MD5", b.ContentMD5)
+	// Put Blob answers a block blob with its CRC64 at every version that has one.
+	if blobType == "BlockBlob" && blobRequestVersion(r, account) >= blobVersionCRC64 {
+		w.Header().Set("x-ms-content-crc64", blobCRC64Base64(crc.Sum64()))
+	}
 	w.Header().Set("x-ms-request-server-encrypted", "true")
 	w.WriteHeader(http.StatusCreated)
 }
@@ -1377,9 +1385,18 @@ func handleCopyBlob(w http.ResponseWriter, r *http.Request, account, container, 
 		return
 	}
 
-	source, copied, digests, err := blobCopyContents(source)
+	sync := strings.EqualFold(r.Header.Get("x-ms-requires-sync"), "true")
+	crc := newBlobCRC64()
+	source, copied, digests, err := blobCopyContentsAlso(source, crc)
 	if err != nil {
 		writeStorageError(w, "InternalError", err.Error(), http.StatusInternalServerError)
+		return
+	}
+	// Copy Blob From URL checks the source MD5 a caller states; it takes no
+	// source CRC64.
+	sourceMD5 := blobChecksumHeaders{md5: "x-ms-source-content-md5"}
+	if sync && !sourceMD5.match(w, r, digests.MD5Base64(), crc.Sum64()) {
+		blobReleaseBody(copied)
 		return
 	}
 	metadata := collectMetadata(r)
@@ -1430,9 +1447,15 @@ func handleCopyBlob(w http.ResponseWriter, r *http.Request, account, container, 
 	w.Header().Set("x-ms-copy-id", copyID)
 	w.Header().Set("x-ms-copy-status", "success")
 	// Copy Blob From URL is the synchronous spelling: it carries
-	// x-ms-requires-sync and answers with the copied content's MD5.
-	if strings.EqualFold(r.Header.Get("x-ms-requires-sync"), "true") {
-		w.Header().Set("Content-MD5", dst.ContentMD5)
+	// x-ms-requires-sync and answers with the copied content's CRC64, and with
+	// its MD5 when the request stated the source's.
+	if sync {
+		if r.Header.Get(sourceMD5.md5) != "" {
+			w.Header().Set("Content-MD5", dst.ContentMD5)
+		}
+		if blobRequestVersion(r, account) >= blobVersionCRC64 {
+			w.Header().Set("x-ms-content-crc64", blobCRC64Base64(crc.Sum64()))
+		}
 	}
 	w.WriteHeader(http.StatusAccepted)
 }
@@ -1527,12 +1550,16 @@ func handleStageBlock(w http.ResponseWriter, r *http.Request, account, container
 			return
 		}
 	}
-	ref, digests, err := blobBodies.WriteFrom(r.Body)
+	if !blobBodyChecksums.exclusive(w, r) {
+		return
+	}
+	crc := newBlobCRC64()
+	ref, digests, err := blobBodies.WriteFrom(io.TeeReader(r.Body, crc))
 	if err != nil {
 		writeStorageError(w, "InternalError", err.Error(), http.StatusInternalServerError)
 		return
 	}
-	if !blobContentMD5Matches(w, r, digests) {
+	if !blobBodyChecksums.match(w, r, digests.MD5Base64(), crc.Sum64()) {
 		blobReleaseBody(ref)
 		return
 	}
@@ -1545,7 +1572,7 @@ func handleStageBlock(w http.ResponseWriter, r *http.Request, account, container
 	block.UncommittedBody, block.UncommittedSize, block.LegacyUncommittedData = ref, digests.Size, nil
 	block.HasUncommitted = true
 	putBlobBlock(account, container, blob, blockID, block)
-	w.Header().Set("Content-MD5", digests.MD5Base64())
+	blobBodyChecksums.respond(w, r, account, digests.MD5Base64(), crc.Sum64(), blobVersionBothDigests)
 	w.Header().Set("x-ms-request-server-encrypted", "true")
 	w.WriteHeader(http.StatusCreated)
 }
@@ -1576,13 +1603,12 @@ func handleCommitBlockList(w http.ResponseWriter, r *http.Request, account, cont
 		writeStorageError(w, "InvalidInput", err.Error(), http.StatusBadRequest)
 		return
 	}
-	// Content-MD5 covers the block list itself, not the blob it assembles.
+	// The transactional checksums cover the block list itself, not the blob it
+	// assembles.
 	listMD5 := md5.Sum(listBody)
 	listMD5Base64 := base64.StdEncoding.EncodeToString(listMD5[:])
-	if stated := r.Header.Get("Content-MD5"); stated != "" && stated != listMD5Base64 {
-		writeStorageError(w, "Md5Mismatch",
-			"The MD5 value specified in the request did not match with the MD5 value calculated by the server.",
-			http.StatusBadRequest)
+	listCRC64 := blobCRC64(listBody)
+	if !blobBodyChecksums.exclusive(w, r) || !blobBodyChecksums.match(w, r, listMD5Base64, listCRC64) {
 		return
 	}
 	var req blockListRequest
@@ -1698,9 +1724,7 @@ func handleCommitBlockList(w http.ResponseWriter, r *http.Request, account, cont
 	putBlobObject(committedBlob)
 	w.Header().Set("ETag", committedBlob.ETag)
 	w.Header().Set("Last-Modified", committedBlob.LastModified)
-	if r.Header.Get("Content-MD5") != "" {
-		w.Header().Set("Content-MD5", listMD5Base64)
-	}
+	blobBodyChecksums.respond(w, r, account, listMD5Base64, listCRC64, "")
 	w.WriteHeader(http.StatusCreated)
 }
 

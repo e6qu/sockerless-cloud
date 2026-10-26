@@ -40,15 +40,69 @@ azure_arm_bearer() {
     "$1/11111111-1111-1111-1111-111111111111/oauth2/v2.0/token" | jq -r .access_token
 }
 
+# The Google Cloud simulator's well-known bootstrap service account and the key
+# it seeds the account with.
+GCP_BOOTSTRAP_EMAIL="sockerless-bootstrap@sockerless.iam.gserviceaccount.com"
+GCP_BOOTSTRAP_KEY_ID="49c4c9ee1dffb89ca13534183ea5e484e46abaaa"
+GCP_BOOTSTRAP_PRIVATE_KEY='-----BEGIN PRIVATE KEY-----
+MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQCgIehWBhPTjtE4
+Dq1bxsFfLbjm8gQXLIBXDExpfTN5iiQaJXmiR7kZXO8y+IGgh2BuJCJNpxWwrPHj
+qWaymDd/qjaU8Ni15o84+0V1zKtoQ+tmnQqDi0VTEenLpV8iRYG68ambB1FZ5F+A
+4n3IgAMVfUXe6GUdMaRLQUZv4blFimKxNORR0NzL3msr7toxmHhTikmiN23cIBFB
+OEIHIlXXe2az54FHBPXuuGTNhsDKMRiw32+XIeXi+nRF3XuopiIVUOihhbqmjomV
++kgSx5O20QwQ8ITtVXq75Yp9KFCTtyCUY2MtPIVRTnMYTkFrUV613hEOc2MiI+hU
+7BgXk5kxAgMBAAECggEADVRNOe3nFBbhCPzFxuwwN/s/FzBBkWlBpJ1QNf63PHB4
+iVmhupWkTX1sJs7DQYjLSNfGqDaWil6XAvecphSgGAcj5Hl43Ilc1iYqVcAr63Gt
+5FyBncoHwv6seqhhFyH4hsZrcw1kouos3fZceIZZW15SZNfs5MV3UtFT6ue765MT
+4saqJqCSt9i26PnP6VILDCpmcXoPF5gMlSNLKmp7q0jlxLOsXalQULFGPOg7MEE0
+maOzd9M4A5B3dUo4ucBG6BdjK763VasR7NeWKlzSiotG/NS+fqZy6C5bNPzxKktt
+EDZlLxtqiahthmFzRbpUj4hqSiBmY92wG+2HnBynzQKBgQDRO3SGDlTZ6RbTzYvr
+PJGQY6u6J+jT3JHoBMs6cGVWOJceu4UUSreTO4oYlDcLWMkKAF3snZha6us5h0k2
+NIO0MVEnx+VWDIHpHEA1VCoAe48cufN1CXsbZRwF14zxSY1IpZ+kLVwrh4UQt7Ns
+RdcsB+xC0229K439EiUYeDCvRQKBgQDD7OW8y/A74f8tI8+QSXCFo1VdDGc8MfjX
+ieKaeRvDn5GsxvAGjRODenQL8s35TOztUdnn5AAouaWqX1T0NkvDyRKMD/w/1vQj
+XxtXY8zS3ADzbdrNNhuBOeQek15iDxzo8vRwIFtpJEaZ47uFoapg9MhLhj/TWlZt
+dIOD7Wn6/QKBgQCxz5QsJNvJQIRMxT6mUBfonDuhfS8pdSZuBjzr0f7cskUDMhtb
+bk/qCMxILRVGSFK5dCxd3GRQx5nVjvoR3bkbllnAs+lbIk/42jBa4ca8GEU8BW83
+xDHhyyBweolluLsfxNkRfhb5SzczSNprJkNBQQ5wkBuPiwckzZnG3MWK/QKBgQC6
+OjGAS8Rz1vNqn5BKUFPg4ohgIkr6H3GsxcYbGCR4w/J+bLV3NJ8oqLsnJEn9vc2y
+Icviq4gvLY63K1gfrIBFf5jegs88iv+Ro3Pkk9r7TdylhXSk+9oW8cTP/zmGMWFE
+VrJa5ZadkLp+ycTTVwAQmnrLtrZyGXrvHQFo48CJrQKBgG2E+MuCRr0kRc7jEkHE
+tJUXWzmzh7IgglfexVWc2/PLNlP2foy/8oiE+hn4QO9/xd3q3LIsNl5xlT61AtZK
+XCB2hUM2czc3i/9DRIo249YLUSkUGJB6PHXNkq3b2NEL2uKkvz6Wzpof30OV7Pn6
+eQDiTQyEvNvkuOrWUcehkn2z
+-----END PRIVATE KEY-----'
+
+# base64url emits its stdin base64url-encoded without padding, as a JWT
+# carries each segment.
+base64url() {
+  openssl base64 -A | tr '+/' '-_' | tr -d '='
+}
+
 # gcp_bootstrap_token mints an access token for the simulator's bootstrap
-# principal at the OAuth 2.0 token endpoint: a token request that carries no
-# service-account assertion. The metadata server answers only workloads, so an
-# administrator's script outside one provisions with this credential. Emits
+# service account the way Google documents the service-account flow over raw
+# HTTP: sign a JWT-bearer assertion with the account's key and exchange it at
+# the OAuth 2.0 token endpoint. The metadata server answers only workloads, so
+# an administrator's script outside one provisions with this credential. Emits
 # the raw access token on stdout.
 gcp_bootstrap_token() {
+  local token_uri="$1/token" now header claims signing_input signature key_file
+  now="$(date +%s)"
+  header="$(jq -cjn --arg kid "$GCP_BOOTSTRAP_KEY_ID" '{alg: "RS256", typ: "JWT", kid: $kid}' | base64url)"
+  claims="$(jq -cjn --arg iss "$GCP_BOOTSTRAP_EMAIL" --arg aud "$token_uri" --argjson now "$now" '{
+    iss: $iss, sub: $iss, aud: $aud,
+    scope: "https://www.googleapis.com/auth/cloud-platform",
+    iat: $now, exp: ($now + 3600)
+  }' | base64url)"
+  signing_input="${header}.${claims}"
+  key_file="$(mktemp)"
+  printf '%s\n' "$GCP_BOOTSTRAP_PRIVATE_KEY" >"$key_file"
+  signature="$(printf '%s' "$signing_input" | openssl dgst -sha256 -sign "$key_file" | base64url)"
+  rm -f "$key_file"
   curl --fail --silent --show-error \
     --data-urlencode "grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer" \
-    "$1/token" | jq -r .access_token
+    --data-urlencode "assertion=${signing_input}.${signature}" \
+    "$token_uri" | jq -r .access_token
 }
 
 # hex_sha256 emits the lowercase hex SHA-256 of its stdin.
@@ -261,6 +315,21 @@ case "$SIMULATOR_SETUP" in
   gcp)
     # The simulator verifies bearer tokens on its Cloud Storage data plane.
     gcp_token="$(gcp_bootstrap_token "$SIMULATOR_URL")"
+    # Cloud Storage creates a bucket only in a project that exists, so create
+    # the project first and wait on the create operation's done field.
+    operation="$(curl --fail --silent --show-error --request POST \
+      --header "Content-Type: application/json" --header "Authorization: Bearer ${gcp_token}" \
+      --data '{"projectId":"sockerless-e2e","parent":"organizations/123456789012"}' \
+      "$SIMULATOR_URL/v3/projects")"
+    until [[ "$(jq -r '.done // false' <<<"$operation")" == "true" ]]; do
+      sleep 1
+      operation="$(curl --fail --silent --show-error --header "Authorization: Bearer ${gcp_token}" \
+        "$SIMULATOR_URL/v3/$(jq -r .name <<<"$operation")")"
+    done
+    if [[ "$(jq -r '.error // empty' <<<"$operation")" != "" ]]; then
+      echo "ERROR: creating project sockerless-e2e failed: $operation" >&2
+      exit 1
+    fi
     curl --fail --silent --show-error \
       --request POST \
       --header "Content-Type: application/json" \

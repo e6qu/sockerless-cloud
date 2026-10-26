@@ -306,9 +306,17 @@ func TestS3_BucketIsAddressedWithOrWithoutATrailingSlash(t *testing.T) {
 
 	// And the wire forms themselves, so the routing is held rather than the
 	// SDK's current choice of form.
-	for _, path := range []string{"/" + bucket, "/" + bucket + "/"} {
-		response, err := http.Get(baseURL + path + "?list-type=2")
+	signedGet := func(target string) *http.Response {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
 		require.NoError(t, err)
+		req.Header.Set("X-Amz-Content-Sha256", emptySHA256)
+		signRawSigV4(t, req, "s3", emptySHA256)
+		response, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		return response
+	}
+	for _, path := range []string{"/" + bucket, "/" + bucket + "/"} {
+		response := signedGet(baseURL + path + "?list-type=2")
 		body, _ := io.ReadAll(response.Body)
 		_ = response.Body.Close()
 		assert.Equal(t, 200, response.StatusCode, "GET %s: %s", path, string(body))
@@ -316,8 +324,7 @@ func TestS3_BucketIsAddressedWithOrWithoutATrailingSlash(t *testing.T) {
 	}
 
 	// A key that is genuinely missing is still a missing object, not a bucket.
-	response, err := http.Get(baseURL + "/" + bucket + "/no-such-key")
-	require.NoError(t, err)
+	response := signedGet(baseURL + "/" + bucket + "/no-such-key")
 	_ = response.Body.Close()
 	assert.Equal(t, 404, response.StatusCode)
 }

@@ -17,7 +17,6 @@ import (
 	"google.golang.org/api/option"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/fieldmaskpb"
 	"google.golang.org/protobuf/types/known/wrapperspb"
@@ -37,7 +36,7 @@ func kmsCRC32C(b []byte) int64 { return int64(crc32.Checksum(b, grpcKmsCRC32CTab
 // via option.WithGRPCConn — the same pattern the logging gRPC test uses.
 func newKMSGRPCClient(t *testing.T) *kms.KeyManagementClient {
 	t.Helper()
-	conn, err := grpc.NewClient(grpcAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.NewClient(grpcAddr, simGRPCDialOptions(simTokenSource())...)
 	require.NoError(t, err)
 	t.Cleanup(func() { conn.Close() })
 

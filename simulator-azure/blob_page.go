@@ -93,6 +93,9 @@ func handlePageBlobUploadPages(w http.ResponseWriter, r *http.Request, account, 
 	if !ok {
 		return
 	}
+	if !blobBodyChecksums.exclusive(w, r) {
+		return
+	}
 	data, err := io.ReadAll(r.Body)
 	if err != nil {
 		writeStorageError(w, "InternalError", err.Error(), http.StatusInternalServerError)
@@ -104,12 +107,29 @@ func handlePageBlobUploadPages(w http.ResponseWriter, r *http.Request, account, 
 			http.StatusBadRequest)
 		return
 	}
+	blobWritePagesChecked(w, r, account, b, start, end, data, blobBodyChecksums)
+}
+
+// blobWritePagesChecked writes data at [start,end] once it matches the
+// checksums the request states in checksums' headers, and answers with the
+// pages' own checksums.
+func blobWritePagesChecked(w http.ResponseWriter, r *http.Request, account string, b BlobObject, start, end int64, data []byte, checksums blobChecksumHeaders) {
+	pagesMD5 := blobstore.Digest(data).MD5Base64()
+	crc := blobCRC64(data)
+	if !checksums.match(w, r, pagesMD5, crc) {
+		return
+	}
 	if err := blobWritePages(&b, start, end, data); err != nil {
 		writeStorageError(w, "InternalError", err.Error(), http.StatusInternalServerError)
 		return
 	}
 	putBlobObject(b)
-	writePageOperationHeaders(w, b, data, http.StatusCreated)
+	w.Header().Set("ETag", b.ETag)
+	w.Header().Set("Last-Modified", b.LastModified)
+	checksums.respond(w, r, account, pagesMD5, crc, blobVersionBothDigests)
+	w.Header().Set("x-ms-blob-sequence-number", strconv.FormatInt(b.SequenceNumber, 10))
+	w.Header().Set("x-ms-request-server-encrypted", "true")
+	w.WriteHeader(http.StatusCreated)
 }
 
 func handlePageBlobUploadPagesFromURL(w http.ResponseWriter, r *http.Request, account, container, blob string) {
@@ -119,6 +139,9 @@ func handlePageBlobUploadPagesFromURL(w http.ResponseWriter, r *http.Request, ac
 	}
 	start, end, ok := blobPageAlignedRange(w, r, b.Size)
 	if !ok {
+		return
+	}
+	if !blobSourceChecksums.exclusive(w, r) {
 		return
 	}
 	data, ok := blobReadCopySourceRange(w, r, r.Header.Get("x-ms-copy-source"), r.Header.Get("x-ms-source-range"))
@@ -131,12 +154,7 @@ func handlePageBlobUploadPagesFromURL(w http.ResponseWriter, r *http.Request, ac
 			http.StatusRequestedRangeNotSatisfiable)
 		return
 	}
-	if err := blobWritePages(&b, start, end, data); err != nil {
-		writeStorageError(w, "InternalError", err.Error(), http.StatusInternalServerError)
-		return
-	}
-	putBlobObject(b)
-	writePageOperationHeaders(w, b, data, http.StatusCreated)
+	blobWritePagesChecked(w, r, account, b, start, end, data, blobSourceChecksums)
 }
 
 func handlePageBlobClearPages(w http.ResponseWriter, r *http.Request, account, container, blob string) {
@@ -163,15 +181,6 @@ func handlePageBlobClearPages(w http.ResponseWriter, r *http.Request, account, c
 	w.Header().Set("Last-Modified", b.LastModified)
 	w.Header().Set("x-ms-blob-sequence-number", strconv.FormatInt(b.SequenceNumber, 10))
 	w.WriteHeader(http.StatusCreated)
-}
-
-func writePageOperationHeaders(w http.ResponseWriter, b BlobObject, written []byte, status int) {
-	w.Header().Set("ETag", b.ETag)
-	w.Header().Set("Last-Modified", b.LastModified)
-	w.Header().Set("Content-MD5", blobstore.Digest(written).MD5Base64())
-	w.Header().Set("x-ms-blob-sequence-number", strconv.FormatInt(b.SequenceNumber, 10))
-	w.Header().Set("x-ms-request-server-encrypted", "true")
-	w.WriteHeader(status)
 }
 
 // blobWritePages copies data into the blob at [start,end] and records the range

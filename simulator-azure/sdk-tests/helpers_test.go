@@ -265,6 +265,14 @@ func TestMain(m *testing.M) {
 	if testRunSelects("TestAzurePGFlexibleServer_BackupCapturesDataAndRestoreReturnsToIt") {
 		pullImageBeforeRun("mirror.gcr.io/library/postgres:16-alpine")
 	}
+	// A cache reports Succeeded once its Redis engine answers; every cache
+	// the Redis tests create starts one.
+	for _, name := range []string{"TestRedis_CacheServesItsHostName", "TestRedis_CreateGetListLifecycle", "TestRedis_KeysAndReboot", "TestRedis_DataActions", "TestRedis_CheckNameAvailability"} {
+		if testRunSelects(name) {
+			pullImageBeforeRun("mirror.gcr.io/library/redis:6.0-alpine")
+			break
+		}
+	}
 
 	// The App Service platform images the built-in-stack web apps run. The
 	// simulator pulls a missing one inside the site's start-time limit, as the
@@ -349,6 +357,17 @@ func TestMain(m *testing.M) {
 		log.Fatalf("Failed to acquire simulator Key Vault bearer token: %v", err)
 	}
 	simKVBearer = "Bearer " + kvToken
+	graphToken, _, err := fetchSimAccessToken("https://graph.microsoft.com/.default")
+	if err != nil {
+		simCmd.Process.Kill()
+		log.Fatalf("Failed to acquire simulator Microsoft Graph bearer token: %v", err)
+	}
+	simGraphBearer = "Bearer " + graphToken
+	http.DefaultClient.Transport = &graphAuthTransport{
+		base:   http.DefaultClient.Transport,
+		host:   strings.TrimPrefix(baseURL, "http://"),
+		bearer: simGraphBearer,
+	}
 	simCallerObjectID, err = jwtStringClaim(token, "oid")
 	if err != nil {
 		simCmd.Process.Kill()

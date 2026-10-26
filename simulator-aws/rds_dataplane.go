@@ -20,7 +20,6 @@ import (
 )
 
 const rdsAWSOwnedKMSKeyID = "aws-owned-rds"
-const rdsEmptyPayloadSHA256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 
 var rdsServerCertificate = dbengine.SelfSignedCertificate("Amazon RDS simulator")
 
@@ -576,8 +575,7 @@ func rdsValidateIAMAuthToken(endpoints []string, resourceID, user, token string)
 		return false
 	}
 	request := &http.Request{Method: http.MethodGet, URL: parsed, Host: parsed.Host, Header: make(http.Header)}
-	request.Header.Set("X-Amz-Content-Sha256", rdsEmptyPayloadSHA256)
-	result, signatureErr := sigv4VerifyPresigned(request, query, true)
+	result, signatureErr := sigv4VerifyPresigned(request, query, nil, true)
 	if signatureErr != nil || result != sigv4Verified {
 		return false
 	}

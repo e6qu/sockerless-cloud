@@ -180,10 +180,12 @@ func newRedisMoveTestStores(t *testing.T) {
 	redisPatchSchedules = sim.MakeStore[RedisSubResource](nil, "test_redis_patch_schedules")
 	redisPrivateConns = sim.MakeStore[RedisSubResource](nil, "test_redis_private_conns")
 	azureKeyGens = sim.MakeStore[azureKeyGenRow](nil, "test_key_gens")
+	redisEngineRecords = sim.MakeStore[redisEngineRecord](nil, "test_redis_engines")
 	t.Cleanup(func() {
 		redisCaches, redisFirewallRules, redisAccessPolicies = nil, nil, nil
 		redisAccessPolicyAssignments, redisLinkedServers = nil, nil
 		redisPatchSchedules, redisPrivateConns, azureKeyGens = nil, nil, nil
+		redisEngineRecords = nil
 	})
 }
 

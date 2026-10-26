@@ -3,8 +3,13 @@ variable "endpoint" {
   type        = string
 }
 
-variable "access_token" {
-  description = "OAuth2 access token the provider presents to the simulator data plane; minted by the test harness from the simulator's token endpoint."
+variable "bigtable_endpoint" {
+  description = "The simulator's gRPC port as a TLS front end, serving the Bigtable admin and data gRPC services and the REST surface on one host, as bigtableadmin.googleapis.com does."
+  type        = string
+}
+
+variable "credentials" {
+  description = "The service-account credential file the provider authenticates with, by path or by contents; the test harness writes the simulator's bootstrap key."
   type        = string
 }
 

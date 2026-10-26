@@ -23,7 +23,11 @@ variable "endpoint" {
   type = string
 }
 
-variable "access_token" {
+variable "credentials" {
+  type = string
+}
+
+variable "bigtable_endpoint" {
   type = string
 }
 
@@ -31,10 +35,10 @@ provider "google" {
   project = "test-project"
   region  = "us-central1"
 
-  access_token          = var.access_token
+  credentials           = var.credentials
   user_project_override = false
 
-  bigtable_custom_endpoint = "${var.endpoint}/v2/"
+  bigtable_custom_endpoint = "${var.bigtable_endpoint}/v2/"
 }
 
 resource "google_bigtable_instance" "main" {

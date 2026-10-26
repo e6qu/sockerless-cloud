@@ -112,16 +112,13 @@ func TestElastiCache_ClusterLifecycle(t *testing.T) {
 		})
 	})
 
-	desc, err := c.DescribeCacheClusters(ctx, &elasticache.DescribeCacheClustersInput{
-		CacheClusterId: aws.String(id),
-	})
-	require.NoError(t, err)
-	require.Len(t, desc.CacheClusters, 1)
-	got := desc.CacheClusters[0]
+	got := ecAwaitCluster(t, c, id)
 	assert.Equal(t, "redis", aws.ToString(got.Engine))
 	assert.Equal(t, "available", aws.ToString(got.CacheClusterStatus))
-	require.NotNil(t, got.ConfigurationEndpoint)
-	assert.Equal(t, int32(6379), aws.ToInt32(got.ConfigurationEndpoint.Port),
+	assert.Nil(t, got.ConfigurationEndpoint, "only a Memcached cluster has a configuration endpoint")
+	require.Len(t, got.CacheNodes, 1)
+	require.NotNil(t, got.CacheNodes[0].Endpoint)
+	assert.Equal(t, int32(6379), aws.ToInt32(got.CacheNodes[0].Endpoint.Port),
 		"redis engine should map to port 6379")
 
 	_, err = c.ModifyCacheCluster(ctx, &elasticache.ModifyCacheClusterInput{
@@ -162,10 +159,12 @@ func TestElastiCache_ClusterLifecycle(t *testing.T) {
 	assert.Equal(t, "sdk", tagMap["env"])
 	assert.NotContains(t, tagMap, "team")
 
-	_, err = c.DeleteCacheCluster(ctx, &elasticache.DeleteCacheClusterInput{
+	deleted, err := c.DeleteCacheCluster(ctx, &elasticache.DeleteCacheClusterInput{
 		CacheClusterId: aws.String(id),
 	})
 	require.NoError(t, err)
+	assert.Equal(t, "deleting", aws.ToString(deleted.CacheCluster.CacheClusterStatus))
+	ecAwaitClusterDeleted(t, c, id)
 	_, err = c.DescribeCacheClusters(ctx, &elasticache.DescribeCacheClustersInput{
 		CacheClusterId: aws.String(id),
 	})
@@ -190,13 +189,20 @@ func TestElastiCache_ReplicationGroupAndReboot(t *testing.T) {
 			CacheClusterId: aws.String(clusterID),
 		})
 	})
+	_, err = c.RebootCacheCluster(ctx, &elasticache.RebootCacheClusterInput{
+		CacheClusterId:       aws.String(clusterID),
+		CacheNodeIdsToReboot: []string{"0001"},
+	})
+	assertAWSAPIErrorCode(t, err, "InvalidCacheClusterState")
+	ecAwaitCluster(t, c, clusterID)
 	reboot, err := c.RebootCacheCluster(ctx, &elasticache.RebootCacheClusterInput{
 		CacheClusterId:       aws.String(clusterID),
 		CacheNodeIdsToReboot: []string{"0001"},
 	})
 	require.NoError(t, err)
 	require.NotNil(t, reboot.CacheCluster)
-	assert.Equal(t, "rebooting cache cluster nodes", aws.ToString(reboot.CacheCluster.CacheClusterStatus))
+	assert.Equal(t, "rebooting cluster nodes", aws.ToString(reboot.CacheCluster.CacheClusterStatus))
+	ecAwaitCluster(t, c, clusterID)
 
 	// Replication group lifecycle.
 	rgID := "test-repl-group"
@@ -216,9 +222,10 @@ func TestElastiCache_ReplicationGroupAndReboot(t *testing.T) {
 		})
 	})
 	assert.Equal(t, rgID, aws.ToString(create.ReplicationGroup.ReplicationGroupId))
-	assert.Equal(t, "available", aws.ToString(create.ReplicationGroup.Status))
+	assert.Equal(t, "creating", aws.ToString(create.ReplicationGroup.Status))
 	assert.Equal(t, ectypes.AutomaticFailoverStatusEnabled, create.ReplicationGroup.AutomaticFailover)
 	require.Len(t, create.ReplicationGroup.MemberClusters, 2)
+	assert.Equal(t, "available", aws.ToString(ecAwaitReplGroup(t, c, rgID).Status))
 
 	desc, err := c.DescribeReplicationGroups(ctx, &elasticache.DescribeReplicationGroupsInput{
 		ReplicationGroupId: aws.String(rgID),
@@ -257,6 +264,7 @@ func TestElastiCache_ReplicationGroupAndReboot(t *testing.T) {
 		ReplicationGroupId: aws.String(rgID),
 	})
 	require.NoError(t, err)
+	ecAwaitReplGroupDeleted(t, c, rgID)
 	_, err = c.DescribeReplicationGroups(ctx, &elasticache.DescribeReplicationGroupsInput{
 		ReplicationGroupId: aws.String(rgID),
 	})

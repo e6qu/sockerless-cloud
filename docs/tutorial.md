@@ -38,7 +38,7 @@ You need:
 - **Docker Engine** (or Podman behind the Docker socket). The simulators run
   every virtual machine, container and function as a container on it.
 - **Terraform** 1.16 or later.
-- **curl** and **jq**, for the Google Cloud token and the Azure function call.
+- **curl** and **jq**, for the Azure token and function call.
 - **Caddy** 2, for the Azure part only.
 
 Check them:
@@ -147,16 +147,22 @@ simulator-gcp
 
 It listens on port 4567.
 
-### Step 10: Get an access token
+### Step 10: Point Terraform at the bootstrap credential
 
-The Google provider presents an OAuth 2.0 access token. The simulator's token
-endpoint issues one:
+The simulator seeds a bootstrap service account,
+`sockerless-bootstrap@sockerless.iam.gserviceaccount.com`, whose key is
+published in the repository. Write that key's credential file, the same JSON
+IAM's `keys.create` returns:
 
 ```sh
-export TF_VAR_access_token="$(curl -s -X POST \
-  -d grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer \
-  http://localhost:4567/token | jq -r .access_token)"
+cd "$TUTORIAL_ROOT"
+go run ./testutil/cmd/gcp-bootstrap-key -o "$TUTORIAL_ROOT/bootstrap-key.json"
+export TF_VAR_credentials="$TUTORIAL_ROOT/bootstrap-key.json"
 ```
+
+Its `token_uri` names the simulator's token endpoint, so the Google provider
+signs a JWT with the key and exchanges it there, as it would at
+`oauth2.googleapis.com`.
 
 On an arm64 machine, choose the arm64 Debian image too:
 
@@ -338,5 +344,5 @@ Then stop Caddy and `simulator-azure` with Ctrl-C.
   first, with `google_firestore_database`.
 
 To run the same configurations against the real clouds, drop the endpoint
-settings, the fixed credentials and the token variable, and sign in the way
-each provider documents.
+settings and the bootstrap credentials, and sign in the way each provider
+documents.

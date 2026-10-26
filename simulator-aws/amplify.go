@@ -1652,6 +1652,12 @@ func amplifyPresignedS3URLBase(urlBase, key, method string) string {
 }
 
 func presignedS3URLBase(urlBase, bucket, key, method string) string {
+	return presignedS3URLAs(urlBase, bucket, key, method, awsServiceCredential.accessKeyID, awsServiceCredential.secretAccessKey, "")
+}
+
+// presignedS3URLAs presigns a URL with the credential accessKeyID names; a
+// temporary credential's session token travels in X-Amz-Security-Token.
+func presignedS3URLAs(urlBase, bucket, key, method, accessKeyID, secretAccessKey, sessionToken string) string {
 	host := urlBase
 	if u, err := url.Parse(urlBase); err == nil && u.Host != "" {
 		host = u.Host
@@ -1661,14 +1667,17 @@ func presignedS3URLBase(urlBase, bucket, key, method string) string {
 	amzDate := now.Format("20060102T150405Z")
 	dateStamp := now.Format("20060102")
 	region := awsRegion()
-	cred := credScope{accessKeyID: awsServiceCredential.accessKeyID, date: dateStamp, region: region, service: "s3"}
+	cred := credScope{accessKeyID: accessKeyID, date: dateStamp, region: region, service: "s3"}
 
 	q := url.Values{}
 	q.Set("X-Amz-Algorithm", "AWS4-HMAC-SHA256")
-	q.Set("X-Amz-Credential", awsServiceCredential.accessKeyID+"/"+dateStamp+"/"+region+"/s3/aws4_request")
+	q.Set("X-Amz-Credential", accessKeyID+"/"+dateStamp+"/"+region+"/s3/aws4_request")
 	q.Set("X-Amz-Date", amzDate)
 	q.Set("X-Amz-Expires", "3600")
 	q.Set("X-Amz-SignedHeaders", "host")
+	if sessionToken != "" {
+		q.Set("X-Amz-Security-Token", sessionToken)
+	}
 
 	// Canonical request the same shape sigv4VerifyPresigned rebuilds: the
 	// signed-header set is host only, and the payload is unsigned.
@@ -1680,8 +1689,8 @@ func presignedS3URLBase(urlBase, bucket, key, method string) string {
 		"host",
 		"UNSIGNED-PAYLOAD",
 	}, "\n")
-	q.Set("X-Amz-Signature", sigv4Signature(awsServiceCredential.secretAccessKey, cred, amzDate, canonReq))
-	return urlBase + path + "?" + q.Encode()
+	q.Set("X-Amz-Signature", sigv4Signature(secretAccessKey, cred, amzDate, canonReq))
+	return urlBase + (&url.URL{Path: path}).EscapedPath() + "?" + q.Encode()
 }
 
 func amplifyPresignedS3URL(r *http.Request, key, method string) string {

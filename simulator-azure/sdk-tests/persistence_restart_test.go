@@ -231,9 +231,11 @@ func TestAzureServiceStateSurvivesSimulatorRestart_SDK(t *testing.T) {
 	// ---- (f) mint an ARM bearer BEFORE the restart ----
 	preRestartBearer, err := fetchAccessTokenFrom(endpoint, "test-client-id", "test-client-secret", "https://management.azure.com/.default")
 	require.NoError(t, err)
+	graphBearer, err := fetchAccessTokenFrom(endpoint, "test-client-id", "test-client-secret", "https://graph.microsoft.com/.default")
+	require.NoError(t, err)
 
 	// ---- (a) Microsoft Graph: user + app registration + client secret ----
-	resp := restartRawReq(t, "POST", endpoint, "/v1.0/users", "", "", []byte(`{
+	resp := restartRawReq(t, "POST", endpoint, "/v1.0/users", "", graphBearer, []byte(`{
 		"displayName": "Persistent User",
 		"userPrincipalName": "persistent.user@sockerless.example",
 		"mailNickname": "persistent.user",
@@ -247,7 +249,7 @@ func TestAzureServiceStateSurvivesSimulatorRestart_SDK(t *testing.T) {
 	resp.Body.Close()
 	require.NotEmpty(t, createdUser.ID)
 
-	resp = restartRawReq(t, "POST", endpoint, "/v1.0/applications", "", "",
+	resp = restartRawReq(t, "POST", endpoint, "/v1.0/applications", "", graphBearer,
 		[]byte(`{"displayName":"Persistent App","signInAudience":"AzureADMyOrg"}`),
 		map[string]string{"Content-Type": "application/json"})
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
@@ -259,7 +261,7 @@ func TestAzureServiceStateSurvivesSimulatorRestart_SDK(t *testing.T) {
 	resp.Body.Close()
 	require.NotEmpty(t, createdApp.AppID)
 
-	resp = restartRawReq(t, "POST", endpoint, "/v1.0/applications/"+createdApp.ID+"/addPassword", "", "",
+	resp = restartRawReq(t, "POST", endpoint, "/v1.0/applications/"+createdApp.ID+"/addPassword", "", graphBearer,
 		[]byte(`{"passwordCredential":{"displayName":"restart-secret"}}`),
 		map[string]string{"Content-Type": "application/json"})
 	require.Equal(t, http.StatusOK, resp.StatusCode)
@@ -270,7 +272,7 @@ func TestAzureServiceStateSurvivesSimulatorRestart_SDK(t *testing.T) {
 	resp.Body.Close()
 	require.NotEmpty(t, minted.SecretText)
 
-	resp = restartRawReq(t, "POST", endpoint, "/v1.0/servicePrincipals", "", "",
+	resp = restartRawReq(t, "POST", endpoint, "/v1.0/servicePrincipals", "", graphBearer,
 		[]byte(`{"appId":"`+createdApp.AppID+`"}`),
 		map[string]string{"Content-Type": "application/json"})
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
@@ -373,7 +375,7 @@ func TestAzureServiceStateSurvivesSimulatorRestart_SDK(t *testing.T) {
 	resp.Body.Close()
 
 	// ---- (a) directory state readable; pre-restart app secret still grants ----
-	resp = restartRawReq(t, "GET", endpoint, "/v1.0/users/"+createdUser.ID, "", "", nil, nil)
+	resp = restartRawReq(t, "GET", endpoint, "/v1.0/users/"+createdUser.ID, "", graphBearer, nil, nil)
 	require.Equal(t, http.StatusOK, resp.StatusCode, "Graph user must survive the restart")
 	var persistedUser struct {
 		UserPrincipalName string `json:"userPrincipalName"`
@@ -382,7 +384,7 @@ func TestAzureServiceStateSurvivesSimulatorRestart_SDK(t *testing.T) {
 	resp.Body.Close()
 	assert.Equal(t, "persistent.user@sockerless.example", persistedUser.UserPrincipalName)
 
-	resp = restartRawReq(t, "GET", endpoint, "/v1.0/applications/"+createdApp.ID, "", "", nil, nil)
+	resp = restartRawReq(t, "GET", endpoint, "/v1.0/applications/"+createdApp.ID, "", graphBearer, nil, nil)
 	require.Equal(t, http.StatusOK, resp.StatusCode, "app registration must survive the restart")
 	var persistedApp struct {
 		AppID string `json:"appId"`

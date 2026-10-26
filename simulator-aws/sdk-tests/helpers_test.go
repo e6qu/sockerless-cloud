@@ -438,6 +438,26 @@ func TestMain(m *testing.M) {
 			break
 		}
 	}
+	// An Amazon ElastiCache resource reports available once its engine
+	// answers, which on a cold host waits on the engine image's transfer.
+	elastiCacheEngines := false
+	for _, name := range []string{
+		"TestElastiCache_ClusterLifecycle", "TestElastiCache_ReplicationGroupAndReboot", "TestElastiCache_EngineVersionDefault",
+		"TestElastiCache_RedisClusterServesItsEndpoint", "TestElastiCache_MemcachedClusterServesItsNodes",
+		"TestElastiCache_ReplicationGroupReplicates", "TestElastiCache_ClusterModeReplicationGroupShards",
+		"TestElastiCache_ServerlessCacheServesItsEndpoint", "TestElastiCache_Serverless", "TestElastiCache_ServerlessMigration",
+		"TestElastiCache_ReplicaAndShardConfig",
+	} {
+		elastiCacheEngines = elastiCacheEngines || testRunSelects(name)
+	}
+	if elastiCacheEngines {
+		for _, image := range []string{
+			"mirror.gcr.io/library/redis:7.0-alpine", "mirror.gcr.io/library/redis:6.2-alpine",
+			"mirror.gcr.io/valkey/valkey:8.0-alpine", "mirror.gcr.io/library/memcached:1.6.22-alpine",
+		} {
+			pullImageWithRetry(image)
+		}
+	}
 	if testRunSelects("TestSFN_AmazonECSRunsTerraformAgainstSimulator_SDK") {
 		buildTerraformAWSImage(workloadPlatform)
 	}

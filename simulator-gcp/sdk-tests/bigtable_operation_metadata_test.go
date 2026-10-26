@@ -60,7 +60,7 @@ func TestBigtableAdminGRPC_OperationMetadata(t *testing.T) {
 	cluster := instance + "/clusters/c1"
 	table := bigtableAdminGRPCTable(t, ta, instance, "events", "cf")
 
-	client, err := bigtable.NewClient(ctx, project, "inst")
+	client, err := bigtable.NewClientWithConfig(ctx, project, "inst", bigtableClientConfig, simGRPCClientOptions()...)
 	require.NoError(t, err)
 	defer client.Close()
 	mut := bigtable.NewMutation()

@@ -15,7 +15,6 @@ import (
 	"google.golang.org/api/option"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/credentials/insecure"
 )
 
 // newPSGRPCClient builds the high-level cloud.google.com/go/pubsub client over
@@ -24,12 +23,7 @@ import (
 func newPSGRPCClient(t *testing.T, project string) *pubsub.Client {
 	t.Helper()
 	ensureProject(t, project)
-	c, err := pubsub.NewClient(ctx, project,
-		option.WithEndpoint(grpcAddr),
-		option.WithoutAuthentication(),
-		option.WithGRPCDialOption(grpc.WithTransportCredentials(insecure.NewCredentials())),
-		option.WithTelemetryDisabled(),
-	)
+	c, err := pubsub.NewClient(ctx, project, append(simGRPCClientOptions(), option.WithTelemetryDisabled())...)
 	if err != nil {
 		t.Fatalf("pubsub.NewClient (gRPC): %v", err)
 	}
@@ -42,7 +36,7 @@ func newPSGRPCClient(t *testing.T, project string) *pubsub.Client {
 // contract is exercised without the high-level client's automatic modack flow.
 func psRawClient(t *testing.T) (pubsubpb.PublisherClient, pubsubpb.SubscriberClient) {
 	t.Helper()
-	conn, err := grpc.NewClient(grpcAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.NewClient(grpcAddr, simGRPCDialOptions(simTokenSource())...)
 	if err != nil {
 		t.Fatalf("grpc.NewClient: %v", err)
 	}
@@ -454,7 +448,7 @@ func TestPubSub_GRPC_SeekSnapshot(t *testing.T) {
 func TestPubSub_GRPC_Schema(t *testing.T) {
 	t.Parallel()
 	newPSGRPCClient(t, "ps-grpc-proj") // ensures the emulator env is set + project wiring
-	conn, err := grpc.NewClient(grpcAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.NewClient(grpcAddr, simGRPCDialOptions(simTokenSource())...)
 	require.NoError(t, err)
 	t.Cleanup(func() { conn.Close() })
 	sc := pubsubpb.NewSchemaServiceClient(conn)

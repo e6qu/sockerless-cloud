@@ -469,7 +469,7 @@ func publicIpv4PoolRangeXML(rng EC2PublicIpv4PoolRange) string {
 
 func handleAssignPrivateNatGatewayAddress(w http.ResponseWriter, r *http.Request) {
 	natgw, ok := natGatewayAddressTarget(w, r)
-	if !ok {
+	if !ok || ec2RefuseRegionalPrivateAddresses(w, natgw) {
 		return
 	}
 	ips := ec2ParamList(r, "PrivateIpAddress")
@@ -504,6 +504,9 @@ func handleAssignPrivateNatGatewayAddress(w http.ResponseWriter, r *http.Request
 }
 
 func handleUnassignPrivateNatGatewayAddress(w http.ResponseWriter, r *http.Request) {
+	if natgw, ok := natGatewayAddressTarget(w, r); !ok || ec2RefuseRegionalPrivateAddresses(w, natgw) {
+		return
+	}
 	natGatewayAddressMutation(w, r, "UnassignPrivateNatGatewayAddress", func(natgw *EC2NatGateway) {
 		drop := ec2ParamList(r, "PrivateIpAddress")
 		next := make([]EC2NatGatewayAddress, 0, len(natgw.NatGatewayAddresses))
@@ -519,6 +522,10 @@ func handleUnassignPrivateNatGatewayAddress(w http.ResponseWriter, r *http.Reque
 func handleAssociateNatGatewayAddress(w http.ResponseWriter, r *http.Request) {
 	natgw, ok := natGatewayAddressTarget(w, r)
 	if !ok {
+		return
+	}
+	if ec2NatAvailabilityMode(natgw) == "regional" {
+		ec2AssociateRegionalNatGatewayAddress(w, r, natgw)
 		return
 	}
 	allocs := ec2ParamList(r, "AllocationId")
@@ -561,6 +568,14 @@ func handleAssociateNatGatewayAddress(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleDisassociateNatGatewayAddress(w http.ResponseWriter, r *http.Request) {
+	natgw, ok := natGatewayAddressTarget(w, r)
+	if !ok {
+		return
+	}
+	if ec2NatAvailabilityMode(natgw) == "regional" {
+		ec2DisassociateRegionalNatGatewayAddress(w, r, natgw)
+		return
+	}
 	natGatewayAddressMutation(w, r, "DisassociateNatGatewayAddress", func(natgw *EC2NatGateway) {
 		assoc := ec2ParamList(r, "AssociationId")
 		next := make([]EC2NatGatewayAddress, 0, len(natgw.NatGatewayAddresses))
@@ -583,7 +598,7 @@ func natGatewayAddressTarget(w http.ResponseWriter, r *http.Request) (EC2NatGate
 		ec2ErrorXML(w, "NatGatewayNotFound", fmt.Sprintf("The NAT gateway '%s' does not exist", id), http.StatusBadRequest)
 		return EC2NatGateway{}, false
 	}
-	if len(natgw.NatGatewayAddresses) == 0 {
+	if len(natgw.NatGatewayAddresses) == 0 && ec2NatAvailabilityMode(natgw) != "regional" {
 		ec2ErrorXML(w, "InvalidParameterValue", fmt.Sprintf("NAT gateway '%s' has no primary address", id), http.StatusBadRequest)
 		return EC2NatGateway{}, false
 	}
@@ -598,7 +613,11 @@ func natGatewayAddressMutation(w http.ResponseWriter, r *http.Request, action st
 	id := natgw.NatGatewayId
 	ec2NatGateways.Update(id, mutate)
 	natgw, _ = ec2NatGateways.Get(id)
-	ec2Response(w, action, fmt.Sprintf("<natGatewayId>%s</natGatewayId>%s", id, natgwAddrSetXML(natgw.NatGatewayAddresses)))
+	writeNatGatewayAddressResponse(w, action, natgw)
+}
+
+func writeNatGatewayAddressResponse(w http.ResponseWriter, action string, natgw EC2NatGateway) {
+	ec2Response(w, action, fmt.Sprintf("<natGatewayId>%s</natGatewayId>%s", natgw.NatGatewayId, natgwAddrSetXML(natgw)))
 }
 
 func handleAssociateTrunkInterface(w http.ResponseWriter, r *http.Request) {

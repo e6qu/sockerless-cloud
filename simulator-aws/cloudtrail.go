@@ -952,6 +952,16 @@ func cloudTrailRecordedRESTDynamic(eventName cloudTrailRESTEventNameFunc, source
 			_ = r.Body.Close()
 			r.Body = io.NopCloser(bytes.NewReader(body))
 		}
+		// CloudTrail records no request the front end could not authenticate.
+		if !awsRESTAuthenticate(w, r, source, body) {
+			return
+		}
+		if source == "s3.amazonaws.com" {
+			if _, serr := sigv4VerifyS3(r, nil); serr != nil {
+				sigv4WriteS3Error(w, r, serr)
+				return
+			}
+		}
 		rec := &cloudTrailStatusRecorder{ResponseWriter: w}
 		if iamEnforceRESTRoute(rec, r, source) {
 			handler(rec, r)

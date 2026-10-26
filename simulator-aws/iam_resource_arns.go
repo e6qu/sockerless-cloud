@@ -578,21 +578,19 @@ func iamCloudMapResourceARNs(r *http.Request, types []string, region, account st
 	serviceName := iamFirstValue(func(f string) []string { return fields[strings.ToLower(f)] }, "ServiceName")
 	var namespaceID string
 	if namespaceName != "" {
-		for _, namespace := range cmNamespaces.List() {
-			if namespace.Name == namespaceName {
-				namespaceID = namespace.Id
-				if namespace.Arn != "" {
-					out = append(out, namespace.Arn)
-				}
-				break
+		if namespace, ok := cmNamespacesByName.Lookup(cmNamespaces, namespaceName, func(n CMNamespace) []string {
+			return []string{n.Name}
+		}); ok {
+			namespaceID = namespace.Id
+			if namespace.Arn != "" {
+				out = append(out, namespace.Arn)
 			}
 		}
 	}
 	if serviceName != "" {
-		for _, service := range cmServices.List() {
-			if service.Name != serviceName {
-				continue
-			}
+		for _, service := range cmServicesByName.LookupAll(cmServices, serviceName, func(s CMService) []string {
+			return []string{s.Name}
+		}) {
 			if namespaceID != "" && service.NamespaceId != namespaceID {
 				continue
 			}
@@ -605,6 +603,11 @@ func iamCloudMapResourceARNs(r *http.Request, types []string, region, account st
 	sort.Strings(out)
 	return out
 }
+
+var (
+	cmNamespacesByName sim.GenerationIndex[CMNamespace]
+	cmServicesByName   sim.GenerationIndex[CMService]
+)
 
 // iamSNSResourceARNs derives the topic ARNs an Amazon SNS request names. A
 // topic is addressed by its ARN on every operation but creation, where it is

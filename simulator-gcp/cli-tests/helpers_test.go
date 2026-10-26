@@ -7,7 +7,6 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -19,6 +18,8 @@ import (
 
 	"github.com/e6qu/sockerless-cloud/testutil/baseimage"
 	"github.com/e6qu/sockerless-cloud/testutil/freeports"
+	"github.com/e6qu/sockerless-cloud/testutil/gcpbootstrap"
+	"github.com/e6qu/sockerless-cloud/testutil/loopbacktls"
 	"github.com/e6qu/sockerless-cloud/testutil/scratchimage"
 	"github.com/e6qu/sockerless-cloud/testutil/simready"
 )
@@ -37,36 +38,44 @@ var (
 	project  = "test-project"
 	location = "us-central1"
 
-	// accessToken is a real simulator-minted OAuth2 access token the CLIs
-	// present to the data plane; set once in TestMain.
+	// accessToken is the bootstrap service account's access token, which
+	// gcloud minted and the suite's raw HTTP calls present; set once in
+	// TestMain.
 	accessToken string
+
+	// grpcTLS is the certificate the simulator's gRPC port serves, issued in
+	// TestMain.
+	grpcTLS loopbacktls.Files
 )
 
-// mintSimAccessToken fetches an access token from the simulator's OAuth2 token
-// endpoint — the same JWT-bearer grant a real gcloud invocation uses — so CLI
-// commands authenticate against the data plane exactly as they would against
-// Google, differing only in the endpoint coordinate.
-func mintSimAccessToken(base string) (string, error) {
-	resp, err := http.PostForm(base+"/token", url.Values{
-		"grant_type": {"urn:ietf:params:oauth:grant-type:jwt-bearer"},
-	})
+// activateBootstrapServiceAccount signs gcloud in as the simulator's bootstrap
+// service account the way an operator activates a downloaded key: gcloud reads
+// the credential file and mints its tokens at the file's token_uri, the
+// simulator's token endpoint. It returns the access token gcloud prints, which
+// the suite's raw HTTP calls present.
+func activateBootstrapServiceAccount() (string, error) {
+	keyFile := bootstrapKeyFile()
+	if err := gcpbootstrap.WriteCredentialFile(keyFile, baseURL+"/token"); err != nil {
+		return "", err
+	}
+	if out, err := gcloudCLI("auth", "activate-service-account", "--key-file="+keyFile).CombinedOutput(); err != nil {
+		return "", fmt.Errorf("gcloud auth activate-service-account: %v\n%s", err, out)
+	}
+	out, err := gcloudCLI("auth", "print-access-token").Output()
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("gcloud auth print-access-token: %v", err)
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("token endpoint returned %d", resp.StatusCode)
+	token := strings.TrimSpace(string(out))
+	if token == "" {
+		return "", fmt.Errorf("gcloud auth print-access-token printed nothing")
 	}
-	var body struct {
-		AccessToken string `json:"access_token"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
-		return "", err
-	}
-	if body.AccessToken == "" {
-		return "", fmt.Errorf("token endpoint returned an empty access token")
-	}
-	return body.AccessToken, nil
+	return token, nil
+}
+
+// bootstrapKeyFile is where TestMain writes the bootstrap service account's
+// key, the credential gcloud and cbt read.
+func bootstrapKeyFile() string {
+	return filepath.Join(tmpDir, "bootstrap-key.json")
 }
 
 // cliWorkloadImage is the base image this suite runs as a container workload
@@ -154,11 +163,25 @@ func TestMain(m *testing.M) {
 	}
 	port, grpcPort := ports[0], ports[1]
 
+	// The gRPC port serves TLS, the only transport Google's client libraries
+	// send credentials over, with a certificate from an authority of the
+	// suite's own that cbt trusts through -cert-file.
+	grpcTLSDir, err := os.MkdirTemp("", "gcp-cli-grpc-tls-*")
+	if err != nil {
+		log.Fatalf("Failed to create the gRPC certificate directory: %v", err)
+	}
+	grpcTLS, err = loopbacktls.Write(grpcTLSDir)
+	if err != nil {
+		log.Fatalf("Failed to issue the gRPC port's certificate: %v", err)
+	}
+
 	// Start simulator
 	simCmd = exec.Command(binaryPath)
 	simCmd.Env = append(os.Environ(),
 		fmt.Sprintf("SIM_LISTEN_ADDR=:%d", port),
 		fmt.Sprintf("SIM_GCP_GRPC_PORT=%d", grpcPort),
+		"SIM_GCP_GRPC_TLS_CERT="+grpcTLS.Cert,
+		"SIM_GCP_GRPC_TLS_KEY="+grpcTLS.Key,
 	)
 	simCmd.Stdout = os.Stdout
 	if err := simready.Start(simCmd, os.Stderr); err != nil {
@@ -169,20 +192,16 @@ func TestMain(m *testing.M) {
 	baseURL = fmt.Sprintf("http://127.0.0.1:%d", port)
 	grpcAddr = fmt.Sprintf("127.0.0.1:%d", grpcPort)
 
-	// Mint a real access token from the simulator's OAuth2 token endpoint. The
-	// data plane verifies the bearer on every request, so the gcloud CLI must
-	// present a token the simulator signed — the same credential a real gcloud
-	// invocation carries, obtained from the configured endpoint coordinate.
-	var tokenErr error
-	accessToken, tokenErr = mintSimAccessToken(baseURL)
-	if tokenErr != nil {
-		simCmd.Process.Kill()
-		log.Fatalf("Failed to mint simulator access token: %v", tokenErr)
-	}
-
 	// Create tmp dir
 	tmpDir, _ = filepath.Abs("tmp")
 	os.MkdirAll(tmpDir, 0755)
+
+	var tokenErr error
+	accessToken, tokenErr = activateBootstrapServiceAccount()
+	if tokenErr != nil {
+		simCmd.Process.Kill()
+		log.Fatalf("Failed to sign gcloud in as the bootstrap service account: %v", tokenErr)
+	}
 
 	// Install the Bigtable data-plane CLI (cbt) into the tmp dir. cbt is the
 	// canonical Bigtable data-plane adaptor (gcloud bigtable is admin-only),
@@ -226,6 +245,7 @@ func TestMain(m *testing.M) {
 	simCmd.Process.Kill()
 	simCmd.Wait()
 	os.RemoveAll(tmpDir)
+	os.RemoveAll(grpcTLSDir)
 	for _, dir := range provisionedToolDirs {
 		os.RemoveAll(dir)
 	}
@@ -387,9 +407,11 @@ func gcloudCLI(args ...string) *exec.Cmd {
 	cmd := exec.Command("gcloud", args...)
 	cmd.Env = append(os.Environ(),
 		"CLOUDSDK_CONFIG="+filepath.Join(tmpDir, "gcloud-config"),
-		"CLOUDSDK_AUTH_ACCESS_TOKEN="+accessToken,
 		"CLOUDSDK_CORE_PROJECT="+project,
 		"CLOUDSDK_CORE_DISABLE_PROMPTS=1",
+		// gcloud mints at the key file's token_uri, but the token bq asks
+		// gcloud for comes from auth/token_host, so both name the simulator.
+		"CLOUDSDK_AUTH_TOKEN_HOST="+baseURL+"/token",
 		"CLOUDSDK_API_ENDPOINT_OVERRIDES_DNS="+baseURL+"/",
 		"CLOUDSDK_API_ENDPOINT_OVERRIDES_APIGATEWAY="+baseURL+"/",
 		"CLOUDSDK_API_ENDPOINT_OVERRIDES_API_GATEWAY="+baseURL+"/",
@@ -468,9 +490,7 @@ func httpDo(method, url string, body string) (*http.Response, error) {
 		req.Header.Set("Content-Type", "application/json")
 	}
 	// The data plane verifies an OAuth2 access token on every request, so these
-	// raw HTTP calls must present the same real, simulator-minted token the
-	// gcloud CLI carries via CLOUDSDK_AUTH_ACCESS_TOKEN — differing from a real
-	// Google request only in the endpoint coordinate and the token source.
+	// raw HTTP calls present the token gcloud minted for the bootstrap account.
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 	return http.DefaultClient.Do(req)
 }

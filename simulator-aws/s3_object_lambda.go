@@ -803,7 +803,7 @@ func s3ObjectLambdaEvent(r *http.Request, olap S3ObjectLambdaAccessPoint, route,
 		bucket = ap.Bucket
 	}
 	key := strings.TrimPrefix(r.URL.Path, "/")
-	inputURL, err := s3ObjectLambdaInputURL(bucket, key)
+	inputURL, err := s3ObjectLambdaInputURL(r, bucket, key)
 	if err != nil {
 		return nil, err
 	}
@@ -833,17 +833,26 @@ func s3ObjectLambdaEvent(r *http.Request, olap S3ObjectLambdaAccessPoint, route,
 }
 
 // s3ObjectLambdaInputURL is the URL the transformation function reads the
-// original object from. Real S3 hands the function a presigned URL for the
-// object on the supporting access point's bucket; here that object lives on
-// this simulator's own S3 surface, so the URL differs from AWS's only in the
-// coordinate it points at — and it uses the address a function container can
-// actually reach the simulator on, the same one its Runtime API arrives on.
-func s3ObjectLambdaInputURL(bucket, key string) (string, error) {
+// original object from: a URL presigned with the original caller's
+// credential, so the caller's permissions govern the read, at the address a
+// function container reaches the simulator on, the one its Runtime API
+// arrives on. An anonymous caller's URL carries no signature and reads as
+// the anonymous principal.
+func s3ObjectLambdaInputURL(r *http.Request, bucket, key string) (string, error) {
 	addr, err := workloadhost.CallbackAddr(simCallbackListenAddr)
 	if err != nil {
 		return "", fmt.Errorf("resolve the simulator address a function reaches: %w", err)
 	}
-	return s3ObjectURL(addr, bucket, key), nil
+	accessKeyID := iamAccessKeyIDFromRequest(r)
+	if accessKeyID == "" {
+		return s3ObjectURL(addr, bucket, key), nil
+	}
+	token := sigv4PresentedSessionToken(r)
+	secret, serr := sigv4SecretFor(accessKeyID, token)
+	if serr != nil {
+		return "", fmt.Errorf("presign the original object for the caller: %s", serr.message)
+	}
+	return presignedS3URLAs("http://"+addr, bucket, key, http.MethodGet, accessKeyID, secret, token), nil
 }
 
 func s3ObjectURL(addr, bucket, key string) string {

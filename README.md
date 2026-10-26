@@ -1,379 +1,139 @@
-# Sockerless Cloud — simulators
+# Sockerless Cloud
 
-Local, wire-faithful reimplementations of slices of the AWS, Google Cloud and Microsoft Azure APIs. Jobs run, functions execute, timeouts fire and logs land in the cloud-native sink, driven by the configuration the real services honor, so code that works against a simulator works against the cloud.
+Local, wire-faithful reimplementations of slices of AWS, Google Cloud and
+Microsoft Azure: one Go binary per cloud. The clouds' own SDKs, CLIs and
+Terraform providers talk to them unmodified; only the endpoint and the
+credentials change. Behind the APIs the work is real:
+- an EC2 instance boots;
+- a Lambda function runs in its own execution environment;
+- a Cloud SQL instance is a real PostgreSQL;
+- a Cloud Run job runs one container per task;
+- an Azure Functions app answers HTTP requests.
 
-Anything that speaks a cloud's API can be pointed at its simulator: the cloud's SDKs, its official CLI, its Terraform provider, and the libraries built on them (boto, for instance). Each surface is validated against the cloud's published specification in the format the cloud publishes: Smithy models for AWS, Discovery documents for Google Cloud, OpenAPI (Swagger) for Azure. Each simulator's own README covers its services in full.
-
-| Cloud | README | Published specification it is validated against |
-|---|---|---|
-| AWS | [`simulator-aws/README.md`](simulator-aws/README.md) | Smithy models ([`specs/cloud-api/aws`](specs/cloud-api/aws)) |
-| GCP | [`simulator-gcp/README.md`](simulator-gcp/README.md) | Discovery documents ([`specs/cloud-api/gcp`](specs/cloud-api/gcp)) |
-| Azure | [`simulator-azure/README.md`](simulator-azure/README.md) | OpenAPI/Swagger ([`specs/cloud-api/azure`](specs/cloud-api/azure)) |
+| Cloud | Simulator | Port | Validated against |
+|---|---|---|---|
+| AWS | [`simulator-aws`](simulator-aws/README.md) | 4566 | Smithy models, the AWS Service Reference, AWS guides |
+| Google Cloud | [`simulator-gcp`](simulator-gcp/README.md) | 4567 (gRPC 4569) | API Discovery documents, the gRPC protocol definitions, Google Cloud documentation |
+| Azure | [`simulator-azure`](simulator-azure/README.md) | 4568 | OpenAPI (Swagger) documents, Microsoft Learn pages |
 
 ## Install
 
-Each release is one `vX.Y.Z` tag carrying the simulator binaries with their consoles embedded (linux and darwin, amd64 and arm64), the console bundles, and multi-architecture container images:
+Each release is one `vX.Y.Z` tag. The [GitHub Release](https://github.com/e6qu/sockerless-cloud/releases)
+carries the binaries for linux and darwin, amd64 and arm64, each with its
+console embedded, and multi-architecture container images:
 
 ```sh
-docker run -p 4566:4566 -v /var/run/docker.sock:/var/run/docker.sock \
-  ghcr.io/e6qu/sockerless-simulator-aws:vX.Y.Z
+docker run --rm -p 4566:4566 -v /var/run/docker.sock:/var/run/docker.sock \
+  ghcr.io/e6qu/sockerless-simulator-aws:v3.0.1
 ```
 
-The simulators are subdirectory Go modules, which a plain `vX.Y.Z` tag cannot version, so a Go install pins the release commit:
+The simulators are Go modules in subdirectories, which a `vX.Y.Z` tag can't
+version, so `go install` pins the release commit (or `@latest`):
 
 ```sh
-go install github.com/e6qu/sockerless-cloud/simulator-aws@<release-commit>
+go install github.com/e6qu/sockerless-cloud/simulator-aws@latest
+go install github.com/e6qu/sockerless-cloud/simulator-gcp@latest
+go install github.com/e6qu/sockerless-cloud/simulator-azure@latest
 ```
 
-## Reference adaptors
+A simulator needs a Docker or Podman engine to run workloads.
+`SIM_RUNTIME=process` serves the APIs alone.
 
-Every simulator answers the same three external tools per cloud — the SDK, the official CLI, and the Terraform provider. **Anything any of these does against the real cloud's endpoint, it must do against the simulator on the same wire.** The per-sim READMEs list the exact versions + spec links.
-
-| Cloud | SDK | CLI | Terraform provider |
-|---|---|---|---|
-| AWS | [`aws-sdk-go-v2`](https://github.com/aws/aws-sdk-go-v2) | [`aws`](https://docs.aws.amazon.com/cli/latest/reference/) | [`hashicorp/aws`](https://registry.terraform.io/providers/hashicorp/aws/latest/docs) |
-| GCP | [`cloud.google.com/go`](https://pkg.go.dev/cloud.google.com/go) | [`gcloud`](https://cloud.google.com/sdk/docs/install) | [`hashicorp/google`](https://registry.terraform.io/providers/hashicorp/google/latest/docs) |
-| Azure | [`azure-sdk-for-go`](https://pkg.go.dev/github.com/Azure/azure-sdk-for-go/sdk) | [`az`](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli) | [`hashicorp/azurerm`](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs) |
-
-Discipline patterns for wire fidelity:
-
-- Capturing wire shape from the SDK serializer source code — [`.claude/skills/sim-handler-checklist`](.claude/skills/sim-handler-checklist/SKILL.md).
-- Cross-resource invariants under one `terraform apply` — [`.claude/skills/cross-resource-stack-test`](.claude/skills/cross-resource-stack-test/SKILL.md).
-- The broader wire-fidelity discipline — [`.claude/skills/adaptor-fidelity-check`](.claude/skills/adaptor-fidelity-check/SKILL.md).
-
-## Three governing principles
-
-1. **The simulator is a cloud slice.** `simulator-aws/` implements a slice of AWS — the services this project chose, at cloud-API fidelity — and the Google Cloud and Azure simulators do the same for their clouds. Not a per-product simulator; a cloud slice.
-2. **One binary per cloud.** Adding a new service slice means a new `registerX(srv)` + handler file inside `simulator-aws/`, `simulator-gcp/`, or `simulator-azure/`. Never a new binary per product.
-3. **Cloud-API fidelity.** Match the real cloud's error shapes, response headers, async operation semantics, path templates, HTTP status codes, and wire encodings exactly. When the cloud's contract doesn't cover something, neither does the simulator.
-
-Full statement and rationale in [AGENTS.md → Simulator architecture — cloud-slice principle](AGENTS.md#simulator-architecture--cloud-slice-principle). Enforced per-commit by the `simulator-testing-contract` pre-commit hook (every handler change must touch sdk-tests + cli-tests + terraform-tests).
-
-## Default ports
-
-| Simulator | HTTP | gRPC (where used) |
-|---|---|---|
-| AWS | `:4566` | n/a |
-| GCP | `:4567` | `:4569` (Cloud Logging, Bigtable, Firestore, Pub/Sub, Spanner, Cloud KMS, Secret Manager; `SIM_GCP_GRPC_PORT`) |
-| Azure | `:4568` | n/a |
-
-## Quick start — all three at once
+## Quick start
 
 ```sh
-(cd simulator-aws && go run . &)
-(cd simulator-gcp && go run . &)
-(cd simulator-azure && go run . &)
+simulator-aws & simulator-gcp & simulator-azure &
 ```
 
-Each starts on its default port and prints `Listening on` once the port
-answers. The release images run the same way, with the engine socket mounted
-(see Install).
+Each prints `Listening on` when its port answers. Then point a real client
+at each one.
 
-Environment knobs (per sim — full list in each sub-README):
-
-| Variable | Default | Description |
-|---|---|---|
-| `SIM_LISTEN_ADDR` | `:4566` / `:4567` / `:4568` | Listen address |
-| `SIM_AWS_PORT` / `SIM_GCP_PORT` / `SIM_AZURE_PORT` | unset | Port to listen on, ahead of `SIM_LISTEN_ADDR` |
-| `SIM_TLS_CERT`, `SIM_TLS_KEY` | unset | Enable HTTPS (required by some Terraform providers — see [`simulator-azure/README.md § Special handling`](simulator-azure/README.md)) |
-| `SIM_CALLBACK_LISTEN_ADDR` | a free port on every interface | With TLS on, the plain-HTTP address the simulator also serves on for the workloads it places: their network sidecars forward instance metadata and identity requests there, which a container reaches without the operator's certificate authority. Without TLS the one listener serves everything. |
-| `SIM_RUNTIME` | `docker` | Workload runtime mode. The default initializes Docker/Podman for execution. Set `process` only for explicit API-only runs that do not invoke workload-execution APIs. |
-| `SIM_PERSIST` | `false` | `true` keeps state, payloads and running workloads across restarts. |
-| `SIM_PLACEMENT` | unset | Per-service placement, `service[:qualifier]=container\|microvm` comma-separated. Every service unnamed runs on containers; a microVM service starts a node agent, which needs a Linux engine with `/dev/kvm`. |
-| `SIM_DATA_DIR` | temporary directory | Root of the SQLite store and the bulk-data directories. |
-| `SIM_SERVICEBUS_AMQP_LISTEN_ADDR` | unset | Azure-only raw Service Bus AMQP/TLS listener; requires `SIM_SERVICEBUS_AMQP_TLS_CERT` / `SIM_SERVICEBUS_AMQP_TLS_KEY` or the shared TLS cert/key |
-| `SIM_LOG_LEVEL` | `info` | Log level (`trace`, `debug`, `info`, `warn`, `error`) |
-| `SIM_UI_OIDC_ISSUER` | unset | OpenID Connect issuer for the embedded operator UI. Configure all UI OIDC values together. |
-| `SIM_UI_OIDC_CLIENT_ID` | unset | OpenID Connect relying-party client ID for this simulator dashboard. |
-| `SIM_UI_OIDC_CLIENT_SECRET` | unset | OpenID Connect relying-party client secret, supplied through the deployment secret store. |
-| `SIM_UI_PUBLIC_URL` | unset | Externally visible origin for callback and logout redirects, such as `https://aws.example.com`. |
-| `SIM_UI_SESSION_SECRET` | unset | Independent random value of at least 32 bytes used to sign local browser sessions. |
-| `SIM_UI_INSECURE_COOKIES` | `false` | Explicit loopback-development opt-in for HTTP issuer/public coordinates and non-Secure cookies; non-loopback HTTP coordinates remain invalid. |
-| `APPLICATION_RELEASE_REVISION` | unset | Immutable 12–64 character lowercase hexadecimal revision or `sha256:` image digest; required whenever UI OpenID Connect is enabled. |
-| `SIM_MONITORING_TOKEN` | unset | Independent deployment bearer credential of at least 32 non-whitespace characters for `GET /monitoring/observation`; without it the route is not registered. |
-
-The optional first-party UI authentication layer uses authorization code +
-PKCE, nonce and state validation, signed server-tracked sessions, RP-Initiated
-Logout with an ID-token hint, OIDC Front-Channel Logout correlated by trusted
-issuer and `sid`, and signed OIDC Back-Channel Logout correlated by `sid` or
-`sub` with required `iat`, future `exp`, and single-use `jti` claims. It
-protects only `/ui/` and the UI identity/logout endpoints;
-all AWS, Google Cloud, and Microsoft Azure API routes retain their native
-authentication and protocol behavior. Partial configuration fails startup.
-
-When configured, the monitoring route sits outside browser OpenID Connect
-protection and accepts only its exact bearer credential. It publishes an
-`e6qu.monitoring/v2` application resource with real session and process
-evidence; it does not change any simulated cloud API route or invent cloud
-resource cost.
-
-Each simulator dashboard registers these relying-party coordinates, replacing
-`<origin>` with that dashboard's `SIM_UI_PUBLIC_URL`:
-
-- redirect URI: `<origin>/auth/oidc/callback`
-- post-logout redirect URI: `<origin>/auth/shauth/logout/complete`
-- front-channel logout URI: `<origin>/auth/oidc/frontchannel-logout`
-- back-channel logout URI: `<origin>/auth/oidc/backchannel-logout`
-
-The post-logout completion bridge returns to Shauth's `/oauth/logout/complete`
-endpoint, and Shauth then redirects to the application-local
-`<origin>/auth/signed-out` page. The bridge ignores all query parameters and
-never reflects a caller-controlled destination.
-
-The development registrations are therefore:
-
-| Dashboard | Redirect URI | Post-logout redirect URI | Front-channel logout URI | Back-channel logout URI |
-|---|---|---|---|---|
-| AWS | `https://aws.example.com/auth/oidc/callback` | `https://aws.example.com/auth/shauth/logout/complete` | `https://aws.example.com/auth/oidc/frontchannel-logout` | `https://aws.example.com/auth/oidc/backchannel-logout` |
-| Google Cloud | `https://gcp.example.com/auth/oidc/callback` | `https://gcp.example.com/auth/shauth/logout/complete` | `https://gcp.example.com/auth/oidc/frontchannel-logout` | `https://gcp.example.com/auth/oidc/backchannel-logout` |
-| Microsoft Azure | `https://azure.example.com/auth/oidc/callback` | `https://azure.example.com/auth/shauth/logout/complete` | `https://azure.example.com/auth/oidc/frontchannel-logout` | `https://azure.example.com/auth/oidc/backchannel-logout` |
-
-The browser starts at `/ui/`, redirects through `/auth/oidc/login` when no
-local session is active, obtains its identity from `/auth/session`, and submits
-logout to `/auth/logout`. The simulators need no authentication proxy, and support none, for
-the simulator UI.
-
-Shauth validates each deployed dashboard at `<origin>/auth/validation`.
-Anonymous and bearer-only requests receive an exact `303` to the dashboard's
-own `/auth/signed-out` page. An authenticated request exposes the verified
-username, email, role, and immutable release through the standard
-`validation-username`, `validation-email`, `validation-role`, and
-`validation-release` fields and signs out through the same global OpenID
-Connect flow as the dashboard.
-
-Simulator calls that execute workloads require Docker or Podman. If the
-operator intentionally needs only non-execution API surfaces, `SIM_RUNTIME=process`
-starts the simulator without initializing Docker/Podman; execution endpoints still
-require a real workload runtime when used.
-
-## Optional local HTTPS gateway
-
-The simulators keep their direct HTTP and `SIM_TLS_CERT` / `SIM_TLS_KEY`
-entry points. For clients that expect cloud-like HTTPS URLs, run Caddy with
-the repository's gateway configuration from the repository root:
+AWS takes the seeded `test` access key:
 
 ```sh
-caddy run --config make/https-gateway/Caddyfile --adapter caddyfile
-```
-
-The `SOCKERLESS_*` variables at the top of
-[`make/https-gateway/Caddyfile`](make/https-gateway/Caddyfile) move the gateway
-and simulator ports.
-
-Default endpoints are `https://aws.sockerless.localhost:8443`,
-`https://gcp.sockerless.localhost:8443`, and
-`https://azure.sockerless.localhost:8443`, plus Azure host-addressed
-data-plane wildcards. Caddy issues their certificates from its own local CA;
-each simulator's `docs/terraform.md` shows how a client trusts it.
-
-## End-to-end showcase
-
-A session that drives all three simulators with their real clients:
-
-```sh
-# 1. Start all three simulators (see Quick start)
-
-# 2. Drive each one with its real reference adaptor
 export AWS_ENDPOINT_URL=http://localhost:4566 AWS_REGION=us-east-1 \
        AWS_ACCESS_KEY_ID=test AWS_SECRET_ACCESS_KEY=test
-aws ecs list-clusters
-aws cloudfront list-distributions
+aws s3 mb s3://hello && aws s3 ls
+```
 
-export CLOUDSDK_AUTH_ACCESS_TOKEN=$(curl -s -X POST http://localhost:4567/token \
-  -d grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer | jq -r .access_token)
-export CLOUDSDK_CORE_PROJECT=sockerless CLOUDSDK_API_ENDPOINT_OVERRIDES_STORAGE=http://localhost:4567/
-gcloud storage buckets list
+Google Cloud takes the seeded bootstrap service account's key:
 
+```sh
+go run github.com/e6qu/sockerless-cloud/testutil/cmd/gcp-bootstrap-key@latest -o bootstrap-key.json
+gcloud auth activate-service-account --key-file=bootstrap-key.json
+gcloud config set auth/token_host http://localhost:4567/token
+gcloud config set api_endpoint_overrides/storage http://localhost:4567/
+gcloud storage buckets create gs://hello --project=sockerless && gcloud storage ls --project=sockerless
+```
+
+Azure takes the seeded bootstrap application's client secret:
+
+```sh
 AZ_TOKEN=$(curl -s -X POST http://localhost:4568/11111111-1111-1111-1111-111111111111/oauth2/v2.0/token \
   -d grant_type=client_credentials -d client_id=test-client-id -d client_secret=test-client-secret \
   --data-urlencode scope=https://management.azure.com/.default | jq -r .access_token)
-az rest --method GET --headers "Authorization=Bearer $AZ_TOKEN" \
-  --url "http://localhost:4568/subscriptions/00000000-0000-0000-0000-000000000001/resourcegroups?api-version=2021-04-01"
-
-# 3. Run each cloud's Terraform suite (each starts its own simulator)
-(cd simulator-aws/terraform-tests   && go test -run TestStackProductionShape .)
-(cd simulator-gcp/terraform-tests   && go test ./...)
-(cd simulator-azure/terraform-tests && go test ./...)
+curl -s -H "Authorization: Bearer $AZ_TOKEN" \
+  "http://localhost:4568/subscriptions/00000000-0000-0000-0000-000000000001/resourcegroups?api-version=2021-04-01"
 ```
 
-Per-simulator captured-output samples live in each simulator README. The most exercised production-shape integration test is `TestStackProductionShape` in [`simulator-aws/terraform-tests/apply_test.go`](simulator-aws/terraform-tests/apply_test.go); it provisions CloudFront + ACM + WAFv2 + Route 53 ALIAS + Amplify + IAM SLR/OIDC + ECS + Cloud Map in one `terraform apply` and asserts the cross-resource references resolve correctly.
+[The tutorial](docs/tutorial.md) builds the same application stack on all
+three with Terraform: a network with NAT, a virtual machine, a container
+service, object storage, a database, a queue, a function and monitoring. CI
+runs it end to end.
 
-## Validation
+## Documentation
 
-Every simulator ships three client test suites, each a Go module whose `TestMain` builds and starts the simulator:
+| Read | For |
+|---|---|
+| [Tutorial](docs/tutorial.md) | One stack on three clouds, step by step |
+| [Configuration](docs/configuration.md) | Every `SIM_*` variable, the consoles' sign-in, the local HTTPS gateway |
+| [Identity and access](docs/iam.md) | How each simulator authenticates and authorizes requests: IAM, Google Cloud IAM, Microsoft Entra ID and Azure RBAC |
+| [Instance metadata](docs/instance-metadata.md) | What workloads read from the EC2, Google Cloud and Azure metadata services |
+| [Architecture](docs/architecture.md) | The modules, a request's path, state, workloads, networks, the shared framework |
+| [Specifications](docs/specifications.md) | Where each cloud's API schemas come from, what is generated, how coverage is checked |
+| [Maintaining](docs/maintaining.md) | Tests, hooks, CI, continuity files, pins, releases |
+| [Contributing tutorial](docs/tutorial-contributing.md) | Adding an operation, from specification to merged pull request |
+| [So, you want to build your own cloud](docs/so-you-want-to-build-a-cloud.md) | What a cloud is made of, and how this compares with LocalStack and Floci |
+| [`sim/README.md`](sim/README.md) | Every package of the shared framework |
+| [`BUGS.md`](BUGS.md), [`STATUS.md`](STATUS.md), [`PLAN.md`](PLAN.md) | Open bugs, current state, the roadmap |
 
-- `sdk-tests/` — the cloud's official Go SDK.
-- `cli-tests/` — the cloud's official CLI (`aws`, `gcloud`, `az`), installed by `TestMain` when absent.
-- `terraform-tests/` — the cloud's Terraform provider, with endpoint overrides.
+## What it isn't
 
-```sh
-make simulator-aws/unit-test        # the module's own unit tests
-make simulator-aws/sdk-test
-make simulator-aws/cli-test
-make simulator-aws/terraform-test
-```
+- **A production deployment.** The simulators run on one machine, for local
+  development and CI. The point is that the same client code reaches both
+  them and the cloud.
+- **Multi-region.** Each simulator serves one home Region. A few services
+  (Amazon RDS instances and their backup replication) honour the Region a
+  request is signed for.
+- **A copy of vendors' published data.** Price sheets and SKU catalogs belong
+  to the vendor; a partial copy would be fabrication, so those surfaces answer
+  with what this installation publishes, which is nothing.
+- **An external identity provider.** Every credential is verified, but the
+  identities are the ones each simulator's own IAM, Google Cloud IAM and
+  Microsoft Entra ID slices issue.
 
-```sh
-make docker-test                  # every cloud's suites inside the shared test image
-make simulator-aws/docker-test    # one cloud's suites inside it
-make test-integration             # integration-tagged tests across every Go module
-```
+## Licence
 
-`make docker-test` builds the shared `Dockerfile.test` image, mounts the repository root and the host Docker socket, and runs each simulator's `test-all` target inside it.
-
-CI runs every suite on each pull request — the `sim (<cloud> sdk …)`, `sim (<cloud> cli …)` and `tf (<cloud> …)` jobs in `.github/workflows/ci.yml`, sharded per cloud, with `race (simulator-<cloud>)` and `race (sim)` running the module unit tests under the race detector.
-
-### Spec-based validation
-
-On top of the real-client suites, a spec validator checks every simulator against the
-official machine-readable API specs vendored under
-[`specs/cloud-api/`](specs/cloud-api/README.md) (AWS Smithy models, GCP
-Discovery documents, Azure Swagger):
-
-- **Static surface conformance** (`spec_conformance_test.go`, runs with
-  `make unit-test`): every registered operation/route must exist in the
-  vendored spec — the simulator cannot invent paths or wire keys under a
-  cloud's namespace. Real-but-unspecified surfaces (IMDS, OCI registry
-  data planes, LRO polling URLs) live in justified in-test allowlists.
-- **Runtime wire-shape validation** (armed via
-  `SOCKERLESS_SPEC_VALIDATE=<report.jsonl>` +
-  `SOCKERLESS_SPEC_DIR=specs/cloud-api/<cloud>`): it checks responses
-  member-by-member against the spec's output shapes while the SDK/CLI
-  suites run; `scripts/check-spec-violations.sh` gates the report against
-  `simulator-<cloud>/spec-violation-allowlist.txt`. The allowlist only
-  shrinks: every entry names the open bug that records why the simulator
-  cannot yet match the model, and a value the model omits is declared in
-  `specs/cloud-api/<cloud>/<document>.supplement.json` with its evidence
-  rather than allowlisted. Any new violation fails CI until the simulator
-  matches.
-
-## Shared framework
-
-The three simulators are built on one framework module, [`sim/`](sim/README.md)
-(`github.com/e6qu/sockerless-cloud/sim`), pinned by each simulator like the
-other support module, `ui-auth/`: the HTTP server and its
-console and monitoring routes, the container-engine layer every workload runs
-on, durable state on SQLite, the OCI Distribution data plane the registries
-mount, request logging and tracing, and the bounds-safe parsing primitives.
-The framework is cloud-neutral; each cloud's error shape, protocol router,
-sandbox profile and console coordinates live in its own module and reach the
-framework through hooks.
-
-## Design
-
-The simulators reimplement each service's semantics rather than approximating them with synthetic timers or fixed answers:
-
-- **Cloud-native configuration drives the execution lifecycle.** Azure ACA jobs respect `replicaTimeout`. GCP Cloud Run jobs respect the task-template `timeout`. AWS ECS tasks run until the process exits or a caller invokes `StopTask`, because ECS has no native execution timeout, and a stopped container gets its definition's `stopTimeout` between SIGTERM and SIGKILL.
-- **Log injection** writes entries to the same tables and log groups that the real services would, queryable through the same APIs (KQL for Azure, Cloud Logging filters for GCP, CloudWatch for AWS).
-- **Exec and attach reach the real container.** Amazon ECS `ExecuteCommand` and the Azure App Service and Container Apps exec surfaces run their command inside the workload's own container through the engine's exec API, bridged over the same WebSocket protocol the real service uses.
-
-Each simulator and its node agents run on a single machine.
-
-## Workload execution
-
-Every compute service (Amazon EC2, Amazon ECS, AWS Lambda, AWS Batch, Compute Engine, Cloud Run, Cloud Run functions, Azure virtual machines, Container Apps, Container Instances, App Service, Azure Functions and the build services) runs its workloads on a placement backend: a container on the engine by default, or a Firecracker microVM on a node agent for the services `SIM_PLACEMENT` names. Workloads never run as `os/exec` host processes of the simulator binary — `simulator-<cloud>/sdk-tests/host_dispatch_test.go` enforces that — and the simulator process holds no host privilege. The workload's architecture, read from the cloud resource that declares it, reaches the engine's image pull and container create.
-
-Each simulator's README states the model beside the execution services it applies to.
-
-Each workload streams stdout/stderr in real time into the cloud-native log sink:
-
-| Service | Log sink | API for retrieval |
-|---|---|---|
-| ECS | CloudWatch Logs (awslogs) | `GetLogEvents` / `FilterLogEvents` |
-| Cloud Run Jobs | Cloud Logging | `entries.list` (REST) / `ListLogEntries` (gRPC) |
-| Container Apps | Log Analytics | KQL via `QueryWorkspace` |
-| Lambda | CloudWatch Logs | `GetLogEvents` |
-| Cloud Functions | Cloud Logging | `entries.list` / `ListLogEntries` |
-| Azure Functions | Log Analytics (AppTraces) | KQL via `QueryWorkspace` |
-
-AWS Lambda, Cloud Run functions and Azure Functions invoke the function image's own HTTP listener or Runtime API inside the container; nothing runs as a host process.
-
-## ECS ExecuteCommand
-
-The ECS simulator supports `ExecuteCommand` with WebSocket-based session bridging:
-
-1. Create an exec inside the task's running container through the engine's exec API.
-2. Register a WebSocket handler at `/ecs-exec/{sessionId}`.
-3. Return a session with the WebSocket URL, in the shape AWS Systems Manager Session Manager clients expect.
-4. Bridge stdin/stdout/stderr over the WebSocket connection, framing them as SSM agent messages with the exit-code marker.
-
-## Request routing per cloud
-
-| Cloud | Protocol | Routing |
-|---|---|---|
-| AWS (ECS, ECR, CloudWatch, Cloud Map, WAFv2, ACM, KMS, SSM, Secrets, DynamoDB, Kinesis, EventBridge) | AWS-JSON | `X-Amz-Target` header dispatch |
-| AWS (EC2, IAM, STS) | AWS Query | `Action` form parameter dispatch |
-| AWS (Lambda, S3, EFS, CloudFront, Route 53, Amplify) | REST | Path-based mux (CloudFront / Route 53 use XML bodies, others JSON) |
-| GCP (all services including BigQuery and Firestore) | REST + gRPC | Path-based mux (HTTP); gRPC services on the HTTP port plus two (`:4569`) |
-| Azure (ARM services including Cosmos DB) | ARM REST | Path-based mux with `api-version` validation |
-| Azure (data planes including Storage, Key Vault, Service Bus/Event Hubs, Event Grid, Cosmos DB) | REST / AMQP | Host/path-based mux and optional raw AMQP/TLS listeners |
-
-## Known issues
-
-Open simulator bugs live in [`BUGS.md`](BUGS.md); the tooling quirks that are not simulator defects are recorded in [`DO_NEXT.md`](DO_NEXT.md).
-
-## What's out of scope
-
-- **Cloud-side production deployments.** Simulators are for local development and CI. A production deployment talks to the real cloud endpoints; the point of the simulators is that the same client code reaches both.
-- **Multi-region deployments.** Each simulator serves one home Region; a few services (Amazon RDS DB instances and their backup replication) honour the Region a request is signed for.
-- **Published price sheets and vendor catalogs.** Google Cloud Billing's SKU catalog and the like are somebody else's published data; a partial copy would be fabrication, so those surfaces answer with what this installation publishes, which is nothing. Quota enforcement exists where a cloud enforces it (`SIM_GCP_CPU_QUOTA_PER_REGION` wires Cloud Run's regional CPU budget).
-- **Identity providers outside the simulator.** Every credential is verified — SigV4 signatures against the principal's stored secret, Google Cloud and Microsoft Entra bearers against the simulator's own signing keys — but the identities are the ones the simulator's IAM, Google Cloud IAM and Microsoft Entra slices minted. A real external identity provider is a coordinate the deployment supplies, not something the simulator stands in for.
-- **Outbound delivery to carriers and push services.** Amazon SNS SMS and mobile push need a telecommunications carrier or Apple's and Google's hosts, which no AWS API provisions; those deliveries fail naming the missing dependency.
-
-## Per-cloud guides
-
-| Cloud | CLI | Terraform | Python SDK |
-|---|---|---|---|
-| AWS | [AWS CLI](simulator-aws/docs/cli.md) | [`hashicorp/aws`](simulator-aws/docs/terraform.md) | [boto3](simulator-aws/docs/python-sdk.md) |
-| GCP | [gcloud CLI](simulator-gcp/docs/cli.md) | [`hashicorp/google`](simulator-gcp/docs/terraform.md) | [`google-cloud-*`](simulator-gcp/docs/python-sdk.md) |
-| Azure | [az CLI](simulator-azure/docs/cli.md) | [`hashicorp/azurerm`](simulator-azure/docs/terraform.md) | [`azure-mgmt-*`](simulator-azure/docs/python-sdk.md) |
-
-See also: [`specs/SIM_PARITY_MATRIX.md`](specs/SIM_PARITY_MATRIX.md) for the per-service inventory, and [`specs/SIM_TEST_COVERAGE_MATRIX.md`](specs/SIM_TEST_COVERAGE_MATRIX.md) for which client exercises each surface.
-
-## Copyright and licence
-
-Copyright 2026 [Adrian Mârza](https://www.linkedin.com/in/adrian-m%C3%A2rza-52606512a).
-
-Copyright in this project is retained by Adrian Mârza, and by each contributor
-to the extent of their own contributions.
+Copyright 2026 [Adrian Mârza](https://www.linkedin.com/in/adrian-m%C3%A2rza-52606512a),
+and each contributor to the extent of their own contributions.
 
 This program is free software: you can redistribute it and/or modify it under
 the terms of the GNU Affero General Public License as published by the Free
 Software Foundation, either version 3 of the License, or (at your option) any
-later version.
+later version. It is distributed WITHOUT ANY WARRANTY; without even the implied
+warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See
+[`LICENSE`](LICENSE) and <https://www.gnu.org/licenses/agpl-3.0.html>
+(`AGPL-3.0-or-later`).
 
-This program is distributed in the hope that it will be useful, but WITHOUT ANY
-WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
-PARTICULAR PURPOSE. See the GNU Affero General Public License for more details.
+The vendored specifications under [`specs/cloud-api/`](specs/cloud-api/README.md)
+are third-party material under their own licences:
 
-You should have received a copy of the GNU Affero General Public License along
-with this program. If not, see <https://www.gnu.org/licenses/>.
+| Vendored | Upstream | Licence |
+|---|---|---|
+| [`specs/cloud-api/aws/`](specs/cloud-api/aws/SOURCES.md) | `aws/aws-sdk-go-v2` Smithy models; AWS guides; the Elastic Load Balancing hosted-zone table from `hashicorp/terraform-provider-aws`; the [AWS Service Reference](specs/cloud-api/aws/SERVICE_REFERENCE_SOURCES.md) | Apache-2.0; CC-BY-SA-4.0; MPL-2.0; the Service Reference's public authorization data |
+| [`specs/cloud-api/gcp/`](specs/cloud-api/gcp/SOURCES.md) | Google API Discovery documents; Google Cloud documentation | Apache-2.0; CC-BY-4.0 |
+| [`specs/cloud-api/azure/`](specs/cloud-api/azure/SOURCES.md) | `Azure/azure-rest-api-specs`; Microsoft Learn sources; KEDA scaler docs | MIT; CC-BY-4.0; Apache-2.0 |
 
-- Licence text as distributed here: [`LICENSE`](LICENSE)
-- Upstream licence text: <https://www.gnu.org/licenses/agpl-3.0.html>
-- SPDX identifier: [`AGPL-3.0-or-later`](https://spdx.org/licenses/AGPL-3.0-or-later.html)
-
-### Vendored material
-
-The simulators are validated against verbatim snapshots of each cloud's own
-published, machine-readable specification. Those snapshots are third-party
-material under their own licences, not under this project's:
-
-| Vendored | Format | Upstream | Licence |
-|---|---|---|---|
-| [`specs/cloud-api/aws/`](specs/cloud-api/aws/SOURCES.md) | Smithy 2.0 models | `aws/aws-sdk-go-v2` | [Apache-2.0](https://spdx.org/licenses/Apache-2.0.html) |
-| [`specs/cloud-api/gcp/`](specs/cloud-api/gcp/SOURCES.md) | API Discovery documents | per-service Google endpoints | [Apache-2.0](https://spdx.org/licenses/Apache-2.0.html) |
-| [`specs/cloud-api/azure/`](specs/cloud-api/azure/SOURCES.md) | OpenAPI (Swagger 2.0) | `Azure/azure-rest-api-specs` | [MIT](https://spdx.org/licenses/MIT.html) |
-| [`specs/cloud-api/aws/service-reference/`](specs/cloud-api/aws/SERVICE_REFERENCE_SOURCES.md) | AWS Service Reference | `servicereference.us-east-1.amazonaws.com` | AWS Service Reference (public service authorization data) |
-
-Every snapshot is traceable to its origin. Each row of a `SOURCES.md` records
-the local file, the upstream repository or host, the exact upstream path, the
-licence, the revision it is pinned at, and the time it was fetched — so any
-vendored byte can be traced back to the published document it came from and
-checked against it. [`scripts/check-spec-freshness.sh`](scripts/check-spec-freshness.sh)
-compares each pin against upstream, and
-[`specs/cloud-api/README.md`](specs/cloud-api/README.md) is the index.
-
-Third-party dependencies of the test suites and console UIs carry their own
-licences, recorded in the `go.mod`/`go.sum` and `package.json` files of the
-modules that require them.
+Each `SOURCES.md` row records the file's upstream path, licence, pin and fetch
+time. The dependencies of the test suites and consoles carry their own
+licences, recorded in their `go.mod` and `package.json` files.

@@ -22,8 +22,8 @@ variable "endpoint" {
   default     = "http://localhost:4567"
 }
 
-variable "access_token" {
-  description = "An OAuth 2.0 access token the simulator's token endpoint issued."
+variable "credentials" {
+  description = "The service-account credential file the provider authenticates with, by path or by contents."
   type        = string
 }
 
@@ -37,7 +37,7 @@ provider "google" {
   project = "test-project"
   region  = "us-central1"
 
-  access_token          = var.access_token
+  credentials           = var.credentials
   user_project_override = false
 
   compute_custom_endpoint         = "${var.endpoint}/compute/v1/"
