@@ -349,6 +349,17 @@ func TestMain(m *testing.M) {
 		log.Fatalf("Failed to acquire simulator Key Vault bearer token: %v", err)
 	}
 	simKVBearer = "Bearer " + kvToken
+	graphToken, _, err := fetchSimAccessToken("https://graph.microsoft.com/.default")
+	if err != nil {
+		simCmd.Process.Kill()
+		log.Fatalf("Failed to acquire simulator Microsoft Graph bearer token: %v", err)
+	}
+	simGraphBearer = "Bearer " + graphToken
+	http.DefaultClient.Transport = &graphAuthTransport{
+		base:   http.DefaultClient.Transport,
+		host:   strings.TrimPrefix(baseURL, "http://"),
+		bearer: simGraphBearer,
+	}
 	simCallerObjectID, err = jwtStringClaim(token, "oid")
 	if err != nil {
 		simCmd.Process.Kill()

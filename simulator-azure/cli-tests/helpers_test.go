@@ -52,6 +52,9 @@ var (
 	// kvBearer is the same principal's Azure Key Vault access token, which the
 	// hand-addressed Key Vault data-plane requests carry.
 	kvBearer string
+	// graphBearer is the same principal's Microsoft Graph access token, the
+	// token `az rest` acquires for a graph.microsoft.com URL.
+	graphBearer string
 	// callerObjectID is the object ID of that principal, read from its token's
 	// oid claim, which a vault's access policy names to grant it access.
 	callerObjectID string
@@ -167,6 +170,15 @@ func TestMain(m *testing.M) {
 	if kvBearer, err = fetchSimBearer("https://vault.azure.net/.default"); err != nil {
 		simCmd.Process.Kill()
 		log.Fatalf("Failed to acquire simulator Key Vault bearer token: %v", err)
+	}
+	if graphBearer, err = fetchSimBearer("https://graph.microsoft.com/.default"); err != nil {
+		simCmd.Process.Kill()
+		log.Fatalf("Failed to acquire simulator Microsoft Graph bearer token: %v", err)
+	}
+	http.DefaultClient.Transport = &graphAuthTransport{
+		base:   http.DefaultTransport,
+		host:   strings.TrimPrefix(baseURL, "http://"),
+		bearer: "Bearer " + graphBearer,
 	}
 	if callerObjectID, err = jwtStringClaim(token, "oid"); err != nil {
 		simCmd.Process.Kill()
@@ -292,13 +304,18 @@ func azRest(method, url, body string, extra ...string) *exec.Cmd {
 	if body != "" {
 		args = append(args, "--body", body)
 	}
-	// Attach the ARM bearer token unless the caller manages its own request
-	// headers. Callers that pass --headers are Host-routed data-plane requests
-	// (Event Grid topic publish, Function invoke) that do not authenticate with
-	// an ARM bearer; ARM control-plane calls pass no extra headers and receive
-	// the token here so the simulator's bearer verification accepts them.
+	// Attach a bearer token unless the caller manages its own request headers.
+	// Callers that pass --headers are Host-routed data-plane requests (Event
+	// Grid topic publish, Function invoke) that do not authenticate with a
+	// bearer of this principal's. `az rest` picks the token's resource from the
+	// URL, a Microsoft Graph token for a Graph URL and an Azure Resource Manager
+	// token otherwise; the simulator serves both on one host, so the path picks.
 	if !hasHeadersFlag(extra) {
-		args = append(args, "--headers", "Authorization=Bearer "+armBearer)
+		bearer := armBearer
+		if isGraphURL(url) {
+			bearer = graphBearer
+		}
+		args = append(args, "--headers", "Authorization=Bearer "+bearer)
 	}
 	args = append(args, extra...)
 	cmd := exec.Command("az", args...)
@@ -307,6 +324,32 @@ func azRest(method, url, body string, extra ...string) *exec.Cmd {
 		"AZURE_CORE_NO_COLOR=1",
 	)
 	return cmd
+}
+
+// isGraphURL reports whether a simulator URL addresses Microsoft Graph, which
+// serves its v1.0 and beta endpoints under those two path roots.
+func isGraphURL(raw string) bool {
+	u, err := neturl.Parse(raw)
+	return err == nil && (strings.HasPrefix(u.Path, "/v1.0/") || strings.HasPrefix(u.Path, "/beta/"))
+}
+
+// graphAuthTransport presents the Graph token on every request the shared
+// http.DefaultClient sends to a Microsoft Graph path on the simulator without
+// an Authorization of its own, as a Graph client attaches the token it holds
+// for https://graph.microsoft.com.
+type graphAuthTransport struct {
+	base   http.RoundTripper
+	host   string
+	bearer string
+}
+
+func (t *graphAuthTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if req.URL.Host == t.host && req.Header.Get("Authorization") == "" &&
+		(strings.HasPrefix(req.URL.Path, "/v1.0/") || strings.HasPrefix(req.URL.Path, "/beta/")) {
+		req = req.Clone(req.Context())
+		req.Header.Set("Authorization", t.bearer)
+	}
+	return t.base.RoundTrip(req)
 }
 
 // hasHeadersFlag reports whether the caller already supplies its own az rest

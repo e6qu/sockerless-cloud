@@ -124,7 +124,7 @@ func runEntraGraphDirectoryCLI(t *testing.T, version string) {
 	assert.Equal(t, []string{memberID}, azGraphIDs(t, filtered))
 
 	counted := runCLI(t, azRest("GET", baseURL+"/"+version+"/users?$count=true", "",
-		"--headers", "Authorization=Bearer "+armBearer, "ConsistencyLevel=eventual"))
+		"--headers", "Authorization=Bearer "+graphBearer, "ConsistencyLevel=eventual"))
 	var countedBody map[string]any
 	parseJSON(t, counted, &countedBody)
 	assert.Contains(t, countedBody, "@odata.count")
