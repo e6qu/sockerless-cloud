@@ -363,13 +363,14 @@ func resolveSMSecretInRegion(region, idOrArn string) (SMSecret, bool) {
 	if secret, ok := smSecrets.Get(smStoreKey(region, idOrArn)); ok {
 		return secret, true
 	}
-	for _, s := range smSecrets.List() {
-		if smSecretRegion(s) == region && s.ARN == idOrArn {
-			return s, true
-		}
-	}
-	return SMSecret{}, false
+	return smSecretsByRegionalARN.Lookup(smSecrets, region+" "+idOrArn, func(s SMSecret) []string {
+		return []string{smSecretRegion(s) + " " + s.ARN}
+	})
 }
+
+// smSecretsByRegionalARN answers a secret by its Region and ARN; a replica
+// shares its primary's ARN in another Region.
+var smSecretsByRegionalARN sim.GenerationIndex[SMSecret]
 
 func handleSMCreateSecret(w http.ResponseWriter, r *http.Request) {
 	var req struct {

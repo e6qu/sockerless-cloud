@@ -366,14 +366,15 @@ func iamUserXML(u IAMUser) string {
 // (PutUserPolicy) plus attached managed (AttachUserPolicy → managed policy doc).
 func iamPolicyDocsForUser(userName string) []iamPolicyDoc {
 	var docs []iamPolicyDoc
-	for _, p := range iamUserPolicies.List() {
-		if p.UserName == userName {
+	for _, row := range iamUserPolicies.ListPrefix(iamOwnedKeyPrefix(userName)) {
+		if p := row.Item; p.UserName == userName {
 			if doc, err := parseIAMPolicy(p.PolicyDocument); err == nil {
 				docs = append(docs, doc)
 			}
 		}
 	}
-	for _, ap := range iamUserAttached.List() {
+	for _, row := range iamUserAttached.ListPrefix(iamOwnedKeyPrefix(userName)) {
+		ap := row.Item
 		if ap.UserName != userName {
 			continue
 		}
