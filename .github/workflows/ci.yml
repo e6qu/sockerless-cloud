@@ -804,11 +804,12 @@ jobs:
           # it is created, and deleting one whose MySQL engine is still
           # starting takes about ten seconds (BUG-3363), which pushed the N-Z
           # shard, already at 470s against the 600s test deadline, past it.
-          # A security group's enforcement between neighbours is the microVM
-          # backend's; the guest shard proves it.
+          # A security group's enforcement between neighbours and a NAT
+          # gateway's routing are the microVM backend's; the guest shard
+          # proves them.
           - suite: compute
             run: '^Test(E[^C]|EC[^S])'
-            skip: '^TestEC2_(SecurityGroupFiltersWhatAnInstanceReceives|NatGatewayCarriesAPrivateSubnetsConnections)'
+            skip: '^TestEC2_(SecurityGroupFiltersWhatAnInstanceReceives|NatGatewayCarriesAPrivateSubnetsConnections|RegionalNatGatewayCarriesEachZonesConnections)'
           # The Amazon Aurora tests then leave compute for a shard of their own:
           # with the EC2 real-execution tests, compute ran 11 to 14 minutes of
           # its 15-minute job and was cancelled at the bound once.
@@ -843,7 +844,7 @@ jobs:
           # still ends with named stacks and the simulator's own dump, where
           # the job's limit would have cancelled it with neither.
           - suite: ec2-microvm
-            run: '^TestEC2(_(InstanceRunsUserDataAndReadsItsMetadata|StopKeepsTheRootDiskAndCreateImageCapturesIt|InstancesOfVPCsSharingACIDRCannotCoexist|RunInstancesRefusesAnArchitectureMismatch|ImportImageFromAnOCIReferenceBoots|ConsoleOutput|SecurityGroupFiltersWhatAnInstanceReceives|NatGatewayCarriesAPrivateSubnetsConnections)|InstanceSurvivesSimulatorRestart_SDK)$'
+            run: '^TestEC2(_(InstanceRunsUserDataAndReadsItsMetadata|StopKeepsTheRootDiskAndCreateImageCapturesIt|InstancesOfVPCsSharingACIDRCannotCoexist|RunInstancesRefusesAnArchitectureMismatch|ImportImageFromAnOCIReferenceBoots|ConsoleOutput|SecurityGroupFiltersWhatAnInstanceReceives|NatGatewayCarriesAPrivateSubnetsConnections|RegionalNatGatewayCarriesEachZonesConnections)|InstanceSurvivesSimulatorRestart_SDK)$'
             placement: ec2=microvm
             deadline: 420s
           # Amazon ECS Fargate tasks again, each awsvpc task in one guest at

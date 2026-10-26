@@ -109,7 +109,9 @@ What a test may and may not do:
 - **One CI shard.** A new Terraform package joins a `tf (aws …)` shard in
   `.github/workflows/ci.yml`; this one went into the network-interface shard.
   `scripts/check-tf-shard-coverage.sh` checks that every package runs in
-  exactly one.
+  exactly one. Route tables steer instances only on the microVM backend
+  (BUG-3755), so the data-plane SDK test runs in the `ec2-microvm` shard and
+  the container-backed `compute` shard skips it.
 
 Run them:
 

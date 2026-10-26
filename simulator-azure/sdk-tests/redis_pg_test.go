@@ -141,7 +141,7 @@ func TestAzurePGFlexibleServer_ARMLifecycle(t *testing.T) {
 	opURL := resp.Header.Get("Azure-AsyncOperation")
 	require.NotEmpty(t, opURL)
 	require.NotEmpty(t, resp.Header.Get("Location"))
-	assert.NotEmpty(t, resp.Header.Get("Retry-After"), "the create runs while the cache's engine starts, so it advertises when to poll")
+	assert.Empty(t, resp.Header.Get("Retry-After"), "an operation already complete advertises no Retry-After")
 	body, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
 	assert.Empty(t, string(body), "PUT flexibleServers must not return a success body")
