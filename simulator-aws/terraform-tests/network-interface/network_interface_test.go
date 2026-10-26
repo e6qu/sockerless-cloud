@@ -8,11 +8,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestNetworkInterfaceTerraform exercises the standalone ENI ops
-// through terraform-provider-aws: aws_network_interface (Create +
-// ModifyNetworkInterfaceAttribute for source_dest_check) + an instance +
-// aws_network_interface_attachment (Attach), then destroy (Detach + Delete).
-// This is the fck-nat NAT-instance shape that previously failed at the ENI.
+// TestNetworkInterfaceTerraform applies the fck-nat NAT-instance shape: an
+// aws_network_interface with source_dest_check off, an instance and an
+// aws_network_interface_attachment, then destroys them.
 func TestNetworkInterfaceTerraform(t *testing.T) {
 	env := tfsim.Start(t, ".")
 	env.Terraform(t, "init")

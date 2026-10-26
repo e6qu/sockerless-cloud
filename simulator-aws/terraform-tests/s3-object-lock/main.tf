@@ -11,8 +11,6 @@ variable "endpoint" {
   type = string
 }
 
-# Whether destroying the GOVERNANCE-retained object bypasses governance
-# retention.
 variable "force_destroy" {
   type    = bool
   default = false

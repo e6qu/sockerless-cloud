@@ -94,10 +94,9 @@ func seedSnapshot(t *testing.T, env *tfsim.Env) *rds.Client {
 		DBSnapshotIdentifier: aws.String("tf-rds-snapshot-source"),
 	})
 	require.NoError(t, err)
-	// Amazon RDS refuses a restore from a snapshot still being taken ("is
-	// creating; it must be available to restore from"). The provider waits for
-	// its own aws_db_snapshot; this one is seeded outside Terraform, so wait for
-	// it here with the SDK's DBSnapshotAvailable waiter.
+	// Amazon RDS refuses a restore from a snapshot still being taken. The
+	// provider waits only for its own aws_db_snapshot, and this one comes from
+	// outside Terraform.
 	err = rds.NewDBSnapshotAvailableWaiter(client, func(o *rds.DBSnapshotAvailableWaiterOptions) {
 		o.MinDelay = 250 * time.Millisecond
 		o.MaxDelay = 2 * time.Second

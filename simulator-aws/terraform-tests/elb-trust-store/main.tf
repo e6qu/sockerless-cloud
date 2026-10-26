@@ -11,8 +11,6 @@ variable "endpoint" {
   type = string
 }
 
-# The PEM CA certificates bundle and certificate revocation list the test
-# generates.
 variable "ca_bundle" {
   type = string
 }

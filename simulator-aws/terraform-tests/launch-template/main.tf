@@ -37,10 +37,8 @@ resource "aws_security_group" "nat" {
   vpc_id = aws_vpc.main.id
 }
 
-# The fck-nat launch template: the ASG launch config for nat_mode = "instance".
-# Create + read-back (DescribeLaunchTemplates + DescribeLaunchTemplateVersions)
-# on apply; Delete on destroy. The launch-template data must round-trip so the
-# provider sees no perpetual diff.
+# The fck-nat launch template for nat_mode = "instance". The provider reads it
+# back through DescribeLaunchTemplates and DescribeLaunchTemplateVersions.
 resource "aws_launch_template" "nat" {
   name          = "fck-nat-lt"
   image_id      = "ami-12345678"

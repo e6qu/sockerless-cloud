@@ -56,9 +56,9 @@ resource "aws_nat_gateway" "auto" {
   depends_on = [aws_internet_gateway.main, aws_subnet.zone]
 }
 
-# Manual mode: second_zone = false moves to a second address in us-east-1a
-# and drops us-east-1b, which the provider applies through
-# AssociateNatGatewayAddress and DisassociateNatGatewayAddress.
+# second_zone = false moves to a second address in us-east-1a and drops
+# us-east-1b, through AssociateNatGatewayAddress and
+# DisassociateNatGatewayAddress.
 resource "aws_nat_gateway" "manual" {
   vpc_id            = aws_vpc.main.id
   availability_mode = "regional"

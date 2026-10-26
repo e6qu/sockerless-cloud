@@ -11,8 +11,7 @@ import (
 )
 
 // BuildGoScratchImage builds the Go program in sourceDir into a scratch image
-// named imageName for the host's architecture, the image a fixture's
-// functions run.
+// for the host's architecture.
 func BuildGoScratchImage(t *testing.T, imageName, sourceDir, binaryName string) {
 	t.Helper()
 	buildDir := t.TempDir()

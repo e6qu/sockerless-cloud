@@ -32,10 +32,8 @@ resource "aws_subnet" "main" {
   cidr_block = "10.78.1.0/24"
 }
 
-# The fck-nat floating ENI: a standalone interface with source/dest check
-# disabled. Create + ModifyNetworkInterfaceAttribute (source_dest_check) +
-# read on apply; Delete on destroy. (Attach/Detach are covered by the SDK
-# test, which attaches to a running instance.)
+# The fck-nat floating ENI with source/dest check disabled. The SDK test
+# covers attach and detach.
 resource "aws_network_interface" "nat" {
   subnet_id         = aws_subnet.main.id
   description       = "fck-nat floating ENI"

@@ -10,12 +10,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestS3ObjectLockTerraform creates an Object Lock bucket through
-// terraform-provider-aws with a default GOVERNANCE retention, an object that
-// takes it, one under explicit GOVERNANCE retention and one under a legal
-// hold. Destroying the GOVERNANCE-retained object without bypassing
-// governance retention is refused; with force_destroy, which bypasses it and
-// lifts legal holds, everything is destroyed.
+// TestS3ObjectLockTerraform creates an Object Lock bucket with a default
+// GOVERNANCE retention, an object that takes it, one under explicit GOVERNANCE
+// retention and one under a legal hold. Destroying the GOVERNANCE-retained
+// object without bypassing governance retention is refused; force_destroy
+// bypasses it, lifts legal holds and destroys everything.
 func TestS3ObjectLockTerraform(t *testing.T) {
 	env := tfsim.Start(t, ".")
 	env.Terraform(t, "init")

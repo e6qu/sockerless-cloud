@@ -43,7 +43,6 @@ resource "aws_iam_role" "function" {
   })
 }
 
-# The event source mapping reads the stream as the function's execution role.
 resource "aws_iam_role_policy" "stream_reader" {
   name = "tf-lambda-concurrency-stream"
   role = aws_iam_role.function.id
@@ -74,8 +73,8 @@ resource "aws_lambda_alias" "live" {
   function_version = aws_lambda_function.counter.version
 }
 
-# The provider waits for the configuration to read READY: every provisioned
-# execution environment initialised.
+# The provider waits for READY: every provisioned execution environment
+# initialised.
 resource "aws_lambda_provisioned_concurrency_config" "live" {
   function_name                     = aws_lambda_function.counter.function_name
   qualifier                         = aws_lambda_alias.live.name

@@ -34,29 +34,24 @@ type Env struct {
 	extraEnv   []string
 }
 
-// RouteHostPrefixedRequests points terraform's HTTP client at the simulator as
-// a proxy, and takes the fixture off the HTTPS gateway. An operation that carries a modeled endpoint host prefix — every
-// s3control operation is addressed by the account id — makes the provider
-// build and sign a host like "123456789012.<endpoint host>", and the endpoint
-// host is an IP literal, so that name resolves nowhere. Resolution is a
-// coordinate, not a request property: the provider still emits and signs
-// exactly the host it would send AWS, and only where the bytes land differs —
-// the same shape as an operator whose AWS traffic egresses through a corporate
-// proxy. Call it before running terraform.
+// RouteHostPrefixedRequests makes the simulator terraform's HTTP proxy and
+// takes the fixture off the HTTPS gateway. An operation with a modeled endpoint
+// host prefix (every s3control operation carries the account id) makes the
+// provider sign a host like "123456789012.<endpoint host>", which resolves
+// nowhere when the endpoint host is an IP literal. The provider still signs
+// the host it would send AWS; only where the bytes land differs, as behind a
+// corporate egress proxy. Call it before running terraform.
 func (e *Env) RouteHostPrefixedRequests() {
 	e.extraEnv = append(e.extraEnv,
 		"HTTP_PROXY="+e.BaseURL, "http_proxy="+e.BaseURL,
 		"NO_PROXY=", "no_proxy=")
 }
 
-// WithoutHTTPSGateway must be called before Start by a fixture whose
-// operations carry a modeled endpoint host prefix. The gateway serves a
-// wildcard certificate over one label of *.aws.sockerless.localhost, and a
-// prefix adds a second — "123456789012.s3-control.aws.sockerless.localhost" is
-// a name that certificate does not cover and nothing resolves, so the provider
-// retries it until the test deadline rather than failing. Such a fixture
-// reaches the simulator over plain HTTP through the proxy coordinate instead,
-// which is the same substitution and needs no certificate.
+// WithoutHTTPSGateway must precede Start for a fixture whose operations carry a
+// modeled endpoint host prefix. The gateway's wildcard certificate covers one
+// label of *.aws.sockerless.localhost and a prefix adds a second, which nothing
+// resolves, so the provider would retry until the deadline. Such a fixture
+// reaches the simulator over plain HTTP through the proxy coordinate instead.
 func WithoutHTTPSGateway(t *testing.T) {
 	t.Helper()
 	t.Setenv("SOCKERLESS_TF_HTTPS_GATEWAY", "")
@@ -96,9 +91,8 @@ func Start(t *testing.T, configDir string) *Env {
 		"SIM_DNS_PORT=0",
 	)
 	cmd.Stdout = os.Stdout
-	// Own process group so the whole simulator subtree can be reaped with one
-	// kill(-pgid): by t.Cleanup on the normal path, by the deadline watchdog
-	// just before a hard timeout, and by the signal reaper on Ctrl-C / SIGQUIT.
+	// Own process group, so t.Cleanup, the deadline watchdog and the signal
+	// reaper each reap the simulator subtree with one kill(-pgid).
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	startErr := simready.Start(cmd, os.Stderr)
 	if cmd.Process == nil {
@@ -128,10 +122,8 @@ func Start(t *testing.T, configDir string) *Env {
 	return env
 }
 
-// armDeadlineReaper reaps the simulator (and HTTPS gateway) process groups a
-// few seconds before the test's own deadline. go test's hard timeout aborts the
-// binary without running t.Cleanup, so without this the subprocesses would
-// orphan past the run; firing early reaps them while there is still time.
+// armDeadlineReaper reaps the simulator and HTTPS gateway process groups a few
+// seconds before the test deadline: go test's hard timeout skips t.Cleanup.
 func (e *Env) armDeadlineReaper(t *testing.T) {
 	dl, ok := t.Deadline()
 	if !ok {
@@ -157,8 +149,8 @@ func (e *Env) Terraform(t *testing.T, args ...string) []byte {
 	return out
 }
 
-// TerraformFails runs a terraform command the simulator must make fail, and
-// returns its combined output for the caller to check the service's error in.
+// TerraformFails runs a terraform command the simulator must make fail and
+// returns its combined output.
 func (e *Env) TerraformFails(t *testing.T, args ...string) []byte {
 	t.Helper()
 	out, err := e.run(t, args...)
@@ -174,8 +166,7 @@ func (e *Env) run(t *testing.T, args ...string) ([]byte, error) {
 		switch args[0] {
 		case "init":
 			// The lock beside the configuration is untracked local state; init
-			// re-resolves the exactly pinned providers instead of failing on a
-			// stale one.
+			// re-resolves the exactly pinned providers instead of failing on a stale one.
 			args = append([]string{"init", "-upgrade"}, args[1:]...)
 		case "apply", "destroy", "output", "plan", "refresh":
 			out := make([]string, 0, len(args)+1)
@@ -186,9 +177,8 @@ func (e *Env) run(t *testing.T, args ...string) ([]byte, error) {
 	}
 	cmd := exec.Command("terraform", args...)
 	cmd.Dir = e.dir
-	// Own process group so a stuck terraform (and the provider-plugin
-	// grandchildren it spawns) can be reaped with one kill(-pgid) instead of
-	// orphaning a spinning process tree past the test deadline.
+	// Own process group, so one kill(-pgid) reaps a stuck terraform and its
+	// provider plugins.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Env = append(os.Environ(), "TF_VAR_endpoint="+e.Endpoint)
 	cmd.Env = append(cmd.Env, e.extraEnv...)
@@ -212,19 +202,15 @@ func (e *Env) run(t *testing.T, args ...string) ([]byte, error) {
 	}
 	killGroup := func() {
 		if cmd.Process != nil {
-			// Negative pid targets the whole process group (Setpgid'd tree).
 			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 		}
 	}
-	// Safety net for the pass/fail/panic paths; the watchdog below covers the
-	// hard-timeout path that t.Cleanup does not run on.
+	// The watchdog below covers the hard timeout, which skips t.Cleanup.
 	t.Cleanup(killGroup)
 
 	done := make(chan error, 1)
 	go func() { done <- cmd.Wait() }()
 
-	// Fire ~20s before the test deadline so the tree is reaped and the command
-	// fails diagnosably rather than being orphaned by the hard SIGQUIT timeout.
 	var watchdog <-chan time.Time
 	if dl, ok := t.Deadline(); ok {
 		if d := time.Until(dl) - 20*time.Second; d > 0 {
@@ -240,7 +226,6 @@ func (e *Env) run(t *testing.T, args ...string) ([]byte, error) {
 		return buf.Bytes(), err
 	case <-watchdog:
 		killGroup()
-		// Reap the killed process so no zombie or orphan remains.
 		t.Logf("terraform %v killed at the watchdog: %v", args, <-done)
 		t.Fatalf("terraform %v timed out near the test deadline (process group killed to avoid orphans)\n%s",
 			args, buf.Bytes())
@@ -248,9 +233,8 @@ func (e *Env) run(t *testing.T, args ...string) ([]byte, error) {
 	}
 }
 
-// reapProcessGroup SIGKILLs the whole process group of cmd (started Setpgid, so
-// it leads its own group) and reaps it, leaving no orphan or zombie. Safe to
-// call more than once and on a nil / not-yet-started command.
+// reapProcessGroup SIGKILLs and reaps cmd's process group. It accepts a nil or
+// unstarted command and repeated calls.
 func reapProcessGroup(cmd *exec.Cmd) {
 	if cmd == nil || cmd.Process == nil {
 		return
@@ -265,9 +249,8 @@ var (
 	reaperOnce sync.Once
 )
 
-// trackForReaping registers a Setpgid'd subprocess so the signal reaper can
-// kill its process group if the test binary is aborted by Ctrl-C or the
-// go-test hard-timeout SIGQUIT — neither of which runs t.Cleanup.
+// trackForReaping lets the signal reaper kill cmd's process group on Ctrl-C or
+// the hard-timeout SIGQUIT, neither of which runs t.Cleanup.
 func trackForReaping(cmd *exec.Cmd) {
 	reaperMu.Lock()
 	reaperCmds = append(reaperCmds, cmd)
@@ -298,9 +281,8 @@ func installSignalReaper() {
 			}
 		}
 		reaperMu.Unlock()
-		// Restore default disposition and re-deliver so the exit status
-		// reflects the terminating signal. The channel only carries the
-		// syscall signals registered above.
+		// Re-deliver with the default disposition so the exit status names the
+		// signal.
 		if s, ok := sig.(syscall.Signal); ok {
 			signal.Reset(s)
 			_ = syscall.Kill(syscall.Getpid(), s)
@@ -339,7 +321,6 @@ func startHTTPSGateway(t *testing.T, env *Env, stateDir, simDir string, simPort 
 		fmt.Sprintf("SOCKERLESS_HTTPS_GATEWAY_DEFAULT_SIM_PORT=%d", simPort),
 	)
 	env.gatewayCmd.Stdout = os.Stdout
-	// Own process group, reaped the same way as the simulator (see Start).
 	env.gatewayCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	startErr := httpsgateway.Start(env.gatewayCmd, os.Stderr)
 	if env.gatewayCmd.Process != nil {
@@ -388,7 +369,7 @@ func trustedHTTPClient(caCert string) (*http.Client, error) {
 	if !pool.AppendCertsFromPEM(caPEM) {
 		return nil, fmt.Errorf("parse CA cert %s", caCert)
 	}
-	// No overall timeout, as in the SDKs' own default client: an SDK retries a
+	// No overall timeout, as in the SDKs' default client: an SDK retries a
 	// request its client gave up on, which turns a slow create into two.
 	return &http.Client{
 		Transport: &http.Transport{
@@ -397,19 +378,11 @@ func trustedHTTPClient(caCert string) (*http.Client, error) {
 	}, nil
 }
 
-// reservePorts returns n distinct ports that are free for the WILDCARD bind the
-// child processes perform.
-//
-// Two things were wrong with probing them one at a time on 127.0.0.1. The
-// simulator and the gateway bind ":<port>", every interface, and a port free on
-// loopback is not necessarily free for a wildcard bind — the reservation has to
-// be made the same way the bind will be. And each probe released its port
-// before returning the number, so the operating system was free to hand the
-// next probe the port the previous one had just released, which is how two of
-// these processes end up assigned the same coordinate and the second dies with
-// "bind: address already in use". Holding every listener open until all n are
-// chosen makes them distinct by construction; they are released together at the
-// end, as close as possible to the child binding them.
+// reservePorts returns n distinct ports free for the children's wildcard
+// ":<port>" bind: it probes with the same wildcard bind (a port free on
+// loopback may not be), and holds every listener open until all n are chosen
+// so the kernel cannot hand one port out twice. It releases them together,
+// just before the children bind.
 func reservePorts(t *testing.T, n int) []int {
 	t.Helper()
 	listeners := make([]net.Listener, 0, n)

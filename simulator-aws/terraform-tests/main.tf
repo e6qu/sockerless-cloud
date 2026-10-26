@@ -17,11 +17,8 @@ provider "aws" {
   skip_metadata_api_check     = true
   skip_requesting_account_id  = true
 
-  # Force path-style addressing for S3 so the bucket name appears in
-  # the URL path (https://<endpoint>/<bucket>/...) instead of the
-  # subdomain (https://<bucket>.<endpoint>/...) which can't be
-  # DNS-resolved against a localhost endpoint. Same option real users
-  # set against MinIO / LocalStack / any IP-addressed S3 alternative.
+  # Path-style addressing keeps the bucket name out of the host, which a
+  # localhost endpoint cannot resolve as a subdomain.
   s3_use_path_style = true
 
   endpoints {
@@ -106,9 +103,9 @@ resource "aws_subnet" "tf_ipv6_subnet" {
   availability_zone = "us-east-1c"
 }
 
-# The account's default VPC and the default subnet of one zone, which the
-# provider adopts through DescribeVpcs is-default and DescribeSubnets
-# default-for-az rather than creating.
+# The provider adopts the default VPC and a default subnet through
+# DescribeVpcs is-default and DescribeSubnets default-for-az rather than
+# creating them.
 resource "aws_default_vpc" "tf_default" {}
 
 resource "aws_default_subnet" "tf_default_c" {
@@ -124,9 +121,8 @@ resource "aws_vpc_encryption_control" "tf_ec2_vpc" {
   }
 }
 
-# data.aws_vpc by vpc-id filter — the fck-nat pattern; reads back the VPC's
-# CIDR from cidr_block_associations. With the broken filter this
-# returned the wrong VPC / an empty CIDR.
+# The fck-nat lookup: the vpc-id filter, with the CIDR read from
+# cidr_block_associations.
 data "aws_vpc" "by_filter" {
   filter {
     name   = "vpc-id"
@@ -245,9 +241,7 @@ resource "aws_lb_listener" "tf_alb_listener" {
   }
 }
 
-# Listener rule: host-header routing — the IAP-proxy ALB shape.
-# Exercises CreateRule + DescribeRules (read-back) on apply, DeleteRule on
-# destroy.
+# Host-header routing, the IAP-proxy ALB shape.
 resource "aws_lb_listener_rule" "tf_alb_rule" {
   listener_arn = aws_lb_listener.tf_alb_listener.arn
   priority     = 100
@@ -399,8 +393,7 @@ resource "aws_autoscaling_group" "tf_asg" {
 resource "aws_ecs_cluster" "main" {
   name = "tf-test-cluster"
 
-  # containerInsights setting + execute-command KMS config — read back via
-  # DescribeClusters --include SETTINGS CONFIGURATIONS.
+  # Read back through DescribeClusters --include SETTINGS CONFIGURATIONS.
   setting {
     name  = "containerInsights"
     value = "enabled"
@@ -414,8 +407,6 @@ resource "aws_ecs_cluster" "main" {
   }
 }
 
-# Cluster capacity providers — exercises PutClusterCapacityProviders; the
-# provider reads them back via DescribeClusters.
 resource "aws_ecs_cluster_capacity_providers" "main" {
   cluster_name       = aws_ecs_cluster.main.name
   capacity_providers = ["FARGATE", "FARGATE_SPOT"]
@@ -427,9 +418,8 @@ resource "aws_ecs_cluster_capacity_providers" "main" {
   }
 }
 
-# Fargate task definition + long-lived service — exercises the ECS Service
-# family (CreateService/DescribeServices/UpdateService/DeleteService). The
-# provider waits for the service to reach ACTIVE with runningCount==desiredCount.
+# The provider waits for the service to reach ACTIVE with runningCount equal
+# to desiredCount.
 resource "aws_ecs_task_definition" "tf_runner" {
   family                   = "tf-runner"
   requires_compatibilities = ["FARGATE"]
@@ -446,9 +436,8 @@ resource "aws_ecs_task_definition" "tf_runner" {
   }])
 }
 
-# A bridge-network-mode task definition — the mode Amazon ECS applies to a task
-# that shares its container instance's networking rather than receiving its own
-# elastic network interface. It is EC2-compatible only: FARGATE requires awsvpc.
+# Bridge network mode shares the container instance's networking; it is
+# EC2-only, since Fargate requires awsvpc.
 resource "aws_ecs_task_definition" "tf_runner_bridge" {
   family       = "tf-runner-bridge"
   network_mode = "bridge"
@@ -489,9 +478,6 @@ resource "aws_ecs_service" "tf_runner" {
   }
 }
 
-# Application Auto Scaling — autoscale the ECS service that backs the runner.
-# Exercises RegisterScalableTarget + PutScalingPolicy (AnyScaleFrontendService),
-# distinct from EC2 Auto Scaling above.
 resource "aws_appautoscaling_target" "ecs" {
   service_namespace  = "ecs"
   resource_id        = "service/${aws_ecs_cluster.main.name}/tf-runner-svc"
@@ -515,18 +501,13 @@ resource "aws_appautoscaling_policy" "ecs_cpu" {
   }
 }
 
-# Exercise the pull-through-cache APIs added to the simulator in
-# Terraform's aws_ecr_pull_through_cache_rule resource
-# wraps the same CreatePullThroughCacheRule / DescribePullThroughCacheRules
-# / DeletePullThroughCacheRule endpoints the SDK + CLI tests cover.
 resource "aws_ecr_pull_through_cache_rule" "docker_hub" {
   ecr_repository_prefix = "tf-docker-hub"
   upstream_registry_url = "registry-1.docker.io"
 }
 
-# aws_ecr_repository — exercises the repository config the provider reads back
-# on refresh (image_tag_mutability / image_scanning_configuration /
-# encryption_configuration). Without the sim echoing these, the provider drifts.
+# The provider reads image_tag_mutability, image_scanning_configuration and
+# encryption_configuration back on refresh.
 resource "aws_ecr_repository" "tf_repo" {
   name                 = "tf-runner-repo"
   image_tag_mutability = "IMMUTABLE"
@@ -536,10 +517,8 @@ resource "aws_ecr_repository" "tf_repo" {
   }
 }
 
-# Exercise the Cloud Map namespace + service APIs that the sim fix
-# depends on. The namespace and service are Cloud Map control-plane
-# resources; the simulator creates a Docker user-defined network later,
-# only when an ECS task registration needs private DNS at runtime.
+# The simulator creates the namespace's Docker network only when an Amazon
+# ECS task registration needs private DNS.
 resource "aws_service_discovery_private_dns_namespace" "tf_svc_net" {
   name        = "tf-svc-net.local"
   vpc         = "vpc-sim"
@@ -569,9 +548,6 @@ resource "aws_service_discovery_service" "tf_svc" {
   }
 }
 
-# A Cloud Map instance registered in the private-DNS service: the provider
-# drives RegisterInstance on create, GetInstance on read and DeregisterInstance
-# on destroy.
 resource "aws_service_discovery_instance" "tf_svc_instance" {
   instance_id = "tf-instance"
   service_id  = aws_service_discovery_service.tf_svc.id
@@ -581,8 +557,8 @@ resource "aws_service_discovery_instance" "tf_svc_instance" {
   }
 }
 
-# An HTTP namespace — discovery through the DiscoverInstances API rather than
-# DNS records — carrying a service whose health is caller-reported.
+# An HTTP namespace resolves through DiscoverInstances rather than DNS; its
+# service's health is caller-reported.
 resource "aws_service_discovery_http_namespace" "tf_http_ns" {
   name        = "tf-http-ns"
   description = "terraform http namespace"
@@ -602,9 +578,8 @@ resource "aws_service_discovery_service" "tf_http_svc" {
   }
 }
 
-# The Cloud Map data sources look their resource up through the list APIs:
-# ListNamespaces filtered by TYPE / NAME (DNS namespace), by HTTP_NAME (HTTP
-# namespace) and ListServices filtered by NAMESPACE_ID.
+# The Cloud Map data sources look up through ListNamespaces filtered by TYPE
+# and NAME or HTTP_NAME, and ListServices filtered by NAMESPACE_ID.
 data "aws_service_discovery_dns_namespace" "tf_svc_net_lookup" {
   name = aws_service_discovery_private_dns_namespace.tf_svc_net.name
   type = "DNS_PRIVATE"
@@ -619,11 +594,6 @@ data "aws_service_discovery_service" "tf_svc_lookup" {
   namespace_id = aws_service_discovery_private_dns_namespace.tf_svc_net.id
 }
 
-# Exercise the CloudFront REST + XML wire on the simulator.
-# Hits POST /2020-05-31/distribution + GET /2020-05-31/distribution/{id} +
-# PUT /2020-05-31/distribution/{id}/config (Terraform sets Enabled=false
-# automatically before destroy because the simulator enforces the real
-# AWS "DistributionNotDisabled" precondition).
 resource "aws_cloudfront_origin_access_control" "tf_oac" {
   name                              = "tf-oac"
   description                       = "tf-test"
@@ -714,13 +684,10 @@ resource "aws_amplify_backend_environment" "tf_amplify_be" {
   stack_name       = "amplify-staging-stack"
 }
 
-# Domain verification is real: the association stays PENDING_VERIFICATION
-# until its certificate-verification CNAME exists in a Route 53 hosted zone
-# covering the domain. The association is created without waiting (the
-# record can only be derived from its exported
-# certificate_verification_dns_record), then the record flips it AVAILABLE
-# on the next read — the standard real-world terraform shape for Amplify
-# custom domains.
+# The domain association stays PENDING_VERIFICATION until its
+# certificate-verification CNAME exists in a Route 53 zone covering the
+# domain. The configuration creates the association without waiting, since the
+# record comes from its exported certificate_verification_dns_record.
 resource "aws_route53_zone" "tf_amplify_zone" {
   name = "tf-amplify.example.com"
 }
@@ -850,12 +817,10 @@ resource "aws_cloudwatch_event_target" "tf_eventbridge_target" {
 resource "aws_cloudwatch_log_group" "tf_log_group" {
   name              = "/aws/sockerless/tf-log-group"
   retention_in_days = 7
-  # KMS encryption at rest — read back via DescribeLogGroups.
-  kms_key_id = aws_kms_key.tf_kms.arn
+  kms_key_id        = aws_kms_key.tf_kms.arn
 }
 
-# Standalone managed policy — its destroy path calls ListPolicyVersions
-#; without it `terraform destroy` previously failed.
+# Its destroy calls ListPolicyVersions.
 resource "aws_iam_policy" "tf_nat_policy" {
   name = "tf-nat-policy"
   policy = jsonencode({
@@ -1040,7 +1005,7 @@ resource "aws_lambda_permission" "tf_lambda_url_public" {
 }
 
 # AWS Lambda sends an asynchronous invocation's record to its destination as
-# the execution role, so the role's policy allows the send.
+# the execution role.
 resource "aws_iam_role_policy" "tf_lambda_destination_policy" {
   name = "tf-lambda-destination"
   role = aws_iam_role.tf_lambda_role.id
@@ -1075,9 +1040,6 @@ output "eventbridge_queue_arn" {
   value = aws_sqs_queue.tf_eventbridge_queue.arn
 }
 
-# EventBridge Scheduler — cron/rate-driven invocation of the runner Lambda.
-# Exercises the REST-JSON Scheduler surface (CreateSchedule / GetSchedule),
-# distinct from the EventBridge rule above.
 resource "aws_scheduler_schedule" "tf_schedule" {
   name       = "tf-runner-schedule"
   group_name = "default"
@@ -1123,9 +1085,6 @@ resource "aws_route53_zone" "tf_zone" {
   }
 }
 
-# A-record + ALIAS record. ALIAS targets the CloudFront distribution
-# created below by reference; this exercises the cross-resource flow
-# that real production stacks use (Route 53 ALIAS → CloudFront).
 resource "aws_route53_record" "tf_a" {
   zone_id = aws_route53_zone.tf_zone.zone_id
   name    = "api.tf-route53.local"
@@ -1200,7 +1159,7 @@ resource "aws_cloudfront_response_headers_policy" "tf_rhp" {
 }
 
 resource "aws_cloudfront_distribution" "tf_dist" {
-  enabled         = false # let terraform destroy without an explicit disable step
+  enabled         = false # CloudFront deletes only a disabled distribution.
   is_ipv6_enabled = true
   comment         = "tf-test cloudfront"
   price_class     = "PriceClass_100"
@@ -1249,9 +1208,6 @@ resource "aws_cloudfront_distribution" "tf_dist" {
   }
 }
 
-# ---------- Runner foundation (S3 / DynamoDB / KMS / SecretsManager / SSM) ----------
-
-# S3 bucket — runner backends stash workflow artifacts + terraform state.
 resource "aws_s3_bucket" "tf_bucket" {
   bucket        = "tf-test-runner-bucket"
   force_destroy = true
@@ -1261,10 +1217,7 @@ resource "aws_s3_bucket" "tf_bucket" {
   }
 }
 
-# Amazon Data Firehose assumes this role and writes delivered records to the
-# production-shaped S3 destination. Keeping the trust and permissions in the
-# Terraform graph proves that the service consumes IAM and S3 cloud primitives
-# instead of accepting an inert role ARN.
+# Amazon Data Firehose assumes this role to write delivered records to S3.
 resource "aws_iam_role" "tf_firehose_role" {
   name = "tf-firehose-delivery-role"
 
@@ -1320,9 +1273,8 @@ resource "aws_kinesis_firehose_delivery_stream" "tf_firehose" {
   }
 }
 
-# A ROOT AWS Private Certificate Authority is activated through the same
-# create → CSR → issue → import sequence required by real AWS. The separate
-# certificate resources make every step visible to the official provider.
+# A root CA activates through create, CSR, issue and import, each a separate
+# resource.
 resource "aws_acmpca_certificate_authority" "tf_root_ca" {
   type                            = "ROOT"
   permanent_deletion_time_in_days = 7
@@ -1388,13 +1340,8 @@ resource "aws_s3_bucket" "tf_bucket_object_lock" {
   object_lock_enabled = true
 }
 
-# S3 bucket-subresource fan-out. Every resource here calls a distinct
-# `PUT /{bucket}?<subresource>` against the sim — without the bucket-
-# subresource dispatcher in s3_bucket_subresources.go, each would
-# route to CreateBucket and 409. tf-provider-aws follows each Create
-# with a paired Read against the matching GET subresource; PUT→GET
-# round-trip is what the provider asserts on apply, so any break in
-# the dispatcher surfaces here as `plan diff after apply`.
+# Each bucket subresource is a distinct `PUT /{bucket}?<subresource>`, which
+# the provider reads back with the matching GET.
 
 resource "aws_s3_bucket_versioning" "tf_bucket_versioning" {
   bucket = aws_s3_bucket.tf_bucket.id
@@ -1600,7 +1547,6 @@ resource "aws_s3_bucket_metric" "tf_bucket_metric" {
   }
 }
 
-# DynamoDB table — runner state-locking + per-pod registries.
 resource "aws_dynamodb_table" "tf_table" {
   name         = "tf-test-table"
   hash_key     = "LockID"
@@ -1615,8 +1561,7 @@ resource "aws_dynamodb_table" "tf_table" {
     type = "S"
   }
 
-  # The provider waits for the GSI's IndexStatus to reach ACTIVE; broken GSI
-  # modeling hangs apply for ~21 retries then fails.
+  # The provider waits for the GSI's IndexStatus to reach ACTIVE.
   global_secondary_index {
     name = "GSI1"
     key_schema {
@@ -1626,8 +1571,7 @@ resource "aws_dynamodb_table" "tf_table" {
     projection_type = "ALL"
   }
 
-  # These settings use separate DynamoDB APIs and provider waiters. They must
-  # persist independently of DescribeTable so apply and refresh converge.
+  # These settings go through their own DynamoDB APIs and provider waiters.
   ttl {
     attribute_name = "ExpiresAt"
     enabled        = true
@@ -1643,9 +1587,6 @@ resource "aws_dynamodb_table" "tf_table" {
   }
 }
 
-# KMS key — encrypts SecretsManager secrets and S3 objects.
-# enable_key_rotation drives EnableKeyRotation + GetKeyRotationStatus, which
-# nearly every real-world KMS key sets.
 resource "aws_kms_key" "tf_kms" {
   description             = "tf-test runner KMS key"
   deletion_window_in_days = 7
@@ -1663,8 +1604,7 @@ resource "aws_kms_key" "tf_kms" {
     }]
   })
 
-  # Tags drive TagResource + ListResourceTags; the provider polls
-  # ListResourceTags until they propagate, so broken KMS tagging hangs apply.
+  # The provider polls ListResourceTags until the tags appear.
   tags = {
     env        = "terraform"
     managed-by = "sockerless"
@@ -1676,9 +1616,6 @@ resource "aws_kms_alias" "tf_kms_alias" {
   target_key_id = aws_kms_key.tf_kms.key_id
 }
 
-# KMS grant — how AWS services delegate CMK use for encryption at rest
-# CreateGrant on apply (read-back via ListGrants), RevokeGrant on
-# destroy.
 resource "aws_kms_grant" "tf_kms_grant" {
   name              = "tf-runner-grant"
   key_id            = aws_kms_key.tf_kms.key_id
@@ -1686,7 +1623,6 @@ resource "aws_kms_grant" "tf_kms_grant" {
   operations        = ["Decrypt", "GenerateDataKey"]
 }
 
-# Secrets Manager secret + version — runner credentials.
 resource "aws_secretsmanager_secret" "tf_secret" {
   name                    = "tf-test-runner-secret"
   recovery_window_in_days = 0
@@ -1701,17 +1637,12 @@ resource "aws_secretsmanager_secret_version" "tf_secret_v1" {
   secret_string = "tf-test-runner-secret-payload"
 }
 
-# SSM Parameter — runtime config injection (ECS task-def envFrom).
 resource "aws_ssm_parameter" "tf_param" {
   name  = "/tf-test/runner/config"
   type  = "String"
   value = "tf-test-config-value"
 }
 
-# 10 end-to-end stack outputs — verify the production-shape
-# cross-resource links converge after apply. apply_test.go asserts that
-# WAF.resource_arn == CloudFront.arn, Route 53 ALIAS target == CloudFront
-# domain_name, and the ACM cert ARN region is us-east-1 (CloudFront pin).
 output "cloudfront_arn" {
   value = aws_cloudfront_distribution.tf_dist.arn
 }
@@ -1885,7 +1816,7 @@ output "cloudtrail_arn" {
 output "kinesis_stream_consumer_arn" {
   value = aws_kinesis_stream_consumer.tf_consumer.arn
 }
-# The provider waits for the consumer to leave CREATING before it reads it back.
+# The provider waits for the consumer to leave CREATING.
 data "aws_kinesis_stream_consumer" "tf_consumer" {
   arn        = aws_kinesis_stream_consumer.tf_consumer.arn
   stream_arn = aws_kinesis_stream.tf_stream.arn
@@ -1931,12 +1862,10 @@ output "kms_key_arn" {
   value = aws_kms_key.tf_kms.arn
 }
 output "kms_key_rotation_enabled" {
-  # tostring so the test's string-typed output reader (outputs.must) can read it;
-  # enable_key_rotation is a bool attribute.
+  # outputs.must reads strings.
   value = tostring(aws_kms_key.tf_kms.enable_key_rotation)
 }
 output "kms_key_tag_env" {
-  # Reads back through ListResourceTags; empty/missing means KMS tagging is broken.
   value = aws_kms_key.tf_kms.tags["env"]
 }
 output "kms_alias_arn" {
@@ -2010,8 +1939,6 @@ output "s3_bucket_metric_name" {
   value = aws_s3_bucket_metric.tf_bucket_metric.name
 }
 
-# ── Step Functions ──────────────────────────────────────────────────────────
-
 resource "aws_iam_role" "tf_sfn_role" {
   name = "tf-sfn-role"
 
@@ -2063,8 +1990,6 @@ output "sfn_state_machine_arn" {
 output "sfn_alias_arn" {
   value = aws_sfn_alias.tf_sfn_alias.arn
 }
-
-# ── CodeBuild ───────────────────────────────────────────────────────────────
 
 resource "aws_iam_role" "tf_cb_role" {
   name = "tf-codebuild-service-role"
@@ -2124,7 +2049,7 @@ output "codebuild_batch_maximum_builds_allowed" {
 }
 
 # Amazon EventBridge starts a build of a CodeBuild project target as the
-# target's role, so the role's policy allows codebuild:StartBuild.
+# target's role.
 resource "aws_iam_role" "tf_eventbridge_codebuild_role" {
   name = "tf-eventbridge-codebuild-role"
 
@@ -2165,8 +2090,6 @@ output "eventbridge_codebuild_target_arn" {
 output "eventbridge_codebuild_target_role_arn" {
   value = aws_cloudwatch_event_target.tf_eventbridge_codebuild_target.role_arn
 }
-
-# ── Glue ────────────────────────────────────────────────────────────────────
 
 resource "aws_glue_catalog_database" "tf_glue_db" {
   name       = "tf-glue-database"
@@ -2225,8 +2148,6 @@ output "glue_database_id" {
 output "glue_job_name" {
   value = aws_glue_job.tf_glue_job.name
 }
-
-# ── Batch ───────────────────────────────────────────────────────────────────
 
 resource "aws_batch_compute_environment" "tf_batch_ce" {
   name  = "tf-batch-compute-env"
@@ -2383,9 +2304,8 @@ output "service_discovery_service_id" {
   value = aws_service_discovery_service.tf_svc.id
 }
 
-# A Network Load Balancer with an Elastic IP address per subnet, which the
-# provider writes as subnet_mapping and reads back from the subnet's
-# LoadBalancerAddresses.
+# An Elastic IP address per subnet, which the provider writes as
+# subnet_mapping and reads back from LoadBalancerAddresses.
 resource "aws_eip" "tf_nlb_eip" {
   domain = "vpc"
 }

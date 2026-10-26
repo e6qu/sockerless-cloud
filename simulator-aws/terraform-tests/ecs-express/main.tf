@@ -2,9 +2,8 @@ terraform {
   required_providers {
     aws = {
       source = "hashicorp/aws"
-      # aws_ecs_express_gateway_service was added in terraform-provider-aws
-      # v6.23.0 (ECS Express Mode, launched 2025-11-21). Pin a version that has
-      # the resource.
+      # aws_ecs_express_gateway_service first shipped in terraform-provider-aws
+      # v6.23.0.
       version = "6.70.0"
     }
   }
@@ -76,9 +75,10 @@ resource "aws_iam_role" "express_exec" {
   })
 }
 
-# An ECS Express Gateway service: ECS provisions the managed bundle (Fargate
-# service, ALB + target group + HTTPS listener + ACM cert, security group, and an
-# Application Auto Scaling target/policy) and returns an HTTPS ingress endpoint.
+# Amazon ECS provisions the managed bundle (Fargate service, Application Load
+# Balancer, target group, HTTPS listener, ACM certificate, security group and
+# an Application Auto Scaling target and policy) and returns an HTTPS ingress
+# endpoint.
 resource "aws_ecs_express_gateway_service" "web" {
   cluster                 = aws_ecs_cluster.express.name
   service_name            = "tf-express-web"

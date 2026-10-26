@@ -16,9 +16,8 @@ provider "aws" {
   access_key                  = "test"
   secret_key                  = "test"
   skip_credentials_validation = true
-  # Every s3control operation is addressed by account id, which the provider
-  # learns from sts:GetCallerIdentity — so unlike the other fixtures this one
-  # lets the provider ask.
+  # Every s3control operation carries the account id, which the provider learns
+  # from sts:GetCallerIdentity, so this fixture lets the provider request it.
 
   endpoints {
     s3        = var.endpoint
@@ -34,7 +33,6 @@ resource "aws_s3_bucket" "source" {
   force_destroy = true
 }
 
-# The standard access point an Object Lambda access point serves reads from.
 resource "aws_s3_access_point" "source" {
   bucket = aws_s3_bucket.source.id
   name   = "tf-s3control-ap"
@@ -53,7 +51,6 @@ resource "aws_iam_role" "transform" {
   })
 }
 
-# The transformation function an Object Lambda access point runs on every read.
 resource "aws_lambda_function" "transform" {
   function_name = "tf-s3control-transform"
   role          = aws_iam_role.transform.arn

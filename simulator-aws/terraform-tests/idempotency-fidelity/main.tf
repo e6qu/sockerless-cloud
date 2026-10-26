@@ -61,25 +61,24 @@ resource "aws_security_group" "tasks" {
   vpc_id = aws_vpc.main.id
 }
 
-# All-traffic egress: ip_protocol="-1" carries no ports. The provider reads
-# from_port/to_port back as null; a sim returning 0 drifts "0 -> null".
+# All-traffic egress carries no ports; the provider reads from_port/to_port
+# back as null, so a 0 drifts.
 resource "aws_vpc_security_group_egress_rule" "tasks_all" {
   security_group_id = aws_security_group.tasks.id
   ip_protocol       = "-1"
   cidr_ipv4         = "0.0.0.0/0"
 }
 
-# Standalone IPv6 egress rule: Authorize* with an IPv6 range must produce a
-# SecurityGroupRule row (carrying cidr_ipv6), or this resource drifts/recreates
-# every plan — it Reads via DescribeSecurityGroupRules by rule id.
+# The provider reads this rule through DescribeSecurityGroupRules by rule id,
+# so an IPv6 range needs a SecurityGroupRule carrying cidr_ipv6.
 resource "aws_vpc_security_group_egress_rule" "tasks_all_ipv6" {
   security_group_id = aws_security_group.tasks.id
   ip_protocol       = "-1"
   cidr_ipv6         = "::/0"
 }
 
-# Referencing rule: referenced_security_group_id must read back as the bare
-# sg-id (no account prefix), or it drifts every plan.
+# referenced_security_group_id reads back as the bare sg- id, with no account
+# prefix.
 resource "aws_vpc_security_group_ingress_rule" "tasks_from_alb" {
   security_group_id            = aws_security_group.tasks.id
   ip_protocol                  = "tcp"
@@ -92,8 +91,7 @@ resource "aws_eip" "nat" {
   domain = "vpc"
 }
 
-# connectivity_type is ForceNew; it must round-trip through DescribeNatGateways
-# or the provider plans destroy+create every time.
+# connectivity_type is ForceNew, so DescribeNatGateways must return it.
 resource "aws_nat_gateway" "this" {
   allocation_id     = aws_eip.nat.id
   subnet_id         = aws_subnet.a.id
@@ -130,13 +128,10 @@ resource "aws_ecr_repository" "this" {
   }
 }
 
-# Task-def tags are read by the provider via DescribeTaskDefinition
-# --include TAGS (response top-level tags); a simple container def keeps the
-# ForceNew containerDefinitions hash stable so only the tag path is exercised.
-# runtime_platform + ephemeral_storage are top-level ForceNew knobs the provider
-# reads back — each was dropped on register, so they drifted into a new revision
-# every plan. Keeping the container def minimal isolates them from container-def
-# normalization noise.
+# The provider reads task definition tags through DescribeTaskDefinition
+# --include TAGS. runtime_platform and ephemeral_storage are top-level ForceNew
+# arguments the provider reads back; a minimal container definition keeps
+# containerDefinitions normalization out of the diff.
 resource "aws_ecs_task_definition" "this" {
   family                   = "fidelity-control-plane"
   network_mode             = "awsvpc"
@@ -167,10 +162,8 @@ resource "aws_acm_certificate" "this" {
   validation_method = "DNS"
 }
 
-# An HTTPS listener terminates TLS, so its certificate has to be ISSUED with key
-# material — which for a DNS-validated certificate means publishing the
-# challenge record and waiting for the issuance. Both certificates below are
-# validated in the zone that owns their domain, and the listener waits for them.
+# An HTTPS listener needs an ISSUED certificate, so each certificate below is
+# DNS-validated in the zone that owns its domain and the listener waits for it.
 resource "aws_route53_zone" "public" {
   name = "example.test"
 }
@@ -200,8 +193,8 @@ resource "aws_acm_certificate_validation" "this" {
   }
 }
 
-# ALB created without minimum_load_balancer_capacity: DescribeCapacityReservation
-# must omit the attribute (not report capacity_units=0, which drifts to null).
+# Without minimum_load_balancer_capacity, DescribeCapacityReservation omits the
+# attribute; a capacity_units of 0 drifts to null.
 resource "aws_lb" "this" {
   name               = "fidelity-alb"
   internal           = true
@@ -217,19 +210,14 @@ resource "aws_lb_target_group" "this" {
   protocol_version = "HTTP1"
   vpc_id           = aws_vpc.main.id
 
-  # Matcher was hardcoded to 200 in DescribeTargetGroups, so a non-default
-  # health_check.matcher drifted every plan.
   health_check {
     path    = "/healthz"
     matcher = "200-299"
   }
 }
 
-# HTTPS listener with an ACM cert + ssl_policy: both must round-trip through
-# DescribeListeners (cert ARN + SslPolicy) or the listener drifts every plan.
-# The listener terminates TLS on a real socket, so it takes an unprivileged
-# port: 443 needs a privileged bind, which the test process does not have on
-# any of the hosts this stack runs on.
+# DescribeListeners returns the certificate ARN and SslPolicy. The listener
+# terminates TLS on a real socket, so it takes an unprivileged port.
 resource "aws_lb_listener" "https" {
   load_balancer_arn = aws_lb.this.arn
   port              = 8443
@@ -242,13 +230,11 @@ resource "aws_lb_listener" "https" {
     target_group_arn = aws_lb_target_group.this.arn
   }
 
-  # DescribeTags must read back the tags CreateListener carried.
   tags = {
     scenario = "idempotency"
   }
 }
 
-# Second target group for the weighted forward rule below.
 resource "aws_lb_target_group" "secondary" {
   name     = "fidelity-tg2"
   port     = 8080
@@ -256,11 +242,8 @@ resource "aws_lb_target_group" "secondary" {
   vpc_id   = aws_vpc.main.id
 }
 
-# TCP (NLB) target group with an explicit TCP health_check block. A TCP health
-# check carries NO Matcher and NO HealthCheckPath (both are HTTP-only). If
-# DescribeTargetGroups emits either for a TCP health check, the provider reads
-# back an attribute it never set and plans a perpetual health_check.path /
-# matcher drift (issues #685 and #688).
+# A TCP health check carries no Matcher and no HealthCheckPath; either in
+# DescribeTargetGroups makes the provider plan a perpetual drift.
 resource "aws_lb_target_group" "tcp" {
   name     = "fidelity-tg-tcp"
   port     = 443
@@ -275,8 +258,8 @@ resource "aws_lb_target_group" "tcp" {
   }
 }
 
-# SNI certificate attached via aws_lb_listener_certificate: read back through
-# DescribeListenerCertificates (IsDefault=false) or it drifts/recreates.
+# aws_lb_listener_certificate reads back through DescribeListenerCertificates
+# (IsDefault=false).
 resource "aws_acm_certificate" "sni" {
   domain_name       = "sni.fidelity.example.test"
   validation_method = "DNS"
@@ -312,10 +295,9 @@ resource "aws_lb_listener_certificate" "sni" {
   certificate_arn = aws_acm_certificate_validation.sni.certificate_arn
 }
 
-# Listener rule exercising authenticate-oidc (the IAP/Pomerium proxy shape) +
-# weighted forward with stickiness. Each config block must round-trip through
-# DescribeRules or the rule drifts every plan. client_secret is write-only (the
-# provider keeps it in state; ELBv2 never returns it).
+# authenticate-oidc and a weighted forward with stickiness round-trip through
+# DescribeRules. ELBv2 never returns client_secret; the provider keeps it in
+# state.
 resource "aws_lb_listener_rule" "oidc" {
   listener_arn = aws_lb_listener.https.arn
   priority     = 100
@@ -367,11 +349,8 @@ resource "aws_lb_listener_rule" "oidc" {
   }
 }
 
-# Network Load Balancer with a TCP listener, plus a Route53 alias record that
-# targets it. DescribeLoadBalancers must return a STABLE, AWS-shaped hostname for
-# dns_name (never the data-plane proxy host:port): an unstable or non-hostname
-# dns_name drifts the NLB every plan, and an alias { name = <host:port> } is
-# invalid for aws_route53_record (an alias target must be a hostname + zone id).
+# DescribeLoadBalancers returns a stable AWS-shaped hostname as the NLB's
+# dns_name; a Route 53 alias target must be a hostname and zone id.
 resource "aws_lb" "nlb" {
   name               = "fidelity-nlb"
   internal           = true
@@ -402,9 +381,6 @@ resource "aws_route53_zone" "internal" {
   name = "fidelity.internal"
 }
 
-# Alias to the NLB: requires a stable hostname (aws_lb.nlb.dns_name) and the
-# NLB's canonical hosted zone id (aws_lb.nlb.zone_id). A host:port dns_name would
-# make this resource invalid; an unstable dns_name would drift it every plan.
 resource "aws_route53_record" "nlb_alias" {
   zone_id = aws_route53_zone.internal.zone_id
   name    = "nlb.fidelity.internal"
@@ -417,8 +393,7 @@ resource "aws_route53_record" "nlb_alias" {
   }
 }
 
-# Inline-egress SG with both IPv4 + IPv6: DescribeSecurityGroups must echo
-# Ipv6Ranges or ipv6_cidr_blocks drifts every plan.
+# DescribeSecurityGroups echoes Ipv6Ranges, or ipv6_cidr_blocks drifts.
 resource "aws_security_group" "dualstack" {
   name   = "fidelity-dualstack"
   vpc_id = aws_vpc.main.id
@@ -432,9 +407,8 @@ resource "aws_security_group" "dualstack" {
   }
 }
 
-# NAT-instance launch template + instance: launch_template is ForceNew and the
-# provider reads it from the aws:ec2launchtemplate:* system tags; absent tags
-# force destroy+create every plan.
+# launch_template is ForceNew, and the provider reads it from the instance's
+# aws:ec2launchtemplate:* system tags.
 resource "aws_launch_template" "nat" {
   name          = "fidelity-nat-lt"
   image_id      = data.aws_ami.al2023.id
@@ -443,9 +417,8 @@ resource "aws_launch_template" "nat" {
 
 resource "aws_instance" "nat" {
   subnet_id = aws_subnet.a.id
-  # NAT-instance knobs the provider reads back — each was dropped/hardcoded and
-  # drifted every plan: source_dest_check (set via ModifyInstanceAttribute),
-  # monitoring, ebs_optimized, and metadata_options.
+  # source_dest_check goes through ModifyInstanceAttribute; it, monitoring,
+  # ebs_optimized and metadata_options all read back.
   source_dest_check = false
   monitoring        = false
   ebs_optimized     = false
@@ -461,8 +434,7 @@ resource "aws_instance" "nat" {
   }
 }
 
-# Route targeting a network interface: DescribeRouteTables must echo
-# NetworkInterfaceId or aws_route drifts every plan.
+# DescribeRouteTables echoes a route's NetworkInterfaceId.
 resource "aws_network_interface" "nat" {
   subnet_id = aws_subnet.a.id
 }
@@ -477,8 +449,8 @@ resource "aws_route" "via_eni" {
   network_interface_id   = aws_network_interface.nat.id
 }
 
-# The main route table AWS auto-creates per VPC — read via the association.main
-# filter (exercises the main association + associationState round-trip).
+# The main route table AWS creates with every VPC, found by the
+# association.main filter.
 data "aws_route_table" "main" {
   vpc_id = aws_vpc.main.id
   filter {
@@ -487,14 +459,11 @@ data "aws_route_table" "main" {
   }
 }
 
-# Key pair: DescribeKeyPairs was always empty, so aws_key_pair drifted/recreated.
 resource "aws_key_pair" "deployer" {
   key_name   = "fidelity-deployer"
   public_key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPAkqz56K/EWsdIxGWKGQ5SxtXw8WhqPshWaZNevDsZv fidelity@test"
 }
 
-# Launch template with credit_specification + instance_market_options: both were
-# dropped from the LT round-trip, so they drifted every plan.
 resource "aws_launch_template" "spot" {
   name          = "fidelity-spot-lt"
   image_id      = "ami-12345678"
@@ -512,8 +481,6 @@ resource "aws_launch_template" "spot" {
   }
 }
 
-# data.aws_ami lookup: the name and architecture filters select the published
-# Amazon Linux 2023 AMI the NAT instance launches from.
 data "aws_ami" "al2023" {
   most_recent = true
   owners      = ["amazon"]
@@ -527,8 +494,7 @@ data "aws_ami" "al2023" {
   }
 }
 
-# EBS volume with non-default performance + encryption: iops/throughput/kms/
-# encrypted were dropped from DescribeVolumes, so each drifted every plan.
+# DescribeVolumes returns iops, throughput, kms_key_id and encrypted.
 resource "aws_ebs_volume" "data" {
   availability_zone = "us-east-1a"
   size              = 20
