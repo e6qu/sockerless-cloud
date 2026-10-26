@@ -32,12 +32,14 @@ exit_file="$dir/$target.status"
 
 case "${2:-}" in
 start)
-	bash "$root/scripts/ci-go-mod-download.sh" "$root/sim"
 	rm -f "$exit_file" "$log"
 	exec 9>"$lock"
 	flock 9
+	# The module download belongs to the build: in the workspace it fetches every
+	# module's dependencies, which a cold cache cannot do inside the start step's
+	# budget.
 	(
-		if make -C "$root" "$target"; then
+		if bash "$root/scripts/ci-go-mod-download.sh" "$root/sim" && make -C "$root" "$target"; then
 			echo 0 >"$exit_file"
 		else
 			echo $? >"$exit_file"
