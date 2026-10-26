@@ -49,6 +49,8 @@ github.com/e6qu/sockerless-cloud/sim v0.0.0-20261026094045-4dc63816d29c h1:QoqQK
 github.com/e6qu/sockerless-cloud/sim v0.0.0-20261026094045-4dc63816d29c/go.mod h1:NmvfGZhlmjYctM7mwWiin/L6kAS7S9yXpZzylOa/0TY=
 github.com/e6qu/sockerless-cloud/sim v0.0.0-20261026133804-dc3de6c87a5a h1:3Wv8YI7tPmFrPXfNqey/UO9v7+6TMTRypjvJ7LL9Nuw=
 github.com/e6qu/sockerless-cloud/sim v0.0.0-20261026133804-dc3de6c87a5a/go.mod h1:NmvfGZhlmjYctM7mwWiin/L6kAS7S9yXpZzylOa/0TY=
+github.com/e6qu/sockerless-cloud/sim v0.0.0-20261026203803-3cf8e1bc364b h1:tuqFOm0owfzFMMOU4vViIyiPLmeOkG/fTP2pXEyMyz8=
+github.com/e6qu/sockerless-cloud/sim v0.0.0-20261026203803-3cf8e1bc364b/go.mod h1:NmvfGZhlmjYctM7mwWiin/L6kAS7S9yXpZzylOa/0TY=
 github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20261024204221-18c159cbeb4a h1:B5ekiI6P5qFA1oiieNbQ+5Ncn81T2fwd3xjgpBx7QUI=
 github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20261024204221-18c159cbeb4a/go.mod h1:40g2Tr7iYURL01fHLQEFddpfNpIamO7UUdAuKqaJ2v8=
 github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20261026133804-dc3de6c87a5a h1:SsaRk2k+V+9fWv1d7bEY63DvqQYFOFBJgsw/vxrTvt8=
