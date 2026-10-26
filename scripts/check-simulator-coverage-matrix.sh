@@ -67,16 +67,15 @@ if [[ "$missing_paths" -ne 0 ]]; then
     exit 1
 fi
 
-missing_aws_parity=0
+missing_parity=0
 while IFS= read -r surface; do
     if ! grep -Fq "(SIM_SURFACE_TABLES/$surface.md)" "$parity_matrix"; then
-        echo "[sim-coverage-matrix] AWS surface missing from parity inventory: $surface" >&2
-        missing_aws_parity=1
+        echo "[sim-coverage-matrix] surface missing from parity inventory: $surface" >&2
+        missing_parity=1
     fi
-done < <(find "$tables_dir" -maxdepth 1 -type f -name 'aws-*.md' \
-    -exec basename {} .md \; | sort)
+done <"$tmp_expected"
 
-if [[ "$missing_aws_parity" -ne 0 ]]; then
+if [[ "$missing_parity" -ne 0 ]]; then
     exit 1
 fi
 

@@ -12,7 +12,7 @@ lives.
 - [`SIM_TEST_COVERAGE_MATRIX.md`](SIM_TEST_COVERAGE_MATRIX.md) records, per
   surface, the official SDK, vendor CLI and Terraform provider flows that
   exercise it. `scripts/check-simulator-coverage-matrix.sh` holds its rows to
-  exactly the set of surface tables and holds this inventory to every AWS
+  exactly the set of surface tables and holds this inventory to every
   surface.
 - Which slices a simulator covers is this project's choice; nothing downstream
   defines it. The inventory is exhaustive rather than consumer-driven.
