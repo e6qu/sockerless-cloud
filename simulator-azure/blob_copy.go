@@ -177,8 +177,15 @@ func handleStageBlockFromURL(w http.ResponseWriter, r *http.Request, account, co
 			http.StatusBadRequest)
 		return
 	}
+	if !blobSourceChecksums.exclusive(w, r) {
+		return
+	}
 	data, ok := blobReadCopySourceRange(w, r, r.Header.Get("x-ms-copy-source"), r.Header.Get("x-ms-source-range"))
 	if !ok {
+		return
+	}
+	crc := blobCRC64(data)
+	if !blobSourceChecksums.match(w, r, blobstore.Digest(data).MD5Base64(), crc) {
 		return
 	}
 	key := blobBlockKey(account, container, blob, blockID)
@@ -192,7 +199,7 @@ func handleStageBlockFromURL(w http.ResponseWriter, r *http.Request, account, co
 	block.UncommittedBody, block.UncommittedSize, block.LegacyUncommittedData = ref, digests.Size, nil
 	block.HasUncommitted = true
 	putBlobBlock(account, container, blob, blockID, block)
-	w.Header().Set("Content-MD5", digests.MD5Base64())
+	blobSourceChecksums.respond(w, r, account, digests.MD5Base64(), crc, blobVersionBothDigests)
 	w.Header().Set("x-ms-request-server-encrypted", "true")
 	w.WriteHeader(http.StatusCreated)
 }

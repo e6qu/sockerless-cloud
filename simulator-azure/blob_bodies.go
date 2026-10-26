@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"net/http"
 
 	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/blobstore"
@@ -114,12 +113,18 @@ func blobData(b BlobObject) (BlobObject, []byte, error) {
 // returning the blob they were read from, which is a newer one when src was
 // overwritten before its file was opened.
 func blobCopyContents(src BlobObject) (BlobObject, string, blobstore.Digests, error) {
+	return blobCopyContentsAlso(src, io.Discard)
+}
+
+// blobCopyContentsAlso is blobCopyContents that also writes the contents to
+// also as it copies them.
+func blobCopyContentsAlso(src BlobObject, also io.Writer) (BlobObject, string, blobstore.Digests, error) {
 	current, reader, err := blobOpen(src)
 	if err != nil {
 		return src, "", blobstore.Digests{}, err
 	}
 	defer func() { _ = reader.Close() }()
-	ref, digests, err := blobBodies.WriteFrom(reader)
+	ref, digests, err := blobBodies.WriteFrom(io.TeeReader(reader, also))
 	return current, ref, digests, err
 }
 
@@ -129,20 +134,6 @@ type blobZeros struct{}
 func (blobZeros) Read(p []byte) (int, error) {
 	clear(p)
 	return len(p), nil
-}
-
-// blobContentMD5Matches checks the Content-MD5 a write states against the
-// contents that arrived, writing Md5Mismatch and returning false when they
-// differ.
-func blobContentMD5Matches(w http.ResponseWriter, r *http.Request, digests blobstore.Digests) bool {
-	stated := r.Header.Get("Content-MD5")
-	if stated == "" || stated == digests.MD5Base64() {
-		return true
-	}
-	writeStorageError(w, "Md5Mismatch",
-		"The MD5 value specified in the request did not match with the MD5 value calculated by the server.",
-		http.StatusBadRequest)
-	return false
 }
 
 // blobReleaseBody releases contents no row references any more. A failure

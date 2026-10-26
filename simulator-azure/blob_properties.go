@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/xml"
+	"io"
 	"net/http"
 	"net/url"
 	"sort"
@@ -294,8 +295,19 @@ func handleGetBlobTags(w http.ResponseWriter, r *http.Request, account, containe
 
 func handleSetBlobTags(w http.ResponseWriter, r *http.Request, account, container, blob string) {
 	defer r.Body.Close()
+	if !blobBodyChecksums.exclusive(w, r) {
+		return
+	}
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeStorageError(w, "InternalError", err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if !blobBodyChecksums.match(w, r, blobstore.Digest(body).MD5Base64(), blobCRC64(body)) {
+		return
+	}
 	var doc blobTagsDocument
-	if err := xml.NewDecoder(r.Body).Decode(&doc); err != nil {
+	if err := xml.Unmarshal(body, &doc); err != nil {
 		writeStorageError(w, "InvalidXmlDocument",
 			"XML specified is not syntactically valid.", http.StatusBadRequest)
 		return
