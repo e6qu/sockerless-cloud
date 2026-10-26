@@ -21,15 +21,8 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/signals"
 )
 
-// This file completes the Lambda restJson1 control-plane slice: the
-// configuration read/update pair (GetFunctionConfiguration / UpdateFunctionCode),
-// the 2025-11-30 function-scaling and capacity-provider surfaces, the
-// 2025-12-01 durable-execution lifecycle (start via durable Invoke, checkpoint,
-// callbacks, history/state read-back), and the two legacy/streaming invoke
-// entry points (InvokeAsync, InvokeWithResponseStream). All state lives in
-// in-process stores whose lifetime matches the running sim, the same as the
-// sibling lambda_*.go files. Durable invocations use Lambda's execution
-// envelope and operation journal, including checkpoint-driven replay.
+// Durable invocations use Lambda's execution envelope and operation journal,
+// with checkpoint-driven replay.
 
 func registerLambdaExtras3(srv *sim.Server) {
 	mux := srv
@@ -39,27 +32,21 @@ func registerLambdaExtras3(srv *sim.Server) {
 	lambdaDurableStore = sim.Announcing(sim.MakeStore[lambdaDurableExecution](srv.DB(), "lambda_durable_executions"), lambdaDurableChanges)
 	lambdaDurableCallbackStore = sim.MakeStore[lambdaDurableCallbackState](srv.DB(), "lambda_durable_callbacks")
 
-	// ListLayers shares GET /2018-10-31/layers with GetLayerVersionByArn; the
-	// shared handler (lambda_extras.go) composes the op name per-request via
-	// cloudTrailRecordedRESTDynamic, so register the static op name here so it
-	// lands in the conformance REST registry the same way GetLayerVersionByArn
-	// does in lambda.go.
+	// ListLayers shares GET /2018-10-31/layers with GetLayerVersionByArn and its
+	// handler names the operation per request, so register ListLayers statically
+	// for the conformance registry.
 	restRegisterOp("lambda.amazonaws.com", "ListLayers")
 
-	// Function configuration read + code update.
 	mux.HandleFunc("GET /2015-03-31/functions/{name}/configuration", cloudTrailRecordedREST("GetFunctionConfiguration", "lambda.amazonaws.com", lambdaResource, lambdaEnforced("GetFunctionConfiguration", lambdaFunctionResourceARN, handleLambdaGetFunctionConfiguration)))
 	mux.HandleFunc("PUT /2015-03-31/functions/{name}/code", cloudTrailRecordedREST("UpdateFunctionCode", "lambda.amazonaws.com", lambdaResource, lambdaEnforced("UpdateFunctionCode", lambdaFunctionResourceARN, handleLambdaUpdateFunctionCode)))
 
-	// Per-function scaling config (2025-11-30).
 	mux.HandleFunc("GET /2025-11-30/functions/{name}/function-scaling-config", cloudTrailRecordedREST("GetFunctionScalingConfig", "lambda.amazonaws.com", lambdaResource, lambdaEnforced("GetFunctionScalingConfig", lambdaFunctionResourceARN, handleLambdaGetFunctionScalingConfig)))
 	mux.HandleFunc("PUT /2025-11-30/functions/{name}/function-scaling-config", cloudTrailRecordedREST("PutFunctionScalingConfig", "lambda.amazonaws.com", lambdaResource, lambdaEnforced("PutFunctionScalingConfig", lambdaFunctionResourceARN, handleLambdaPutFunctionScalingConfig)))
 
-	// Functions attached to a code-signing config.
-	// A CodeSigningConfig ARN has no slashes, so a single {arn} label captures
-	// it; a trailing {arn...} wildcard cannot precede the /functions suffix.
+	// A CodeSigningConfig ARN has no slashes, so one {arn} label captures it; a
+	// trailing {arn...} could not precede /functions.
 	mux.HandleFunc("GET /2020-04-22/code-signing-configs/{arn}/functions", cloudTrailRecordedREST("ListFunctionsByCodeSigningConfig", "lambda.amazonaws.com", nil, lambdaEnforced("ListFunctionsByCodeSigningConfig", nil, handleLambdaListFunctionsByCodeSigningConfig)))
 
-	// Capacity providers (2025-11-30).
 	mux.HandleFunc("POST /2025-11-30/capacity-providers", cloudTrailRecordedREST("CreateCapacityProvider", "lambda.amazonaws.com", nil, lambdaEnforced("CreateCapacityProvider", nil, handleLambdaCreateCapacityProvider)))
 	mux.HandleFunc("GET /2025-11-30/capacity-providers", cloudTrailRecordedREST("ListCapacityProviders", "lambda.amazonaws.com", nil, lambdaEnforced("ListCapacityProviders", nil, handleLambdaListCapacityProviders)))
 	mux.HandleFunc("GET /2025-11-30/capacity-providers/{cpname}", cloudTrailRecordedREST("GetCapacityProvider", "lambda.amazonaws.com", nil, lambdaEnforced("GetCapacityProvider", nil, handleLambdaGetCapacityProvider)))
@@ -67,14 +54,12 @@ func registerLambdaExtras3(srv *sim.Server) {
 	mux.HandleFunc("DELETE /2025-11-30/capacity-providers/{cpname}", cloudTrailRecordedREST("DeleteCapacityProvider", "lambda.amazonaws.com", nil, lambdaEnforced("DeleteCapacityProvider", nil, handleLambdaDeleteCapacityProvider)))
 	mux.HandleFunc("GET /2025-11-30/capacity-providers/{cpname}/function-versions", cloudTrailRecordedREST("ListFunctionVersionsByCapacityProvider", "lambda.amazonaws.com", nil, lambdaEnforced("ListFunctionVersionsByCapacityProvider", nil, handleLambdaListFunctionVersionsByCapacityProvider)))
 
-	// Legacy + streaming invoke entry points.
 	mux.HandleFunc("POST /2014-11-13/functions/{name}/invoke-async", cloudTrailRecordedREST("InvokeAsync", "lambda.amazonaws.com", lambdaResource, lambdaEnforced("InvokeAsync", lambdaFunctionResourceARN, handleLambdaInvokeAsync)))
 	mux.HandleFunc("POST /2021-11-15/functions/{name}/response-streaming-invocations", cloudTrailRecordedREST("InvokeWithResponseStream", "lambda.amazonaws.com", lambdaResource, lambdaEnforced("InvokeWithResponseStream", lambdaFunctionResourceARN, handleLambdaInvokeWithResponseStream)))
 
-	// Durable executions (2025-12-01). The DurableExecutionArn is a non-greedy
-	// restJson1 path label, so the SDK percent-encodes its embedded slashes
-	// (%2F); a single {arn} segment captures the whole arn and ServeMux still
-	// resolves the trailing /checkpoint|/history|/state|/stop literal suffix.
+	// The SDK percent-encodes the slashes in DurableExecutionArn, a non-greedy
+	// restJson1 label, so one {arn} segment captures it and ServeMux still resolves
+	// the literal suffix.
 	mux.HandleFunc("GET /2025-12-01/functions/{name}/durable-executions", cloudTrailRecordedREST("ListDurableExecutionsByFunction", "lambda.amazonaws.com", lambdaResource, lambdaEnforced("ListDurableExecutionsByFunction", lambdaFunctionResourceARN, handleLambdaListDurableExecutionsByFunction)))
 	mux.HandleFunc("GET /2025-12-01/durable-executions/{arn}", cloudTrailRecordedREST("GetDurableExecution", "lambda.amazonaws.com", nil, lambdaEnforced("GetDurableExecution", nil, handleLambdaGetDurableExecution)))
 	mux.HandleFunc("POST /2025-12-01/durable-executions/{arn}/checkpoint", cloudTrailRecordedREST("CheckpointDurableExecution", "lambda.amazonaws.com", nil, lambdaEnforced("CheckpointDurableExecution", nil, handleLambdaCheckpointDurableExecution)))
@@ -85,8 +70,6 @@ func registerLambdaExtras3(srv *sim.Server) {
 	mux.HandleFunc("POST /2025-12-01/durable-execution-callbacks/{cbid}/fail", cloudTrailRecordedREST("SendDurableExecutionCallbackFailure", "lambda.amazonaws.com", nil, lambdaEnforced("SendDurableExecutionCallbackFailure", nil, handleLambdaSendDurableCallbackFailure)))
 	mux.HandleFunc("POST /2025-12-01/durable-execution-callbacks/{cbid}/heartbeat", cloudTrailRecordedREST("SendDurableExecutionCallbackHeartbeat", "lambda.amazonaws.com", nil, lambdaEnforced("SendDurableExecutionCallbackHeartbeat", nil, handleLambdaSendDurableCallbackHeartbeat)))
 }
-
-// GetFunctionConfiguration + UpdateFunctionCode
 
 func handleLambdaGetFunctionConfiguration(w http.ResponseWriter, r *http.Request) {
 	name := sim.PathParam(r, "name")
@@ -167,8 +150,8 @@ func handleLambdaUpdateFunctionCode(w http.ResponseWriter, r *http.Request) {
 		} else {
 			fn.CodeSha256 = lambdaCodeSha256(newCode)
 		}
-		// A code change re-stamps size/revision/last-modified the way real
-		// Lambda does after a successful deployment-package swap.
+		// A code change re-stamps size, revision and last-modified, as Lambda does after
+		// a deployment-package swap.
 		fn.CodeSize = codeSize
 		if len(req.Architectures) > 0 {
 			fn.Architectures = req.Architectures
@@ -186,8 +169,6 @@ func handleLambdaUpdateFunctionCode(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, lambdaConfiguration(fn))
 }
 
-// Per-function scaling config
-
 type lambdaFunctionScalingConfig struct {
 	MinExecutionEnvironments *int32 `json:"MinExecutionEnvironments,omitempty"`
 	MaxExecutionEnvironments *int32 `json:"MaxExecutionEnvironments,omitempty"`
@@ -199,7 +180,7 @@ type lambdaStoredScalingConfig struct {
 	Config       lambdaFunctionScalingConfig
 }
 
-// keyed by "<functionName>:<qualifier>" ($LATEST when no qualifier).
+// Keyed by "<functionName>:<qualifier>", $LATEST without a qualifier.
 var lambdaScalingCfgs sim.Store[lambdaStoredScalingConfig]
 
 func handleLambdaGetFunctionScalingConfig(w http.ResponseWriter, r *http.Request) {
@@ -213,7 +194,7 @@ func handleLambdaGetFunctionScalingConfig(w http.ResponseWriter, r *http.Request
 	stored, ok := lambdaScalingCfgs.Get(lambdaEICKey(name, qualifier))
 	out := map[string]any{"FunctionArn": lambdaEICArn(name, qualifier)}
 	if ok {
-		// Applied == Requested once the allocation settles (synchronous here).
+		// The simulator applies the allocation synchronously, so Applied equals Requested.
 		out["RequestedFunctionScalingConfig"] = stored.Config
 		out["AppliedFunctionScalingConfig"] = stored.Config
 	}
@@ -246,8 +227,6 @@ func handleLambdaPutFunctionScalingConfig(w http.ResponseWriter, r *http.Request
 	sim.WriteJSON(w, http.StatusAccepted, map[string]any{"FunctionState": "Active"})
 }
 
-// ListFunctionsByCodeSigningConfig
-
 func handleLambdaListFunctionsByCodeSigningConfig(w http.ResponseWriter, r *http.Request) {
 	arn := r.PathValue("arn")
 	if _, ok := lambdaCSCStore.Get(arn); !ok {
@@ -265,11 +244,8 @@ func handleLambdaListFunctionsByCodeSigningConfig(w http.ResponseWriter, r *http
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"FunctionArns": names})
 }
 
-// Capacity providers
-
-// LambdaCapacityProvider mirrors the CapacityProvider shape. The members are
-// echoed back exactly as supplied on create; the sim settles a created
-// provider straight to Active (no asynchronous Pending window).
+// The members echo the create; the simulator settles a created provider
+// straight to Active, with no Pending window.
 type LambdaCapacityProvider struct {
 	name                          string
 	CapacityProviderArn           string         `json:"CapacityProviderArn"`
@@ -463,8 +439,7 @@ func handleLambdaDeleteCapacityProvider(w http.ResponseWriter, r *http.Request) 
 	sim.WriteJSON(w, http.StatusAccepted, map[string]any{
 		"CapacityProvider": lambdaCapacityProviderBody(cp),
 	})
-	// The deletion completed as soon as its only real work—the reference
-	// check and durable-store removal—finished.
+	// Removing the stored provider after the reference check completes the deletion.
 	lambdaCapacityProviders.Delete(name)
 }
 
@@ -527,8 +502,6 @@ func lambdaCapacityProviderARN(config map[string]any) string {
 	return arn
 }
 
-// InvokeAsync (deprecated) + InvokeWithResponseStream
-
 func handleLambdaInvokeAsync(w http.ResponseWriter, r *http.Request) {
 	name := sim.PathParam(r, "name")
 	fn, _, ok := lambdaResolveInvocationTarget(name, r.URL.Query().Get("Qualifier"))
@@ -543,9 +516,7 @@ func handleLambdaInvokeAsync(w http.ResponseWriter, r *http.Request) {
 			"failed to read invoke args: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	// InvokeAsync buffers the invocation and runs it for real in the
-	// background (which produces real logs), the same async path Invoke
-	// with InvocationType=Event takes.
+	// InvokeAsync runs the invocation in the background, the path Invoke takes with InvocationType=Event.
 	lambdaInvokeAsynchronously(fn, payload, lambdaAsyncQualifier(name, r.URL.Query().Get("Qualifier")))
 	// The deprecated InvokeAsync response binds Status to the HTTP code (202)
 	// and carries no body.
@@ -603,11 +574,9 @@ func handleLambdaInvokeWithResponseStream(w http.ResponseWriter, r *http.Request
 			"failed to read payload: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	// Run the function for real and stream its response back over the AWS
-	// event-stream framing: one PayloadChunk carrying the handler's bytes,
-	// then a terminal InvokeComplete event. This is the same wire framing
-	// real Lambda uses for response streaming, so aws-sdk-go-v2's
-	// eventstream decoder reassembles it natively.
+	// Run the function, then send its response in AWS event-stream framing: one
+	// PayloadChunk with the handler's bytes and a terminal InvokeComplete, which
+	// aws-sdk-go-v2's decoder reassembles.
 	sim.DeclareWait(r.Context(), lambdaInvokeWaitLimit(fn))
 	responseBody, unhandled, _ := invokeLambdaViaRuntimeAPI(sim.LifetimeContext(r.Context()), fn, payload)
 	w.Header().Set("Content-Type", "application/vnd.amazon.eventstream")
@@ -631,8 +600,6 @@ func handleLambdaInvokeWithResponseStream(w http.ResponseWriter, r *http.Request
 	}, complete))
 }
 
-// Durable executions
-
 // lambdaDurableEvent is one history entry. Detail unions are emitted only for
 // the event type that owns them, matching the Lambda durable-execution API.
 type lambdaDurableEvent struct {
@@ -646,7 +613,6 @@ type lambdaDurableEvent struct {
 	TimedOutDet    map[string]any `json:"ExecutionTimedOutDetails,omitempty"`
 }
 
-// lambdaDurableOperation is one entry in the execution-state operation list.
 type lambdaDurableOperation struct {
 	Id                   string         `json:"Id"`
 	Name                 string         `json:"Name,omitempty"`
@@ -701,18 +667,16 @@ type lambdaDurableCallbackState struct {
 }
 
 var (
-	// lambdaDurableMu guards the durable-execution stores. Reading an
-	// execution, its history or its state excludes nothing but a writer, and
-	// polling those three is what a durable-execution client spends its time
-	// doing. A section that writes, or reads and then writes based on what it
-	// read, keeps taking Lock; neither is reentrant.
+	// lambdaDurableMu guards the durable-execution stores. Reads take RLock; a
+	// section that writes, or reads and then writes on what it read, holds Lock.
+	// Neither is reentrant.
 	lambdaDurableMu    sync.RWMutex
 	lambdaDurableStore sim.Store[lambdaDurableExecution]
 	// lambdaDurableChanges announces an execution's ARN on every write of
 	// it, which every change of its status makes.
 	lambdaDurableChanges       = signals.New[string]()
 	lambdaDurableCallbackStore sim.Store[lambdaDurableCallbackState]
-	// keyed by DurableExecutionArn.
+	// Keyed by DurableExecutionArn.
 	lambdaDurableExecs = map[string]*lambdaDurableExecution{}
 	// CallbackId -> DurableExecutionArn, registered by a checkpoint that
 	// records a CALLBACK operation; the callback ops advance that execution.
@@ -1155,8 +1119,8 @@ func lambdaParseDurableArn(arn string) (fnName, version string, ok bool) {
 	return rest[:colon], rest[colon+1:], true
 }
 
-// lambdaDurableExecKey resolves the {arn...} label, which the mux delivers with
-// its colons intact, into the canonical DurableExecutionArn.
+// lambdaDurableArnFromLabel returns the {arn} path label, decoded with its
+// colons and slashes intact, as the DurableExecutionArn.
 func lambdaDurableArnFromLabel(r *http.Request) string {
 	return r.PathValue("arn")
 }

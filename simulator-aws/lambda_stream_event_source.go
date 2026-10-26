@@ -21,7 +21,6 @@ import (
 // parents are read to their end. Each poller checkpoints the last sequence
 // number its function handled, so a restarted poller resumes after it.
 
-// lambdaESMShardState is a mapping's progress through one shard.
 type lambdaESMShardState struct {
 	// Sequence is the last sequence number the function handled or the
 	// mapping discarded.
@@ -108,7 +107,6 @@ func startLambdaStreamEventSourcePollers(srv *sim.Server) {
 	})
 }
 
-// kinesisGetRecordsRecord is a record as GetRecords returns it.
 type kinesisGetRecordsRecord struct {
 	SequenceNumber              string  `json:"SequenceNumber"`
 	ApproximateArrivalTimestamp float64 `json:"ApproximateArrivalTimestamp"`
@@ -254,7 +252,6 @@ func lambdaKinesisRefused(ctx context.Context) funcrt.Outcome {
 	return funcrt.Blocked
 }
 
-// lambdaKinesisRecord is a record as the function's event carries it.
 func lambdaKinesisRecord(mapping LambdaEventSourceMapping, function LambdaFunction, shardID string, record kinesisGetRecordsRecord) map[string]any {
 	return map[string]any{
 		"kinesis": map[string]any{

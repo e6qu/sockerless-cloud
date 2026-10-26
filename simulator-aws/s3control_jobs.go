@@ -22,13 +22,11 @@ import (
 )
 
 // Amazon S3 Batch Operations: a job applies one operation to every object a
-// manifest lists. The job runs as server background work after CreateJob
-// answers: it reads the manifest object out of S3, runs the operation against
-// each entry, writes the completion report the job asked for, and reports how
-// many tasks succeeded and failed. A job that claimed to run without touching
-// an object would report progress no read could confirm.
+// manifest lists. The job runs as background work after CreateJob answers: it
+// reads the manifest object from S3, runs the operation on each entry, writes
+// the completion report the job asked for, and counts the tasks that succeeded
+// and failed.
 
-// The job statuses the service reports.
 const (
 	s3BatchJobNew        = "New"
 	s3BatchJobPreparing  = "Preparing"
@@ -43,7 +41,6 @@ const (
 	s3BatchJobCancelled  = "Cancelled"
 )
 
-// S3BatchJob is one batch operation job.
 type S3BatchJob struct {
 	AccountID            string            `json:"accountId"`
 	JobID                string            `json:"jobId"`
@@ -80,7 +77,6 @@ type S3BatchTask struct {
 	ResultMessage string `json:"resultMessage,omitempty"`
 }
 
-// The outcomes a task records.
 const (
 	s3BatchTaskSucceeded = "succeeded"
 	s3BatchTaskFailed    = "failed"

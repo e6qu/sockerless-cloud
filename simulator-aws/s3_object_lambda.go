@@ -19,20 +19,13 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/workloadhost"
 )
 
-// Amazon S3 Object Lambda, and the S3 access points it is built on.
-//
-// An Object Lambda access point sits in front of a standard access point and
-// runs a transformation function on every GetObject: S3 invokes the function
-// with a route token, the function fetches the original object, transforms it,
-// and posts the result back through WriteGetObjectResponse on that token. The
-// caller receives what the function wrote, never the stored bytes.
-//
-// The whole loop runs here, over the simulator's own Lambda and S3: the
-// control plane is the s3-control surface a client manages access points
-// through, and the data plane is the host-addressed GET a client makes against
-// the access point's own endpoint. Serving the callback alone would have
-// acknowledged writes nothing could read back, which is why it waited for the
-// access points to exist.
+// Amazon S3 Object Lambda and the S3 access points it is built on. An Object
+// Lambda access point fronts a standard access point and runs a transformation
+// function on every GetObject: S3 invokes the function with a route token, the
+// function fetches the original object, transforms it and posts the result
+// through WriteGetObjectResponse on that token, and the caller receives what the
+// function wrote. The loop runs over the simulator's own AWS Lambda and Amazon
+// S3.
 
 // S3AccessPoint is a standard access point over one bucket.
 type S3AccessPoint struct {
@@ -76,12 +69,10 @@ type S3ObjectLambdaTransformation struct {
 	Content S3ObjectLambdaTransformationContent `xml:"ContentTransformation" json:"contentTransformation"`
 }
 
-// S3ObjectLambdaTransformationContent carries the AWS Lambda transformation.
 type S3ObjectLambdaTransformationContent struct {
 	AwsLambda S3ObjectLambdaFunctionRef `xml:"AwsLambda" json:"awsLambda"`
 }
 
-// S3ObjectLambdaFunctionRef is the function ARN and its opaque payload.
 type S3ObjectLambdaFunctionRef struct {
 	FunctionArn     string `xml:"FunctionArn" json:"functionArn"`
 	FunctionPayload string `xml:"FunctionPayload,omitempty" json:"functionPayload,omitempty"`
@@ -108,9 +99,9 @@ type s3ObjectLambdaResult struct {
 
 func s3AccessPointKey(account, name string) string { return account + "/" + name }
 
-// s3AccessPointAlias is the DNS label a client addresses an access point by.
-// Real S3 appends a random suffix; the simulator uses the name, which is what
-// makes the alias resolvable back to the access point it names.
+// s3AccessPointAlias is the DNS label a client addresses an access point by. S3
+// appends a random suffix; the simulator uses the name, so the alias resolves
+// back to the access point.
 func s3AccessPointAlias(name, account string) string { return name + "-" + account }
 
 func s3AccessPointARN(account, name string) string {
@@ -182,8 +173,6 @@ var s3ObjectLambdaAccessPointRoutes = []s3ControlRoute{
 func s3ControlError(w http.ResponseWriter, code, message string, status int) {
 	awsWriteError(w, awsErrorEnvelope{Protocol: awsRestXML}, status, code, message, "")
 }
-
-// ── Standard access points ───────────────────────────────────────────────
 
 func handleS3CreateAccessPoint(w http.ResponseWriter, r *http.Request) {
 	account, name := s3ControlAccountID(r), sim.PathParam(r, "name")
@@ -421,8 +410,6 @@ func s3ReadPolicyBody(w http.ResponseWriter, r *http.Request) (string, bool) {
 	}
 	return req.Policy, true
 }
-
-// ── Object Lambda access points ──────────────────────────────────────────
 
 func handleS3CreateAccessPointForObjectLambda(w http.ResponseWriter, r *http.Request) {
 	account, name := s3ControlAccountID(r), sim.PathParam(r, "name")
@@ -668,8 +655,6 @@ func handleS3GetAccessPointPolicyStatusForObjectLambda(w http.ResponseWriter, r 
 		IsPublic bool     `xml:"PolicyStatus>IsPublic"`
 	}{IsPublic: s3PolicyIsPublic(olap.Policy)})
 }
-
-// ── The Object Lambda data path ──────────────────────────────────────────
 
 // s3ObjectLambdaError writes an error on the S3 data plane, where the error
 // document is a bare Error element — the shape an S3 client parses the code

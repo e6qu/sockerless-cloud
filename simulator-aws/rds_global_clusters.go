@@ -16,11 +16,9 @@ func rdsGlobalClusterResourceID() string {
 	return "cluster-" + strings.ToUpper(strings.ReplaceAll(sim.NewUUID(), "-", ""))[:26]
 }
 
-// renderRDSGlobalCluster renders a global cluster wrapped in the given
-// element name. CreateGlobalCluster et al. return a single
-// <GlobalCluster> member, while the DescribeGlobalClusters list element
-// is named <GlobalClusterMember> (per the GlobalClusterList xmlName in
-// the RDS model).
+// renderRDSGlobalCluster renders a global cluster inside elem: the
+// single-resource operations return <GlobalCluster>, and DescribeGlobalClusters
+// names list elements <GlobalClusterMember> (the GlobalClusterList xmlName).
 func renderRDSGlobalCluster(g RDSGlobalCluster, elem string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "<%s>", elem)

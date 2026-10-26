@@ -12,22 +12,12 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// This file implements the S3 surfaces that sit outside the generic
-// bucket/object-subresource families: S3 Metadata configurations (the
-// V2 ?metadataConfiguration feature and the legacy V1 ?metadataTable
-// feature), attribute-based access control (?abac), object rename
-// (?renameObject), and per-object server-side encryption updates
-// (?encryption).
-
-// s3MetadataConfig holds the S3 Metadata configuration (V2 feature,
-// ?metadataConfiguration) for a single general-purpose bucket. The raw
-// MetadataConfiguration the client POSTed is kept so the synthesized
-// GET result echoes the destination/journal/inventory the client asked
-// for; the table statuses progress to their steady-state ACTIVE value
-// (the sim has no real S3 Tables backend, so the table is reported as
-// created and active, matching what a settled real config returns).
+// s3MetadataConfig holds a bucket's S3 Metadata configuration
+// (?metadataConfiguration) and echoes the destination, journal and inventory the
+// client asked for. No S3 Tables backend runs, so the tables report created and
+// ACTIVE.
 type s3MetadataConfig struct {
-	// JournalEnabled is always true (the journal table is required).
+	// Always true: the journal table is required.
 	JournalRecordExpirationDays int
 	// InventoryEnabled mirrors the InventoryTableConfiguration's
 	// ConfigurationState (ENABLED/DISABLED), empty when no inventory
@@ -41,9 +31,8 @@ type s3MetadataConfig struct {
 	AnnotationRole  string
 }
 
-// s3MetadataTableConfig holds the legacy V1 S3 Metadata table
-// configuration (?metadataTable). It records the customer-managed
-// destination table bucket the client named.
+// s3MetadataTableConfig holds the legacy S3 Metadata table configuration
+// (?metadataTable): the destination table bucket the client named.
 type s3MetadataTableConfig struct {
 	TableBucketArn string
 	TableName      string
@@ -55,11 +44,7 @@ var (
 	s3AbacStatus           sim.Store[string]
 )
 
-// ── S3 Metadata configuration (V2, ?metadataConfiguration) ──────────────
-
-// CreateBucketMetadataConfigurationRequest body shape (the
-// MetadataConfiguration httpPayload). Only the fields the sim echoes
-// back are modeled.
+// The MetadataConfiguration payload, modelled only as far as the simulator echoes it.
 type s3MetadataConfigurationBody struct {
 	XMLName                   xml.Name `xml:"MetadataConfiguration"`
 	JournalTableConfiguration struct {
@@ -310,8 +295,6 @@ func handleS3UpdateBucketMetadataJournalTable(w http.ResponseWriter, r *http.Req
 	w.WriteHeader(http.StatusOK)
 }
 
-// ── S3 Metadata table configuration (V1, ?metadataTable) ────────────────
-
 type s3MetadataTableBody struct {
 	XMLName             xml.Name `xml:"MetadataTableConfiguration"`
 	S3TablesDestination struct {
@@ -401,8 +384,6 @@ func handleS3DeleteBucketMetadataTableConfiguration(w http.ResponseWriter, r *ht
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// ── ABAC (?abac) ────────────────────────────────────────────────────────
-
 type s3AbacStatusBody struct {
 	XMLName xml.Name `xml:"AbacStatus"`
 	Status  string   `xml:"Status"`
@@ -443,7 +424,7 @@ func handleS3GetBucketAbac(w http.ResponseWriter, r *http.Request) {
 	}
 	status, _ := s3AbacStatus.Get(bucket)
 	if status == "" {
-		// Real S3 reports ABAC as Disabled until it is explicitly enabled.
+		// S3 reports ABAC Disabled until it is enabled.
 		status = "Disabled"
 	}
 	var sb strings.Builder
@@ -456,8 +437,6 @@ func handleS3GetBucketAbac(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	_, _ = io.WriteString(w, sb.String())
 }
-
-// ── RenameObject (?renameObject) ────────────────────────────────────────
 
 func handleS3RenameObject(w http.ResponseWriter, r *http.Request) {
 	bucket := sim.PathParam(r, "bucket")
@@ -525,8 +504,6 @@ func s3RenameSourceKey(header string) string {
 	}
 	return decoded[idx+1:]
 }
-
-// ── UpdateObjectEncryption (object ?encryption) ─────────────────────────
 
 type s3ObjectEncryptionBody struct {
 	XMLName xml.Name `xml:"ObjectEncryption"`

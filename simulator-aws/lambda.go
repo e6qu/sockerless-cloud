@@ -19,8 +19,6 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/listq"
 )
 
-// Lambda types
-
 type LambdaFunction struct {
 	FunctionName           string              `json:"FunctionName"`
 	FunctionArn            string              `json:"FunctionArn"`
@@ -56,20 +54,16 @@ type LambdaFunction struct {
 	TracingConfig          map[string]any      `json:"TracingConfig,omitempty"`
 }
 
-// LambdaVpcConfig matches the real Lambda CreateFunction shape. When
-// SubnetIds is set, AWS allocates a Hyperplane ENI per subnet for the
-// function's outbound traffic; the sim allocates an IP from each
-// subnet's CidrBlock so DescribeFunction returns an accurate Ipv4 list.
+// AWS allocates a Hyperplane ENI per subnet for the function's outbound traffic;
+// the simulator allocates an IP from each subnet's CIDR block.
 type LambdaVpcConfig struct {
 	SubnetIds               []string `json:"SubnetIds,omitempty"`
 	SecurityGroupIds        []string `json:"SecurityGroupIds,omitempty"`
 	VpcId                   string   `json:"VpcId,omitempty"`
 	Ipv6AllowedForDualStack bool     `json:"Ipv6AllowedForDualStack,omitempty"`
-	// SubnetIPv4Allocations: one entry per SubnetId, in matching order.
-	// Real Lambda's DescribeFunction doesn't expose ENI IPs directly,
-	// but Hyperplane creates them in the listed subnets — backends that
-	// need to verify ENI provisioning consume this slice. Empty when no
-	// VpcConfig is set on CreateFunction.
+	// SubnetIPv4Allocations holds one IP per SubnetId, in matching order: the
+	// address of the Hyperplane ENI Lambda creates in that subnet, which Lambda's API
+	// does not expose.
 	SubnetIPv4Allocations []string `json:"SubnetIPv4Allocations,omitempty"`
 }
 
@@ -272,7 +266,6 @@ func lambdaNumber(value any) (int, bool) {
 	}
 }
 
-// State store
 var (
 	lambdaFunctions   sim.Store[LambdaFunction]
 	lambdaConcurrency sim.Store[int]
@@ -378,7 +371,6 @@ func registerLambda(srv *sim.Server) {
 	mux.HandleFunc("POST /2017-03-31/tags/{arn...}", cloudTrailRecordedREST("TagResource", "lambda.amazonaws.com", lambdaResource, lambdaEnforced("TagResource", lambdaFunctionResourceARN, handleLambdaTagResource)))
 	mux.HandleFunc("DELETE /2017-03-31/tags/{arn...}", cloudTrailRecordedREST("UntagResource", "lambda.amazonaws.com", lambdaResource, lambdaEnforced("UntagResource", lambdaFunctionResourceARN, handleLambdaUntagResource)))
 
-	// Versions + aliases + permissions + function URL config.
 	mux.HandleFunc("POST /2015-03-31/functions/{name}/versions", cloudTrailRecordedREST("PublishVersion", "lambda.amazonaws.com", lambdaResource, lambdaEnforced("PublishVersion", lambdaFunctionResourceARN, handleLambdaPublishVersion)))
 	mux.HandleFunc("GET /2015-03-31/functions/{name}/versions", cloudTrailRecordedREST("ListVersionsByFunction", "lambda.amazonaws.com", lambdaResource, lambdaEnforced("ListVersionsByFunction", lambdaFunctionResourceARN, handleLambdaListVersions)))
 	mux.HandleFunc("POST /2015-03-31/functions/{name}/aliases", cloudTrailRecordedREST("CreateAlias", "lambda.amazonaws.com", lambdaResource, lambdaEnforced("CreateAlias", lambdaFunctionResourceARN, handleLambdaCreateAlias)))
@@ -395,7 +387,6 @@ func registerLambda(srv *sim.Server) {
 	mux.HandleFunc("DELETE /2021-10-31/functions/{name}/url", cloudTrailRecordedREST("DeleteFunctionUrlConfig", "lambda.amazonaws.com", lambdaResource, lambdaEnforced("DeleteFunctionUrlConfig", lambdaFunctionResourceARN, handleLambdaDeleteFunctionUrlConfig)))
 	mux.HandleFunc("GET /2021-10-31/functions/{name}/urls", cloudTrailRecordedREST("ListFunctionUrlConfigs", "lambda.amazonaws.com", lambdaResource, lambdaEnforced("ListFunctionUrlConfigs", lambdaFunctionResourceARN, handleLambdaListFunctionUrlConfigs)))
 
-	// Event source mappings.
 	mux.HandleFunc("POST /2015-03-31/event-source-mappings", cloudTrailRecordedREST("CreateEventSourceMapping", "lambda.amazonaws.com", nil, lambdaEnforced("CreateEventSourceMapping", nil, handleLambdaCreateEventSourceMapping)))
 	mux.HandleFunc("GET /2015-03-31/event-source-mappings", cloudTrailRecordedREST("ListEventSourceMappings", "lambda.amazonaws.com", nil, lambdaEnforced("ListEventSourceMappings", nil, handleLambdaListEventSourceMappings)))
 	mux.HandleFunc("GET /2015-03-31/event-source-mappings/{uuid}", cloudTrailRecordedREST("GetEventSourceMapping", "lambda.amazonaws.com", nil, lambdaEnforced("GetEventSourceMapping", nil, handleLambdaGetEventSourceMapping)))
@@ -415,14 +406,10 @@ func registerLambda(srv *sim.Server) {
 	restRegisterOp("lambda.amazonaws.com", "GetLayerVersionByArn")
 	mux.HandleFunc("GET /2018-10-31/layers", cloudTrailRecordedRESTDynamic(lambdaLayersEventName, "lambda.amazonaws.com", nil, lambdaEnforcedDynamic(lambdaLayersOpName, nil, handleLambdaListLayers)))
 
-	// Reserved concurrency.
 	mux.HandleFunc("PUT /2017-10-31/functions/{name}/concurrency", cloudTrailRecordedREST("PutFunctionConcurrency", "lambda.amazonaws.com", lambdaResource, lambdaEnforced("PutFunctionConcurrency", lambdaFunctionResourceARN, handleLambdaPutFunctionConcurrency)))
 	mux.HandleFunc("GET /2019-09-30/functions/{name}/concurrency", cloudTrailRecordedREST("GetFunctionConcurrency", "lambda.amazonaws.com", lambdaResource, lambdaEnforced("GetFunctionConcurrency", lambdaFunctionResourceARN, handleLambdaGetFunctionConcurrency)))
 	mux.HandleFunc("DELETE /2017-10-31/functions/{name}/concurrency", cloudTrailRecordedREST("DeleteFunctionConcurrency", "lambda.amazonaws.com", lambdaResource, lambdaEnforced("DeleteFunctionConcurrency", lambdaFunctionResourceARN, handleLambdaDeleteFunctionConcurrency)))
 
-	// Event-invoke config, provisioned concurrency, code-signing configs,
-	// runtime management, account settings, recursion config, and
-	// layer-version permissions.
 	lambdaCSCStore = sim.MakeStore[LambdaCodeSigningConfig](srv.DB(), "lambda_code_signing_configs")
 	registerLambdaExtras2(srv)
 	registerLambdaExtras3(srv)
@@ -571,10 +558,7 @@ func handleLambdaCreateFunction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Real Lambda allocates a Hyperplane ENI per VpcConfig.SubnetId, with
-	// an IP drawn from the subnet's CIDR. Validate the subnet exists and
-	// allocate one IP per subnet up front so DescribeFunction reflects
-	// the real attached-IP list.
+	// Lambda allocates a Hyperplane ENI per subnet; validate each subnet and allocate its IP up front.
 	vpcConfig := req.VpcConfig
 	if vpcConfig != nil {
 		ips, vpcID, vpcErr := prepareLambdaVpcConfig(vpcConfig)
@@ -655,11 +639,11 @@ func lambdaCanAssumeRole(w http.ResponseWriter, role, functionName string) bool 
 	return true
 }
 
-// lambdaDeploymentPackageBytes resolves the deployment archive from the same
-// sources AWS Lambda accepts. Inline ZipFile is base64 on the REST-JSON wire;
-// S3 coordinates address the real Amazon S3 slice in this cloud process.
-// These typed errors preserve AWS's user-facing capitalization when handlers
-// copy the validation message into an InvalidParameterValueException.
+// lambdaDeploymentPackageBytes resolves the deployment archive from the sources
+// AWS Lambda accepts: inline ZipFile (base64 on the wire) or S3 coordinates in
+// this process's Amazon S3. lambdaDeploymentPackageError keeps AWS's
+// capitalization when a handler copies it into an
+// InvalidParameterValueException.
 type lambdaDeploymentPackageError string
 
 func (e lambdaDeploymentPackageError) Error() string {
@@ -973,9 +957,8 @@ func handleLambdaUpdateFunctionConfiguration(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Real Lambda re-allocates Hyperplane ENIs when SubnetIds change.
-	// Validate the new subnets exist before applying any update so a
-	// half-applied configuration can't slip through.
+	// Lambda re-allocates Hyperplane ENIs when SubnetIds change; validate the new
+	// subnets before applying any update.
 	var newAllocations []string
 	var newVpcID string
 	if req.VpcConfig != nil {
@@ -1078,13 +1061,10 @@ func handleLambdaUpdateFunctionConfiguration(w http.ResponseWriter, r *http.Requ
 	sim.WriteJSON(w, http.StatusOK, lambdaConfiguration(fn))
 }
 
-// handleLambdaInvoke implements the AWS Lambda Invoke API. For Image
-// package-type functions, it routes through the Runtime API slice
-// (see lambda_runtime.go): the simulator stands up a
-// per-invocation Runtime API listener, launches the container with
-// AWS_LAMBDA_RUNTIME_API pointing at it, and returns whatever the
-// handler posts back to /response (or /error → X-Amz-Function-Error:
-// Unhandled). Matches real Lambda; no synthetic stdout capture.
+// handleLambdaInvoke runs the function through the Lambda Runtime API
+// (lambda_runtime.go): stand up a per-invocation Runtime API listener, launch the
+// container with AWS_LAMBDA_RUNTIME_API pointing at it, and return what the
+// handler posts to /response, or X-Amz-Function-Error: Unhandled for /error.
 func handleLambdaInvoke(w http.ResponseWriter, r *http.Request) {
 	name := sim.PathParam(r, "name")
 	if name == "" {
@@ -1100,7 +1080,6 @@ func handleLambdaInvoke(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Determine invocation type
 	invocationType := r.Header.Get("X-Amz-Invocation-Type")
 	if invocationType == "" {
 		invocationType = "RequestResponse"
@@ -1158,14 +1137,9 @@ func handleLambdaInvoke(w http.ResponseWriter, r *http.Request) {
 		}
 		w.WriteHeader(http.StatusAccepted)
 	default:
-		// RequestResponse runs both image and ZIP deployment packages through
-		// the same Lambda Runtime API contract their managed runtime speaks.
-		//
-		// aws-sdk-go-v2 gates request-compression via the
-		// `requestcompression` trait; Lambda Invoke isn't in that
-		// set today but has been flagged for future inclusion. If a
-		// caller sends a `Content-Encoding`, fail loud rather than
-		// forward the gzipped envelope into the runtime.
+		// Image and ZIP packages both run through the Lambda Runtime API. A request with
+		// a Content-Encoding fails loudly rather than forward the compressed body into
+		// the runtime.
 		var responseBody []byte
 		var unhandled bool
 		if durableARN != "" {
@@ -1306,7 +1280,6 @@ func handleLambdaListTags(w http.ResponseWriter, r *http.Request) {
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"Tags": tags})
 		return
 	}
-	// Extract function name from ARN
 	name := arn
 	if strings.Contains(arn, ":function:") {
 		parts := strings.SplitN(arn, ":function:", 2)
@@ -1343,18 +1316,9 @@ func (s *lambdaLogSink) WriteLog(line sim.LogLine) {
 	cwIngestWorkloadLogLine(s.logGroup, s.logStream, line.Text, line.Timestamp)
 }
 
-// handleLambdaUntagResource implements DELETE /2017-03-31/tags/{arn}?tagKeys=a&tagKeys=b.
-// Real Lambda's UntagResource takes ARN + list of tag keys to remove;
-// idempotent (deleting a non-existent key returns 204). The sim
-// previously had only GET + POST for this path; sockerless's pool
-// release path calls UntagResource and was getting a generic 405 from
-// the default mux, surfaced as a JSON-decode error in the SDK.
-//
-// Pattern carry-forward: ARN parsing is lenient — the function-name
-// portion is the key, and any account-ID embedded in the ARN is
-// ignored. Matches handleLambdaTagResource's behaviour so a single
-// sim can serve calls with different operator-supplied account IDs
-// (the sim's lambdaArn helper hardcodes 123456789012).
+// handleLambdaUntagResource implements DELETE /2017-03-31/tags/{arn}?tagKeys=…;
+// removing an absent key still returns 204. Like handleLambdaTagResource, key on
+// the function-name part of the ARN and ignore its account ID.
 func handleLambdaUntagResource(w http.ResponseWriter, r *http.Request) {
 	arn := r.PathValue("arn")
 	if uuid, ok := lambdaESMUUIDFromARN(arn); ok {

@@ -8,13 +8,9 @@ import (
 )
 
 // TestParserDepthGuards holds the three recursive-descent parsers to refusing
-// pathologically nested input rather than recursing into it. A Go stack
-// overflow is a fatal error that takes the whole test process with it, so
-// merely reaching the end of this function proves the parsers did not overflow
-// — but that alone would also pass if a guard were removed and the parser
-// happened to accept the input, or answered success on nonsense. Each guard's
-// own refusal is asserted, which is what the guards are for: they exist to turn
-// unbounded recursion into a named error.
+// pathologically nested input with their own named error. A stack overflow would
+// kill the test process, and reaching the end alone would also pass if a guard
+// were removed and the parser accepted the input.
 func TestParserDepthGuards(t *testing.T) {
 	const depth = 500000
 	opens := strings.Repeat("(", depth)

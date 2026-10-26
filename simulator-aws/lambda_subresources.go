@@ -11,11 +11,8 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// LambdaVersion is an immutable snapshot of a function created by
-// PublishVersion. Real Lambda increments the version monotonically
-// from "1"; each version carries the same metadata as the function
-// but with a frozen Code reference and an updated FunctionArn:
-// `arn:aws:lambda:<region>:<account>:function:<name>:<version>`.
+// AWS Lambda numbers versions from "1". A version freezes the code reference,
+// and its FunctionArn carries the version (`...:function:<name>:<version>`).
 type LambdaVersion struct {
 	FunctionName           string                        `json:"FunctionName"`
 	FunctionArn            string                        `json:"FunctionArn"`
@@ -50,7 +47,6 @@ type LambdaVersion struct {
 	TracingConfig          map[string]any                `json:"TracingConfig,omitempty"`
 }
 
-// LambdaAlias maps a name (e.g. "live") to a function version.
 type LambdaAlias struct {
 	AliasArn        string                    `json:"AliasArn"`
 	Name            string                    `json:"Name"`
@@ -64,8 +60,7 @@ type LambdaAliasRoutingConfig struct {
 	AdditionalVersionWeights map[string]float64 `json:"AdditionalVersionWeights,omitempty"`
 }
 
-// LambdaPolicyStatement is one entry in the function's resource-policy
-// document. AddPermission appends, RemovePermission removes by Sid.
+// AddPermission appends a statement; RemovePermission removes it by Sid.
 type LambdaPolicyStatement struct {
 	Sid    string `json:"Sid"`
 	Effect string `json:"Effect"`
@@ -90,10 +85,8 @@ type LambdaFunctionUrlConfig struct {
 	Cors             any    `json:"Cors,omitempty"`
 }
 
-// lambdaVersionExists reports whether the function has a published
-// version with the given ID. `$LATEST` is the implicit always-live
-// version every function carries; explicit IDs must match one
-// PublishVersion call.
+// lambdaVersionExists reports whether fn has version. $LATEST always exists; any
+// other version must come from a PublishVersion call.
 func lambdaVersionExists(fn, version string) bool {
 	if version == "" || version == "$LATEST" {
 		return true
@@ -577,9 +570,9 @@ func handleLambdaRemovePermission(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// lambdaMirrorResourcePolicy mirrors the assembled function policy into the
-// central resource-policy store keyed by the function ARN, so the IAM
-// enforcement gate can resolve it. Clears the entry when no statements remain.
+// lambdaMirrorResourcePolicy mirrors the function policy into the
+// resource-policy store under the function ARN for the enforcement gate, and
+// clears it when no statements remain.
 func lambdaMirrorResourcePolicy(functionArn string, stmts []LambdaPolicyStatement) {
 	if len(stmts) == 0 {
 		iamDeleteResourcePolicy(functionArn)

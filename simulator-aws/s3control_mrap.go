@@ -19,7 +19,6 @@ import (
 // DescribeMultiRegionAccessPointOperation with, and the simulator records the
 // operation and its outcome so the poll reports what actually happened.
 
-// S3MultiRegionAccessPoint is one multi-region endpoint.
 type S3MultiRegionAccessPoint struct {
 	AccountID         string                           `json:"accountId"`
 	Name              string                           `json:"name"`
@@ -48,7 +47,6 @@ type s3PublicAccessBlock struct {
 	RestrictPublicBuckets bool `xml:"RestrictPublicBuckets" json:"restrictPublicBuckets"`
 }
 
-// S3AsyncOperation is one asynchronous control-plane request and its outcome.
 type S3AsyncOperation struct {
 	AccountID       string `json:"accountId"`
 	RequestTokenARN string `json:"requestTokenArn"`

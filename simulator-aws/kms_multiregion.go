@@ -7,12 +7,6 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// KMS multi-region keys, grant retirement, and last-usage. ReplicateKey /
-// UpdatePrimaryRegion implement the multi-region key (MRK) lifecycle;
-// RetireGrant / ListRetirableGrants the grant-retirement surface; and
-// GetKeyLastUsage the recently-added usage-tracking op. These layer on the
-// existing key + grant stores — no new fakery.
-
 func registerKMSMultiRegion(r *AWSRouter, srv *sim.Server) {
 	r.Register("TrentService.RetireGrant", handleKMSRetireGrant)
 	r.Register("TrentService.ListRetirableGrants", handleKMSListRetirableGrants)
@@ -21,9 +15,8 @@ func registerKMSMultiRegion(r *AWSRouter, srv *sim.Server) {
 	r.Register("TrentService.GetKeyLastUsage", handleKMSGetKeyLastUsage)
 }
 
-// kmsMultiRegionConfig builds the MultiRegionConfiguration block real KMS
-// attaches to a multi-region key's metadata: the primary key's region/ARN and
-// the replica regions ReplicateKey has produced.
+// kmsMultiRegionConfig builds the MultiRegionConfiguration AWS KMS attaches to a
+// multi-region key: the primary's Region and ARN and the replica Regions.
 func kmsMultiRegionConfig(key KMSKey) map[string]any {
 	mrkType := "PRIMARY"
 	if key.PrimaryRegion != "" && key.PrimaryRegion != awsRegion() {
@@ -50,9 +43,9 @@ func kmsMultiRegionConfig(key KMSKey) map[string]any {
 	}
 }
 
-// handleKMSRetireGrant retires a grant, identified either by GrantToken or by
-// GrantId+KeyId. Retiring a grant deletes it (same effect as RevokeGrant but
-// authorized via the RetiringPrincipal). Returns an empty body.
+// handleKMSRetireGrant retires a grant named by GrantToken or by GrantId and
+// KeyId. Retiring deletes the grant, like RevokeGrant, but the
+// RetiringPrincipal authorizes it.
 func handleKMSRetireGrant(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		GrantToken string `json:"GrantToken"`
@@ -88,10 +81,8 @@ func handleKMSRetireGrant(w http.ResponseWriter, r *http.Request) {
 		sim.WriteJSON(w, http.StatusOK, map[string]any{})
 		return
 	}
-	// Retire by GrantToken. The sim issues opaque random grant tokens that it
-	// doesn't bind to a specific grant, so a token-only RetireGrant is honored
-	// as a no-op success (real KMS treats an already-retired/unknown token as
-	// idempotent success too).
+	// The simulator's grant tokens are not bound to a grant, so a token-only
+	// RetireGrant retires nothing and succeeds.
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
@@ -128,9 +119,9 @@ func handleKMSListRetirableGrants(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, resp)
 }
 
-// handleKMSReplicateKey creates a replica of a multi-region key in another
-// region. The replica shares the primary's KeyId (real KMS MRK semantics) and
-// returns its own KeyMetadata scoped to the replica region.
+// handleKMSReplicateKey replicates a multi-region key into another Region. The
+// replica shares the primary's KeyId and returns KeyMetadata scoped to the
+// replica Region.
 func handleKMSReplicateKey(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		KeyId         string   `json:"KeyId"`
@@ -245,9 +236,9 @@ func handleKMSUpdatePrimaryRegion(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
-// handleKMSGetKeyLastUsage reports the most recent successful cryptographic
-// operation against a key. If the key has not been used since tracking began,
-// the KeyLastUsage element is omitted (real KMS semantics).
+// handleKMSGetKeyLastUsage reports the key's most recent successful
+// cryptographic operation; a key unused since tracking began omits
+// KeyLastUsage, as AWS KMS does.
 func handleKMSGetKeyLastUsage(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		KeyId string `json:"KeyId"`

@@ -12,12 +12,6 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// This file implements the remaining Lambda control-plane slices the AWS SDK,
-// CLI, and Terraform exercise: function event-invoke configs, provisioned
-// concurrency configs, code-signing configs (account-level + per-function
-// attachment), runtime-management config, account settings, function recursion
-// config, and layer-version permissions.
-
 func registerLambdaExtras2(srv *sim.Server) {
 	mux := srv
 	lambdaEICs = sim.MakeStore[LambdaEventInvokeConfig](srv.DB(), "lambda_event_invoke_configs")
@@ -28,58 +22,44 @@ func registerLambdaExtras2(srv *sim.Server) {
 	lambdaLayerPolicies = sim.MakeStore[lambdaLayerPolicy](srv.DB(), "lambda_layer_policies")
 	lambdaResource := cloudTrailRESTResource("AWS::Lambda::Function", "name", "arn")
 
-	// Function event-invoke config (async invoke retry/age/destinations).
 	mux.HandleFunc("PUT /2019-09-25/functions/{name}/event-invoke-config", cloudTrailRecordedREST("PutFunctionEventInvokeConfig", "lambda.amazonaws.com", lambdaResource, lambdaEnforced("PutFunctionEventInvokeConfig", lambdaFunctionResourceARN, handleLambdaPutFunctionEventInvokeConfig)))
 	mux.HandleFunc("GET /2019-09-25/functions/{name}/event-invoke-config", cloudTrailRecordedREST("GetFunctionEventInvokeConfig", "lambda.amazonaws.com", lambdaResource, lambdaEnforced("GetFunctionEventInvokeConfig", lambdaFunctionResourceARN, handleLambdaGetFunctionEventInvokeConfig)))
 	mux.HandleFunc("POST /2019-09-25/functions/{name}/event-invoke-config", cloudTrailRecordedREST("UpdateFunctionEventInvokeConfig", "lambda.amazonaws.com", lambdaResource, lambdaEnforced("UpdateFunctionEventInvokeConfig", lambdaFunctionResourceARN, handleLambdaUpdateFunctionEventInvokeConfig)))
 	mux.HandleFunc("DELETE /2019-09-25/functions/{name}/event-invoke-config", cloudTrailRecordedREST("DeleteFunctionEventInvokeConfig", "lambda.amazonaws.com", lambdaResource, lambdaEnforced("DeleteFunctionEventInvokeConfig", lambdaFunctionResourceARN, handleLambdaDeleteFunctionEventInvokeConfig)))
 	mux.HandleFunc("GET /2019-09-25/functions/{name}/event-invoke-config/list", cloudTrailRecordedREST("ListFunctionEventInvokeConfigs", "lambda.amazonaws.com", lambdaResource, lambdaEnforced("ListFunctionEventInvokeConfigs", lambdaFunctionResourceARN, handleLambdaListFunctionEventInvokeConfigs)))
 
-	// Provisioned concurrency config (per qualifier).
 	mux.HandleFunc("PUT /2019-09-30/functions/{name}/provisioned-concurrency", cloudTrailRecordedREST("PutProvisionedConcurrencyConfig", "lambda.amazonaws.com", lambdaResource, lambdaEnforced("PutProvisionedConcurrencyConfig", lambdaFunctionResourceARN, handleLambdaPutProvisionedConcurrencyConfig)))
 	mux.HandleFunc("GET /2019-09-30/functions/{name}/provisioned-concurrency", cloudTrailRecordedRESTDynamic(func(r *http.Request, _ []byte) string { return lambdaProvisionedConcurrencyOpName(r) }, "lambda.amazonaws.com", lambdaResource, lambdaEnforcedDynamic(lambdaProvisionedConcurrencyOpName, lambdaFunctionResourceARN, handleLambdaGetProvisionedConcurrencyConfig)))
 	mux.HandleFunc("DELETE /2019-09-30/functions/{name}/provisioned-concurrency", cloudTrailRecordedREST("DeleteProvisionedConcurrencyConfig", "lambda.amazonaws.com", lambdaResource, lambdaEnforced("DeleteProvisionedConcurrencyConfig", lambdaFunctionResourceARN, handleLambdaDeleteProvisionedConcurrencyConfig)))
-	// GetProvisionedConcurrencyConfig and ListProvisionedConcurrencyConfigs
-	// share the base path keyed on ?List=ALL; the SDK serializes that query
-	// param. Go's ServeMux ignores the query when matching, so a distinct
-	// registration would collide with GET above. The GET handler (wrapped by
-	// cloudTrailRecordedRESTDynamic + lambdaEnforcedDynamic above) dispatches
-	// on the List selector instead; register both op names so they land in
-	// the conformance REST registry.
+	// GetProvisionedConcurrencyConfig and ListProvisionedConcurrencyConfigs share
+	// the path, split by ?List=ALL, which ServeMux cannot match on; the GET handler
+	// dispatches on it, so register both operation names.
 	restRegisterOp("lambda.amazonaws.com", "GetProvisionedConcurrencyConfig")
 	restRegisterOp("lambda.amazonaws.com", "ListProvisionedConcurrencyConfigs")
 
-	// Account-level code-signing configs.
 	mux.HandleFunc("POST /2020-04-22/code-signing-configs", cloudTrailRecordedREST("CreateCodeSigningConfig", "lambda.amazonaws.com", nil, lambdaEnforced("CreateCodeSigningConfig", nil, handleLambdaCreateCodeSigningConfig)))
 	mux.HandleFunc("GET /2020-04-22/code-signing-configs", cloudTrailRecordedREST("ListCodeSigningConfigs", "lambda.amazonaws.com", nil, lambdaEnforced("ListCodeSigningConfigs", nil, handleLambdaListCodeSigningConfigs)))
 	mux.HandleFunc("GET /2020-04-22/code-signing-configs/{arn...}", cloudTrailRecordedREST("GetCodeSigningConfig", "lambda.amazonaws.com", nil, lambdaEnforced("GetCodeSigningConfig", nil, handleLambdaGetCodeSigningConfig)))
 	mux.HandleFunc("PUT /2020-04-22/code-signing-configs/{arn...}", cloudTrailRecordedREST("UpdateCodeSigningConfig", "lambda.amazonaws.com", nil, lambdaEnforced("UpdateCodeSigningConfig", nil, handleLambdaUpdateCodeSigningConfig)))
 	mux.HandleFunc("DELETE /2020-04-22/code-signing-configs/{arn...}", cloudTrailRecordedREST("DeleteCodeSigningConfig", "lambda.amazonaws.com", nil, lambdaEnforced("DeleteCodeSigningConfig", nil, handleLambdaDeleteCodeSigningConfig)))
 
-	// Per-function code-signing config attachment.
 	mux.HandleFunc("PUT /2020-06-30/functions/{name}/code-signing-config", cloudTrailRecordedREST("PutFunctionCodeSigningConfig", "lambda.amazonaws.com", lambdaResource, lambdaEnforced("PutFunctionCodeSigningConfig", lambdaFunctionResourceARN, handleLambdaPutFunctionCodeSigningConfig)))
 	mux.HandleFunc("GET /2020-06-30/functions/{name}/code-signing-config", cloudTrailRecordedREST("GetFunctionCodeSigningConfig", "lambda.amazonaws.com", lambdaResource, lambdaEnforced("GetFunctionCodeSigningConfig", lambdaFunctionResourceARN, handleLambdaGetFunctionCodeSigningConfig)))
 	mux.HandleFunc("DELETE /2020-06-30/functions/{name}/code-signing-config", cloudTrailRecordedREST("DeleteFunctionCodeSigningConfig", "lambda.amazonaws.com", lambdaResource, lambdaEnforced("DeleteFunctionCodeSigningConfig", lambdaFunctionResourceARN, handleLambdaDeleteFunctionCodeSigningConfig)))
 
-	// Runtime-management config.
 	mux.HandleFunc("GET /2021-07-20/functions/{name}/runtime-management-config", cloudTrailRecordedREST("GetRuntimeManagementConfig", "lambda.amazonaws.com", lambdaResource, lambdaEnforced("GetRuntimeManagementConfig", lambdaFunctionResourceARN, handleLambdaGetRuntimeManagementConfig)))
 	mux.HandleFunc("PUT /2021-07-20/functions/{name}/runtime-management-config", cloudTrailRecordedREST("PutRuntimeManagementConfig", "lambda.amazonaws.com", lambdaResource, lambdaEnforced("PutRuntimeManagementConfig", lambdaFunctionResourceARN, handleLambdaPutRuntimeManagementConfig)))
 
-	// Account settings.
 	mux.HandleFunc("GET /2016-08-19/account-settings", cloudTrailRecordedREST("GetAccountSettings", "lambda.amazonaws.com", nil, lambdaEnforced("GetAccountSettings", nil, handleLambdaGetAccountSettings)))
 	mux.HandleFunc("GET /2016-08-19/account-settings/", cloudTrailRecordedREST("GetAccountSettings", "lambda.amazonaws.com", nil, lambdaEnforced("GetAccountSettings", nil, handleLambdaGetAccountSettings)))
 
-	// Function recursion config.
 	mux.HandleFunc("GET /2024-08-31/functions/{name}/recursion-config", cloudTrailRecordedREST("GetFunctionRecursionConfig", "lambda.amazonaws.com", lambdaResource, lambdaEnforced("GetFunctionRecursionConfig", lambdaFunctionResourceARN, handleLambdaGetFunctionRecursionConfig)))
 	mux.HandleFunc("PUT /2024-08-31/functions/{name}/recursion-config", cloudTrailRecordedREST("PutFunctionRecursionConfig", "lambda.amazonaws.com", lambdaResource, lambdaEnforced("PutFunctionRecursionConfig", lambdaFunctionResourceARN, handleLambdaPutFunctionRecursionConfig)))
 
-	// Layer-version permissions.
 	mux.HandleFunc("POST /2018-10-31/layers/{layer}/versions/{version}/policy", cloudTrailRecordedREST("AddLayerVersionPermission", "lambda.amazonaws.com", nil, lambdaEnforced("AddLayerVersionPermission", nil, handleLambdaAddLayerVersionPermission)))
 	mux.HandleFunc("GET /2018-10-31/layers/{layer}/versions/{version}/policy", cloudTrailRecordedREST("GetLayerVersionPolicy", "lambda.amazonaws.com", nil, lambdaEnforced("GetLayerVersionPolicy", nil, handleLambdaGetLayerVersionPolicy)))
 	mux.HandleFunc("DELETE /2018-10-31/layers/{layer}/versions/{version}/policy/{statement}", cloudTrailRecordedREST("RemoveLayerVersionPermission", "lambda.amazonaws.com", nil, lambdaEnforced("RemoveLayerVersionPermission", nil, handleLambdaRemoveLayerVersionPermission)))
 }
-
-// Function event-invoke config
 
 type lambdaDestination struct {
 	Destination string `json:"Destination,omitempty"`
@@ -90,7 +70,6 @@ type lambdaDestinationConfig struct {
 	OnFailure *lambdaDestination `json:"OnFailure,omitempty"`
 }
 
-// LambdaEventInvokeConfig mirrors the FunctionEventInvokeConfig shape.
 type LambdaEventInvokeConfig struct {
 	LastModified             float64                  `json:"LastModified"`
 	FunctionArn              string                   `json:"FunctionArn"`
@@ -99,7 +78,7 @@ type LambdaEventInvokeConfig struct {
 	DestinationConfig        *lambdaDestinationConfig `json:"DestinationConfig,omitempty"`
 }
 
-// keyed by "<functionName>:<qualifier>" ($LATEST when no qualifier).
+// Keyed by "<functionName>:<qualifier>", $LATEST without a qualifier.
 var lambdaEICs sim.Store[LambdaEventInvokeConfig]
 
 func lambdaEICKey(name, qualifier string) string {
@@ -231,8 +210,6 @@ func handleLambdaListFunctionEventInvokeConfigs(w http.ResponseWriter, r *http.R
 		"FunctionEventInvokeConfigs": configs,
 	})
 }
-
-// Provisioned concurrency config
 
 // LambdaProvisionedConcurrency is a provisioned concurrency configuration of
 // an alias or version. Where its environments stand is read from the
@@ -406,8 +383,6 @@ func handleLambdaDeleteProvisionedConcurrencyConfig(w http.ResponseWriter, r *ht
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// Code-signing configs (account-level)
-
 type lambdaAllowedPublishers struct {
 	SigningProfileVersionArns []string `json:"SigningProfileVersionArns,omitempty"`
 }
@@ -416,7 +391,6 @@ type lambdaCodeSigningPolicies struct {
 	UntrustedArtifactOnDeployment string `json:"UntrustedArtifactOnDeployment,omitempty"`
 }
 
-// LambdaCodeSigningConfig mirrors the CodeSigningConfig shape.
 type LambdaCodeSigningConfig struct {
 	CodeSigningConfigId  string                     `json:"CodeSigningConfigId"`
 	CodeSigningConfigArn string                     `json:"CodeSigningConfigArn"`
@@ -537,8 +511,6 @@ func handleLambdaListCodeSigningConfigs(w http.ResponseWriter, r *http.Request) 
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"CodeSigningConfigs": stored})
 }
 
-// Per-function code-signing config attachment
-
 type lambdaFunctionCodeSigningConfig struct {
 	FunctionName         string
 	CodeSigningConfigARN string
@@ -603,8 +575,6 @@ func handleLambdaDeleteFunctionCodeSigningConfig(w http.ResponseWriter, r *http.
 	lambdaFnCSC.Delete(name)
 	w.WriteHeader(http.StatusNoContent)
 }
-
-// Runtime-management config
 
 type lambdaRuntimeMgmt struct {
 	FunctionName      string
@@ -682,11 +652,8 @@ func handleLambdaPutRuntimeManagementConfig(w http.ResponseWriter, r *http.Reque
 	sim.WriteJSON(w, http.StatusOK, out)
 }
 
-// Account settings
-
 func handleLambdaGetAccountSettings(w http.ResponseWriter, _ *http.Request) {
-	// Report real usage drawn from the function store; the limits match the
-	// AWS-published defaults so the response shape is faithful.
+	// Report usage from the function store and AWS's published default limits.
 	functions := lambdaFunctions.List()
 	var totalCodeSize int64
 	for _, fn := range functions {
@@ -706,8 +673,6 @@ func handleLambdaGetAccountSettings(w http.ResponseWriter, _ *http.Request) {
 		},
 	})
 }
-
-// Function recursion config
 
 // function name -> RecursiveLoop (Allow|Terminate).
 var lambdaRecursion sim.Store[string]
@@ -749,8 +714,6 @@ func handleLambdaPutFunctionRecursionConfig(w http.ResponseWriter, r *http.Reque
 	lambdaRecursion.Put(name, req.RecursiveLoop)
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"RecursiveLoop": req.RecursiveLoop})
 }
-
-// Layer-version permissions
 
 type lambdaLayerPermission struct {
 	StatementId  string
@@ -917,8 +880,6 @@ func handleLambdaRemoveLayerVersionPermission(w http.ResponseWriter, r *http.Req
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// lambdaParseLayerVersion reads the {version} path label as an int64,
-// emitting a 400 when it isn't numeric.
 func lambdaParseLayerVersion(w http.ResponseWriter, r *http.Request) (int64, bool) {
 	raw := sim.PathParam(r, "version")
 	var v int64

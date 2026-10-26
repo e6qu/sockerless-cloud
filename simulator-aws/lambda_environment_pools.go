@@ -101,7 +101,6 @@ func (r *lambdaEnvironmentRegistry) limitLocked(function string) *funcrt.Limit {
 	return limit
 }
 
-// accountLimit is the account's unreserved concurrency.
 func (r *lambdaEnvironmentRegistry) accountLimit() *funcrt.Limit {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -133,7 +132,6 @@ func (r *lambdaEnvironmentRegistry) pool(fn LambdaFunction) *funcrt.Pool[*lambda
 	return p
 }
 
-// existing is the pool of a function version, if it has one.
 func (r *lambdaEnvironmentRegistry) existing(function, version string) *funcrt.Pool[*lambdaEnvironment] {
 	r.mu.Lock()
 	defer r.mu.Unlock()

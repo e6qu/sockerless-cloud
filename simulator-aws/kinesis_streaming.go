@@ -45,7 +45,6 @@ func kinesisShardSignalKey(partition string) string { return "shard:" + partitio
 
 func kinesisConsumerSignalKey(consumerARN string) string { return "consumer:" + consumerARN }
 
-// kinesisNotifyStream wakes the subscriptions to every shard of a stream.
 func kinesisNotifyStream(stream KinesisStream) {
 	for _, shard := range stream.Shards {
 		kinesisSignals.Announce(kinesisShardSignalKey(kinesisShardRecordKey(stream.StreamName, shard.ShardId)))
@@ -270,17 +269,13 @@ func awsEventStreamInitialResponse(payload []byte) []byte {
 	}, payload)
 }
 
-// kinesisEventStreamFrame encodes one event-stream frame for the given union
-// member name and JSON payload, using the shared awsEventStreamMessage framing.
-// The :event-type header carries the union member name exactly as the smithy
-// model spells it, which is how aws-sdk-go-v2's eventstream decoder dispatches
-// to the matching SubscribeToShardEventStream member type.
+// kinesisEventStreamFrame encodes one event-stream frame. The :event-type header
+// carries the union member name as the Smithy model spells it, which
+// aws-sdk-go-v2 dispatches on.
 func kinesisEventStreamFrame(eventType string, payload any) []byte {
 	body, err := json.Marshal(payload)
 	if err != nil {
-		// A response-stream payload assembled from sim-owned types must always
-		// marshal; an error here is a sim bug, so surface an honest empty frame
-		// body rather than silently corrupting the wire shape.
+		// Payloads built from simulator-owned types always marshal; send an empty body if one does not.
 		body = []byte("{}")
 	}
 	return awsEventStreamMessage(map[string]string{

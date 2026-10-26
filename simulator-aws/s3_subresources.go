@@ -19,9 +19,8 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// S3MultipartUpload tracks an in-flight multipart upload between
-// InitiateMultipartUpload and CompleteMultipartUpload. Each Part is
-// persisted and stitched together on Complete.
+// S3MultipartUpload tracks an upload between CreateMultipartUpload and
+// CompleteMultipartUpload; Complete stitches the persisted parts.
 type S3MultipartUpload struct {
 	UploadID    string
 	Bucket      string
@@ -39,7 +38,7 @@ type S3MultipartUpload struct {
 type s3MultipartPart struct {
 	// Body references the part's contents in s3Bodies, as S3Object.Body does.
 	Body string `json:"body,omitempty"`
-	// LegacyData is where a build before Body kept the contents.
+	// LegacyData holds the contents an older row kept inline.
 	LegacyData []byte `json:"Data,omitempty"`
 	Size       int64  `json:"size,omitempty"`
 	ETag       string
@@ -50,15 +49,11 @@ var (
 	s3ObjectTags       sim.Store[map[string]string] // "bucket/key" → tag map
 )
 
-// handleS3PostObjectDispatch routes POST /{bucket}/{key...} based on
-// the canonical S3 subresource query strings. The wildcard pattern
-// `POST /{bucket}/{key...}` is the most-greedy POST route on the
-// AWS sim's collapsed-port mux; without a known-bucket gate it
-// would shadow any other AWS service whose POST path happens to
-// share the 2+-segment shape (API Gateway v2
-// `POST /v2/apis/{id}/deployments`). The gate routes to NotFound
-// when the first segment isn't a registered bucket so the SDK
-// surfaces a real 404 instead of an S3-shaped InvalidRequest.
+// handleS3PostObjectDispatch routes POST /{bucket}/{key...} by subresource
+// query. That pattern is the greediest POST route on the shared mux and would
+// shadow other services' two-segment POST paths (API Gateway v2
+// `POST /v2/apis/{id}/deployments`), so a first segment that names no bucket
+// gets a 404.
 func handleS3PostObjectDispatch(w http.ResponseWriter, r *http.Request) {
 	if s3PathIsBucketOnly(r) {
 		handleS3PostBucketDispatch(w, r)
@@ -86,16 +81,12 @@ func handleS3PostObjectDispatch(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handleS3PostBucketDispatch handles bucket-level POSTs:
-// `?uploads` lists in-flight multipart uploads, `?delete` is the
-// multi-object delete (already covered elsewhere; surface a friendly
-// 400 if reached without that path).
+// handleS3PostBucketDispatch routes bucket-level POSTs: `?delete`
+// (DeleteObjects), `?metadataConfiguration` and `?metadataTable`.
 func handleS3PostBucketDispatch(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	switch {
 	case q.Has("delete"):
-		// Multi-object delete: parse <Delete><Object><Key>... XML, delete
-		// each, return <DeleteResult><Deleted>...</Deleted></DeleteResult>.
 		handleS3MultiObjectDelete(w, r)
 	case q.Has("metadataConfiguration"):
 		handleS3CreateBucketMetadataConfiguration(w, r)
@@ -109,11 +100,10 @@ func handleS3PostBucketDispatch(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handleS3PutObjectDispatch routes PUT /{bucket}/{key...} based on the
-// special headers and subresource query strings. CopyObject is
-// signaled by `x-amz-copy-source`; UploadPart by `?uploadId` + `?partNumber`;
-// PutObjectTagging by `?tagging`; otherwise PutObject. Known-bucket
-// gate (see handleS3PostObjectDispatch for rationale).
+// handleS3PutObjectDispatch routes PUT /{bucket}/{key...}: x-amz-copy-source is
+// CopyObject, `?uploadId` with `?partNumber` UploadPart, `?tagging`
+// PutObjectTagging, otherwise PutObject. It gates on a known bucket like
+// handleS3PostObjectDispatch.
 func handleS3PutObjectDispatch(w http.ResponseWriter, r *http.Request) {
 	if s3PathIsBucketOnly(r) {
 		handleS3PutBucketDispatch(w, r)
@@ -226,8 +216,6 @@ func handleS3DeleteObjectDispatch(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// ── Multipart upload ─────────────────────────────────────────────────
-
 func handleS3InitiateMultipart(w http.ResponseWriter, r *http.Request) {
 	bucket := sim.PathParam(r, "bucket")
 	key := sim.PathParam(r, "key")
@@ -338,9 +326,9 @@ func handleS3CompleteMultipart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Parse the <CompleteMultipartUpload><Part>...</Part></CompleteMultipartUpload>
-	// XML to learn the order in which to stitch parts. Real S3 verifies
-	// the client-supplied ETag matches the stored one; the sim does too.
+	// Stitch the parts in the order the <CompleteMultipartUpload> document lists
+	// them; S3 checks each client-supplied ETag against the stored one, and so does
+	// the simulator.
 	var req struct {
 		XMLName xml.Name `xml:"CompleteMultipartUpload"`
 		Parts   []struct {
@@ -349,10 +337,8 @@ func handleS3CompleteMultipart(w http.ResponseWriter, r *http.Request) {
 		} `xml:"Part"`
 	}
 	defer r.Body.Close()
-	// CompleteMultipartUpload body is a small fixed-shape XML
-	// document listing part numbers + ETags. aws-sdk-go-v2 sends it
-	// without aws-chunked or gzip framing (no streaming-envelope
-	// header set), so a direct `io.ReadAll` is wire-faithful.
+	// The CompleteMultipartUpload body is a small XML document aws-sdk-go-v2 sends
+	// without aws-chunked or gzip framing, so read it directly.
 	rawBody, err := io.ReadAll(r.Body)
 	if err != nil {
 		S3ErrorXML(w, "IncompleteBody",
@@ -385,9 +371,8 @@ func handleS3CompleteMultipart(w http.ResponseWriter, r *http.Request) {
 				bucket, sim.RequestID(r.Context()), http.StatusBadRequest)
 			return
 		}
-		// Real S3 compares part ETags ignoring the surrounding quotes — the
-		// `aws s3api` CLI's shorthand parser strips them, while the SDK
-		// preserves them; both must validate against the stored quoted ETag.
+		// S3 compares part ETags without their quotes: the CLI's shorthand parser strips
+		// them and the SDK keeps them.
 		if p.ETag != "" && strings.Trim(p.ETag, `"`) != strings.Trim(part.ETag, `"`) {
 			S3ErrorXML(w, "InvalidPart",
 				fmt.Sprintf("ETag mismatch for part %d: got %s want %s", p.PartNumber, p.ETag, part.ETag),
@@ -433,14 +418,9 @@ func handleS3CompleteMultipart(w http.ResponseWriter, r *http.Request) {
 	}
 	s3DeleteUpload(uploadID)
 
-	// The Location field is the real-AWS canonical
-	// `https://<bucket>.s3.amazonaws.com/<key>` URL that the SDK
-	// surfaces as the completed-upload location. aws-sdk-go-v2's
-	// high-level Uploader and terraform-provider-aws treat it as
-	// advertised metadata (bucket+key are the load-bearing fields
-	// for subsequent operations); the sim emits the canonical shape
-	// for fidelity even though the *.s3.amazonaws.com subdomain
-	// resolves to real S3, not the sim.
+	// Location is AWS's `https://<bucket>.s3.amazonaws.com/<key>` URL. Clients treat
+	// it as metadata and use the bucket and key, though the host resolves to AWS
+	// rather than the simulator.
 	result := struct {
 		XMLName  xml.Name `xml:"CompleteMultipartUploadResult"`
 		Xmlns    string   `xml:"xmlns,attr"`
@@ -567,12 +547,8 @@ func handleS3ListMultipartUploads(w http.ResponseWriter, r *http.Request) {
 	WriteXML(w, http.StatusOK, result)
 }
 
-// handleS3ListParts returns the set of uploaded parts for an in-flight
-// multipart upload. aws-sdk-go-v2's `manager.Uploader` calls
-// `ListParts` on every retry path to learn which part numbers have
-// already been uploaded and skip re-sending those — without this
-// route, the retry path issues UploadPart for every part on every
-// retry (correctness-affecting; not just slow).
+// handleS3ListParts returns an in-flight upload's parts; aws-sdk-go-v2's
+// manager.Uploader reads them on retry to skip the parts it already sent.
 func handleS3ListParts(w http.ResponseWriter, r *http.Request) {
 	bucket := sim.PathParam(r, "bucket")
 	key := sim.PathParam(r, "key")
@@ -668,8 +644,6 @@ func parsePositiveQueryInt(raw string, fallback int) int {
 	return n
 }
 
-// ── Object tagging ───────────────────────────────────────────────────
-
 func handleS3PutObjectTagging(w http.ResponseWriter, r *http.Request) {
 	bucket := sim.PathParam(r, "bucket")
 	key := sim.PathParam(r, "key")
@@ -713,10 +687,9 @@ func handleS3PutObjectTagging(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s3SetVersionHeader(w, bucket, version.Object.VersionID)
-	// PUT Object tagging answers 200, which is what the operation's own
-	// smithy.api#http trait declares and what the service returns — unlike the
-	// bucket-level subresources beside it, several of which really do answer
-	// 204. The body is empty either way, so nothing but the code says which.
+	// PutObjectTagging answers 200, as its smithy.api#http trait declares, though
+	// several bucket subresources answer 204; with an empty body the code is the
+	// only difference.
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -759,8 +732,6 @@ func handleS3DeleteObjectTagging(w http.ResponseWriter, r *http.Request) {
 	s3SetVersionHeader(w, bucket, version.Object.VersionID)
 	w.WriteHeader(http.StatusNoContent)
 }
-
-// ── CopyObject ───────────────────────────────────────────────────────
 
 func handleS3CopyObject(w http.ResponseWriter, r *http.Request) {
 	srcBucket, srcKey, ok := s3CopySource(r)
@@ -847,8 +818,6 @@ func handleS3CopyObject(w http.ResponseWriter, r *http.Request) {
 	s3SetVersionHeader(w, dstBucket, stored.VersionID)
 	WriteXML(w, http.StatusOK, result)
 }
-
-// ── Multi-object delete ──────────────────────────────────────────────
 
 // s3ObjectIdentifier is one entry of a DeleteObjects request.
 type s3ObjectIdentifier struct {

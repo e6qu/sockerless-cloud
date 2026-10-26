@@ -18,8 +18,6 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/blobstore"
 )
 
-// S3 types
-
 type S3Bucket struct {
 	Name         string `xml:"Name"`
 	CreationDate string `xml:"CreationDate"`
@@ -43,8 +41,8 @@ type S3Object struct {
 	// object. A row is decoded whole on every read, so the bytes are not in
 	// it.
 	Body string `json:"body,omitempty"`
-	// LegacyData is where a build before Body kept the contents, under the
-	// JSON name they were written with; registerS3 moves them out.
+	// LegacyData holds the contents an older row kept inline, under their original
+	// JSON name; registerS3 moves them out.
 	LegacyData   []byte `json:"Data,omitempty"`
 	ContentType  string
 	ETag         string
@@ -52,9 +50,8 @@ type S3Object struct {
 	Size         int64
 	Metadata     map[string]string
 
-	// ACL holds the raw <AccessControlPolicy> XML body set by
-	// PutObjectAcl (empty until set; GetObjectAcl synthesizes the
-	// canonical owner-FULL_CONTROL ACL when empty).
+	// ACL holds the raw <AccessControlPolicy> PutObjectAcl stored; when it is empty,
+	// GetObjectAcl renders the owner-FULL_CONTROL default.
 	ACL []byte
 	// LegalHoldStatus is the Object Lock legal-hold status ("ON"/"OFF"),
 	// empty when never set.
@@ -64,19 +61,17 @@ type S3Object struct {
 	// when no retention is configured.
 	RetentionMode   string
 	RetainUntilDate string
-	// RestoreInProgress / RestoreExpiryDate track an in-flight or
-	// completed RestoreObject request (Glacier-class restore lifecycle).
+	// RestoreRequested, RestoreInProgress and RestoreExpiryDate track a
+	// RestoreObject request against an archived object.
 	RestoreRequested  bool
 	RestoreInProgress bool
 	RestoreExpiryDate string
-	// SSEAlgorithm / SSEKMSKeyID hold the object's server-side encryption
-	// settings, set by UpdateObjectEncryption. Empty when the object uses
-	// the default (none recorded). Surfaced as the
-	// x-amz-server-side-encryption[-aws-kms-key-id] response headers.
+	// SSEAlgorithm and SSEKMSKeyID hold the encryption UpdateObjectEncryption set,
+	// surfaced as the x-amz-server-side-encryption[-aws-kms-key-id] headers; empty
+	// means none recorded.
 	SSEAlgorithm string
 	SSEKMSKeyID  string
-	// StorageClass is the class the object was written in; empty on a row
-	// written before classes were recorded, which were STANDARD.
+	// StorageClass is the class the object was written in; a row without one was written STANDARD.
 	StorageClass string `json:",omitempty"`
 	// VersionID is the version id S3 assigned the object, empty for the null
 	// version.
@@ -84,8 +79,6 @@ type S3Object struct {
 	// VersionSeq orders a key's versions, the newest highest.
 	VersionSeq int64 `json:",omitempty"`
 }
-
-// XML response types for S3
 
 type s3ListAllMyBucketsResult struct {
 	XMLName xml.Name  `xml:"ListAllMyBucketsResult"`
@@ -130,7 +123,6 @@ type s3CommonPrefix struct {
 	Prefix string `xml:"Prefix"`
 }
 
-// State stores
 var (
 	s3Buckets_ sim.Store[S3Bucket]
 	s3Objects  sim.PrefixStore[S3Object]
@@ -140,10 +132,9 @@ func s3ObjectKey(bucket, key string) string {
 	return bucket + "/" + key
 }
 
-// s3PutServiceObject stores bytes through Amazon Simple Storage Service's
-// object data plane on behalf of another AWS service. Amazon Data Firehose,
-// AWS Private CA audit reports, and certificate-revocation lists use the same
-// durable object representation and notification pipeline as PutObject.
+// s3PutServiceObject stores bytes through the Amazon S3 object data plane on
+// behalf of another AWS service (Amazon Data Firehose, AWS Private CA audit
+// reports and CRLs), with PutObject's representation and notifications.
 func s3PutServiceObject(bucket, key string, body []byte, contentType string, metadata map[string]string) (S3Object, error) {
 	return s3PutObjectIf(bucket, key, bytes.NewReader(body), contentType, metadata, "STANDARD", s3ObjectLock{}, nil)
 }
@@ -291,8 +282,7 @@ func s3PutObjectIf(bucket, key string, body io.Reader, contentType string, metad
 	return obj, nil
 }
 
-// s3BucketARN returns the canonical S3 bucket ARN (no account/region — S3
-// bucket ARNs are global: arn:aws:s3:::bucket-name).
+// s3BucketARN returns the bucket's ARN; S3 bucket ARNs are global (arn:aws:s3:::bucket-name).
 func s3BucketARN(bucket string) string {
 	return "arn:aws:s3:::" + bucket
 }
@@ -319,35 +309,12 @@ func registerS3(srv *sim.Server) {
 
 	mux := srv
 
-	// S3 uses path-style URLs at the root of the endpoint:
-	//   GET    /                       ListBuckets
-	//   PUT    /{bucket}                CreateBucket
-	//   HEAD   /{bucket}                HeadBucket
-	//   DELETE /{bucket}                DeleteBucket
-	//   GET    /{bucket}                ListObjectsV2 / sub-resource dispatch
-	//   PUT    /{bucket}/{key...}       PutObject
-	//   GET    /{bucket}/{key...}       GetObject
-	//   HEAD   /{bucket}/{key...}       HeadObject
-	//   DELETE /{bucket}/{key...}       DeleteObject
-	//
-	// This matches the real S3 wire protocol; stock `aws` CLI / SDK /
-	// Terraform clients work against the published AWS_ENDPOINT_URL
-	// without a path-prefix workaround. Cross-routing notes:
-	//
-	//   - `POST /` is owned by the AWS-JSON / Query-protocol
-	//     dispatcher in main.go; S3 has no POST-at-root operations
-	//     (multi-object delete is `POST /{bucket}?delete`).
-	//   - Other REST services mount under fixed API-version prefixes
-	//     (Lambda /2015-03-31/, EFS /2015-02-01/, CloudFront
-	//     /2020-05-31/, Route 53 /2013-04-01/, Amplify /apps/ +
-	//     /webhooks/). Go's net/http mux gives literal segments
-	//     priority over wildcards, so `PUT /2015-03-31/functions/...`
-	//     reaches Lambda even though `PUT /{bucket}/{key...}` is
-	//     also registered. The only edge case is a bucket name that
-	//     exactly matches one of those API-version literals (e.g.,
-	//     a bucket named "2015-03-31") plus a key whose path aligns
-	//     with the literal route — sim documents this as a known
-	//     edge case rather than rejecting such bucket names.
+	// S3 serves path-style URLs at the endpoint root: GET / is ListBuckets, and PUT,
+	// HEAD, DELETE and GET address /{bucket} and /{bucket}/{key...}. POST / belongs
+	// to the JSON and Query dispatcher in main.go, and S3 has no POST-at-root
+	// operation. Other REST services mount under API-version prefixes, and ServeMux
+	// prefers literal segments, so `PUT /2015-03-31/functions/...` reaches Lambda; a
+	// bucket named after one of those literals is a known collision.
 	s3BucketResource := cloudTrailRESTResource("AWS::S3::Bucket", "bucket")
 	s3ObjectResourceOrBucket := cloudTrailRESTResource("AWS::S3::Object", "key", "bucket")
 	// "/{bucket}/" carries no key and is the bucket itself, so it is recorded
@@ -368,19 +335,13 @@ func registerS3(srv *sim.Server) {
 	mux.HandleFunc("PUT /{bucket}/{key...}", cloudTrailRecordedRESTDynamic(s3ObjectOperationName, "s3.amazonaws.com", s3ObjectResource, s3Enforced(s3ObjectOperationName, handleS3PutObjectDispatch)))
 	mux.HandleFunc("GET /{bucket}/{key...}", cloudTrailRecordedRESTDynamic(s3ObjectOperationName, "s3.amazonaws.com", s3ObjectResource, s3Enforced(s3ObjectOperationName, handleS3GetOrHeadObjectDispatch)))
 	mux.HandleFunc("DELETE /{bucket}/{key...}", cloudTrailRecordedRESTDynamic(s3ObjectOperationName, "s3.amazonaws.com", s3ObjectResource, s3Enforced(s3ObjectOperationName, handleS3DeleteObjectDispatch)))
-	// POST routes for S3 subresource families. Without these, the
-	// catch-all `POST /` in main.go dispatches the request as awsQuery
-	// (looks for an `Action` parameter), which returns the wrong-
-	// protocol `MissingAction` envelope.
+	// Route S3's POST subresources here; otherwise the catch-all `POST /` reads them
+	// as awsQuery and answers MissingAction.
 	mux.HandleFunc("POST /{bucket}/{key...}", cloudTrailRecordedRESTDynamic(s3ObjectOperationName, "s3.amazonaws.com", s3ObjectResource, s3Enforced(s3ObjectOperationName, handleS3PostObjectDispatch)))
 	mux.HandleFunc("POST /{bucket}", cloudTrailRecordedRESTDynamic(s3BucketOperationName, "s3.amazonaws.com", s3BucketResource, s3Enforced(s3BucketOperationName, handleS3PostBucketDispatch)))
-	// HEAD routes intentionally NOT registered: Go's net/http mux
-	// auto-routes HEAD requests to the matching GET handler when no
-	// HEAD-specific handler exists. Registering both forms together
-	// trips the mux's method-coverage conflict detector against
-	// existing literal routes (e.g., `GET /health`). The dispatch
-	// to HeadBucket / HeadObject happens by method check inside the
-	// GET handler.
+	// Register no HEAD routes: ServeMux sends HEAD to the matching GET handler, and
+	// HEAD patterns beside the literal routes (`GET /health`) conflict. The GET
+	// handlers dispatch HEAD by method.
 }
 
 // s3Enforced applies call-time IAM enforcement to an S3 REST handler. The IAM
@@ -390,12 +351,10 @@ func registerS3(srv *sim.Server) {
 // bucket's grants to everyone authorize (s3RefuseAnonymous).
 func s3Enforced(opName func(*http.Request, []byte) string, h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Authenticate the SigV4 signature first. A request that presents no
-		// credential is anonymous, and only what its bucket grants everyone
-		// authorizes it; a present-but-invalid signature is rejected. The
-		// object body is never read here (nil): S3 clients always declare the
-		// payload hash in x-amz-content-sha256, so large uploads are not
-		// buffered.
+		// Authenticate first. A request with no credential is anonymous, and only what
+		// its bucket grants everyone authorizes it; an invalid signature is refused. S3
+		// clients declare the payload hash in x-amz-content-sha256, so the body is never
+		// buffered here.
 		result, serr := sigv4VerifyS3(r, nil)
 		if serr != nil {
 			sigv4WriteS3Error(w, r, serr)
@@ -581,12 +540,11 @@ func s3BucketOperationName(r *http.Request, _ []byte) string {
 }
 
 // s3PathIsBucketOnly reports a path-style request that names a bucket and no
-// key: "/{bucket}/". Go's mux routes it to the "/{bucket}/{key...}" patterns
-// with an empty key, because "/{bucket}" does not match a trailing slash and
-// a "{$}" pattern beside it collides with the fixed "/v2/" prefix another
-// service owns. S3 treats both forms as the bucket -- an empty key is not an
-// object -- and clients send either: aws-sdk-go-v2 1.47 puts the trailing
-// slash on CreateBucket, where earlier versions sent none.
+// key: "/{bucket}/". ServeMux routes it to "/{bucket}/{key...}" with an empty
+// key, because "/{bucket}" does not match a trailing slash and a "{$}" pattern
+// collides with another service's fixed "/v2/" prefix. S3 treats both forms as
+// the bucket, and clients send either (aws-sdk-go-v2 1.47 adds the trailing
+// slash on CreateBucket).
 func s3PathIsBucketOnly(r *http.Request) bool {
 	path := strings.TrimPrefix(r.URL.Path, "/")
 	return strings.HasSuffix(path, "/") && strings.Count(path, "/") == 1
@@ -923,13 +881,8 @@ func handleS3DeleteBucket(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// handleS3GetBucket dispatches GET /s3/{bucket} based on sub-resource
-// query strings. Real S3 uses the query-string (e.g. `?policy`,
-// `?versioning`) to differentiate between ListObjects (no query) and the
-// various Get* / Describe* sub-resources. terraform-provider-aws fans out
-// across many of these on Create+Read to populate the resource's
-// attributes; the sim has to mirror real behaviour for each so the
-// provider's response parsers don't NPE or mis-decode.
+// handleS3GetBucket dispatches GET /{bucket} on the subresource query parameter
+// (`?policy`, `?versioning`), or lists objects when there is none.
 func handleS3GetBucket(w http.ResponseWriter, r *http.Request) {
 	bucket := sim.PathParam(r, "bucket")
 
@@ -939,9 +892,7 @@ func handleS3GetBucket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Sub-resource dispatch. Real S3 treats the presence of any of these
-	// keys (with empty or non-empty value) as the action selector — so
-	// `r.URL.Query().Has(...)` is the right check, not value-based.
+	// S3 selects the action by the key's presence, empty or not, so test with Has.
 	q := r.URL.Query()
 	switch {
 	case q.Has("session"):
@@ -998,13 +949,10 @@ func handleS3GetBucket(w http.ResponseWriter, r *http.Request) {
 		emitStoredOr404(w, r, bucket, "tagging", "NoSuchTagSet", "The TagSet does not exist")
 		return
 	case q.Has("policyStatus"):
-		// PolicyStatus is derived from the stored bucket policy. Real
-		// S3: no policy → 404 NoSuchBucketPolicy; policy present →
-		// IsPublic true iff the policy grants any action to
-		// Principal:"*" without a matching Condition restricting it.
-		// Sim approximation: scan for `"Principal":"*"` or `"AWS":"*"`
-		// substrings — catches the common "public read-bucket" shape
-		// without parsing the full IAM AST.
+		// PolicyStatus derives from the stored bucket policy: no policy is 404
+		// NoSuchBucketPolicy, and IsPublic is set when the policy text names Principal
+		// "*" or "AWS":"*". AWS evaluates the policy, conditions included; this
+		// substring scan does not.
 		policy, _, _, ok := getStoredBucketSubresource(bucket, "policy")
 		if !ok {
 			S3ErrorXML(w, "NoSuchBucketPolicy", "The bucket policy does not exist",
@@ -1075,10 +1023,8 @@ func handleS3GetBucket(w http.ResponseWriter, r *http.Request) {
 		emitStoredOrEmptyXML(w, bucket, "notification", "NotificationConfiguration")
 		return
 	case q.Has("acl"):
-		// Real S3: GetBucketAcl returns the canonical owner-only ACL
-		// even on BucketOwnerEnforced buckets (200, not the 400 that
-		// PutBucketAcl returns). terraform-provider-aws's bucket Read
-		// reads the ACL regardless of ownership-controls state.
+		// GetBucketAcl returns the owner-only ACL even on a BucketOwnerEnforced bucket
+		// (200, where PutBucketAcl answers 400).
 		if body, ct, _, ok := getStoredBucketSubresource(bucket, "acl"); ok {
 			if ct == "" {
 				ct = "application/xml"
@@ -1102,7 +1048,6 @@ func handleS3GetBucket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// ListObjectsV2.
 	prefix := r.URL.Query().Get("prefix")
 	delimiter := r.URL.Query().Get("delimiter")
 	continuationToken := r.URL.Query().Get("continuation-token")
@@ -1181,19 +1126,15 @@ func handleS3PutObject(w http.ResponseWriter, r *http.Request) {
 	}
 
 	defer r.Body.Close()
-	// AWS SDKs switch to aws-chunked encoding when the request body
-	// is non-seekable (io.Pipe, http.Request.Body, streaming
-	// compressors). Real S3 unwraps that framing server-side; the
-	// sim must do the same or it stores the chunk envelope verbatim.
-	// Sentinel: Content-Encoding: aws-chunked, x-amz-content-sha256:
-	// STREAMING-*, or x-amz-decoded-content-length present.
+	// AWS SDKs send aws-chunked framing for a non-seekable body (Content-Encoding:
+	// aws-chunked, x-amz-content-sha256: STREAMING-*, or
+	// x-amz-decoded-content-length); S3 unwraps it, and so must the simulator.
 	var bodyReader io.Reader = r.Body
 	if isAWSChunkedRequest(r.Header) {
 		bodyReader = newAWSChunkedReader(r.Body)
 	}
 	contentType := r.Header.Get("Content-Type")
 
-	// Collect user metadata from x-amz-meta-* headers
 	metadata := make(map[string]string)
 	for k, v := range r.Header {
 		lower := strings.ToLower(k)

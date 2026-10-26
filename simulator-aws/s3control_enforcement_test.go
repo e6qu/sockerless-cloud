@@ -63,7 +63,6 @@ type s3ControlDerivationCase struct {
 // Every gated S3 Control route, the request a caller makes to it, and what AWS
 // authorizes that request as.
 var s3ControlDerivationCases = []s3ControlDerivationCase{
-	// Standard access points.
 	{pattern: "PUT /v20180820/accesspoint/{name}", params: map[string]string{"name": "points"},
 		want: []string{"s3:CreateAccessPoint " + s3ControlAccessPoint}},
 	{pattern: "GET /v20180820/accesspoint/{name}", params: map[string]string{"name": "points"},
@@ -80,7 +79,6 @@ var s3ControlDerivationCases = []s3ControlDerivationCase{
 	{pattern: "GET /v20180820/accesspoint/{name}/policyStatus", params: map[string]string{"name": "points"},
 		want: []string{"s3:GetAccessPointPolicyStatus " + s3ControlAccessPoint}},
 
-	// Object Lambda access points.
 	{pattern: "PUT /v20180820/accesspointforobjectlambda/{name}", params: map[string]string{"name": "olap"},
 		want: []string{"s3:CreateAccessPointForObjectLambda " + s3ControlObjectLambda}},
 	{pattern: "GET /v20180820/accesspointforobjectlambda/{name}", params: map[string]string{"name": "olap"},
@@ -102,7 +100,6 @@ var s3ControlDerivationCases = []s3ControlDerivationCase{
 	{pattern: "GET /v20180820/accesspointforobjectlambda/{name}/policyStatus", params: map[string]string{"name": "olap"},
 		want: []string{"s3:GetAccessPointPolicyStatusForObjectLambda " + s3ControlObjectLambda}},
 
-	// Access Grants.
 	{pattern: "POST /v20180820/accessgrantsinstance",
 		want: []string{"s3:CreateAccessGrantsInstance " + s3ControlInstance}},
 	{pattern: "GET /v20180820/accessgrantsinstance",
@@ -146,7 +143,6 @@ var s3ControlDerivationCases = []s3ControlDerivationCase{
 	{pattern: "GET /v20180820/accessgrantsinstance/dataaccess",
 		want: []string{"s3:GetDataAccess " + s3ControlInstance}},
 
-	// Batch Operations.
 	{pattern: "POST /v20180820/jobs", want: []string{"s3:CreateJob *"}},
 	{pattern: "GET /v20180820/jobs", want: []string{"s3:ListJobs *"}},
 	{pattern: "GET /v20180820/jobs/{jobId}", params: map[string]string{"jobId": "j-1"},
@@ -162,7 +158,6 @@ var s3ControlDerivationCases = []s3ControlDerivationCase{
 	{pattern: "DELETE /v20180820/jobs/{jobId}/tagging", params: map[string]string{"jobId": "j-1"},
 		want: []string{"s3:DeleteJobTagging " + s3ControlJob}},
 
-	// Multi-Region Access Points.
 	{pattern: "POST /v20180820/async-requests/mrap/create", body: s3ControlMultiRegionXML,
 		want: []string{"s3:CreateMultiRegionAccessPoint " + s3ControlMultiRegion}},
 	{pattern: "POST /v20180820/async-requests/mrap/delete",
@@ -185,7 +180,6 @@ var s3ControlDerivationCases = []s3ControlDerivationCase{
 	{pattern: "PATCH /v20180820/mrap/instances/{name}/routes", params: map[string]string{"name": "reports"},
 		want: []string{"s3:SubmitMultiRegionAccessPointRoutes " + s3ControlMultiRegion}},
 
-	// Storage Lens.
 	{pattern: "PUT /v20180820/storagelens/{configId}", params: map[string]string{"configId": "sl-1"},
 		want: []string{"s3:PutStorageLensConfiguration *"}},
 	{pattern: "GET /v20180820/storagelens/{configId}", params: map[string]string{"configId": "sl-1"},
@@ -231,7 +225,6 @@ var s3ControlDerivationCases = []s3ControlDerivationCase{
 		want: []string{"s3express:ListAccessPointsForDirectoryBuckets *"}},
 	{pattern: "GET /v20180820/bucket", want: []string{"s3-outposts:ListRegionalBuckets *"}},
 
-	// The shared tagging trio, authorized against the ARN it names.
 	{pattern: "POST /v20180820/tags/{resourceArn...}", params: map[string]string{"resourceArn": s3ControlTaggedBucket},
 		want: []string{"s3:TagResource " + s3ControlTaggedBucket}},
 	{pattern: "DELETE /v20180820/tags/{resourceArn...}", params: map[string]string{"resourceArn": s3ControlLensGroup},
@@ -369,10 +362,8 @@ func TestS3ControlRoutesAuthorizeWhatTheReferenceDeclares(t *testing.T) {
 }
 
 // s3ControlUngatedRoutes are the control-plane routes that carry no gate, and
-// why each one cannot. A route earns a place here only when no vendored
-// document declares the action its operation is authorized as, or declares a
-// resource this simulator cannot name -- not merely because the action lives
-// outside the s3 namespace, which a route now states for itself.
+// why. A route belongs here only when no vendored document declares its
+// operation's action, or declares a resource the simulator cannot name.
 var s3ControlUngatedRoutes = map[string]string{
 	"DELETE /v20180820/bucket/{bucket}/lifecycleconfiguration": "no vendored document declares an action for the control plane's " +
 		"DeleteBucketLifecycleConfiguration: the s3 reference lists the operation with an empty authorized-action set, and " +

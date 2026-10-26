@@ -67,10 +67,9 @@ func main() {
 	})
 }
 
-// buildSimulator constructs the simulator server and registers every
-// simulated AWS service on it. Split from main so the spec-conformance
-// tests can build the full route / operation table in-process and
-// validate it against the vendored Smithy models (specs/cloud-api/aws/).
+// buildSimulator constructs the server and registers every service. The
+// spec-conformance tests call it to validate the route and operation table
+// against the vendored Smithy models.
 func buildSimulator(cfg sim.Config) (*sim.Server, *AWSRouter, *AWSQueryRouter, error) {
 	return buildSimulatorWithOptions(cfg, simulatorBuildOptions{startBackgroundEvaluators: true})
 }
@@ -92,17 +91,13 @@ func buildSimulatorWithOptions(cfg sim.Config, options simulatorBuildOptions) (*
 	// Innermost, so the writer it scopes is the one every handler receives.
 	srv.WrapHandler(awsErrorModelMiddleware)
 
-	// Runtime wire-shape validation (armed only when
-	// SOCKERLESS_SPEC_VALIDATE is set; see spec_validator.go). Wraps the
-	// handler chain before any host-addressed data plane does: traffic a
-	// data plane intercepts (ELBv2 listeners) is not a Smithy-modeled
-	// surface, and validating it against whatever mux pattern its path
-	// happens to resemble would misattribute it.
+	// Runtime wire-shape validation, armed only when SOCKERLESS_SPEC_VALIDATE is set
+	// (spec_validator.go). The host-addressed data planes wrap outside it: their
+	// traffic (ELBv2 listeners) is no Smithy-modelled surface.
 	if err := armSpecValidator(srv); err != nil {
 		return nil, nil, nil, err
 	}
 
-	// Register AWS JSON services (X-Amz-Target header routing)
 	awsRouter := NewAWSRouter()
 	// Secrets Manager replication restores replica resource policies while its
 	// durable store is opened, so the shared IAM resource-policy store must
@@ -158,7 +153,6 @@ func buildSimulatorWithOptions(cfg sim.Config, options simulatorBuildOptions) (*
 	registerApplicationAutoScaling(awsRouter, srv)
 	registerBudgets(awsRouter, srv)
 
-	// Register AWS Query Protocol services (Action form parameter routing)
 	queryRouter := NewAWSQueryRouter()
 	registerEC2(queryRouter, srv)
 	registerIAM(queryRouter, srv)
@@ -186,15 +180,13 @@ func buildSimulatorWithOptions(cfg sim.Config, options simulatorBuildOptions) (*
 	registerLambdaFunctionURLDataPlane(srv)
 	registerSTSOutboundIssuer(srv)
 
-	// SQS migrated from awsQuery to awsJson1_0 in late 2023. Route
-	// it via the JSON router (X-Amz-Target: AmazonSQS.<Op>).
+	// Amazon SQS speaks awsJson1_0 (X-Amz-Target: AmazonSQS.<Op>).
 	registerSQS(awsRouter, srv)
 	registerSQSMessageMove(awsRouter, srv)
 	registerOrganizations(awsRouter, srv)
 	registerOrganizationsExtra(awsRouter, srv)
 
-	// POST / handler: check X-Amz-Target first (JSON protocol),
-	// fall back to Action parameter (Query Protocol)
+	// Route POST / by X-Amz-Target (JSON protocols), else by the Action parameter (Query protocol).
 	srv.HandleFunc("POST /", func(w http.ResponseWriter, r *http.Request) {
 		// Buffer the request body so the CloudTrail recorder can extract the
 		// resources[] the call acted on after the handler has consumed it.
@@ -205,11 +197,9 @@ func buildSimulatorWithOptions(cfg sim.Config, options simulatorBuildOptions) (*
 			r.Body = io.NopCloser(bytes.NewReader(body))
 		}
 		rec := &cloudTrailStatusRecorder{ResponseWriter: w}
-		// SigV4 authentication: verify the request signature against the
-		// presented principal's stored secret before any identity is trusted.
-		// Runs before authorization so a forged Credential= can never reach
-		// the policy evaluator. Web-identity / SAML assume-role calls are
-		// unsigned by design and exempt.
+		// Verify the SigV4 signature against the principal's stored secret before
+		// authorization, so a forged Credential= never reaches the policy evaluator.
+		// Web identity and SAML assume-role calls are unsigned by design.
 		if !sigv4EnforceControlPlane(rec, r, body) {
 			return
 		}
@@ -228,11 +218,9 @@ func buildSimulatorWithOptions(cfg sim.Config, options simulatorBuildOptions) (*
 		cloudTrailRecordAPICall(srv, r, body, rec.statusCode(), rec.Header(), rec.body.Bytes())
 	})
 
-	// Smithy RPCv2 CBOR services (path-based routing)
 	registerCloudWatchMetrics(srv, options.startBackgroundEvaluators)
 	registerCloudWatchCBORBridge(srv, awsRouter)
 
-	// REST-based services register directly on the server mux
 	registerEFS(srv)
 	registerLambda(srv)
 	registerS3(srv)
@@ -253,7 +241,6 @@ func buildSimulatorWithOptions(cfg sim.Config, options simulatorBuildOptions) (*
 	registerAPIGatewayV2(srv)
 	registerHostMetadata(srv)
 
-	// Batch — REST/JSON protocol (path-based, no X-Amz-Target)
 	registerBatch(srv)
 	if options.startBackgroundEvaluators {
 		if err := recoverECSTasks(); err != nil {
@@ -262,7 +249,6 @@ func buildSimulatorWithOptions(cfg sim.Config, options simulatorBuildOptions) (*
 		recoverECSServiceTasks()
 	}
 
-	// EventBridge Scheduler — REST/JSON protocol (path-based, no X-Amz-Target)
 	registerScheduler(srv)
 
 	if err := registerUI(srv, cfg.ConsoleDir); err != nil {

@@ -9,9 +9,7 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// rdsEventCategories maps each RDS source type to its canonical set of
-// event categories (as published by real RDS). Static-but-real: these
-// values match the AWS-documented categories the SDK/CLI consume.
+// rdsEventCategories maps each RDS source type to the event categories AWS documents for it.
 var rdsEventCategories = []struct {
 	SourceType string
 	Categories []string

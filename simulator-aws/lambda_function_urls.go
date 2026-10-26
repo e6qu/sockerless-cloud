@@ -21,7 +21,6 @@ import (
 // a payload format version 2.0 event, the function runs, and its result
 // becomes the HTTP response.
 
-// lambdaFunctionURLDomain is the domain every function URL's host is under.
 const lambdaFunctionURLDomain = ".on.aws"
 
 // lambdaFunctionURLMaxPayload is the largest request or response body a
@@ -49,7 +48,6 @@ func registerLambdaFunctionURLDataPlane(srv *sim.Server) {
 
 var lambdaURLConfigsByHost sim.GenerationIndex[LambdaFunctionUrlConfig]
 
-// lambdaFunctionURLForHost finds the function whose URL config names host.
 func lambdaFunctionURLForHost(host string) (string, LambdaFunctionUrlConfig, bool) {
 	hostname := lbplane.Hostname(host)
 	if !strings.Contains(hostname, ".lambda-url.") || !strings.HasSuffix(hostname, lambdaFunctionURLDomain) {
@@ -398,8 +396,6 @@ func lambdaFunctionURLWriteStream(w http.ResponseWriter, result []byte) {
 	_, _ = w.Write(result)
 }
 
-// lambdaFunctionURLCors is a URL config's cross-origin resource sharing
-// settings.
 type lambdaFunctionURLCors struct {
 	AllowCredentials bool     `json:"AllowCredentials"`
 	AllowHeaders     []string `json:"AllowHeaders"`

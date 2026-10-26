@@ -12,24 +12,15 @@ import (
 	"time"
 )
 
-// S3 event notifications: on a successful object create/remove, S3 fires the
-// bucket's stored NotificationConfiguration to every configured target (SQS
-// queue, SNS topic, Lambda function) whose Event list matches the event type.
-//
-// Each delivery is authorized against the TARGET's resource-based policy under
-// the AWS-service-initiated IAM context (s3.amazonaws.com originating from the
-// bucket ARN). A target that doesn't admit S3 is dropped, exactly as real AWS
-// silently drops an unauthorized delivery — there is no error back to the
-// PutObject/DeleteObject caller.
-//
-// Real-S3 reference:
-//   https://docs.aws.amazon.com/AmazonS3/latest/userguide/notification-content-structure.html
-//   https://docs.aws.amazon.com/AmazonS3/latest/API/API_PutBucketNotificationConfiguration.html
+// On a successful object create or remove, S3 sends the event to every target
+// of the bucket's NotificationConfiguration (Amazon SQS queue, Amazon SNS topic,
+// AWS Lambda function) whose Event list matches. Each delivery is authorized
+// against the target's resource-based policy as s3.amazonaws.com from the bucket
+// ARN; a target that does not admit S3 is dropped silently, as in AWS.
 
-// s3NotificationConfiguration mirrors the wire shape of the
-// NotificationConfiguration document S3 stores under `?notification`. The
-// element names (Queue / Topic / CloudFunction, Event) are the AWS S3 REST API
-// wire names — the same the aws-sdk-go-v2 serializer emits.
+// s3NotificationConfiguration is the NotificationConfiguration document S3
+// stores under `?notification`, with the wire element names aws-sdk-go-v2
+// emits.
 type s3NotificationConfiguration struct {
 	XMLName               xml.Name                  `xml:"NotificationConfiguration"`
 	QueueConfigurations   []s3QueueNotification     `xml:"QueueConfiguration"`
@@ -58,9 +49,7 @@ type s3LambdaNotification struct {
 	Events        []string `xml:"Event"`
 }
 
-// s3LambdaNotificationAlt accepts the LambdaFunctionConfiguration /
-// LambdaFunctionArn spelling some clients/docs use as an alias for the same
-// Lambda target.
+// s3LambdaNotificationAlt accepts the LambdaFunctionConfiguration/LambdaFunctionArn spelling of the same target.
 type s3LambdaNotificationAlt struct {
 	ID            string   `xml:"Id"`
 	CloudFunction string   `xml:"LambdaFunctionArn"`
@@ -92,9 +81,8 @@ func s3EventListMatches(configured []string, occurred string) bool {
 	return false
 }
 
-// s3EventNotificationJSON builds a faithful S3 event-notification record for the
-// given bucket/key and concrete event name (e.g. "ObjectCreated:Put"). The shape
-// matches the real S3 Records[].s3 document.
+// s3EventNotificationJSON builds an S3 event-notification record (Records[].s3)
+// for the object and event ("ObjectCreated:Put").
 func s3EventNotificationJSON(bucket, key, eventName, etag string, size int64, versionID string) string {
 	now := time.Now().UTC().Format("2006-01-02T15:04:05.000Z")
 	object := map[string]any{
@@ -178,9 +166,8 @@ func s3FireObjectNotifications(bucket, key, eventName, etag string, size int64, 
 	}
 }
 
-// s3PublishToTopic delivers an S3 event to an SNS topic by fanning it out to the
-// topic's subscribers in-process (the same path a real SNS Publish takes). The
-// caller has already authorized sns:Publish against the topic policy.
+// s3PublishToTopic fans an S3 event out to the topic's subscribers in-process,
+// as SNS Publish does. The caller has authorized sns:Publish.
 func s3PublishToTopic(topicARN, message string) {
 	msgID := fmt.Sprintf("%016x", time.Now().UnixNano())
 	snsFanout(topicARN, msgID, "Amazon S3 Notification", message, nil)

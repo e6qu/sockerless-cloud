@@ -9,16 +9,10 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// RDS — awsQuery protocol. Surface scoped to the 90th-percentile
-// terraform-provider-aws + SDK lifecycle: CreateDBInstance,
-// DescribeDBInstances (waiter-driven), ModifyDBInstance,
-// DeleteDBInstance, AddTagsToResource, ListTagsForResource,
-// RemoveTagsFromResource, CreateDBSnapshot, DescribeDBSnapshots,
-// DescribeDBSnapshotAttributes, DeleteDBSnapshot, and
-// RestoreDBInstanceFromDBSnapshot. PostgreSQL and MySQL-compatible instances
-// expose their real database wire protocols through managed engine containers;
-// the control plane returns Status=available once their endpoint listener is
-// installed and starts the engine lazily on the first data-plane connection.
+// PostgreSQL and MySQL-compatible instances expose their real database wire
+// protocols through managed engine containers. The control plane reports an
+// instance available once its endpoint listener is installed, and starts the
+// engine on the first data-plane connection.
 
 type RDSInstance struct {
 	DBInstanceIdentifier string
@@ -48,8 +42,7 @@ type RDSInstance struct {
 	// instance's automated backups.
 	AutomatedBackupsReplications []string `json:",omitempty"`
 	Tags                         map[string]string
-	// MasterUserSecret is encrypted under the simulator cloud's AWS-owned RDS
-	// KMS key and is never rendered on the API.
+	// Sealed under the simulator's AWS owned RDS KMS key; never rendered on the API.
 	MasterUserSecret []byte
 	// BackendMasterUserSecret records the password currently installed in the
 	// native database engine. It can temporarily differ from MasterUserSecret
@@ -147,18 +140,8 @@ func rdsRequestedBackupTarget(r *http.Request) string {
 	return "region"
 }
 
-// RDSSnapshot models the canonical RDS DB snapshot state machine:
-//
-//	(CreateDBSnapshot)        → creating
-//	(internal-settle on read) → available
-//	(DeleteDBSnapshot)        → deleted (removed from store)
-//
-// The sim collapses the creating→available transition into an
-// inline-settle: every snapshot row is written with Status=available
-// from the start. See sim-state-machine-completeness skill — when a
-// transition is collapsed, document the choice so future maintainers
-// don't read "available" and assume the transient state doesn't
-// exist on real RDS.
+// RDSSnapshot is creating while its volume is captured, then available, or
+// failed with StatusReason; DeleteDBSnapshot removes it.
 type RDSSnapshot struct {
 	DBSnapshotIdentifier string
 	DBInstanceIdentifier string
@@ -188,10 +171,9 @@ type RDSSnapshot struct {
 	RestoreAttributeValues []string
 	ARN                    string
 	Tags                   map[string]string
-	// MasterUserSecret carries the source instance's encrypted master
-	// credential, so an instance restored from this snapshot can start its
-	// engine with the credentials the data expects — real RDS restores the
-	// master credentials with the data.
+	// The source instance's sealed master credential: Amazon RDS restores the master
+	// credentials with the data, so a restored engine starts under the credentials
+	// the data expects.
 	MasterUserSecret []byte
 }
 
@@ -222,8 +204,7 @@ type RDSCluster struct {
 	PreferredMaintenanceWindow string
 	ARN                        string
 	Tags                       map[string]string
-	// MasterUserSecret is encrypted under the simulator cloud's AWS-owned RDS
-	// KMS key and is never rendered on the API.
+	// Sealed under the simulator's AWS owned RDS KMS key; never rendered on the API.
 	MasterUserSecret                []byte
 	EnableIAMDatabaseAuthentication bool
 	// BackendMasterUserSecret is the password installed in the cluster's
@@ -253,8 +234,7 @@ type RDSCluster struct {
 	RetainAutomatedBackups bool `json:",omitempty"`
 }
 
-// RDSSubnetGroup models a DB subnet group (a named set of VPC subnets
-// RDS places DB instances into).
+// RDSSubnetGroup is a named set of VPC subnets Amazon RDS places DB instances into.
 type RDSSubnetGroup struct {
 	DBSubnetGroupName        string
 	DBSubnetGroupDescription string
@@ -339,9 +319,7 @@ type RDSClusterSnapshot struct {
 	Tags                    map[string]string
 }
 
-// RDSOptionGroup models an option group (a named collection of engine
-// options). Individual options are not simulated; the group is a
-// faithful control-plane row.
+// Options are not simulated; the group is a control-plane row.
 type RDSOptionGroup struct {
 	OptionGroupName                       string
 	OptionGroupDescription                string
@@ -352,10 +330,8 @@ type RDSOptionGroup struct {
 	Tags                                  map[string]string
 }
 
-// RDSGlobalCluster models an Aurora global database cluster — a single
-// control-plane row that links one or more regional DB clusters. The
-// engine is not simulated; Status settles to "available" inline on
-// Create, matching the sim's instance/cluster convention.
+// RDSGlobalCluster is an Aurora global database linking regional DB clusters.
+// The simulator runs no global engine; Status settles to "available" on create.
 type RDSGlobalCluster struct {
 	GlobalClusterIdentifier string
 	GlobalClusterResourceId string
@@ -420,9 +396,7 @@ var (
 	rdsClusterEndpoints   sim.Store[RDSClusterEndpoint]
 )
 
-// rdsAPIVersion is the canonical AWS RDS API version (Query
-// Protocol). Used to disambiguate Action names from other awsQuery
-// services in the AWSQueryRouter dispatch.
+// The RDS Query API version, which tells its Action names apart in AWSQueryRouter.
 const rdsAPIVersion = "2014-10-31"
 
 func registerRDS(r *AWSQueryRouter, srv *sim.Server) {

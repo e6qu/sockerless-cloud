@@ -8,29 +8,19 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// Amazon RDS snapshots carry the instance's data.
+// Amazon RDS snapshots carry the instance's data. An engine keeps its data
+// directory in the volume sockerless-rds-instance_<instance>; a snapshot
+// captures it into sockerless-rds-snapshot_<snapshot>, and a restore clones that
+// into the new instance's volume before its engine first starts. Deleting the
+// snapshot deletes its volume.
 //
-// An instance's engine keeps its data directory in the named volume
-// sockerless-rds-instance_<instance>. Creating a snapshot captures that volume
-// into sockerless-rds-snapshot_<snapshot>, and restoring clones the snapshot volume
-// into the new instance's volume before its engine first starts — so the
-// restored engine boots on the captured data, which is the whole point of a
-// snapshot. Deleting the snapshot deletes its volume.
+// sim.SnapshotVolume captures with one `cp -a --reflink=auto` while the engine's
+// container is frozen, one crash-consistent point in time: a copy-on-write block
+// clone on btrfs, XFS with reflinks or OpenZFS, a full copy elsewhere. The log
+// line below tells an operator which.
 //
-// The capture is sim.SnapshotVolume's single `cp -a --reflink=auto`, run
-// with the engine's container frozen so it holds one crash-consistent point
-// in time: on a
-// container engine whose volume store sits on btrfs, XFS with reflinks, or
-// OpenZFS with block cloning, the capture clones blocks copy-on-write and is
-// effectively instant however large the database; on any other filesystem the
-// same command is a real full copy. The RDS API is identical either way —
-// the filesystem underneath is the deployment's choice, and the log line
-// below is how an operator confirms which they got.
-//
-// On an API-only host (SIM_RUNTIME=process, no container engine) instances
-// themselves are modeled without a running engine, and their snapshots are
-// exactly as modeled as they are: metadata, no volume, the same fidelity tier
-// as everything else on that host.
+// On an API-only host (SIM_RUNTIME=process) instances run no engine, and their
+// snapshots are metadata without a volume.
 
 // rdsVolume names the volume of one RDS resource. The underscore between the
 // kind and the identifier occurs in no RDS identifier, so no two resources of

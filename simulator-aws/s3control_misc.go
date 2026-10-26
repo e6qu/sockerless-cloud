@@ -21,21 +21,12 @@ type s3AccessPointScope struct {
 	Permissions []string `xml:"Permissions>Permission,omitempty" json:"permissions,omitempty"`
 }
 
-// These routes' operations belong to namespaces AWS publishes apart from s3 —
-// an access point's scope and the directory-bucket listing to s3express, the
-// Outposts bucket surface to s3-outposts — so each names the namespace that
-// declares its action, and is authorized against that namespace's own ARN
-// format. A scope is the access point's, which s3express declares its actions
-// against; the two listings declare no resource type at all, so they authorize
-// "*", which is what the reference says rather than a default chosen here.
-//
-// DeleteBucketLifecycleConfiguration stays ungated: no vendored document
-// declares an action for it. The s3 reference lists the operation with an
-// empty authorized-action set, and the s3-outposts reference declares only
-// GetLifecycleConfiguration and PutLifecycleConfiguration, whose resource type
-// is an Outposts bucket — an ARN carrying an OutpostId, which this simulator
-// models nothing of. Gating it as the s3 bucket lifecycle action would refuse
-// exactly the grant real AWS honours for it.
+// These operations belong to namespaces AWS publishes apart from s3 (an access
+// point's scope and the directory-bucket listing to s3express, the Outposts
+// bucket surface to s3-outposts), so each names its namespace and is authorized
+// against that namespace's ARN format. The two listings declare no resource type
+// and authorize "*". DeleteBucketLifecycleConfiguration stays ungated; see
+// s3control_enforcement.go.
 func registerS3ControlMisc(srv *sim.Server) {
 	s3ControlRegister(srv, s3ControlMiscRoutes)
 	srv.HandleFunc("DELETE /v20180820/bucket/{bucket}/lifecycleconfiguration", handleS3DeleteBucketLifecycleConfiguration)

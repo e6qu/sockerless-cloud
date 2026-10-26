@@ -263,7 +263,6 @@ func (e *lambdaEnvironment) currentHandle() placement.Handle {
 	return e.handle
 }
 
-// Exited closes once the environment's current container has exited.
 func (e *lambdaEnvironment) Exited() <-chan struct{} {
 	return e.currentHandle().Exited()
 }

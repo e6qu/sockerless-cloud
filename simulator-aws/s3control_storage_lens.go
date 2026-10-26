@@ -15,7 +15,6 @@ import (
 // configuration — the dashboard document, its tags, and the groups — so that
 // is what the simulator holds, verbatim as the client composed it.
 
-// S3StorageLensConfiguration is one Storage Lens dashboard configuration.
 type S3StorageLensConfiguration struct {
 	AccountID     string            `json:"accountId"`
 	ConfigID      string            `json:"configId"`
@@ -25,7 +24,6 @@ type S3StorageLensConfiguration struct {
 	Tags          map[string]string `json:"tags,omitempty"`
 }
 
-// S3StorageLensGroup is one custom segment of an account's storage.
 type S3StorageLensGroup struct {
 	AccountID  string           `json:"accountId"`
 	Name       string           `json:"name"`

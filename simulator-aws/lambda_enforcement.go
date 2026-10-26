@@ -9,56 +9,34 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// Call-time credential enforcement for Lambda's REST control plane
-// (registerLambda + registerLambdaExtras2/3), mirroring s3Enforced. Real AWS
-// Lambda requires a valid SigV4 signature on every control-plane request
-// (CreateFunction, ListFunctions, Invoke, …) and evaluates the caller's IAM
-// policy for the corresponding lambda: action before dispatching. This does
-// NOT apply to the Lambda Runtime API (/2018-06-01/runtime/...): those routes
-// are served by a separate, per-invocation runtimeAPISidecar mux
-// (lambda_runtime.go) that the function CONTAINER polls as its execution
-// bootstrap — they are never registered on srv/registerLambda and carry no
-// SigV4 signature by design, so they are untouched by this file.
+// Lambda's REST control plane requires a SigV4 signature on every request and
+// evaluates the caller's IAM policy for the lambda: action. The Lambda Runtime
+// API (/2018-06-01/runtime/...) lives on a per-invocation sidecar mux the
+// function container polls, unsigned by design, and never passes through here.
 
-// lambdaEnforced wraps a Lambda REST handler for a single, statically-known
-// operation name with SigV4 authentication + IAM authorization, mirroring
-// s3Enforced's contract: enforcement is a no-op for unregistered/test
-// credentials (the permissive default from iamEnforceREST), so existing
-// SDK/CLI/Terraform Lambda tests using the bootstrap "test"/"test" credential
-// keep working — only a caller with a registered restricted key is blocked.
-// resource resolves the request's target function ARN when the route names
-// one; nil means the operation is account/global-scoped and IAM evaluates it
-// against "*".
+// lambdaEnforced wraps a Lambda REST handler for one operation with SigV4
+// authentication and IAM authorization. An unregistered credential is allowed,
+// as iamEnforceREST allows it. resource resolves the target function ARN; nil
+// evaluates the operation against "*".
 func lambdaEnforced(op string, resource func(*http.Request) string, h http.HandlerFunc) http.HandlerFunc {
 	return lambdaEnforcedDynamic(func(*http.Request) string { return op }, resource, h)
 }
 
-// lambdaEnforcedDynamic is lambdaEnforced for the two routes whose operation
-// name depends on a query selector rather than the path alone (GET
-// /2018-10-31/layers serves ListLayers or GetLayerVersionByArn; GET
-// .../provisioned-concurrency serves GetProvisionedConcurrencyConfig or
-// ListProvisionedConcurrencyConfigs), so the correct lambda: action is
-// resolved per request instead of once at registration time.
+// lambdaEnforcedDynamic resolves the operation per request for the routes a
+// query selector splits: GET /2018-10-31/layers (ListLayers or
+// GetLayerVersionByArn) and GET .../provisioned-concurrency (Get or List).
 func lambdaEnforcedDynamic(opFn func(*http.Request) string, resource func(*http.Request) string, h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Buffer the body so its real SHA-256 can be recomputed for the
-		// canonical request. Unlike S3 (whose clients always declare the
-		// payload hash in x-amz-content-sha256, so the handler never needs to
-		// read the body), the Lambda SDK's REST-JSON protocol does not set
-		// that header — the signer hashes the actual payload in-memory — so
-		// the gate must hash the real body itself or every signed
-		// CreateFunction/UpdateFunctionCode/etc. call would fail to verify.
+		// Hash the buffered body for the canonical request: unlike Amazon S3 clients,
+		// the Lambda SDK sends no x-amz-content-sha256 header, so its signer hashed the
+		// payload itself.
 		var body []byte
 		if r.Body != nil {
 			body, _ = io.ReadAll(r.Body)
 			_ = r.Body.Close()
 			r.Body = io.NopCloser(bytes.NewReader(body))
 		}
-		// Authenticate the SigV4 signature first. Unlike S3 (which permits
-		// anonymous access for public bucket/object policies), Lambda's
-		// control plane has no anonymous surface: every operation requires a
-		// signed request, so an absent credential is rejected the same as an
-		// invalid one.
+		// Lambda's control plane has no anonymous surface, so an absent credential fails like an invalid one.
 		res, serr := sigv4Verify(r, body)
 		if serr != nil {
 			lambdaWriteSigv4Error(w, serr)
@@ -108,11 +86,9 @@ func lambdaAuthorizationTargets(r *http.Request, op, resource string) []iamAutho
 		iamTagOnCreateTargets(r, "lambda", op, []string{resource})...)
 }
 
-// lambdaIAMAction maps a Lambda REST API operation name to its documented IAM
-// action. Every operation's action is "lambda:" + the operation name except
-// the invoke family, which the AWS documentation lists as all requiring
-// lambda:InvokeFunction regardless of which invoke variant (synchronous,
-// legacy async, or response-streaming) the caller used.
+// lambdaIAMAction maps a Lambda REST operation to its IAM action: "lambda:" plus
+// the operation, except the invoke family, which all require
+// lambda:InvokeFunction.
 func lambdaIAMAction(op string) string {
 	switch op {
 	case "Invoke", "InvokeAsync", "InvokeWithResponseStream":
@@ -122,12 +98,9 @@ func lambdaIAMAction(op string) string {
 	}
 }
 
-// lambdaFunctionResourceARN resolves the target function ARN from a REST
-// route's {name} or {arn} path parameter (the tags routes key on {arn...}
-// where every other function-scoped route keys on {name}), for IAM
-// resource-scoped evaluation. Returns "" when the route names no function —
-// lambdaEnforced then evaluates against "*", the conservative default that
-// never over-denies an account/global-scoped operation.
+// lambdaFunctionResourceARN resolves the target function ARN from {name}, or
+// {arn} on the tags routes, and returns "" when the route names none, which
+// evaluates against "*".
 func lambdaFunctionResourceARN(r *http.Request) string {
 	if arn := sim.PathParam(r, "arn"); arn != "" {
 		return arn
@@ -174,21 +147,15 @@ func lambdaLayersOpName(r *http.Request) string {
 	return lambdaLayersEventName(r, nil)
 }
 
-// lambdaWriteAuthError renders an authentication or authorization failure in
-// Lambda's restJson1 error shape: the x-amzn-Errortype header the AWS SDKs
-// read to classify the exception (also what CloudTrail's error-code
-// extraction reads, so denied calls are recorded with the real error code),
-// plus the __type/message JSON body every other Lambda error in this package
-// already returns via AWSError.
+// lambdaWriteAuthError writes Lambda's restJson1 error: the x-amzn-Errortype
+// header the SDKs and CloudTrail read, and the __type/message body.
 func lambdaWriteAuthError(w http.ResponseWriter, code, message string, status int) {
 	w.Header().Set("X-Amzn-Errortype", code)
 	AWSError(w, code, message, status)
 }
 
-// lambdaWriteSigv4Error renders a SigV4 authentication failure. It reuses the
-// same JSON error-code mapping the control-plane (POST /) gate uses for
-// awsJson services, since Lambda's REST API is JSON-protocol like they are —
-// only the transport (path routing vs. X-Amz-Target) differs.
+// lambdaWriteSigv4Error maps a SigV4 failure through the awsJson error codes,
+// since Lambda's REST API is JSON-protocol too.
 func lambdaWriteSigv4Error(w http.ResponseWriter, serr *sigv4Error) {
 	jsonCode, _ := sigv4ErrorCodes(serr.kind)
 	lambdaWriteAuthError(w, jsonCode, serr.message, http.StatusForbidden)

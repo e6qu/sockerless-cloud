@@ -19,19 +19,8 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/blobstore"
 )
 
-// Object-level S3 subresources that ride on the stored S3Object:
-// ACL, Object Lock legal-hold / retention, GetObjectAttributes,
-// GetObjectTorrent, RestoreObject, and the multipart UploadPartCopy.
-// Each is faithful to the real S3 REST wire shape (the Smithy output
-// shapes in specs/cloud-api/aws/s3.smithy.json.gz) so aws-sdk-go-v2's
-// deserializers and the `aws s3api` CLI parse the responses.
-
-// ── Object ACL ───────────────────────────────────────────────────────
-
-// handleS3PutObjectAcl stores the raw <AccessControlPolicy> body (or the
-// canned-ACL header) on the object. PutObjectAcl's modeled output is
-// empty except for the RequestCharged header, so the success body is
-// empty (200 OK).
+// handleS3PutObjectAcl stores the raw <AccessControlPolicy> body or the canned
+// ACL on the object; PutObjectAcl's output is header-only, so the body is empty.
 func handleS3PutObjectAcl(w http.ResponseWriter, r *http.Request) {
 	bucket := sim.PathParam(r, "bucket")
 	key := sim.PathParam(r, "key")
@@ -58,9 +47,8 @@ func handleS3PutObjectAcl(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-// handleS3GetObjectAcl returns the object ACL. With no ACL ever set the
-// canonical owner-FULL_CONTROL policy is synthesized (real S3 returns
-// that default for objects created without an explicit ACL).
+// handleS3GetObjectAcl returns the object ACL, or, with none set, the
+// owner-FULL_CONTROL default S3 gives an object created without one.
 func handleS3GetObjectAcl(w http.ResponseWriter, r *http.Request) {
 	version, ok := s3AddressedVersion(w, r)
 	if !ok {
@@ -240,13 +228,9 @@ func handleS3GetObjectRetention(w http.ResponseWriter, r *http.Request) {
 	WriteXML(w, http.StatusOK, out)
 }
 
-// ── GetObjectAttributes ──────────────────────────────────────────────
-
-// handleS3GetObjectAttributes returns the object metadata selected by the
-// x-amz-object-attributes header. The modeled output's body members are
-// ETag / Checksum / ObjectParts / StorageClass / ObjectSize (the rest are
-// header-bound). Real S3 only emits the elements named in the header; the
-// sim mirrors that so the response stays a valid subset of the shape.
+// handleS3GetObjectAttributes returns the body members (ETag, Checksum,
+// ObjectParts, StorageClass, ObjectSize) x-amz-object-attributes names, and only
+// those, as S3 does.
 func handleS3GetObjectAttributes(w http.ResponseWriter, r *http.Request) {
 	version, ok := s3AddressedVersion(w, r)
 	if !ok {
@@ -254,10 +238,8 @@ func handleS3GetObjectAttributes(w http.ResponseWriter, r *http.Request) {
 	}
 	obj := version.Object
 	s3SetVersionHeader(w, sim.PathParam(r, "bucket"), obj.VersionID)
-	// The x-amz-object-attributes header carries the requested attribute
-	// names. aws-sdk-go-v2 serializes the list as repeated header lines
-	// (one value each); the CLI / botocore comma-joins them into one. Honor
-	// both by splitting every header value on commas.
+	// aws-sdk-go-v2 repeats the x-amz-object-attributes header per value while the
+	// CLI comma-joins them; split every value on commas.
 	want := map[string]bool{}
 	for _, hv := range r.Header.Values("x-amz-object-attributes") {
 		for _, a := range strings.Split(hv, ",") {
@@ -291,13 +273,9 @@ func handleS3GetObjectAttributes(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte(b.String()))
 }
 
-// ── GetObjectTorrent ─────────────────────────────────────────────────
-
-// handleS3GetObjectTorrent returns the BitTorrent metainfo for the object.
-// The output's sole body member is the streaming Body blob (httpPayload),
-// so the response is raw bytes — the sim returns a minimal, well-formed
-// bencoded torrent dictionary referencing the object so SDK/CLI parse a
-// non-empty body without error.
+// handleS3GetObjectTorrent returns a bencoded BitTorrent metainfo dictionary as
+// the raw httpPayload Body. Its info names only the object's length and name: no
+// piece length, pieces or announce URL.
 func handleS3GetObjectTorrent(w http.ResponseWriter, r *http.Request) {
 	key := sim.PathParam(r, "key")
 	version, ok := s3AddressedVersion(w, r)
@@ -306,9 +284,6 @@ func handleS3GetObjectTorrent(w http.ResponseWriter, r *http.Request) {
 	}
 	obj := version.Object
 	s3SetVersionHeader(w, sim.PathParam(r, "bucket"), obj.VersionID)
-	// Bencoded metainfo: a dict with the object length and name. This is
-	// a faithful (minimal) BitTorrent metainfo document, not XML — the
-	// httpPayload Body member carries opaque bytes.
 	torrent := fmt.Sprintf("d4:infod6:lengthi%de4:name%d:%see",
 		obj.Size, len(key), key)
 	w.Header().Set("Content-Type", "application/octet-stream")
@@ -317,12 +292,9 @@ func handleS3GetObjectTorrent(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte(torrent))
 }
 
-// ── RestoreObject ────────────────────────────────────────────────────
-
-// handleS3RestoreObject initiates a restore of an archived object. Real
-// S3 returns 202 Accepted for a newly-initiated restore and 200 OK when a
-// restore is already in progress; RestoreObject's modeled output carries
-// only header-bound members, so the body is empty.
+// handleS3RestoreObject restores an archived object. S3 answers 202 Accepted for
+// a new restore and 200 OK for one already in progress; the output is
+// header-only.
 func handleS3RestoreObject(w http.ResponseWriter, r *http.Request) {
 	bucket := sim.PathParam(r, "bucket")
 	key := sim.PathParam(r, "key")
@@ -393,8 +365,6 @@ func handleS3RestoreObject(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(status)
 }
-
-// ── UploadPartCopy ───────────────────────────────────────────────────
 
 // handleS3UploadPartCopy copies a byte range from the x-amz-copy-source
 // object into a multipart upload part — UploadPart + CopyObject combined.
@@ -499,8 +469,6 @@ func s3CopySource(r *http.Request) (bucket, key string, ok bool) {
 	return bucket, key, ok && bucket != "" && key != ""
 }
 
-// ── ListObjects (V1) ─────────────────────────────────────────────────
-
 type s3ListBucketResultV1 struct {
 	XMLName        xml.Name         `xml:"ListBucketResult"`
 	Xmlns          string           `xml:"xmlns,attr"`
@@ -515,11 +483,9 @@ type s3ListBucketResultV1 struct {
 	CommonPrefixes []s3CommonPrefix `xml:"CommonPrefixes,omitempty"`
 }
 
-// handleS3ListObjectsV1 implements the legacy ListObjects (V1) operation.
-// It mirrors ListObjectsV2's filtering/delimiter/pagination logic but uses
-// the V1 response shape: Marker (request cursor) and NextMarker (the
-// continuation cursor when truncated) replace ContinuationToken, and there
-// is no KeyCount.
+// handleS3ListObjectsV1 serves the legacy ListObjects: ListObjectsV2's filtering
+// and paging in the V1 shape (Marker and NextMarker, no ContinuationToken or
+// KeyCount).
 func handleS3ListObjectsV1(w http.ResponseWriter, r *http.Request, bucket string) {
 	q := r.URL.Query()
 	prefix := q.Get("prefix")
@@ -548,37 +514,20 @@ func handleS3ListObjectsV1(w http.ResponseWriter, r *http.Request, bucket string
 		Contents:       outContents,
 		CommonPrefixes: commonPrefixes,
 	}
-	// NextMarker is only meaningful when a delimiter is in play, but real
-	// S3 also returns it for a truncated non-delimited listing as a
-	// convenience; emit it whenever truncated.
+	// S3 returns NextMarker for any truncated listing, delimited or not.
 	if isTruncated {
 		result.NextMarker = nextMarker
 	}
 	WriteXML(w, http.StatusOK, result)
 }
 
-// ── SelectObjectContent ──────────────────────────────────────────────
-//
-// SelectObjectContent (POST /{bucket}/{key}?select&select-type=2) runs an
-// SQL query over a stored object's bytes and streams the result as the
-// SelectObjectContentEventStream — an application/vnd.amazon.eventstream
-// HTTP body that aws-sdk-go-v2's eventstream decoder reassembles natively.
-//
-// The wire framing matches real S3 exactly:
-//   - one or more Records events (:event-type=Records,
-//     :content-type=application/octet-stream) whose payload is the selected
-//     rows serialized per OutputSerialization;
-//   - one Stats event (:event-type=Stats, :content-type=text/xml) carrying a
-//     <Stats> XML document with real BytesScanned/BytesProcessed/BytesReturned;
-//   - one terminal End event (:event-type=End).
-// Every frame carries :message-type=event.
-//
-// Supported SQL subset: `SELECT * FROM S3Object[ alias]` (case-insensitive).
-// This faithfully echoes every input row, reserialized into the requested
-// OutputSerialization, over both CSV and JSON-Lines input. Projections
-// (`SELECT s._1, s._2 …`) and WHERE filtering are NOT evaluated — rather than
-// fabricate rows that don't match the query, the sim returns a real
-// S3-shaped error for any expression it can't honor faithfully.
+// SelectObjectContent (POST /{bucket}/{key}?select&select-type=2) runs SQL over
+// an object and streams SelectObjectContentEventStream: Records events with the
+// rows per OutputSerialization, one Stats event (BytesScanned, BytesProcessed,
+// BytesReturned) and a terminal End, each with :message-type=event. Only
+// `SELECT * FROM S3Object[ alias]` is evaluated, over CSV and JSON input;
+// projections and WHERE get an S3-shaped error rather than rows that do not
+// match the query.
 
 type selectInputSerialization struct {
 	XMLName xml.Name `xml:"InputSerialization"`
@@ -668,8 +617,7 @@ func handleS3SelectObjectContent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Run the (minimal) S3 Select over the real stored bytes: parse the input
-	// per InputSerialization into rows, then reserialize per OutputSerialization.
+	// Parse the stored bytes per InputSerialization and reserialize them per OutputSerialization.
 	_, content, err := s3OpenObjectData(obj)
 	if err != nil {
 		S3ErrorXML(w, "InternalError", err.Error(), key, sim.RequestID(r.Context()), http.StatusInternalServerError)
@@ -821,10 +769,10 @@ func selectParseJSON(data []byte, jsonType string) ([]selectRow, error) {
 	return rows, nil
 }
 
-// selectSerializeRows reserializes the parsed rows per OutputSerialization.
-// CSV output joins fields with the field delimiter and terminates each row
-// with the record delimiter; JSON output emits one compact JSON value per
-// record delimiter. Defaults match real S3: ',' field, '\n' record.
+// selectSerializeRows reserializes the rows per OutputSerialization: CSV joins
+// fields with the field delimiter and ends each row with the record delimiter,
+// JSON emits one compact value per record delimiter. S3's defaults are a comma
+// and a newline.
 func selectSerializeRows(rows []selectRow, out selectOutputSerialization) []byte {
 	var buf bytes.Buffer
 	if out.JSON != nil {

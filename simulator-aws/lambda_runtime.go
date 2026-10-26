@@ -97,12 +97,9 @@ type runtimeAPISidecar struct {
 	current *lambdaInvocation
 }
 
-// startRuntimeAPISidecar binds a free port on all interfaces, mounts the
-// Runtime API routes, and starts serving in a background goroutine. Must bind
-// to 0.0.0.0 (not 127.0.0.1) because the function container reaches back via
-// the container runtime's bridge gateway on Linux, which is a different
-// interface than loopback. Other platforms use their standard host callback
-// name.
+// startRuntimeAPISidecar binds a free port on all interfaces and serves the
+// Runtime API. It binds 0.0.0.0 because a container on Linux reaches back
+// through the bridge gateway, not loopback.
 func startRuntimeAPISidecar() (*runtimeAPISidecar, error) {
 	ln, err := net.Listen("tcp4", "0.0.0.0:0")
 	if err != nil {
@@ -144,7 +141,6 @@ func startRuntimeAPISidecar() (*runtimeAPISidecar, error) {
 	return s, nil
 }
 
-// Shutdown closes the sidecar once its environment is gone.
 func (s *runtimeAPISidecar) Shutdown() {
 	close(s.closed)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -152,13 +148,10 @@ func (s *runtimeAPISidecar) Shutdown() {
 	_ = s.server.Shutdown(ctx)
 }
 
-// ContainerAddr returns the address the container uses to reach this
-// sidecar.
 func (s *runtimeAPISidecar) ContainerAddr() string {
 	return s.addr
 }
 
-// dispatch queues inv for the runtime's next Next request.
 func (s *runtimeAPISidecar) dispatch(inv *lambdaInvocation) {
 	s.pending <- inv
 }
@@ -212,7 +205,6 @@ func lambdaRuntimeAPIError(w http.ResponseWriter, status int, errorType, message
 	_ = json.NewEncoder(w).Encode(map[string]string{"errorMessage": message, "errorType": errorType})
 }
 
-// invocationFor is the invocation the runtime holds under id.
 func (s *runtimeAPISidecar) invocationFor(id string) (*lambdaInvocation, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -317,10 +309,9 @@ func acquireLambdaRuntimeIP(vpc *LambdaVpcConfig) (subnetID, privateIP string, e
 			return subnetID, ip, nil
 		}
 	}
-	// A Hyperplane ENI supports many simultaneous connections. The local
-	// network substrate needs a distinct interface address for concurrent
-	// containers, so scale the ENI realization from the same configured
-	// subnet rather than falling back to the container runtime's bridge.
+	// A Hyperplane ENI serves many connections, but concurrent containers each need
+	// their own interface address on the local network, so allocate one from the
+	// configured subnet.
 	subnetID = vpc.SubnetIds[0]
 	ip, err := AllocateSubnetIP(subnetID)
 	if err != nil {
@@ -515,26 +506,13 @@ func lambdaInvokeWaitLimit(fn LambdaFunction) time.Duration {
 	return lambdaInitPhaseLimit + time.Duration(lambdaTimeoutSeconds(fn))*time.Second
 }
 
-// lambdaReportLine renders the REPORT entry that closes an invocation.
-//
-// Duration is the Invoke phase alone and Init Duration is reported beside it,
-// which is how Lambda separates the two: its own worked example of a
-// three-second function timing out reports `Duration: 3004.92 ms Billed
-// Duration: 3117 ms … Init Duration: 111.23 ms` — the duration stops at the
-// timeout while the initialisation that preceded it is counted separately.
-// Billed Duration is the two rounded up and added, which reproduces that
-// example (3005 + 112 = 3117) and the two beside it (134 + 80 = 214,
-// 3017 + 84 = 3101).
-//
-// Init Duration is omitted when there is none to report — a warm invocation, or
-// one whose initialisation was retried inside the function timeout and is
-// therefore already inside Duration.
-//
-// Max Memory Used is the memory the execution environment reached, as the
-// container engine accounted for it while the invocation ran, rounded up to the
-// megabyte the field is expressed in. peakBytes is zero when the engine
-// reported no accounting at all, and the entry then omits the field: an absent
-// measurement is reported as absent rather than as a number nothing measured.
+// lambdaReportLine renders the REPORT entry that closes an invocation. Duration
+// is the Invoke phase alone and Init Duration sits beside it; Billed Duration is
+// the two rounded up and added, which reproduces Lambda's own worked examples
+// (3005 + 112 = 3117). Omit Init Duration for a warm invocation, or one whose
+// retried initialisation already falls inside Duration. Max Memory Used is the
+// engine-accounted peak rounded up to the megabyte, omitted when the engine
+// reported none.
 func lambdaReportLine(requestID string, invokeDuration, initDuration time.Duration, memorySize int, peakBytes uint64) string {
 	durationMs := float64(invokeDuration.Microseconds()) / 1000.0
 	billedMs := int64(math.Ceil(durationMs))
@@ -619,7 +597,6 @@ type lambdaServiceError struct {
 	Type   string
 }
 
-// lambdaWriteServiceError answers a request with the service exception.
 func lambdaWriteServiceError(w http.ResponseWriter, e *lambdaServiceError) {
 	if e.Reason == "" {
 		AWSError(w, e.Code, e.Message, e.Status)
@@ -636,7 +613,6 @@ func lambdaWriteServiceError(w http.ResponseWriter, e *lambdaServiceError) {
 	_ = json.NewEncoder(w).Encode(body)
 }
 
-// lambdaErrorPayload renders a Lambda-style error JSON body.
 func lambdaErrorPayload(msg string) []byte {
 	body, _ := json.Marshal(map[string]string{
 		"errorMessage": msg,

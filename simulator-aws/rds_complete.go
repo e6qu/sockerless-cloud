@@ -9,29 +9,12 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// rds_complete.go drives the RDS slice to full operation coverage with
-// the final 14 awsQuery operations the lifecycle/control plane was
-// missing: custom DB engine versions, DB recommendations, DB snapshot
-// tenant databases, Serverless v2 platform versions, valid DB instance
-// modifications, Serverless v1 cluster capacity, option-group option
-// membership, automated-backups cross-region replication, and the
-// global-cluster / read-replica switchover relationships.
-//
-// Every handler does faithful CRUD on a real sim.Store (or mutates an
-// existing RDS store) and renders the exact awsQuery XML shape the RDS
-// smithy model declares. Renderers shared across handlers are factored
-// into small helpers to avoid clone-and-edit drift.
-
-// RDSCustomEngineVersion models a custom DB engine version (CEV) — a
-// named (engine, version) pair built from an installation-files
-// manifest. The build is not simulated; Status settles to "available"
-// inline on Create, matching the sim's instance/cluster convention.
+// RDSCustomEngineVersion is a custom DB engine version built from an
+// installation-files manifest. The simulator runs no build: Status settles to
+// "available" on create.
 type RDSCustomEngineVersion struct {
 	Engine string
-	// CustomDBEngineVersionId is the identifier AWS assigns and carries as the
-	// third part of the version's ARN. It has no request parameter — a caller
-	// names a custom engine version by its engine and version — so it exists
-	// only to make the ARN the one AWS publishes.
+	// CustomDBEngineVersionId is the id AWS assigns and carries as the ARN's third part; no request names it.
 	CustomDBEngineVersionId string
 	EngineVersion           string
 	DBParameterGroupFamily  string
@@ -44,9 +27,7 @@ type RDSCustomEngineVersion struct {
 	Tags                    map[string]string
 }
 
-// RDSRecommendation models an Amazon RDS recommendation against a
-// resource. ModifyDBRecommendation flips its Status (the only
-// user-mutable field on the recommendation lifecycle).
+// ModifyDBRecommendation changes Status, the recommendation's only user-mutable field.
 type RDSRecommendation struct {
 	RecommendationId string
 	ResourceArn      string
@@ -68,17 +49,14 @@ var (
 	rdsClusterCapacities    sim.Store[RDSClusterCapacity]
 )
 
-// RDSOptionGroupOptions holds the option names included on an option
-// group (the RDSOptionGroup type in rds.go carries no Options field, so
-// option membership lives in this side store keyed by group name).
+// RDSOptionGroup carries no Options, so option membership lives in this side store keyed by group name.
 type RDSOptionGroupOptions struct {
 	OptionGroupName string
 	OptionNames     []string
 }
 
-// RDSClusterCapacity holds a Serverless v1 cluster's current capacity
-// (the RDSCluster type carries no capacity field). Keyed by cluster
-// identifier.
+// RDSCluster carries no capacity, so a Serverless v1 cluster's capacity lives
+// here, keyed by cluster identifier.
 type RDSClusterCapacity struct {
 	DBClusterIdentifier string
 	CurrentCapacity     int
@@ -114,12 +92,9 @@ func registerRDSComplete(r *AWSQueryRouter, srv *sim.Server) {
 	r.RegisterVersioned(rdsAPIVersion, "DescribeAccountAttributes", handleRDSDescribeAccountAttributes)
 }
 
-// Account attributes
-
 // rdsAccountQuota is one entry of DescribeAccountAttributes' AccountQuotaList.
-// `Used` is always derived from the simulator's own RDS resources — the same
-// account state DescribeDBInstances and friends serve — so the quota report
-// stays consistent with what the account actually holds.
+// `Used` counts the simulator's own RDS resources, so the report matches what
+// the account holds.
 type rdsAccountQuota struct {
 	Name string
 	Used int64
@@ -139,22 +114,16 @@ func rdsMaxOverAccount[T any](items []T, count func(T) int) int64 {
 	return high
 }
 
-// rdsIsDefaultGroupName reports whether a parameter/option group name is one of
-// the Amazon RDS-owned defaults. RDS reserves the `default.<family>` (parameter
-// groups) and `default:<engine>-<version>` (option groups) name forms for the
-// groups it creates itself, and the DBParameterGroups /
-// DBClusterParameterGroups / OptionGroups quotas count only the account's own
-// nondefault groups.
+// rdsIsDefaultGroupName reports whether name is an RDS-owned default
+// (`default.<family>` parameter groups, `default:<engine>-<version>` option
+// groups); the group quotas count only nondefault groups.
 func rdsIsDefaultGroupName(name string) bool {
 	return strings.HasPrefix(name, "default.") || strings.HasPrefix(name, "default:")
 }
 
-// rdsAccountQuotas builds the AccountQuotaList DescribeAccountAttributes
-// returns. The quota names and their default maxima are the ones Amazon RDS
-// documents for an account (the vendored rds Smithy model enumerates them on
-// the AccountQuota shape and captures the first fifteen, in this order, in its
-// DescribeAccountAttributes example); the used values are counted from the
-// simulator's RDS state.
+// rdsAccountQuotas builds DescribeAccountAttributes' AccountQuotaList: the quota
+// names and default maxima the vendored model's example lists, in its order,
+// with used values counted from the simulator's RDS state.
 func rdsAccountQuotas(region string) []rdsAccountQuota {
 	instances := rdsInstances.List()
 	var allocatedStorage int64
@@ -235,8 +204,6 @@ func rdsAccountQuotas(region string) []rdsAccountQuota {
 	}
 }
 
-// handleRDSDescribeAccountAttributes serves DescribeAccountAttributes, which
-// takes no parameters and returns the account's RDS quotas with current usage.
 func handleRDSDescribeAccountAttributes(w http.ResponseWriter, r *http.Request) {
 	var b strings.Builder
 	b.WriteString("<AccountQuotas>")
@@ -248,12 +215,8 @@ func handleRDSDescribeAccountAttributes(w http.ResponseWriter, r *http.Request) 
 	rdsXMLResponse(w, "DescribeAccountAttributes", b.String(), sim.RequestID(r.Context()))
 }
 
-// Custom DB engine versions
-
-// rdsCustomEngineVersionARN builds the ARN AWS publishes for a custom engine
-// version: "cev:<engine>/<version>/<id>". The identifier is the third part and
-// is not optional — an ARN missing it names nothing, so a policy written
-// against the real resource would not match it.
+// rdsCustomEngineVersionARN builds "cev:<engine>/<version>/<id>"; an ARN without
+// the id names nothing.
 func rdsCustomEngineVersionARN(engine, version, id string) string {
 	return fmt.Sprintf("arn:aws:rds:%s:%s:cev:%s/%s/%s", awsRegion(), awsAccountID(), engine, version, id)
 }
@@ -304,9 +267,8 @@ func handleRDSCreateCustomEngineVersion(w http.ResponseWriter, r *http.Request) 
 		EngineVersion:           version,
 		DBParameterGroupFamily:  engine + strings.SplitN(version, ".", 2)[0],
 		Description:             r.FormValue("Description"),
-		// Inline-settle: real RDS goes through "pending-validation" while
-		// it builds the image; the sim has no build to gate on and emits
-		// the steady-state "available".
+		// RDS validates a new engine version in pending-validation while it builds the
+		// image; the simulator builds none and settles it available.
 		Status:     "available",
 		KMSKeyId:   r.FormValue("KMSKeyId"),
 		ImageId:    r.FormValue("ImageId"),
@@ -355,8 +317,6 @@ func handleRDSDeleteCustomEngineVersion(w http.ResponseWriter, r *http.Request) 
 	rdsXMLResponse(w, "DeleteCustomDBEngineVersion", renderRDSDBEngineVersion(cev), sim.RequestID(r.Context()))
 }
 
-// DB recommendations
-
 // renderRDSRecommendation renders a recommendation wrapped in the given
 // element. DescribeDBRecommendations lists members as <member> (the
 // DBRecommendationList member carries no xmlName), while
@@ -379,12 +339,9 @@ func renderRDSRecommendation(rec RDSRecommendation, elem string) string {
 	return b.String()
 }
 
-// rdsSeedRecommendation lazily materializes a recommendation for a
-// resource ARN. Real RDS generates recommendations asynchronously from
-// engine telemetry; with no engine to observe, the sim derives one
-// deterministic recommendation per resource on first read so the
-// Describe/Modify lifecycle is exercisable end-to-end against real
-// stored state.
+// rdsSeedRecommendation materializes a recommendation for a resource ARN on
+// first read. AWS generates recommendations from engine telemetry; the
+// simulator derives one deterministic recommendation per resource.
 func rdsSeedRecommendation(resourceArn string) RDSRecommendation {
 	id := "rec-" + strings.ToLower(strings.ReplaceAll(sim.NewUUID(), "-", ""))[:17]
 	now := time.Now().UTC().Format(time.RFC3339)
@@ -451,8 +408,6 @@ func handleRDSModifyRecommendation(w http.ResponseWriter, r *http.Request) {
 	rdsXMLResponse(w, "ModifyDBRecommendation", renderRDSRecommendation(rec, "DBRecommendation"), sim.RequestID(r.Context()))
 }
 
-// DB snapshot tenant databases
-
 func handleRDSDescribeSnapshotTenantDatabases(w http.ResponseWriter, r *http.Request) {
 	snapID := r.FormValue("DBSnapshotIdentifier")
 	instFilter := r.FormValue("DBInstanceIdentifier")
@@ -481,7 +436,6 @@ func handleRDSDescribeSnapshotTenantDatabases(w http.ResponseWriter, r *http.Req
 		if !sourceInstances[t.DBInstanceIdentifier] {
 			continue
 		}
-		// Pair every matching source-instance snapshot with the tenant DB.
 		for _, s := range rdsSnapshots.List() {
 			if s.DBInstanceIdentifier != t.DBInstanceIdentifier {
 				continue
@@ -521,12 +475,10 @@ func renderRDSDBSnapshotTenantDatabase(s RDSSnapshot, t RDSTenantDatabase) strin
 	return b.String()
 }
 
-// Serverless v2 platform versions / valid DB instance modifications
-
 func handleRDSDescribeServerlessV2PlatformVersions(w http.ResponseWriter, r *http.Request) {
-	// ServerlessV2PlatformVersionList members carry no xmlName → <member>.
-	// The values mirror the real default Aurora Serverless v2 platform
-	// version table (one enabled default version per query).
+	// Members carry no xmlName, so they serialize as <member>. The values follow
+	// AWS's default Aurora Serverless v2 platform version table, one enabled default
+	// per query.
 	engine := r.FormValue("Engine")
 	if engine == "" {
 		engine = "aurora-postgresql"
@@ -593,8 +545,6 @@ func rdsRange(from, to, step int) string {
 	return fmt.Sprintf("<Range><From>%d</From><To>%d</To><Step>%d</Step></Range>", from, to, step)
 }
 
-// Serverless v1 cluster capacity
-
 func handleRDSModifyCurrentDBClusterCapacity(w http.ResponseWriter, r *http.Request) {
 	id := r.FormValue("DBClusterIdentifier")
 	if _, ok := rdsClusters.Get(id); !ok {
@@ -622,8 +572,6 @@ func handleRDSModifyCurrentDBClusterCapacity(w http.ResponseWriter, r *http.Requ
 	fmt.Fprintf(&b, "<TimeoutAction>%s</TimeoutAction>", xmlEscape(timeoutAction))
 	rdsXMLResponse(w, "ModifyCurrentDBClusterCapacity", b.String(), sim.RequestID(r.Context()))
 }
-
-// Option-group option membership
 
 func handleRDSModifyOptionGroup(w http.ResponseWriter, r *http.Request) {
 	name := r.FormValue("OptionGroupName")
@@ -690,8 +638,6 @@ func rdsInstanceByArn(arn string) (RDSInstance, bool) {
 	return RDSInstance{}, false
 }
 
-// Switchover (global cluster / read replica)
-
 func handleRDSSwitchoverGlobalCluster(w http.ResponseWriter, r *http.Request) {
 	id := r.FormValue("GlobalClusterIdentifier")
 	g, ok := rdsGlobalClusters.Get(id)
@@ -702,9 +648,8 @@ func handleRDSSwitchoverGlobalCluster(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	target := r.FormValue("TargetDbClusterIdentifier")
-	// Switchover promotes the target secondary to writer: move its ARN to
-	// the front of the member list (index 0 is the writer in
-	// renderRDSGlobalCluster).
+	// Promote the target secondary to writer by moving its ARN first;
+	// renderRDSGlobalCluster treats index 0 as the writer.
 	if target != "" {
 		rdsGlobalClusters.Update(id, func(x *RDSGlobalCluster) {
 			for idx, arn := range x.Members {
@@ -761,8 +706,6 @@ func handleRDSSwitchoverReadReplica(w http.ResponseWriter, r *http.Request) {
 	updated, _ := rdsInstances.Get(id)
 	rdsXMLResponse(w, "SwitchoverReadReplica", renderRDSInstance(updated), sim.RequestID(r.Context()))
 }
-
-// small slice helpers
 
 func rdsRemoveString(xs []string, v string) []string {
 	out := xs[:0:0]

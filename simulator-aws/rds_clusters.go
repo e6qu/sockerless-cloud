@@ -412,9 +412,8 @@ func handleRDSDeleteCluster(w http.ResponseWriter, r *http.Request) {
 	rdsXMLResponse(w, "DeleteDBCluster", body, sim.RequestID(r.Context()))
 }
 
-// handleRDSFailoverCluster simulates an Aurora failover. With no engine
-// the cluster stays "available"; the response carries the full
-// DBCluster, which is what waiters and SDK consumers read.
+// handleRDSFailoverCluster returns the cluster unchanged: it promotes no Aurora
+// Replica. The response carries the full DBCluster, which waiters read.
 func handleRDSFailoverCluster(w http.ResponseWriter, r *http.Request) {
 	id := r.FormValue("DBClusterIdentifier")
 	cl, ok := rdsClusters.Get(id)

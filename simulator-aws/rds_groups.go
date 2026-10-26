@@ -172,7 +172,7 @@ func handleRDSDeleteSubnetGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rdsSubnetGroups.Delete(name)
-	// DeleteDBSubnetGroup has an empty result body on real RDS.
+	// DeleteDBSubnetGroup has an empty result body.
 	rdsXMLResponse(w, "DeleteDBSubnetGroup", "", sim.RequestID(r.Context()))
 }
 
@@ -259,7 +259,7 @@ func handleRDSDeleteParamGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rdsParamGroups.Delete(name)
-	// DeleteDBParameterGroup has an empty result body on real RDS.
+	// DeleteDBParameterGroup has an empty result body.
 	rdsXMLResponse(w, "DeleteDBParameterGroup", "", sim.RequestID(r.Context()))
 }
 

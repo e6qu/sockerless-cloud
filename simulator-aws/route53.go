@@ -16,13 +16,10 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// Route 53 — REST + XML, path version /2013-04-01/, namespace
-// https://route53.amazonaws.com/doc/2013-04-01/. Same protocol family
-// as CloudFront and S3 (sim already uses encoding/xml for both).
-// CloudFront's reserved hosted-zone ID is Z2FDTNDATAQYW2 — when
-// aws_route53_record's alias { name = aws_cloudfront_distribution.x.domain_name,
-// zone_id = aws_cloudfront_distribution.x.hosted_zone_id } resolves at
-// apply time, that's the Z2FDTNDATAQYW2 the SDK sends.
+// Amazon Route 53 speaks REST+XML under /2013-04-01/ in the
+// https://route53.amazonaws.com/doc/2013-04-01/ namespace. Z2FDTNDATAQYW2 is
+// Amazon CloudFront's reserved hosted-zone ID, which an alias to a distribution
+// names.
 
 const (
 	r53APIVersion = "2013-04-01"
@@ -217,11 +214,9 @@ var (
 	r53Mu      sync.Mutex // serialises ChangeResourceRecordSets
 )
 
-// r53ZonesByCNAMEName indexes each hosted zone under the CNAME record names it
-// carries. Two services ask the same question of every zone — AWS Certificate
-// Manager polls for the operator's `_acm-challenge` record, and AWS Amplify
-// polls for a subdomain's verification record — and both did it by decoding
-// every zone and every record in the account.
+// r53ZonesByCNAMEName indexes each hosted zone under its CNAME record names, so
+// AWS Certificate Manager's `_acm-challenge` poll and AWS Amplify's verification
+// poll need not decode every zone and record.
 var r53ZonesByCNAMEName sim.GenerationIndex[r53StoredZone]
 
 // r53DNSName canonicalizes a DNS name for comparison: trailing dots are not
@@ -522,7 +517,7 @@ func handleR53DeleteHostedZone(w http.ResponseWriter, r *http.Request) {
 		r53WriteError(w, http.StatusNotFound, "NoSuchHostedZone", "The specified hosted zone does not exist.")
 		return
 	}
-	// Real Route 53 requires the zone to have only NS + SOA records.
+	// Route 53 refuses to delete a zone holding records beyond NS and SOA.
 	userRecords := 0
 	for _, rr := range stored.Records {
 		if rr.Type != "NS" && rr.Type != "SOA" {
@@ -678,10 +673,8 @@ func handleR53ChangeRRSets(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for _, ch := range req.ChangeBatch.Changes {
-		// Real Route 53 stores all names with a trailing dot. The SDK
-		// preserves what the caller sent, so Terraform / aws CLI / SDK
-		// can send either form. Normalise on store so the List filter
-		// can do exact match.
+		// Route 53 stores every name with a trailing dot, and clients send either form;
+		// normalise on store so the List filter matches exactly.
 		if !strings.HasSuffix(ch.ResourceRecordSet.Name, ".") {
 			ch.ResourceRecordSet.Name += "."
 		}
@@ -881,9 +874,7 @@ func handleR53GetChange(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimPrefix(r.PathValue("id"), "/change/")
 	stored, ok := r53Changes.Get(id)
 	if !ok {
-		// Real Route 53 returns INSYNC for any unknown change ID after a
-		// short window (changes are short-lived). Sim does the same so
-		// Terraform's apply-then-poll converges.
+		// Route 53 reports INSYNC for a change ID it no longer tracks; changes are short-lived.
 		r53WriteXML(w, http.StatusOK, R53GetChangeResponse{
 			Xmlns:      r53Namespace,
 			ChangeInfo: R53ChangeInfo{Id: "/change/" + id, Status: "INSYNC", SubmittedAt: r53NowISO()},

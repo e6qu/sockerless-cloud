@@ -12,14 +12,6 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// Route 53 — remaining operation slices: reusable delegation sets, CIDR
-// collections (blocks/locations), DNSSEC key signing keys + per-zone DNSSEC
-// status, traffic policy instances, VPC association authorizations, account /
-// hosted-zone limits, the health-checker IP ranges, last-failure reason,
-// batched tag reads, TestDNSAnswer, and hosted-zone comment/feature updates.
-// All REST + XML on the /2013-04-01/ path, matching the real Route 53 wire
-// shapes the AWS SDK Go v2 + `aws` CLI parse and the smithy model validates.
-
 type r53StoredDelegationSet struct {
 	Set R53ReusableDelegationSet
 }
@@ -50,8 +42,6 @@ var (
 	r53MoreMu          sync.Mutex
 )
 
-// registerRoute53More mounts the remaining Route 53 REST slices on the shared
-// mux. Called once from registerRoute53 in route53.go.
 func registerRoute53More(srv *sim.Server) {
 	r53DelegationSets = sim.MakeStore[r53StoredDelegationSet](srv.DB(), "route53_delegation_sets")
 	r53CidrCollections = sim.MakeStore[r53StoredCidrCollection](srv.DB(), "route53_cidr_collections")
@@ -67,14 +57,12 @@ func registerRoute53More(srv *sim.Server) {
 
 	v := "/" + r53APIVersion
 
-	// Reusable delegation sets
 	srv.HandleFunc("POST "+v+"/delegationset", cloudTrailRecordedREST("CreateReusableDelegationSet", "route53.amazonaws.com", nil, handleR53CreateReusableDelegationSet))
 	srv.HandleFunc("GET "+v+"/delegationset", cloudTrailRecordedREST("ListReusableDelegationSets", "route53.amazonaws.com", nil, handleR53ListReusableDelegationSets))
 	srv.HandleFunc("GET "+v+"/delegationset/{id}", cloudTrailRecordedREST("GetReusableDelegationSet", "route53.amazonaws.com", dsResource, handleR53GetReusableDelegationSet))
 	srv.HandleFunc("DELETE "+v+"/delegationset/{id}", cloudTrailRecordedREST("DeleteReusableDelegationSet", "route53.amazonaws.com", dsResource, handleR53DeleteReusableDelegationSet))
 	srv.HandleFunc("GET "+v+"/reusabledelegationsetlimit/{id}/{type}", cloudTrailRecordedREST("GetReusableDelegationSetLimit", "route53.amazonaws.com", dsResource, handleR53GetReusableDelegationSetLimit))
 
-	// CIDR collections
 	srv.HandleFunc("POST "+v+"/cidrcollection", cloudTrailRecordedREST("CreateCidrCollection", "route53.amazonaws.com", nil, handleR53CreateCidrCollection))
 	srv.HandleFunc("GET "+v+"/cidrcollection", cloudTrailRecordedREST("ListCidrCollections", "route53.amazonaws.com", nil, handleR53ListCidrCollections))
 	srv.HandleFunc("POST "+v+"/cidrcollection/{id}", cloudTrailRecordedREST("ChangeCidrCollection", "route53.amazonaws.com", cidrResource, handleR53ChangeCidrCollection))
@@ -82,7 +70,6 @@ func registerRoute53More(srv *sim.Server) {
 	srv.HandleFunc("GET "+v+"/cidrcollection/{collectionId}", cloudTrailRecordedREST("ListCidrLocations", "route53.amazonaws.com", cidrResource, handleR53ListCidrLocations))
 	srv.HandleFunc("GET "+v+"/cidrcollection/{collectionId}/cidrblocks", cloudTrailRecordedREST("ListCidrBlocks", "route53.amazonaws.com", cidrResource, handleR53ListCidrBlocks))
 
-	// DNSSEC key signing keys + per-zone status
 	srv.HandleFunc("POST "+v+"/keysigningkey", cloudTrailRecordedREST("CreateKeySigningKey", "route53.amazonaws.com", nil, handleR53CreateKeySigningKey))
 	srv.HandleFunc("DELETE "+v+"/keysigningkey/{hostedZoneId}/{name}", cloudTrailRecordedREST("DeleteKeySigningKey", "route53.amazonaws.com", kskResource, handleR53DeleteKeySigningKey))
 	srv.HandleFunc("POST "+v+"/keysigningkey/{hostedZoneId}/{name}/activate", cloudTrailRecordedREST("ActivateKeySigningKey", "route53.amazonaws.com", kskResource, handleR53ActivateKeySigningKey))
@@ -91,7 +78,6 @@ func registerRoute53More(srv *sim.Server) {
 	srv.HandleFunc("POST "+v+"/hostedzone/{hostedZoneId}/disable-dnssec", cloudTrailRecordedREST("DisableHostedZoneDNSSEC", "route53.amazonaws.com", zoneResource, handleR53DisableHostedZoneDNSSEC))
 	srv.HandleFunc("GET "+v+"/hostedzone/{hostedZoneId}/dnssec", cloudTrailRecordedREST("GetDNSSEC", "route53.amazonaws.com", zoneResource, handleR53GetDNSSEC))
 
-	// Traffic policy instances
 	srv.HandleFunc("POST "+v+"/trafficpolicyinstance", cloudTrailRecordedREST("CreateTrafficPolicyInstance", "route53.amazonaws.com", nil, handleR53CreateTrafficPolicyInstance))
 	srv.HandleFunc("GET "+v+"/trafficpolicyinstance/{id}", cloudTrailRecordedREST("GetTrafficPolicyInstance", "route53.amazonaws.com", tpiResource, handleR53GetTrafficPolicyInstance))
 	srv.HandleFunc("POST "+v+"/trafficpolicyinstance/{id}", cloudTrailRecordedREST("UpdateTrafficPolicyInstance", "route53.amazonaws.com", tpiResource, handleR53UpdateTrafficPolicyInstance))
@@ -105,22 +91,18 @@ func registerRoute53More(srv *sim.Server) {
 	// distinct from CreateTrafficPolicyVersion, which is POST /trafficpolicy/{id}).
 	srv.HandleFunc("POST "+v+"/trafficpolicy/{id}/{version}", cloudTrailRecordedREST("UpdateTrafficPolicyComment", "route53.amazonaws.com", cloudTrailRESTResource("AWS::Route53::TrafficPolicy", "id"), handleR53UpdateTrafficPolicyComment))
 
-	// VPC association authorizations
 	srv.HandleFunc("POST "+v+"/hostedzone/{hostedZoneId}/authorizevpcassociation", cloudTrailRecordedREST("CreateVPCAssociationAuthorization", "route53.amazonaws.com", zoneResource, handleR53CreateVPCAssociationAuthorization))
 	srv.HandleFunc("POST "+v+"/hostedzone/{hostedZoneId}/deauthorizevpcassociation", cloudTrailRecordedREST("DeleteVPCAssociationAuthorization", "route53.amazonaws.com", zoneResource, handleR53DeleteVPCAssociationAuthorization))
 	srv.HandleFunc("GET "+v+"/hostedzone/{hostedZoneId}/authorizevpcassociation", cloudTrailRecordedREST("ListVPCAssociationAuthorizations", "route53.amazonaws.com", zoneResource, handleR53ListVPCAssociationAuthorizations))
 
-	// Limits
 	srv.HandleFunc("GET "+v+"/accountlimit/{type}", cloudTrailRecordedREST("GetAccountLimit", "route53.amazonaws.com", nil, handleR53GetAccountLimit))
 	srv.HandleFunc("GET "+v+"/hostedzonelimit/{hostedZoneId}/{type}", cloudTrailRecordedREST("GetHostedZoneLimit", "route53.amazonaws.com", zoneResource, handleR53GetHostedZoneLimit))
 
-	// Static-ish reads + tag batch + TestDNSAnswer
 	srv.HandleFunc("GET "+v+"/checkeripranges", cloudTrailRecordedREST("GetCheckerIpRanges", "route53.amazonaws.com", nil, handleR53GetCheckerIpRanges))
 	srv.HandleFunc("GET "+v+"/healthcheck/{id}/lastfailurereason", cloudTrailRecordedREST("GetHealthCheckLastFailureReason", "route53.amazonaws.com", cloudTrailRESTResource("AWS::Route53::HealthCheck", "id"), handleR53GetHealthCheckLastFailureReason))
 	srv.HandleFunc("POST "+v+"/tags/{resourceType}", cloudTrailRecordedREST("ListTagsForResources", "route53.amazonaws.com", nil, handleR53ListTagsForResources))
 	srv.HandleFunc("GET "+v+"/testdnsanswer", cloudTrailRecordedREST("TestDNSAnswer", "route53.amazonaws.com", nil, handleR53TestDNSAnswer))
 
-	// Hosted-zone comment + feature updates
 	srv.HandleFunc("POST "+v+"/hostedzone/{id}", cloudTrailRecordedREST("UpdateHostedZoneComment", "route53.amazonaws.com", cloudTrailRESTResource("AWS::Route53::HostedZone", "id"), handleR53UpdateHostedZoneComment))
 	srv.HandleFunc("POST "+v+"/hostedzone/{hostedZoneId}/features", cloudTrailRecordedREST("UpdateHostedZoneFeatures", "route53.amazonaws.com", zoneResource, handleR53UpdateHostedZoneFeatures))
 }
@@ -131,10 +113,9 @@ func r53DefaultNameServers() []string {
 	return []string{"ns-1.awsdns-00.com", "ns-2.awsdns-01.net", "ns-3.awsdns-02.org", "ns-4.awsdns-03.co.uk"}
 }
 
-// R53ReusableDelegationSet mirrors the smithy DelegationSet shape: Id,
-// CallerReference, and four name servers. (Distinct from R53DelegationSet in
-// route53.go, which is the trimmed NameServers-only shape the hosted-zone
-// responses embed.)
+// R53ReusableDelegationSet is the DelegationSet shape: Id, CallerReference and
+// four name servers. R53DelegationSet in route53.go is the NameServers-only shape
+// hosted-zone responses embed.
 type R53ReusableDelegationSet struct {
 	XMLName         xml.Name `xml:"DelegationSet"`
 	Xmlns           string   `xml:"xmlns,attr,omitempty"`
@@ -1226,7 +1207,7 @@ type R53GetHostedZoneLimitResponse struct {
 	Count   int64              `xml:"Count"`
 }
 
-// r53AccountLimits holds the real default Route 53 per-account limits.
+// r53AccountLimits holds AWS's default Route 53 per-account limits.
 var r53AccountLimits = map[string]int64{
 	"MAX_HEALTH_CHECKS_BY_OWNER":            200,
 	"MAX_HOSTED_ZONES_BY_OWNER":             500,
@@ -1295,8 +1276,7 @@ type R53GetCheckerIpRangesResponse struct {
 	CheckerIpRanges []string `xml:"CheckerIpRanges>member"`
 }
 
-// r53CheckerIpRanges is a representative subset of the real Route 53 health
-// checker IP ranges (static cloud metadata, the same on every account).
+// r53CheckerIpRanges is a representative subset of Route 53's health checker IP ranges.
 var r53CheckerIpRanges = []string{
 	"15.177.0.0/18",
 	"54.183.255.128/26",
@@ -1461,8 +1441,7 @@ func r53ParseMaxItems(r *http.Request, def int) int {
 	return def
 }
 
-// r53UUID returns a UUID-shaped id for CIDR collections and traffic policy
-// instances (real Route 53 uses UUIDs for these).
+// r53UUID returns a UUID-shaped id; Route 53 uses UUIDs for CIDR collections and traffic policy instances.
 func r53UUID() string {
 	h := strings.ToLower(strings.TrimPrefix(r53RandomID(), "Z")) +
 		strings.ToLower(strings.TrimPrefix(r53ChangeID(), "C"))

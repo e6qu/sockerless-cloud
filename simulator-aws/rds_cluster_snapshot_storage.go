@@ -110,8 +110,7 @@ func rdsRecoverClusterSnapshots() {
 				continue
 			}
 			if rdsClusterSnapshotSourceGone(snapshot) {
-				// rdsMoveVolumesToKindNames moved the cluster's data into the
-				// snapshot's volume.
+				// The source is gone, so rdsMoveVolumesToKindNames already moved its data into the snapshot's volume.
 				rdsSettleClusterSnapshot(id, "available", "")
 				continue
 			}

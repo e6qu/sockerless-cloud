@@ -11,12 +11,9 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// S3BucketConfig stores arbitrary per-bucket subresource configuration
-// payloads. Each (bucket, subresource) pair holds the raw bytes the
-// client PUT so a subsequent GET round-trips byte-for-byte (real S3
-// re-serialises but emits the same logical document; matching the
-// stored bytes is a stricter equivalent that catches re-encoding
-// drift).
+// S3BucketConfig stores a bucket subresource's raw PUT body so GET round-trips
+// it byte for byte; S3 re-serialises the same logical document, and byte
+// equality is the stricter check.
 type S3BucketConfig struct {
 	Key         string
 	Bucket      string
@@ -26,7 +23,7 @@ type S3BucketConfig struct {
 	Headers     map[string]string
 }
 
-// keyed by `<bucket>/<subresource>`.
+// Keyed by `<bucket>/<subresource>`.
 var s3BucketConfigs sim.Store[S3BucketConfig]
 
 const s3LifecycleTransitionDefaultMinimumObjectSize = "all_storage_classes_128K"
@@ -38,36 +35,23 @@ func s3BucketConfigKeyID(bucket, sub, id string) string {
 	return bucket + "/" + sub + "/" + id
 }
 
-// bucketSubresource enumerates a single bucket-level subresource —
-// each carries the canonical S3 success status code for its PUT and
-// DELETE shapes (real S3 differs between `200 OK` and `204 No Content`
-// per operation; preserving that fidelity keeps SDKs and the
-// `aws s3api` CLI happy).
+// bucketSubresource is one bucket-level subresource with the success status S3
+// answers its PUT and DELETE with, which differ between 200 and 204 per
+// operation.
 type bucketSubresource struct {
 	// putStatus is the success status emitted on PUT (200 or 204).
 	// 0 → subresource has no PUT shape.
 	putStatus int
-	// hasDelete indicates that real S3 accepts a DELETE for this
-	// subresource (only some of them do — e.g. `?policy` and
-	// `?lifecycle` yes; `?versioning` no — it's set/suspended via
-	// PUT, never deleted).
+	// hasDelete reports whether S3 accepts DELETE for the subresource (`?policy` and
+	// `?lifecycle` do; `?versioning` does not).
 	hasDelete bool
-	// emptyGetError, when non-empty, is the S3 error code returned
-	// by the GET-side handler when no config has been stored. Used
-	// only to keep the canonical-table reference in one place — the
-	// GET-side dispatcher in s3.go already emits these.
+	// emptyGetError is the error code GET answers when no config is stored; the GET
+	// dispatcher in s3.go emits it.
 	emptyGetError string
 }
 
-// bucketSubresourceHandlers is the canonical AWS S3 bucket-level
-// subresource table — every entry corresponds to one or more
-// canonical operations in the AWS S3 REST API surface. New entries
-// land here when a new subresource is added (or one becomes
-// supported); the handler dispatcher reads from this table so the
-// PUT / GET / DELETE wiring stays in lockstep with the enumeration.
-//
-// Real-S3 reference:
-// https://docs.aws.amazon.com/AmazonS3/latest/API/API_Operations_Amazon_Simple_Storage_Service.html
+// bucketSubresourceHandlers is the S3 bucket-level subresource table; the PUT,
+// GET and DELETE dispatchers read it.
 var bucketSubresourceHandlers = map[string]bucketSubresource{
 	"versioning":          {putStatus: http.StatusOK},
 	"lifecycle":           {putStatus: http.StatusOK, hasDelete: true, emptyGetError: "NoSuchLifecycleConfiguration"},
@@ -91,9 +75,8 @@ var bucketSubresourceHandlers = map[string]bucketSubresource{
 	"metrics":             {putStatus: http.StatusOK, hasDelete: true},
 }
 
-// firstBucketSubresource returns the first bucket-level subresource
-// matching the request query. Order doesn't matter — real S3
-// supports exactly one subresource selector per request.
+// firstBucketSubresource returns the bucket-level subresource the request query
+// selects; S3 allows exactly one selector per request.
 func firstBucketSubresource(q map[string][]string) (string, bucketSubresource, bool) {
 	for name, spec := range bucketSubresourceHandlers {
 		if _, ok := q[name]; ok {
@@ -155,9 +138,8 @@ func handleS3DeleteBucketDispatch(w http.ResponseWriter, r *http.Request) {
 	handleS3DeleteBucket(w, r)
 }
 
-// handleS3PutBucketSubresource reads the PUT body, stores it under
-// `<bucket>/<subresource>`, and responds with the canonical success
-// status for that subresource (200 OK or 204 No Content).
+// handleS3PutBucketSubresource stores the PUT body under
+// `<bucket>/<subresource>` and answers the subresource's success status.
 func handleS3PutBucketSubresource(w http.ResponseWriter, r *http.Request, sub string, spec bucketSubresource) {
 	bucket := sim.PathParam(r, "bucket")
 	if _, ok := s3Buckets_.Get(bucket); !ok {
@@ -166,11 +148,8 @@ func handleS3PutBucketSubresource(w http.ResponseWriter, r *http.Request, sub st
 		return
 	}
 	defer r.Body.Close()
-	// Bucket-subresource bodies are small fixed-shape XML or JSON
-	// documents (VersioningConfiguration, LifecycleConfiguration,
-	// CORSConfiguration, Tagging, …). aws-sdk-go-v2 sends them
-	// without aws-chunked / gzip framing; a direct `io.ReadAll` is
-	// wire-faithful.
+	// Bucket subresource bodies are small XML or JSON documents that aws-sdk-go-v2
+	// sends without aws-chunked or gzip framing, so read them directly.
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		S3ErrorXML(w, "IncompleteBody",
@@ -233,9 +212,8 @@ func handleS3PutBucketSubresource(w http.ResponseWriter, r *http.Request, sub st
 	w.WriteHeader(spec.putStatus)
 }
 
-// handleS3DeleteBucketSubresource clears the stored config for the
-// bucket+subresource pair and responds 204 No Content (real S3
-// uses 204 across the board for the delete subresource ops).
+// handleS3DeleteBucketSubresource clears the stored config and answers 204, as
+// S3 does for every subresource delete.
 func handleS3DeleteBucketSubresource(w http.ResponseWriter, r *http.Request, sub string) {
 	bucket := sim.PathParam(r, "bucket")
 	if _, ok := s3Buckets_.Get(bucket); !ok {
@@ -250,9 +228,6 @@ func handleS3DeleteBucketSubresource(w http.ResponseWriter, r *http.Request, sub
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// getStoredBucketSubresource looks up the stored config bytes for a
-// (bucket, subresource) pair. Returns the body bytes + content type
-// when set; (nil, "", false) when never PUT.
 func getStoredBucketSubresource(bucket, sub string) ([]byte, string, map[string]string, bool) {
 	return getStoredBucketSubresourceID(bucket, sub, "")
 }
@@ -278,12 +253,9 @@ func listStoredBucketSubresources(bucket, sub string) [][]byte {
 	return out
 }
 
-// emitStoredOrEmptyXML responds with the stored config for the
-// bucket+subresource pair when one exists; otherwise emits the
-// canonical empty-config XML envelope shape (`<RootElement/>`).
-//
-// Used by GET-side handlers for subresources that don't 404 on
-// empty (e.g. `?versioning`, `?logging`, `?notification`).
+// emitStoredOrEmptyXML answers the stored config, or the empty `<RootElement/>`
+// for subresources that do not 404 when unset (`?versioning`, `?logging`,
+// `?notification`).
 func emitStoredOrEmptyXML(w http.ResponseWriter, bucket, sub, rootElement string) {
 	if body, ct, headers, ok := getStoredBucketSubresource(bucket, sub); ok {
 		if ct == "" {
@@ -301,9 +273,8 @@ func emitStoredOrEmptyXML(w http.ResponseWriter, bucket, sub, rootElement string
 	_, _ = w.Write([]byte(xmlDoc))
 }
 
-// emitStoredOr404 responds with the stored config when one exists;
-// otherwise emits the canonical S3 error code for "this subresource
-// has never been set" (`NoSuchBucketPolicy`, `NoSuchTagSet`, etc.).
+// emitStoredOr404 answers the stored config, or the error S3 answers for a
+// subresource never set (`NoSuchBucketPolicy`, `NoSuchTagSet`).
 func emitStoredOr404(w http.ResponseWriter, r *http.Request, bucket, sub, errorCode, errorMsg string) {
 	if body, ct, headers, ok := getStoredBucketSubresource(bucket, sub); ok {
 		if ct == "" {

@@ -16,35 +16,18 @@ import (
 )
 
 // Every operation in every vendored model is implemented, or its absence is
-// declared here with the reason.
-//
-// The service-conformance floors hold the count of operations *served*, so a
-// model re-vendored with new operations trips nothing: the served count is
-// unchanged, and the new operations sit silently unimplemented. That is how
-// forty-three operations drifted between 2026-08-12 and 2026-08-23 — five
-// services' models moved and no gate noticed. This test is the drift sweep
-// that found them, made permanent: it fails the moment a vendored model
-// declares an operation whose name appears nowhere in the handwritten source.
-//
-// The check is by name over the source rather than by registration idiom,
-// because the simulators register five different ways (awsJson targets, query
-// actions, REST mux paths, query-parameter subresources, dispatch switches).
-// A name-scan cannot prove an operation works — the conformance and SDK
-// suites do that — but it cannot miss one that does not exist at all, which
-// is the failure mode floors cannot see.
+// declared here with the reason. The service-conformance floors count operations
+// served, so a re-vendored model's new operations would sit silently
+// unimplemented; this fails as soon as a vendored model declares an operation
+// whose name appears nowhere in the handwritten source. Scan names rather than
+// registration idioms, since the simulators register five ways: the scan cannot
+// prove an operation works, but it cannot miss one that does not exist.
 
-// modelDriftExemptions names the operations deliberately not implemented.
-// Every entry carries its reason; an entry without a live BUGS.md record or a
-// routing equivalence is a bug in this table.
-// modelScopedDriftExemptions names operations exempted for ONE model only,
-// keyed "<model file>:<operation>". The scope exists for names another
-// service legitimately implements: AWS Glue serves its own CreateSession, so
-// an unscoped S3 exemption would trip the staleness check on Glue's
-// registration, and the source scan alone cannot tell the two apart. Scoped
-// entries are therefore also excluded from the staleness sweep — their
-// review lives with the catalogue their reason cites. An entry whose reason is
-// "BUGS.md <id>" waits on that open row, and TestScopedDriftExemptionsCiteOpenBugs
-// holds it there.
+// modelScopedDriftExemptions exempts an operation for one model only, keyed
+// "<model file>:<operation>", for names another service legitimately implements
+// (AWS Glue serves its own CreateSession). Scoped entries skip the staleness
+// sweep; an entry citing "BUGS.md <id>" waits on that open row, which
+// TestScopedDriftExemptionsCiteOpenBugs holds.
 var modelScopedDriftExemptions = map[string]string{
 	// Amazon EC2 published transit gateway attachment NAT on 2026-10-22, and
 	// the aws-sdk-go-v2 release that carries it is still in its adoption
@@ -172,9 +155,7 @@ func isGoIdentifierRune(source string, index int) bool {
 }
 
 // readAllHandwrittenSource returns the handwritten source with comments
-// stripped, so an operation mentioned in prose does not count as
-// implemented — ListDirectoryBuckets passed this gate for a while on the
-// strength of a comment in the spec validator.
+// stripped, so an operation mentioned in prose does not count as implemented.
 func readAllHandwrittenSource(t *testing.T) string {
 	t.Helper()
 	entries, err := os.ReadDir(".")
@@ -239,14 +220,10 @@ func modelOperations(t *testing.T, path string) []string {
 	return operations
 }
 
-// TestS3SubresourceExemptionsAreRouted holds the S3 exemptions to their stated
-// reason. Each one claims the operation is served by the bucket-subresource
-// table rather than by a handler naming it, which is true of S3's
-// query-parameter routing — but a blanket exemption cannot tell "routed by
-// query parameter" from "not served at all", so an entry deleted from the
-// table would leave its operations exempted and unserved with nothing to say
-// so. The reason string names the subresource, and this checks the table
-// actually routes it, with the verb the operation needs.
+// TestS3SubresourceExemptionsAreRouted holds each S3 exemption to its reason: the
+// bucket-subresource table must route the named subresource with the verb the
+// operation needs, so a deleted table entry cannot leave its operations exempted
+// and unserved.
 func TestS3SubresourceExemptionsAreRouted(t *testing.T) {
 	for operation, reason := range modelDriftExemptions {
 		sub, ok := strings.CutPrefix(reason, "s3 ?")

@@ -159,9 +159,7 @@ func TestRoute53AliasRecordsAnswerWithTheirTarget(t *testing.T) {
 	}
 }
 
-// A task's only nameserver is this resolver, so a name outside every hosted
-// zone is recursed for; answering NXDOMAIN instead left a task unable to reach
-// a package registry.
+// A task's only nameserver is this resolver, so it recurses for a name outside every hosted zone.
 func TestRoute53RecursesOutsideItsZones(t *testing.T) {
 	upstream, err := dnsserver.Start(dnsserver.Config{Host: "127.0.0.1", Name: "upstream", Catalog: func(dnsserver.Query) dnsserver.View {
 		rr, _ := dns.NewRR("registry.npmjs.org. 60 IN A 203.0.113.7")

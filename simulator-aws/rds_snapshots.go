@@ -68,11 +68,9 @@ func handleRDSCreateSnapshot(w http.ResponseWriter, r *http.Request) {
 		DbiResourceId:        inst.DbiResourceId,
 		Engine:               inst.Engine,
 		EngineVersion:        inst.EngineVersion,
-		// The snapshot answers "creating" and settles asynchronously once
-		// the instance's volume is captured — real work now backs the state
-		// machine: the capture is copy-on-write where the engine's volume
-		// store supports block cloning, and a full copy elsewhere, either way
-		// a complete capture of the data.
+		// The snapshot answers "creating" and settles once the instance's volume is
+		// captured: copy-on-write where the volume store supports block cloning, a full
+		// copy elsewhere.
 		Status:             "creating",
 		AllocatedStorage:   inst.AllocatedStorage,
 		MasterUsername:     inst.MasterUsername,
@@ -164,16 +162,12 @@ func handleRDSDeleteSnapshot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rdsSnapshots.Delete(snap.DBSnapshotIdentifier)
-	// The captured data goes with the record: keeping the volume would leak
-	// storage the API says no longer exists. On the modeled tier no volume
-	// was ever created, and removing a volume without an engine is refused
-	// inside RemoveVolume, so the error is expected and dropped there.
+	// The captured data goes with the record. On the modeled tier no volume exists
+	// and RemoveVolume refuses, so drop that error.
 	if sim.RequireContainerRuntime("deleting an RDS snapshot volume") == nil {
 		_ = sim.RemoveVolume(rdsSnapshotVolume(snap.DBSnapshotIdentifier))
 	}
-	// Real RDS returns the snapshot with Status="deleted" in the
-	// response (it's the final state machine transition before
-	// removal). Match that.
+	// RDS returns the deleted snapshot with Status="deleted".
 	snap.Status = "deleted"
 	rdsXMLResponse(w, "DeleteDBSnapshot", renderRDSSnapshot(snap), sim.RequestID(r.Context()))
 }
@@ -329,8 +323,7 @@ func handleRDSCopySnapshot(w http.ResponseWriter, r *http.Request) {
 			http.StatusConflict, sim.RequestID(r.Context()))
 		return
 	}
-	// Real RDS refuses to copy a snapshot that is not available; copying one
-	// mid-capture would race the source's own data write.
+	// RDS refuses to copy a snapshot that is not available; a copy mid-capture would race the source's write.
 	if src.Status != "available" {
 		rdsErrorXML(w, "InvalidDBSnapshotState",
 			fmt.Sprintf("DBSnapshot %q is %s; it must be available to copy", srcID, src.Status),
@@ -347,9 +340,8 @@ func handleRDSCopySnapshot(w http.ResponseWriter, r *http.Request) {
 		DbiResourceId:        src.DbiResourceId,
 		Engine:               src.Engine,
 		EngineVersion:        src.EngineVersion,
-		// The copy carries the DATA, not just the record: it answers
-		// "creating" and settles once the source snapshot's volume is cloned
-		// into its own, the same asynchronous machine CreateDBSnapshot runs.
+		// The copy carries the data: it answers "creating" and settles once the source
+		// snapshot's volume is cloned, as CreateDBSnapshot does.
 		Status:             "creating",
 		AllocatedStorage:   src.AllocatedStorage,
 		MasterUsername:     src.MasterUsername,
@@ -358,9 +350,7 @@ func handleRDSCopySnapshot(w http.ResponseWriter, r *http.Request) {
 		SnapshotType:       "manual",
 		Port:               src.Port,
 		VpcId:              src.VpcId,
-		// The master credential travels with the data, exactly as on create:
-		// an instance restored from the COPY needs the credentials the data
-		// was written under just as much as one restored from the original.
+		// The master credential travels with the data, as on create.
 		MasterUserSecret:           append([]byte(nil), src.MasterUserSecret...),
 		SourceDBSnapshotIdentifier: src.ARN,
 		ARN:                        rdsSnapshotARN(targetID),
@@ -399,10 +389,9 @@ func renderRDSSnapshotAttributesResult(snap RDSSnapshot) string {
 	return b.String()
 }
 
-// handleRDSModifySnapshotAttribute adds/removes values for the "restore"
-// snapshot attribute (the only attribute RDS supports). The updated
-// attribute set is persisted so DescribeDBSnapshotAttributes reads back
-// the change.
+// handleRDSModifySnapshotAttribute adds and removes values of "restore", the
+// only snapshot attribute RDS supports, and persists them for
+// DescribeDBSnapshotAttributes.
 func handleRDSModifySnapshotAttribute(w http.ResponseWriter, r *http.Request) {
 	snapID := r.FormValue("DBSnapshotIdentifier")
 	snap, ok := rdsSnapshots.Get(snapID)

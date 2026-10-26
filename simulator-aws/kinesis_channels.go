@@ -10,13 +10,9 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// Amazon Kinesis Data Streams channels: a managed delivery of one or more
-// streams' records into Amazon S3, or into S3 Tables. A channel names the
-// streams it reads, the role it reads and writes as, and the destination it
-// writes to — so it exists only over streams and a role that exist, and its
-// description answers from what the channel was created with.
+// A Kinesis Data Streams channel delivers streams' records into Amazon S3 or S3
+// Tables as a role, so it exists only over streams and a role that exist.
 
-// KinesisChannel is one delivery channel.
 type KinesisChannel struct {
 	ChannelName             string                 `json:"channelName"`
 	ChannelID               string                 `json:"channelId"`
@@ -150,8 +146,7 @@ func handleKinesisCreateChannel(w http.ResponseWriter, r *http.Request) {
 	channel := KinesisChannel{
 		ChannelName: req.ChannelName, ChannelID: sim.NewUUID(),
 		ChannelARN: kinesisChannelARN(req.ChannelName),
-		// A channel is usable as soon as it is created here: there is no
-		// provisioning to wait for behind it.
+		// The simulator provisions nothing behind a channel, so it is ACTIVE at creation.
 		Status:                  "ACTIVE",
 		CreationTimestamp:       float64(time.Now().Unix()),
 		ServiceExecutionRoleARN: req.ServiceExecutionRoleARN,
@@ -168,12 +163,9 @@ func handleKinesisCreateChannel(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// kinesisChannelS3Description is the destination as a description reports it:
-// what the create configured, plus the two things a description states that a
-// create may leave out. The freshness takes the service's default. The
-// dead-letter queue takes the destination's own bucket — a description always
-// names one, and records that cannot be delivered go beside the data they were
-// meant to join rather than to a bucket the caller never named.
+// kinesisChannelS3Description adds the two members a description always states:
+// the default freshness, and a dead-letter queue in the destination's own
+// bucket, beside the data undeliverable records were meant to join.
 func kinesisChannelS3Description(config map[string]any) map[string]any {
 	if config == nil {
 		return nil
@@ -231,7 +223,6 @@ func kinesisChannelDescription(c KinesisChannel) map[string]any {
 	return out
 }
 
-// kinesisChannelForRequest resolves the channel a request addresses by ARN.
 func kinesisChannelForRequest(w http.ResponseWriter, r *http.Request) (KinesisChannel, bool) {
 	var req struct {
 		ChannelARN string `json:"ChannelARN"`
@@ -377,8 +368,6 @@ func handleKinesisListChannels(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"ChannelSummaries": summaries})
 }
 
-// kinesisChannelSummaryName reads the name out of a summary, which is what the
-// listing orders by.
 func kinesisChannelSummaryName(summary map[string]any) string {
 	name, _ := summary["ChannelName"].(string)
 	return name
