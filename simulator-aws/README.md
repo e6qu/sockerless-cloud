@@ -1,222 +1,114 @@
 # simulator-aws
 
-Local reimplementation of a slice of AWS. Amazon Elastic Container Service (ECS) tasks and AWS Lambda functions run as real containers with real exit semantics, Amazon Elastic Container Registry (ECR) stores real images, and every other service answers in the wire shapes the AWS SDKs, the AWS CLI and the Terraform `aws` provider expect, behind real SigV4 verification and IAM authorization.
+`simulator-aws` is one binary that serves a slice of the AWS public API on one
+port, `4566`. Every service shares that port, the way the AWS SDKs, the AWS
+CLI and Terraform's `hashicorp/aws` provider reach AWS through one endpoint
+override. The simulator verifies each request's SigV4 signature, evaluates
+AWS Identity and Access Management (IAM) policies on it, and runs workloads as
+real containers. Unit tests check every served operation and route against
+the vendored Smithy models in [`specs/cloud-api/aws/`](../specs/cloud-api/aws/),
+and `SOCKERLESS_SPEC_VALIDATE` checks live responses against them.
 
-## Reference adaptor
+## Run it
 
-The simulator exposes one HTTP endpoint (default `:4566`) that fronts all AWS services. Three external tools exercise that endpoint at AWS-API fidelity:
+```sh
+# A release. Go pins it by its commit: the repository tags only vX.Y.Z at its root.
+go install github.com/e6qu/sockerless-cloud/simulator-aws@<release-commit>
+simulator-aws
 
-| Adaptor | Min version | What it proves |
-|---|---|---|
-| [AWS SDK for Go v2](https://github.com/aws/aws-sdk-go-v2) (`github.com/aws/aws-sdk-go-v2/service/*`) | the release `sdk-tests/go.mod` pins | Wire-level SDK compatibility — request/response shapes, error envelopes, pagination, optimistic concurrency tokens. |
-| [`aws` CLI](https://docs.aws.amazon.com/cli/latest/reference/) | the current v2 release (`cli-tests` installs it when absent) | Endpoint-override fidelity (`--endpoint-url`). CLI uses the same SDK but exercises a different argument-marshaling path. Some endpoints differ (e.g. Route 53 `/rrset/` with trailing slash). |
-| [Terraform `aws` provider](https://registry.terraform.io/providers/hashicorp/aws/latest/docs) | the version `terraform-tests` pins | Full plan → apply → destroy round-trip across resource types such as (`aws_ecs_*`, `aws_lambda_*`, `aws_cloudfront_*`, `aws_route53_*`, `aws_wafv2_*`, `aws_amplify_*`, `aws_acm_*`, `aws_iam_*`, `aws_ecr_*`, `aws_s3_*`). Stresses cross-resource references, Lambda invocation through the Runtime API, and stateful drift detection. |
+# The release image, API-only.
+docker run --rm -p 4566:4566 -e SIM_RUNTIME=process ghcr.io/e6qu/sockerless-simulator-aws:vX.Y.Z
 
-Anything any of these three tools does against the real AWS endpoint, it must do against this simulator. Gaps from that contract are real bugs (see [BUGS.md](../BUGS.md)).
-
-## Validation
-
-| Test path | What runs |
-|---|---|
-| `sdk-tests/` — one file per service family (`ecs_test.go`, `ecr_test.go`, `cloudfront_test.go`, `route53_test.go`, `wafv2_test.go`, `amplify_test.go`, …) | Real `aws-sdk-go-v2` clients against the simulator. Per-operation assertions on response shape and error codes. |
-| `cli-tests/` | The real `aws` CLI invoked via `os/exec`, parsing its JSON output. |
-| `terraform-tests/` — `TestStackProductionShape` and per-resource packages | The real Terraform `aws` provider. Provisions CloudFront, ACM, WAFv2, Route 53 ALIAS, Amplify, IAM service-linked roles and OIDC providers, ECS, ECR, Cloud Map and Lambda resources together, asserts cross-resource outputs and Lambda Runtime API invocation output, then runs `terraform destroy`. |
-| `make simulator-aws/test` | The module's unit tests, per [`docs/MAKEFILE_STANDARD.md`](../docs/MAKEFILE_STANDARD.md). |
-
-CI runs all four on every pull request (`.github/workflows/ci.yml`). `test`/`test` is the access key of the administrator the simulator starts with, as an AWS account starts with a root credential; STS reports account `123456789012` unless `SOCKERLESS_AWS_ACCOUNT_ID` names another.
-
-## Wiring the adaptor
-
-```bash
-# 1. Build + start the sim (default :4566).
-cd simulator-aws
-go build -o simulator-aws .
-SIM_LISTEN_ADDR=:4566 ./simulator-aws
+# A checkout, with the console embedded (-tags console). Run from the repository root.
+(cd ui && bun install && bunx turbo run build --filter=@sockerless/ui-simulator-aws)
+make simulator-aws/build && ./simulator-aws/simulator-aws
 ```
 
-```bash
-# 2. Point any AWS client at it.
+`go install` and a plain `go build` embed no console; the release image does.
+
+The simulator needs a Docker or Podman engine to run Amazon Elastic Compute
+Cloud (Amazon EC2) instances, Amazon Elastic Container Service (Amazon ECS)
+tasks, AWS Lambda functions, AWS Batch jobs, AWS CodeBuild builds, AWS Glue
+jobs and AWS Amplify builds, and refuses to start without one.
+`SIM_RUNTIME=process` starts it API-only, without an engine, and refuses every
+operation that would run a workload. `GET /health` reports `runtime` and
+`capabilities.workloadExecution`.
+
+The variables every simulator shares (`SIM_LISTEN_ADDR`, `SIM_AWS_PORT`,
+`SIM_PERSIST`, `SIM_DATA_DIR`, `SIM_PLACEMENT`, `SIM_TLS_*`, `SIM_LOG_LEVEL`,
+the console's OpenID Connect set) are in
+[`docs/configuration.md`](../docs/configuration.md). These are AWS's own:
+
+| Variable | Default | Effect |
+|---|---|---|
+| `SOCKERLESS_AWS_ACCOUNT_ID` | `123456789012` | The account every ARN and AWS Security Token Service (AWS STS) identity names |
+| `SOCKERLESS_AWS_REGION` | `us-east-1` | The home Region: the Region resources report and the Availability Zones derive from |
+| `SOCKERLESS_AWS_ORG_ID` | `o-sim0000000` | The AWS Organizations organization the account manages |
+| `SIM_DNS_PORT` | a kernel-chosen port | The UDP and TCP port the Amazon Route 53 resolver binds. Workloads reach it through their network's sidecar, never at this port. |
+| `SIM_DNS_UPSTREAM` | the host's `resolv.conf` | Resolvers, `host[:port]` comma-separated, for names no hosted zone holds |
+| `SIM_EBS_DATA_DIR` | `<SIM_DATA_DIR>/ebs` | Where Amazon Elastic Block Store (Amazon EBS) snapshot payloads live |
+| `SIM_EFS_DATA_DIR` | `<SIM_DATA_DIR>/efs` | Where Amazon Elastic File System (Amazon EFS) file contents live |
+| `SOCKERLESS_SPEC_VALIDATE`, `SOCKERLESS_SPEC_DIR` | unset | Validate every success response against the Smithy models in `SOCKERLESS_SPEC_DIR` and write violations to the report file `SOCKERLESS_SPEC_VALIDATE` names |
+
+In `SIM_PLACEMENT`, the AWS services are `ec2`, `ecs` (qualified by launch
+type, such as `ecs:FARGATE`), `lambda` and `batch`.
+
+## Connect a client
+
+Every client takes three coordinates: the endpoint `http://localhost:4566`,
+the access key `test` with secret `test`, and a Region. `test`/`test` is the
+administrator the simulator starts with, as a new AWS account starts with its
+root credential. Two settings follow from serving every service on one host:
+
+- The simulator serves Amazon Simple Storage Service (Amazon S3)
+  general-purpose buckets path-style. Set path-style in the Go SDK and
+  Terraform; the AWS CLI and boto3 use it on their own once an endpoint is set.
+- An operation with a modeled host prefix (AWS Cloud Map's
+  `DiscoverInstances`, AWS Step Functions' `StartSyncExecution`, every
+  Amazon S3 Control operation) puts a label in front of the endpoint's host.
+  Give the client a host that the prefixed name still resolves for, such as
+  `http://servicediscovery.localhost:4566`, or route it through the simulator
+  as its HTTP proxy (`HTTP_PROXY=http://127.0.0.1:4566`).
+
+### AWS SDK for Go v2
+
+```go
+cfg := aws.Config{
+	Region:      "us-east-1",
+	Credentials: credentials.NewStaticCredentialsProvider("test", "test", ""),
+}
+sqsClient := sqs.NewFromConfig(cfg, func(o *sqs.Options) {
+	o.BaseEndpoint = aws.String("http://localhost:4566")
+})
+s3Client := s3.NewFromConfig(cfg, func(o *s3.Options) {
+	o.BaseEndpoint = aws.String("http://localhost:4566")
+	o.UsePathStyle = true
+})
+```
+
+`sdkConfig` in [`sdk-tests/helpers_test.go`](sdk-tests/helpers_test.go) is
+the configuration every client of the SDK suite starts from; `simEndpoint`
+there gives the `<service>.localhost` endpoint host-prefixed operations need.
+
+### AWS CLI
+
+```sh
 export AWS_ENDPOINT_URL=http://localhost:4566
-export AWS_ACCESS_KEY_ID=test
-export AWS_SECRET_ACCESS_KEY=test
-export AWS_DEFAULT_REGION=us-east-1
+export AWS_ACCESS_KEY_ID=test AWS_SECRET_ACCESS_KEY=test
+export AWS_DEFAULT_REGION=us-east-1 AWS_PAGER=
 
-aws ecs list-clusters
-aws cloudfront list-distributions
-aws iam create-service-linked-role --aws-service-name cloudfront.amazonaws.com
+aws sts get-caller-identity
+aws sqs create-queue --queue-name demo
 ```
 
-| Variable | Default | What it does |
-|---|---|---|
-| `SIM_LISTEN_ADDR` | `:4566` | Listen address (`host:port`). |
-| `SIM_AWS_PORT` | unset | Port to listen on, ahead of `SIM_LISTEN_ADDR`. |
-| `SIM_TLS_CERT`, `SIM_TLS_KEY` | unset | Enable HTTPS with the given cert/key. |
-| `SIM_CALLBACK_LISTEN_ADDR` | a free port on every interface | With TLS on, the plain-HTTP address the workloads' metadata requests reach through their network sidecars. |
-| `SIM_RUNTIME` | `docker` | Initializes Docker/Podman for workload execution. Set `process` only for explicit API-only runs that do not invoke ECS/Lambda workload execution. |
-| `SIM_PERSIST` | `false` | `true` keeps state across restarts and leaves running workloads for the next process to adopt. |
-| `SIM_PLACEMENT` | unset | The per-service placement table, `service[:qualifier]=container|microvm` comma-separated (`ec2=microvm,ecs:FARGATE=microvm,lambda=container,batch=container`). Every service unnamed runs on containers. Naming a microVM service starts a node agent on the platform network, which needs a Linux engine with `/dev/kvm`. |
-| `SIM_DATA_DIR` | unset | Persistence root: the SQLite control-plane store, plus the default location of every bulk-data root below (`<SIM_DATA_DIR>/efs`, `/ebs`, `/amplify-cache`), so file contents survive restarts alongside the metadata that describes them. |
-| `SIM_EBS_DATA_DIR` | `<SIM_DATA_DIR>/ebs`, else `$TMPDIR/sockerless-sim-ebs` | Explicit override for the Amazon EC2 EBS snapshot root. Amazon ECS managed EBS volumes live in engine volumes (see below). |
-| `SIM_EFS_DATA_DIR` | `<SIM_DATA_DIR>/efs`, else `$TMPDIR/sockerless-sim-efs` | Explicit override for the EFS file-system content root. |
-| `AWS_ENDPOINT_URL` | (client-side) | The AWS SDKs and AWS CLI's standard global endpoint setting. It routes every supported service to the simulator. |
-| `AWS_ENDPOINT_URL_<SERVICE>` | (client-side) | The AWS SDKs' standard per-service setting (for example `AWS_ENDPOINT_URL_SQS`). It overrides the global coordinate for that service. |
-| `AWS_DEFAULT_REGION` | `us-east-1` | The sim accepts any region; some validation (CloudFront → ACM us-east-1 pin) is region-aware. |
-
-The ECS and Lambda execution paths require Docker or Podman. For
-control-plane or data-plane API checks that do not start workloads,
-`SIM_RUNTIME=process` starts the AWS simulator without initializing Docker/Podman.
-The `/health` response reports `runtime` and
-`capabilities.workloadExecution`; clients must require that capability before
-submitting work that needs a running container.
-
-The same endpoint convention applies inside workloads. Pass
-`AWS_ENDPOINT_URL` (or `AWS_ENDPOINT_URL_<SERVICE>`) and ordinary AWS
-credentials through the real workload configuration surface—Amazon ECS
-container overrides, AWS CodeBuild environment overrides, or AWS Lambda
-function environment variables. The simulator does not inject or broker a
-private endpoint variable. The
-official-client suite proves this by
-having an AWS Step Functions-launched AWS CodeBuild process invoke the vendor
-AWS CLI against Amazon SQS and by having explicitly deployed AWS Lambda code
-invoke the bundled AWS SDK against Amazon SQS.
-It also launches the official HashiCorp Terraform image as an Amazon ECS task
-from AWS Step Functions; Terraform uses only the standard `AWS_ENDPOINT_URL`
-coordinate, applies an Amazon SQS resource to the simulator, and an independent
-AWS SDK client reads the resulting queue and tags.
-
-AWS Lambda follows the real deployment contract: `CreateFunction` supplies a
-ZIP archive or image plus handler, role, and environment configuration.
-Repository files and database settings are not discovered from the simulator
-host. An end-to-end SDK test deploys code and environment explicitly, invokes
-the managed runtime, and observes its authenticated downstream Amazon SQS
-write.
-
-**Amazon ECS managed EBS volumes** are engine volumes (`sockerless-ebs-<id>`): each task's volume is its own, snapshots copy it, and nothing is shared by path between the host and the simulator's container. The requested size and filesystem type are validated and recorded, not realized on the container backend (`BUGS.md`).
-
-**VPC and subnet creation** (`CreateVpc`, `CreateSubnet`) records API state. The simulator creates the VPC's engine network when the first workload attaches to a subnet of it, and removes it with the VPC.
-
-### Networks, the Route 53 Resolver and instance metadata
-
-Every workload runs on an engine network, never on the engine's default
-bridge: a VPC's network (`sockerless-sim-vpc-<vpc-id>`, over the VPC's own
-CIDR) for an Amazon EC2 instance, an `awsvpc` task or a VPC-attached AWS
-Lambda function, and the simulator's platform network
-(`sockerless-sim-aws-platform-<scope>`) for everything else — `bridge`-mode
-tasks, Lambda functions outside a VPC, AWS Batch jobs, AWS CodeBuild
-environments, AWS Glue jobs, Amplify builds and compute.
-
-Each network carries one sidecar container at the address the cloud reserves:
-the VPC's base plus two, where the Amazon Route 53 Resolver answers. The
-sidecar serves DNS and HTTP there. Every workload's resolver is the sidecar,
-so a name resolves through Route 53: the public hosted zones, the private
-hosted zones associated with the workload's VPC (AWS Cloud Map namespaces
-among them), the load balancers' names, and everything else through the
-simulator's upstream resolvers. The sidecar forwards the instance metadata
-service, the Amazon ECS task metadata endpoint and the container credentials
-endpoint to the simulator with the workload's address, so each workload reads
-its own identity; the SDKs find them through
-`AWS_EC2_METADATA_SERVICE_ENDPOINT`, `ECS_CONTAINER_METADATA_URI_V4` and
-`AWS_CONTAINER_CREDENTIALS_FULL_URI`, which name the sidecar. The link-local
-addresses themselves (`169.254.169.254`, `169.254.170.2`) are not routed
-(`BUGS.md`).
-
-Only an EC2 instance reaches the instance metadata service, and it reads its
-own record there: identity, placement, key pair, tags when its metadata
-options allow them, and sessions of its instance profile's role. Every other
-workload holds its role the way its service hands it over: an AWS Lambda
-function and Amplify compute take their execution or compute role's session
-from the environment, and an Amazon ECS task, an AWS CodeBuild build, an AWS
-Batch job and an AWS Glue job run read theirs from the container credentials
-endpoint. Each session is the role's, named for the workload, and IAM
-evaluates the role's policies against what the workload calls.
-
-Security groups are enforced on the flows the simulator mediates: a load
-balancer reaches an instance or IP target only through what the target's
-security groups admit from the load balancer (its security groups and
-subnets, or the client's address where a Network Load Balancer preserves
-it), and a blocked target's health checks time out. Traffic between two
-workloads on one network is not filtered (`BUGS.md`).
-
-### Amazon EC2 instances
-
-An instance is a machine on the placement backend (a container by default):
-the AMI's image, its private address on the VPC's network, the hostname
-`ip-10-0-0-7`, the VPC's resolver, and the vCPUs and memory of its instance
-type. `DescribeImages` lists the AMIs the simulator publishes — Amazon Linux
-2023, Ubuntu 24.04 LTS and Debian 12 for `x86_64` and `arm64`, with the
-names, owners and descriptions AWS reports — beside the account's own.
-`RunInstances` refuses an AMI that does not exist and an instance type of
-another architecture.
-
-- **User data** runs under the AMI's cloud-init: `#cloud-config` modules in
-  their stages and frequencies, `#!` scripts, gzip and MIME multipart, with the
-  key pair's key on the default user. Its output reaches the console
-  (`GetConsoleOutput`) and `/var/log/cloud-init-output.log`; the modules not
-  yet run are listed in `BUGS.md`.
-- **Lifecycle**: `pending` while the machine boots and `running` once its
-  init is ready; `StopInstances` keeps the root disk (`stopping`, `stopped`)
-  and `StartInstances` boots it again; `TerminateInstances` discards it
-  (`shutting-down`, `terminated`); `RebootInstances` restarts the init in
-  place; an init that exits on its own stops the instance.
-- **AWS Systems Manager Run Command** (`SendCommand` with
-  `AWS-RunShellScript` or a command document with `aws:runShellScript`
-  steps) runs on the instance's machine; `GetCommandInvocation` carries the
-  output. An instance whose machine is not up is not a managed node.
-- **Images**: `CreateImage` captures the instance's root disk into the new
-  AMI; `RegisterImage` takes an OCI image reference in `ImageLocation`, and
-  `ImportImage` one in the disk container's `Url`, which the instances of
-  those AMIs boot. An AMI registered from a block device mapping alone has
-  no root filesystem to boot (`BUGS.md`).
-
-### ECS task networking
-
-The task definition's `networkMode` decides the fabric every container in the
-task lands on, exactly as it does on real Amazon Elastic Container Service (ECS):
-
-| `networkMode` | What the task gets | How the simulator realizes it |
-|---|---|---|
-| `awsvpc` | Its own elastic network interface in a subnet of the VPC. `networkConfiguration` is **mandatory**; `RunTask` rejects the request without it. | A user-defined engine network per VPC (`sockerless-sim-vpc-<vpc-id>`) over the VPC's own CIDR, created when the first task attaches, with the VPC's resolver sidecar; the task's first container takes the ENI address from the engine and the task's other containers share its network namespace. Same-VPC tasks reach each other on their ENI addresses over the shared bridge. The engine admits one network per address range, so two live VPCs sharing a CIDR do not coexist on one engine (`BUGS.md`). |
-| `bridge` (the default when `networkMode` is unset) | An address on the container instance's network. No ENI. `networkConfiguration` is rejected. | The simulator's platform network (`sockerless-sim-aws-platform-<scope>`) with its resolver sidecar. |
-| `host` | The container instance's own network stack. No ENI. | Docker `host` network mode. |
-| `none` | No connectivity. No ENI. | Docker `none` network mode. |
-
-An `awsvpc` task is therefore never placed on the default bridge, and only an
-`awsvpc` task carries an `ElasticNetworkInterface` attachment and per-container
-`networkInterfaces`.
-
-### Guest-kernel requirements for `SIM_RUNTIME=docker`
-
-Workload execution is the container runtime's job, so the kernel the **runtime**
-runs on must be able to program everything that runtime needs. Docker 28 and
-later adds a `raw`-table `PREROUTING … -j DROP` rule (direct access filtering)
-for every endpoint it creates on a bridge-driver network, so a kernel built
-without `CONFIG_IP_NF_RAW` cannot start those containers at all:
-
-```
-failed to create endpoint … on network bridge:
-Unable to enable DIRECT ACCESS FILTERING - DROP rule:
-(iptables failed: iptables --wait -t raw -A PREROUTING …:
-can't initialize iptables table `raw': Table does not exist)
-```
-
-This covers the default `bridge` network **and** every user-defined bridge
-network — Docker programs the rule per endpoint, so the per-VPC networks
-`awsvpc` tasks use need the `raw` table too. Only `networkMode: host` and
-`networkMode: none` create no bridge endpoint at all.
-
-The simulator does not work around this — it reports the failure with the
-missing module named, and the task stops with that reason. Fix it on the host:
-
-- Run the container runtime on a kernel with the full netfilter set
-  (`iptable_raw` / `CONFIG_IP_NF_RAW`, plus `nf_tables` for the nftables
-  backend).
-- Or start the Docker daemon with `DOCKER_INSECURE_NO_IPTABLES_RAW=1`, Docker's
-  own opt-out from the `raw` rules. That drops the direct-access hardening
-  host-wide; it is the daemon operator's decision, never the simulator's.
+`AWS_ENDPOINT_URL` sends every service to the simulator;
+`AWS_ENDPOINT_URL_<SERVICE>` overrides it for one. `awsCLI` in
+[`cli-tests/helpers_test.go`](cli-tests/helpers_test.go) runs every command
+of the CLI suite with this environment. Use a current AWS CLI v2. Older
+releases lack recently launched operations, and AWS CLI v1 sends Amazon Simple
+Queue Service (Amazon SQS) requests to AWS whatever `AWS_ENDPOINT_URL` says.
 
 ### Terraform
-
-See [`docs/terraform.md`](docs/terraform.md) for the full provider configuration:
 
 ```hcl
 provider "aws" {
@@ -226,173 +118,213 @@ provider "aws" {
   skip_credentials_validation = true
   skip_metadata_api_check     = true
   skip_requesting_account_id  = true
+  s3_use_path_style           = true
 
   endpoints {
-    ecs              = "http://localhost:4566"
-    ecr              = "http://localhost:4566"
-    cloudfront       = "http://localhost:4566"
-    acm              = "http://localhost:4566"
-    route53          = "http://localhost:4566"
-    wafv2            = "http://localhost:4566"
-    amplify          = "http://localhost:4566"
-    iam              = "http://localhost:4566"
-    # …any service you exercise.
+    s3  = "http://localhost:4566"
+    sqs = "http://localhost:4566"
+    sts = "http://localhost:4566"
+    # one line per service the configuration uses
   }
 }
 ```
 
+The `skip_*` flags keep the provider from probing the instance metadata
+service and AWS STS before each run. Leave `skip_requesting_account_id` unset
+where a resource is addressed by account ID, as Amazon S3 Control's are.
+[`terraform-tests/main.tf`](terraform-tests/main.tf) carries the full block
+the suite uses; `tfsim.Start` in
+[`terraform-tests/internal/tfsim`](terraform-tests/internal/tfsim/tfsim.go)
+passes it the endpoint as `TF_VAR_endpoint`. Without `SIM_PERSIST=true`, a
+restart leaves Terraform state describing resources that no longer exist.
+
+### boto3
+
+```python
+import boto3
+
+session = boto3.Session(aws_access_key_id="test", aws_secret_access_key="test",
+                        region_name="us-east-1")
+sqs = session.client("sqs", endpoint_url="http://localhost:4566")
+sqs.create_queue(QueueName="demo")
+```
+
+boto3 also reads `AWS_ENDPOINT_URL` and the credential variables above.
+`TestLambdaExplicitDeploymentEnvironmentAndDownstreamSDK` in
+[`sdk-tests/lambda_test.go`](sdk-tests/lambda_test.go) runs boto3 inside a
+Lambda function and has it call Amazon SQS and AWS STS through
+`AWS_ENDPOINT_URL`.
+
 ## Services
 
-### AWS-JSON 1.1 (POST / + X-Amz-Target)
+Each surface table lists the operations the simulator registers and the tests
+that drive them. `buildSimulatorWithOptions` in [`main.go`](main.go) registers
+every slice.
 
-| Service | Target Prefix | Source file |
-|---|---|---|
-| **ECS** | `AmazonEC2ContainerServiceV20141113` | `ecs.go` |
-| **ECR** | `AmazonEC2ContainerRegistry_V20150921` | `ecr.go` |
-| **CloudWatch Logs** | `Logs_20140328` | `cloudwatch.go` |
-| **Cloud Map** | `Route53AutoNaming_v20170314` | `cloudmap.go` |
-| **ACM** | `CertificateManager` | `acm.go` |
-| **WAFv2** | `AWSWAF_20190729` | `wafv2.go` |
-| **KMS** | `TrentService` | `kms.go` |
-| **Secrets Manager** | `secretsmanager` | `secretsmanager.go` |
-| **DynamoDB** | `DynamoDB_20120810` | `dynamodb.go` |
-| **SSM** | `AmazonSSM` | `ssm_*.go` |
+| Area | Service | Protocol | Surface |
+|---|---|---|---|
+| Compute | Amazon EC2, with Amazon EBS and Amazon VPC | EC2 Query | [ec2](../specs/SIM_SURFACE_TABLES/aws-ec2.md) |
+| Compute | AWS Lambda | REST-JSON | [lambda](../specs/SIM_SURFACE_TABLES/aws-lambda.md) |
+| Compute | AWS Batch | REST-JSON | [batch](../specs/SIM_SURFACE_TABLES/aws-batch.md) |
+| Compute | Amazon EC2 Auto Scaling | AWS Query | [autoscaling](../specs/SIM_SURFACE_TABLES/aws-autoscaling.md) |
+| Compute | Application Auto Scaling | AWS JSON 1.1 | [application-autoscaling](../specs/SIM_SURFACE_TABLES/aws-application-autoscaling.md) |
+| Containers | Amazon ECS | AWS JSON 1.1 | [ecs](../specs/SIM_SURFACE_TABLES/aws-ecs.md) |
+| Containers | Amazon Elastic Container Registry (Amazon ECR), with its OCI registry | AWS JSON 1.1 | [ecr](../specs/SIM_SURFACE_TABLES/aws-ecr.md) |
+| Storage | Amazon S3, with S3 Express One Zone and S3 Object Lambda | REST-XML | [s3](../specs/SIM_SURFACE_TABLES/aws-s3.md), [subresources](../specs/SIM_SURFACE_TABLES/aws-s3-bucket-subresources.md), [multipart](../specs/SIM_SURFACE_TABLES/aws-s3-multipart.md), [Object Lambda](../specs/SIM_SURFACE_TABLES/aws-s3_object_lambda.md) |
+| Storage | Amazon S3 Control | REST-XML | [jobs](../specs/SIM_SURFACE_TABLES/aws-s3control_jobs.md), [Storage Lens](../specs/SIM_SURFACE_TABLES/aws-s3control_storage_lens.md), [access grants](../specs/SIM_SURFACE_TABLES/aws-s3control_access_grants.md), [Multi-Region Access Points](../specs/SIM_SURFACE_TABLES/aws-s3control_mrap.md), [other](../specs/SIM_SURFACE_TABLES/aws-s3control_misc.md) |
+| Storage | Amazon EFS | REST-JSON | [efs](../specs/SIM_SURFACE_TABLES/aws-efs.md) |
+| Databases | Amazon Relational Database Service (Amazon RDS), with Amazon Aurora | AWS Query | [rds](../specs/SIM_SURFACE_TABLES/aws-rds.md) |
+| Databases | Amazon DynamoDB | AWS JSON 1.0 | [dynamodb](../specs/SIM_SURFACE_TABLES/aws-dynamodb.md) |
+| Databases | Amazon ElastiCache | AWS Query | [elasticache](../specs/SIM_SURFACE_TABLES/aws-elasticache.md) |
+| Networking | Elastic Load Balancing (Application, Network and Gateway Load Balancers) | AWS Query | [elbv2](../specs/SIM_SURFACE_TABLES/aws-elbv2.md) |
+| Networking | Amazon Route 53 | REST-XML | [route53](../specs/SIM_SURFACE_TABLES/aws-route53.md) |
+| Networking | Amazon CloudFront | REST-XML | [cloudfront](../specs/SIM_SURFACE_TABLES/aws-cloudfront.md), [more](../specs/SIM_SURFACE_TABLES/aws-cloudfront_extras.md) |
+| Networking | AWS Cloud Map | AWS JSON 1.1 | [cloudmap](../specs/SIM_SURFACE_TABLES/aws-cloudmap.md) |
+| Networking | Amazon API Gateway: REST APIs, and HTTP and WebSocket APIs (V2) | REST-JSON | [apigateway](../specs/SIM_SURFACE_TABLES/aws-apigateway.md), [apigatewayv2](../specs/SIM_SURFACE_TABLES/aws-apigatewayv2.md) |
+| Messaging | Amazon SQS | AWS JSON 1.0 | [sqs](../specs/SIM_SURFACE_TABLES/aws-sqs.md) |
+| Messaging | Amazon Simple Notification Service (Amazon SNS) | AWS Query | [sns](../specs/SIM_SURFACE_TABLES/aws-sns.md) |
+| Messaging | Amazon EventBridge | AWS JSON 1.1 | [eventbridge](../specs/SIM_SURFACE_TABLES/aws-eventbridge.md) |
+| Messaging | Amazon EventBridge Scheduler | REST-JSON | [scheduler](../specs/SIM_SURFACE_TABLES/aws-scheduler.md) |
+| Messaging | AWS Step Functions | AWS JSON 1.0 | [stepfunctions](../specs/SIM_SURFACE_TABLES/aws-stepfunctions.md) |
+| Messaging | Amazon Kinesis Data Streams | AWS JSON 1.1 | [kinesis](../specs/SIM_SURFACE_TABLES/aws-kinesis.md) |
+| Messaging | Amazon Data Firehose | AWS JSON 1.1 | [firehose](../specs/SIM_SURFACE_TABLES/aws-firehose.md) |
+| Identity and security | IAM | AWS Query | [iam](../specs/SIM_SURFACE_TABLES/aws-iam.md) |
+| Identity and security | AWS Security Token Service (AWS STS) | AWS Query | [sts](../specs/SIM_SURFACE_TABLES/aws-sts.md) |
+| Identity and security | AWS Key Management Service (AWS KMS) | AWS JSON 1.1 | [kms](../specs/SIM_SURFACE_TABLES/aws-kms.md) |
+| Identity and security | AWS Secrets Manager | AWS JSON 1.1 | [secretsmanager](../specs/SIM_SURFACE_TABLES/aws-secretsmanager.md) |
+| Identity and security | AWS Certificate Manager (ACM), with its ACME endpoints | AWS JSON 1.1 | [acm](../specs/SIM_SURFACE_TABLES/aws-acm.md), [ACME](../specs/SIM_SURFACE_TABLES/aws-acm_acme.md) |
+| Identity and security | AWS Private Certificate Authority | AWS JSON 1.1 | [acmpca](../specs/SIM_SURFACE_TABLES/aws-acmpca.md) |
+| Identity and security | AWS WAF | AWS JSON 1.1 | [wafv2](../specs/SIM_SURFACE_TABLES/aws-wafv2.md) |
+| Management | Amazon CloudWatch | Smithy RPC v2 CBOR, AWS JSON 1.0, AWS Query | [cloudwatch](../specs/SIM_SURFACE_TABLES/aws-cloudwatch.md) |
+| Management | Amazon CloudWatch Logs | AWS JSON 1.1 | [cloudwatch](../specs/SIM_SURFACE_TABLES/aws-cloudwatch.md) |
+| Management | AWS CloudTrail, with CloudTrail Lake | AWS JSON 1.1 | [cloudtrail](../specs/SIM_SURFACE_TABLES/aws-cloudtrail.md) |
+| Management | AWS Systems Manager | AWS JSON 1.1 | [ssm](../specs/SIM_SURFACE_TABLES/aws-ssm_parameters.md) |
+| Management | AWS Organizations | AWS JSON 1.1 | [organizations](../specs/SIM_SURFACE_TABLES/aws-organizations.md) |
+| Management | AWS Budgets | AWS JSON 1.1 | [budgets](../specs/SIM_SURFACE_TABLES/aws-budgets.md) |
+| Developer tools | AWS CodeBuild | AWS JSON 1.1 | [codebuild](../specs/SIM_SURFACE_TABLES/aws-codebuild.md) |
+| Developer tools | AWS Amplify, with its hosting data plane | REST-JSON | [amplify](../specs/SIM_SURFACE_TABLES/aws-amplify.md) |
+| Analytics | AWS Glue | AWS JSON 1.1 | [glue](../specs/SIM_SURFACE_TABLES/aws-glue.md) |
 
-### AWS Query Protocol (POST / + Action=)
+## How it runs your workloads
 
-| Service | Source file |
+[`docs/architecture.md`](../docs/architecture.md) describes what the three
+simulators share: placement, engine networks, sidecars and recovery.
+
+### VPC networks
+
+`CreateVpc` and `CreateSubnet` record API state. The first workload placed in
+a subnet creates the VPC's engine network, `sockerless-sim-vpc-<vpc-id>`, over
+the VPC's own CIDR, and the workload's private address is its address there.
+EC2 instances, `awsvpc` tasks and VPC-attached Lambda functions land on it.
+Every other workload lands on the platform network,
+`sockerless-sim-aws-platform-<scope>`; none lands on the engine's default
+bridge. Security groups filter what load balancers, published ports and NAT
+gateways carry to a workload, but two containers on one network reach each
+other on every port. Two VPCs with one CIDR can't coexist on one engine.
+
+### The Route 53 Resolver
+
+Each network carries one sidecar at the address the VPC reserves for the
+Amazon Route 53 Resolver, the network's base plus two. Every workload's
+resolver is that sidecar. It answers from the public hosted zones, the private
+hosted zones associated with the workload's VPC (AWS Cloud Map namespaces
+among them) and the load balancers' names, and recurses for everything else
+through `SIM_DNS_UPSTREAM`.
+
+### EC2 instance metadata (IMDSv2)
+
+The sidecar forwards metadata requests to the simulator with the caller's
+address, so each instance reads only its own record. An instance finds the
+service through `AWS_EC2_METADATA_SERVICE_ENDPOINT`, which names the sidecar;
+`169.254.169.254` isn't routed ([BUGS.md](../BUGS.md)). `PUT /latest/api/token`
+issues an IMDSv2 session token for 1 to 21,600 seconds and refuses a request a
+proxy forwarded; `HttpTokens=required` refuses every read without a live
+token. The service serves the identity document, placement, network
+interfaces, block devices, the key pair's public key, tags when
+`InstanceMetadataTags` allows them, and sessions of the instance profile's
+role.
+
+Only an EC2 instance reaches this service. A Lambda function and Amplify
+compute take their role's session from environment variables; an ECS task, a
+CodeBuild build, a Batch job and a Glue job run read theirs from
+`AWS_CONTAINER_CREDENTIALS_FULL_URI`.
+
+An instance is a container by default, with the AMI's image, its instance
+type's vCPUs and memory, and its user data run under cloud-init.
+`DescribeImages` lists Amazon Linux 2023, Ubuntu 24.04 LTS and Debian 12 for
+`x86_64` and `arm64`.
+
+### ECS task networking
+
+The task definition's `networkMode` decides where the task's containers land:
+
+| `networkMode` | What the task gets |
 |---|---|
-| **EC2** | `ec2.go` |
-| **IAM** (roles, policies, instance profiles, service-linked roles, OIDC providers) | `iam.go` + `iam_slr_oidc.go` |
-| **STS** | `sts.go` |
+| `awsvpc` | An elastic network interface on the VPC's network. `RunTask` requires `networkConfiguration`. The task's other containers share the first one's network namespace. |
+| `bridge` (the default) | An address per container on the platform network, and no interface. `RunTask` rejects `networkConfiguration`. |
+| `host` | The engine host's network stack |
+| `none` | No network |
 
-### REST APIs (path routing)
+A task reads its metadata at `ECS_CONTAINER_METADATA_URI_V4` and its task
+role's credentials at `AWS_CONTAINER_CREDENTIALS_FULL_URI`, both on the
+sidecar. `StopTask` sends `SIGTERM`, then `SIGKILL` after each container
+definition's `stopTimeout`, 30 seconds when unset.
 
-| Service | Base Path | Source file |
-|---|---|---|
-| **EFS** | `/2015-02-01/…` | `efs.go` |
-| **Lambda** | `/2015-03-31/functions/…` | `lambda.go` |
-| **S3** | `/{bucket}/{key}` | `s3.go` |
-| **CloudFront** | `/2020-05-31/…` (REST + XML) | `cloudfront.go` + `cloudfront_policies.go` + `cloudfront_functions.go` + `cloudfront_keys.go` |
-| **Route 53** | `/2013-04-01/…` (REST + XML) | `route53.go` |
-| **Amazon Amplify** | `/apps/…` (REST + JSON, versionless); encrypted authenticated Git repository connections, real backend/frontend/test and monorepo builds with declared caches in a managed multi-language image from mirror.gcr.io, a host-addressed hosting data plane (`{branch}.{appId}.amplifyapp.com`, per-app `{hash}.cloudfront.net`, verified custom domains), server-side rendering per the deployment-manifest specification, and Route 53-backed domain verification | `amplify.go` + `amplify_domains.go` + `amplify_build.go` + `amplify_dataplane.go` + `amplify_compute.go` |
+### Lambda execution environments
 
-Amazon RDS DB instances backed by PostgreSQL, MySQL, or MariaDB expose their
-native database wire protocol at the `Endpoint` returned by
-`CreateDBInstance`. The engine starts on the first data-plane connection,
-retains its files in an instance-owned volume, and accepts the configured
-master password, the passwords of the users the engine holds, and a
-TLS-protected, 15-minute SigV4 IAM database authentication token for a
-PostgreSQL role granted `rds_iam` or a MySQL or MariaDB user identified with
-`AWSAuthenticationPlugin`, a server plugin the simulator ships for both
-engines. `ModifyDBInstance` changes IAM authentication and rotates the actual
-database account while running or across a stopped/start lifecycle without
-replacing its data volume. Official AWS token generation plus stock PostgreSQL
-and MySQL drivers exercise schema, insert, query, denial, TLS enforcement,
-password rotation, and persistence operations against all three real engines.
+An execution environment is a container with its own Runtime API at
+`AWS_LAMBDA_RUNTIME_API`. A ZIP function runs in AWS's managed-runtime base
+image (`public.ecr.aws/lambda/<runtime>`) with its package at `/var/task` and
+its layers at `/opt`; an image function runs its image with its
+`ImageConfig`. The function's `MemorySize` limits the container's memory.
 
-AWS Step Functions Task states support optimized Amazon ECS `RunTask`
-request/response, `.sync`, and callback-token integrations, plus the optimized
-AWS CodeBuild build and build-batch operations, each called through the
-service's API as the execution role. Synchronous workflows wait on the actual
-service resources, propagate terminal failures, and stop work they
-started when the caller aborts the execution. CodeBuild clones private Git sources
-with encrypted imported or AWS Secrets Manager credentials and executes the
-checked-in build specification inside the project's exact configured image;
-stopping a build or build batch cancels that container.
+An environment stays initialized between invocations and serves one at a
+time. Each function version keeps its own pool of environments, within the
+function's reserved concurrency and the account's limit of 1,000. Provisioned
+concurrency initializes environments before any invocation, and an update to
+`$LATEST` drains the old environments.
 
-Amazon Amplify release and retry jobs expose the hosted build ZIP through the
-`BUILD` step's `artifactsUrl`; `ListArtifacts` and `GetArtifactUrl` expose only
-the actual end-to-end test files declared by the build specification. Test
-artifact bundles and configuration URLs live on that same `BUILD` step and are
-deleted with the job. AWS WAF associations update the Amplify app's
-`wafConfiguration`, protect the hosting data plane with the WebACL default
-action and IP-set rules, and feed actual matching requests into
-`GetSampledRequests`.
+The function runs as a session of its execution role, which Lambda passes in
+the environment. The simulator also sets `AWS_ENDPOINT_URL` to an address the
+container reaches it on, unless the function's own environment sets it.
+CodeBuild builds get the same variable.
 
-Full per-verb wire shape: see [API_SPEC.md](API_SPEC.md).
+### Guest-kernel requirements
 
-## Sample — end-to-end production-shape stack
+Docker 28 and later adds a `raw`-table `PREROUTING` drop rule for every
+container it attaches to a bridge network, so a kernel without
+`CONFIG_IP_NF_RAW` starts no workload except `host`- and `none`-mode ECS
+tasks. The workload fails with the missing module named. Boot the engine host
+on a kernel with the full netfilter set (`iptable_raw`, and `nf_tables` for the
+nftables backend), or start the Docker daemon with
+`DOCKER_INSECURE_NO_IPTABLES_RAW=1`, which turns off Docker's direct-access
+filtering host-wide.
 
-The `terraform-tests` `TestStackProductionShape` test provisions a CloudFront-fronted application with AWS WAF, ACM, Route 53, Amplify and an IAM service-linked role in a single `terraform apply` (simulator port shown as `:46241`):
+## Test it
 
-```bash
-# Boot the sim
-$ SIM_LISTEN_ADDR=:46241 ./simulator-aws &
+| Target | What it runs |
+|---|---|
+| `make simulator-aws/unit-test` | The module's own tests. These include the conformance tests that check every `X-Amz-Target`, `Action` and REST route against the Smithy models. No engine is needed. |
+| `make simulator-aws/sdk-test` | [`sdk-tests/`](sdk-tests/): the AWS SDK for Go v2, one file per service family |
+| `make simulator-aws/cli-test` | [`cli-tests/`](cli-tests/): the AWS CLI, which `TestMain` installs when `aws` is not on `PATH` |
+| `make simulator-aws/terraform-test` | [`terraform-tests/`](terraform-tests/): `hashicorp/aws` through `terraform apply`, output assertions and `terraform destroy`, one package per stack |
 
-# Configure AWS SDK + Terraform
-$ export AWS_ENDPOINT_URL=http://127.0.0.1:46241
-$ export AWS_ACCESS_KEY_ID=test AWS_SECRET_ACCESS_KEY=test AWS_DEFAULT_REGION=us-east-1
+The SDK, CLI and Terraform targets build the simulator, and each suite starts
+it on a free port, waits for its `Listening on` banner and stops it at the
+end. They need a container engine, and the Terraform suite needs `terraform`.
+`make simulator-aws/terraform-https-test` runs the Terraform suite through the
+local HTTPS gateway, which needs `caddy`.
 
-# Apply the full stack
-$ terraform apply -auto-approve
-aws_cloudfront_distribution.tf_dist: Creation complete after 0.2s
-  [id=E8E549340297351, domain_name=E8E549340297351.cloudfront.net]
-aws_wafv2_web_acl_association.tf_assoc: Creation complete after 0.03s
-aws_route53_record.tf_alias: Creation complete after 0.1s
-aws_acm_certificate.tf_cert: Creation complete after 0.03s
-  [arn=arn:aws:acm:us-east-1:123456789012:certificate/...]
-aws_iam_service_linked_role.tf_slr_cloudfront: Creation complete after 0.02s
-aws_iam_openid_connect_provider.tf_oidc: Creation complete after 0.02s
-aws_amplify_app.tf_amplify: Creation complete after 0.01s
+## Limits
 
-# Verify cross-resource references
-$ terraform output -json | jq '. | with_entries(.value = .value.value)'
-{
-  "cloudfront_arn":             "arn:aws:cloudfront::123456789012:distribution/E8E549340297351",
-  "cloudfront_domain_name":     "E8E549340297351.cloudfront.net",
-  "wafv2_assoc_resource_arn":   "arn:aws:cloudfront::123456789012:distribution/E8E549340297351",
-  "route53_alias_target_name":  "E8E549340297351.cloudfront.net",
-  "acm_certificate_arn":        "arn:aws:acm:us-east-1:123456789012:certificate/...",
-  "iam_slr_arn":                "arn:aws:iam::123456789012:role/aws-service-role/cloudfront.amazonaws.com/AWSServiceRoleForCloudFrontLogger_tftest"
-}
-```
+- One home Region. Amazon RDS DB instances live in the Region that signs the
+  creating request; every other service keeps resources in
+  `SOCKERLESS_AWS_REGION`.
+- No edge propagation. A CloudFront distribution or invalidation reports
+  `Deployed` or `Completed` when its call returns.
+- No cost or pricing APIs: AWS Cost and Usage Reports, AWS Price List and
+  AWS Cost Explorer are absent. AWS Budgets is served.
+- Amazon SNS SMS and mobile push fail and name the missing dependency: a
+  carrier or a push service that no AWS API provisions.
 
-The Go test asserts `wafv2_assoc_resource_arn == cloudfront_arn`, `route53_alias_target_name == cloudfront_domain_name`, and `acm_certificate_arn` starts with `arn:aws:acm:us-east-1:` — the three load-bearing cross-resource invariants of a CloudFront-fronted production stack.
-
-```bash
-$ terraform destroy -auto-approve
-# Destroys all 30+ resources in dependency order.
-```
-
-## Building
-
-```bash
-cd simulator-aws
-go build -o simulator-aws .
-```
-
-That build serves the APIs and no console. `make simulator-aws/build` from the
-repository root, after `cd ui && bun install && bunx turbo run build`, embeds the
-console with `-tags console`; a plain build serves a built bundle when
-`SIM_CONSOLE_DIR` names it.
-
-## Testing
-
-```bash
-# SDK tests (AWS SDK v2 against the running sim — sim is built + booted per TestMain)
-cd sdk-tests && go test -v ./...
-
-# CLI tests (aws CLI shell-outs)
-cd cli-tests && go test -v ./...
-
-# Terraform tests (real terraform apply → assert outputs → destroy)
-cd terraform-tests && go test -v ./...
-```
-
-Each suite's `TestMain` builds the simulator, starts it on a free port, waits for its `Listening on` banner (`testutil/simready`), runs the tests and stops it. The suites need a container engine; the CLI suite installs its CLI when absent.
-
-## Known issues
-
-Open simulator bugs live in [BUGS.md](../BUGS.md).
-
-## What's out of scope
-
-- **Edge propagation** — a CloudFront distribution or invalidation takes effect when its call returns, so it reports `Deployed` or `Completed` at once; real CloudFront spends minutes `InProgress`.
-- **Multi-region deployments** — the simulator serves one home Region (`us-east-1` by default). Amazon RDS DB instances live in the Region their creating request is signed for and replicate automated backups across Regions; other services keep one Region.
-- **Cost / billing surfaces** — `cur`, `pricing` and `cost-explorer` are absent; AWS Budgets is served.
-- **Outbound delivery to carriers and push services** — Amazon SNS SMS and mobile push need a telecommunications carrier or Apple's and Google's hosts, which no AWS API provisions; those publishes fail naming the missing dependency.
-
-A stopped Amazon ECS task's containers get SIGTERM and then SIGKILL after each container definition's `stopTimeout` (30 seconds when unset). Route 53 serves the zones it holds over UDP and TCP on `SIM_DNS_PORT` (a kernel-chosen port when unset; workloads reach it through their network's sidecar), a private hosted zone only to the VPCs it is associated with, and recurses for other names through `SIM_DNS_UPSTREAM` or the host's resolvers, a DNS-validated ACM certificate is issued once its validation CNAME is present in Route 53, WAFv2 web ACLs are evaluated against the traffic of the resources they are associated with, and every request is SigV4-verified against the principal's stored secret.
-
-See also: [API_SPEC.md](API_SPEC.md).
+[BUGS.md](../BUGS.md) lists open bugs.

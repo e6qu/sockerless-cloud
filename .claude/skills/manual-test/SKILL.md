@@ -41,14 +41,14 @@ AWS_ENDPOINT_URL=http://localhost:4566 AWS_ACCESS_KEY_ID=test \
 # gcloud: CLOUDSDK_API_ENDPOINT_OVERRIDES_<API>=http://localhost:4567/
 # az:     az rest --url "http://localhost:4568/subscriptions/...?api-version=..."
 # SDK:    a one-off Go program with the endpoint as its only coordinate.
-# Terraform: the provider block from simulator-<cloud>/docs/terraform.md.
+# Terraform: the provider block from simulator-<cloud>/README.md.
 
 # 3. Clean up.
 pkill -f 'simulator-aws/simulator-aws'
 ```
 
-Each simulator's README carries its full wiring, and its `docs/cli.md`,
-`docs/terraform.md` and `docs/python-sdk.md` the per-adaptor setup.
+Each simulator's README carries its full wiring, with the setup of each
+client it is tested with.
 
 ### Through the local HTTPS gateway
 
