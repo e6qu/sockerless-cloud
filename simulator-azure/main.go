@@ -18,7 +18,8 @@
 //
 // SDK configuration:
 //
-//	Use custom cloud.Configuration with ARM endpoint http://localhost:4568
+//	Use a custom cloud.Configuration whose ResourceManager endpoint is
+//	http://localhost:4568 and audience https://management.azure.com/.
 package main
 
 import (

@@ -37,19 +37,10 @@ const gceNetworkMTU = 1460
 //	metadata                     (short alias)
 //
 // on port 80, requiring the `Metadata-Flavor: Google` request header on
-// every read. Workloads in the sim reach it via the sim's main HTTP
-// listener; cloud-product translators inject `GCE_METADATA_HOST` and
-// `GCE_METADATA_IP` env vars on the workload host so the GCP Go/Python
-// SDKs pick them up automatically.
-//
-// Coverage today: project ID, default-zone, instance ID + zone + name,
-// the universe domain, service-account default access tokens (delegates to the
-// existing IAM `iamcredentials.generateAccessToken` shape) and ID tokens
-// (delegates to `iamcredentials.generateIdToken`), plus the directory listings
-// and recursive reads a client walks to discover them (see the metadata tree
-// below). Not yet covered: instance attributes, disks, network interfaces,
-// startup-script — add as workloads need them per the sim-parity-per-commit
-// rule.
+// every read. A workload reaches it through its network's sidecar, which the
+// GCE_METADATA_HOST and GCE_METADATA_IP variables name, so the Google Cloud
+// client libraries find it unchanged. The metadata tree below lists what it
+// serves.
 func registerComputeMetadata(srv *sim.Server) {
 	handle := func(pattern string, h http.HandlerFunc) {
 		srv.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {
@@ -724,6 +715,12 @@ func metadataInstanceZone(r *http.Request) string {
 			return fmt.Sprintf("projects/%s/zones/%s", number, inst.Zone[strings.LastIndex(inst.Zone, "/")+1:])
 		}
 		return inst.Zone
+	}
+	// Cloud Run names no zone: its contract answers the region's "-1" zone.
+	if w := gceMetadataWorkloadFor(r); w.cloudRunInstance != "" && w.region != "" {
+		if number, ok := w.projectNumber(); ok {
+			return fmt.Sprintf("projects/%s/zones/%s-1", number, w.region)
+		}
 	}
 	number, ok := gceMetadataWorkloadFor(r).projectNumber()
 	if !ok {

@@ -831,13 +831,31 @@ func (s *Server) printBanner() {
 		fmt.Fprintf(os.Stderr, "  Container runtime: none (%s=%s, API-only; workloads will be refused)\n",
 			runtimeModeVariable, s.runtimeMode)
 	}
+	endpoint := s.config.bannerEndpoint()
 	switch s.config.Provider {
 	case "aws":
-		fmt.Fprintf(os.Stderr, "  SDK config: AWS_ENDPOINT_URL=http://localhost%s\n", s.config.ListenAddr)
+		fmt.Fprintf(os.Stderr, "  SDK config: AWS_ENDPOINT_URL=%s\n", endpoint)
 	case "gcp":
-		fmt.Fprintf(os.Stderr, "  SDK config: option.WithEndpoint(\"http://localhost%s\")\n", s.config.ListenAddr)
+		fmt.Fprintf(os.Stderr, "  SDK config: option.WithEndpoint(%q)\n", endpoint)
 	case "azure":
-		fmt.Fprintf(os.Stderr, "  SDK config: custom cloud.Configuration with endpoint http://localhost%s\n", s.config.ListenAddr)
+		fmt.Fprintf(os.Stderr, "  SDK config: custom cloud.Configuration with endpoint %s\n", endpoint)
 	}
 	fmt.Fprintf(os.Stderr, "\n")
+}
+
+// bannerEndpoint is the URL a client on this host reaches the listener at:
+// a wildcard listen address is reached through localhost.
+func (c Config) bannerEndpoint() string {
+	scheme := "http"
+	if c.TLSCert != "" {
+		scheme = "https"
+	}
+	host, port, err := net.SplitHostPort(c.ListenAddr)
+	if err != nil {
+		return scheme + "://" + c.ListenAddr
+	}
+	if host == "" || host == "0.0.0.0" || host == "::" {
+		host = "localhost"
+	}
+	return scheme + "://" + net.JoinHostPort(host, port)
 }
