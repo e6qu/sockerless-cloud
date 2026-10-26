@@ -24,8 +24,6 @@ type deliveredEvent struct {
 	body   []byte
 }
 
-// eventReceiver is the HTTP endpoint an Eventarc trigger delivers to. It
-// acknowledges every event and hands it to the test.
 func eventReceiver(t *testing.T) (string, <-chan deliveredEvent) {
 	t.Helper()
 	events := make(chan deliveredEvent, 16)
@@ -54,7 +52,7 @@ func TestEventarc_StorageTriggerDeliversObjectFinalized(t *testing.T) {
 	name := parent + "/triggers/storage-trigger"
 	svc := storageService(t)
 	// Eventarc's Cloud Storage triggers need Cloud Storage's service agent to
-	// publish to the topic Eventarc creates for the trigger.
+	// publish to the topic Eventarc creates.
 	agent, err := svc.Projects.ServiceAccount.Get("test-project").Do()
 	require.NoError(t, err)
 	grantProjectRole(t, "test-project", "roles/pubsub.publisher", "serviceAccount:"+agent.EmailAddress)
@@ -126,9 +124,6 @@ func TestEventarc_StorageTriggerDeliversObjectFinalized(t *testing.T) {
 	}
 }
 
-// TestEventarc_TriggerNeedsItsDestination proves Eventarc refuses a trigger
-// whose destination Cloud Run service, or whose Cloud Storage bucket, does not
-// exist.
 func TestEventarc_TriggerNeedsItsDestination(t *testing.T) {
 	t.Parallel()
 	client := eventarcClient(t)
@@ -168,9 +163,8 @@ func TestEventarc_TriggerNeedsItsDestination(t *testing.T) {
 	assert.Equal(t, codes.NotFound, status.Code(err), "a refused trigger is not stored")
 }
 
-// grantProjectRole adds member to role in the project's IAM policy, reading
-// the policy and writing it back under its etag as gcloud does, and retrying
-// when another writer changed it in between.
+// grantProjectRole reads the policy and writes it back under its etag, as
+// gcloud does, retrying when another writer changed it in between.
 func grantProjectRole(t *testing.T, project, role, member string) {
 	t.Helper()
 	c, err := resourcemanager.NewProjectsRESTClient(ctx, option.WithEndpoint(baseURL), option.WithTokenSource(simTokenSource()))

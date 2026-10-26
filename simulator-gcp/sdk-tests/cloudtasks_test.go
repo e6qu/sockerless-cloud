@@ -46,9 +46,9 @@ type taskRequest struct {
 	at     time.Time
 }
 
-// taskTarget answers each request with the next status of statuses (the last
-// one repeating) and hands every request it received to the test. While hold
-// is set, each answer waits until the test sends on it.
+// taskTarget answers each request with the next of statuses, repeating the
+// last, and hands every request to the test; while hold is set, each answer
+// waits until the test sends on it.
 func taskTarget(t *testing.T, hold chan struct{}, statuses ...int) (*httptest.Server, <-chan taskRequest) {
 	t.Helper()
 	received := make(chan taskRequest, 32)
@@ -105,9 +105,6 @@ func awaitTaskGone(t *testing.T, c *cloudtasks.Client, name string) {
 	}
 }
 
-// TestCloudTasks_QueueLifecycle creates a queue, reads it with Cloud Tasks'
-// defaults filled in, updates it through a field mask, pauses and resumes it,
-// sets its IAM policy, lists and deletes it.
 func TestCloudTasks_QueueLifecycle(t *testing.T) {
 	t.Parallel()
 	c := tasksClient(t)

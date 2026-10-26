@@ -26,9 +26,6 @@ func pubsubService(t *testing.T) *pubsub.Service {
 	return svc
 }
 
-// TestPubSub_TopicAndSubscriptionLifecycle exercises the canonical
-// fan-out flow: create topic → create subscription → publish → pull
-// → ack. Regression guard (Pub/Sub slice).
 func TestPubSub_TopicAndSubscriptionLifecycle(t *testing.T) {
 	t.Parallel()
 	svc := pubsubService(t)
@@ -43,7 +40,6 @@ func TestPubSub_TopicAndSubscriptionLifecycle(t *testing.T) {
 		_, _ = svc.Projects.Topics.Delete(topicName).Do()
 	})
 
-	// List should include the new topic.
 	list, err := svc.Projects.Topics.List("projects/" + project).Do()
 	require.NoError(t, err)
 	found := false
@@ -55,7 +51,6 @@ func TestPubSub_TopicAndSubscriptionLifecycle(t *testing.T) {
 	}
 	assert.True(t, found, "topic should appear in ListTopics")
 
-	// Create subscription.
 	sub, err := svc.Projects.Subscriptions.Create(subName, &pubsub.Subscription{
 		Topic:              topicName,
 		AckDeadlineSeconds: 30,
@@ -67,7 +62,6 @@ func TestPubSub_TopicAndSubscriptionLifecycle(t *testing.T) {
 		_, _ = svc.Projects.Subscriptions.Delete(subName).Do()
 	})
 
-	// Publish two messages.
 	pubResp, err := svc.Projects.Topics.Publish(topicName, &pubsub.PublishRequest{
 		Messages: []*pubsub.PubsubMessage{
 			{Data: base64.StdEncoding.EncodeToString([]byte("hello"))},
@@ -77,14 +71,12 @@ func TestPubSub_TopicAndSubscriptionLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, pubResp.MessageIds, 2)
 
-	// Pull them back.
 	pullResp, err := svc.Projects.Subscriptions.Pull(subName, &pubsub.PullRequest{
 		MaxMessages: 10,
 	}).Do()
 	require.NoError(t, err)
 	require.Len(t, pullResp.ReceivedMessages, 2)
 
-	// Verify payloads decode correctly.
 	bodies := map[string]bool{}
 	var ackIds []string
 	for _, m := range pullResp.ReceivedMessages {
@@ -97,13 +89,11 @@ func TestPubSub_TopicAndSubscriptionLifecycle(t *testing.T) {
 	assert.True(t, bodies["hello"], "expected 'hello' payload")
 	assert.True(t, bodies["world"], "expected 'world' payload")
 
-	// Acknowledge.
 	_, err = svc.Projects.Subscriptions.Acknowledge(subName, &pubsub.AcknowledgeRequest{
 		AckIds: ackIds,
 	}).Do()
 	require.NoError(t, err)
 
-	// Second pull should be empty (queue drained by ack).
 	pullResp2, err := svc.Projects.Subscriptions.Pull(subName, &pubsub.PullRequest{
 		MaxMessages:       10,
 		ReturnImmediately: true,
@@ -113,7 +103,6 @@ func TestPubSub_TopicAndSubscriptionLifecycle(t *testing.T) {
 		"subscription queue should be empty after ack")
 }
 
-// TestPubSub_NonExistentTopic confirms canonical 404 envelope.
 func TestPubSub_NonExistentTopic(t *testing.T) {
 	t.Parallel()
 	svc := pubsubService(t)
@@ -122,11 +111,8 @@ func TestPubSub_NonExistentTopic(t *testing.T) {
 	assert.Contains(t, err.Error(), "Topic not found")
 }
 
-// TestPubSub_PatchSubscription exercises projects.subscriptions.patch.
-// The terraform-provider-google + the SDK's *ProjectsSubscriptionsService.Patch
-// both emit this verb to mutate ackDeadlineSeconds, messageRetention,
-// pushConfig, etc. without recreating the subscription. updateMask
-// selects which fields apply; fields not in the mask retain prior values.
+// TestPubSub_PatchSubscription: terraform-provider-google and the SDK patch a
+// subscription in place; fields outside updateMask keep their values.
 func TestPubSub_PatchSubscription(t *testing.T) {
 	t.Parallel()
 	svc := pubsubService(t)
@@ -149,8 +135,6 @@ func TestPubSub_PatchSubscription(t *testing.T) {
 	require.Equal(t, "604800s", sub.MessageRetentionDuration)
 	t.Cleanup(func() { _, _ = svc.Projects.Subscriptions.Delete(subName).Do() })
 
-	// PATCH ackDeadlineSeconds + messageRetentionDuration only; Filter
-	// stays unchanged because it's not in the mask.
 	patched, err := svc.Projects.Subscriptions.Patch(subName, &pubsub.UpdateSubscriptionRequest{
 		Subscription: &pubsub.Subscription{
 			AckDeadlineSeconds:       60,
@@ -165,15 +149,14 @@ func TestPubSub_PatchSubscription(t *testing.T) {
 	assert.Equal(t, "attributes.kind = \"news\"", patched.Filter,
 		"Filter must be unchanged — not in updateMask")
 
-	// GET back to confirm persistence.
 	got, err := svc.Projects.Subscriptions.Get(subName).Do()
 	require.NoError(t, err)
 	assert.Equal(t, int64(60), got.AckDeadlineSeconds)
 	assert.Equal(t, "86400s", got.MessageRetentionDuration)
 	assert.Equal(t, "attributes.kind = \"news\"", got.Filter)
 
-	// Unknown updateMask paths must return 400 InvalidArgument —
-	// silently skipping would hide a caller-side typo.
+	// An unknown updateMask path is 400 InvalidArgument, so a caller's typo
+	// surfaces.
 	_, err = svc.Projects.Subscriptions.Patch(subName, &pubsub.UpdateSubscriptionRequest{
 		Subscription: &pubsub.Subscription{Labels: map[string]string{"env": "test"}},
 		UpdateMask:   "labels,unknownField",
@@ -181,16 +164,14 @@ func TestPubSub_PatchSubscription(t *testing.T) {
 	require.Error(t, err, "unknown updateMask path must surface as 400")
 	assert.Contains(t, err.Error(), "unknown updateMask path")
 
-	// Confirm the failed PATCH was atomic — the prior `labels` path
-	// in the same mask must NOT have been applied (the request as
-	// a whole rejected, not partially persisted).
+	// The refused PATCH applied nothing, not even the valid `labels` path in the
+	// same mask.
 	got2, err := svc.Projects.Subscriptions.Get(subName).Do()
 	require.NoError(t, err)
 	assert.Empty(t, got2.Labels, "failed PATCH must not partially apply labels")
 }
 
-// TestPubSub_PatchTopic exercises projects.topics.patch. The only
-// mutable field on real Pub/Sub topics today is `labels`.
+// TestPubSub_PatchTopic: `labels` is the only mutable topic field.
 func TestPubSub_PatchTopic(t *testing.T) {
 	t.Parallel()
 	svc := pubsubService(t)
@@ -220,7 +201,6 @@ func TestPubSub_TopicListPagination(t *testing.T) {
 	proj := "pagination-ps-project"
 	ensureProject(t, proj)
 
-	// Create 3 topics.
 	topics := []string{
 		"projects/" + proj + "/topics/topic-a",
 		"projects/" + proj + "/topics/topic-b",
@@ -236,7 +216,6 @@ func TestPubSub_TopicListPagination(t *testing.T) {
 		}
 	})
 
-	// Page through with pageSize=1.
 	var got []string
 	pageToken := ""
 	for {
@@ -288,7 +267,6 @@ func TestPubSub_SubscriptionListPagination(t *testing.T) {
 		}
 	})
 
-	// Page through with pageSize=1.
 	var got []string
 	pageToken := ""
 	for {

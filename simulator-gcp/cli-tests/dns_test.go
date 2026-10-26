@@ -18,7 +18,6 @@ func TestDNS_CreateAndDescribeZone(t *testing.T) {
 		"--networks=",
 	))
 
-	// Describe (returns a single JSON object)
 	out := runCLI(t, gcloudCLI("dns", "managed-zones", "describe", "cli-test-zone",
 		"--format=json",
 	))
@@ -30,13 +29,11 @@ func TestDNS_CreateAndDescribeZone(t *testing.T) {
 	assert.Equal(t, "cli-test-zone", zone.Name)
 	assert.Equal(t, "cli-test.example.com.", zone.DnsName)
 
-	// Cleanup
 	runCLI(t, gcloudCLI("dns", "managed-zones", "delete", "cli-test-zone"))
 }
 
 func TestDNS_CreateAndListRecordSets(t *testing.T) {
 	t.Parallel()
-	// Create zone first
 	runCLI(t, gcloudCLI("dns", "managed-zones", "create", "record-test-zone",
 		"--dns-name=records.example.com.",
 		"--description=Record test zone",
@@ -44,8 +41,6 @@ func TestDNS_CreateAndListRecordSets(t *testing.T) {
 		"--networks=",
 	))
 
-	// Create a record set via direct HTTP since gcloud record-sets create
-	// may not support endpoint overrides consistently
 	url := fmt.Sprintf("%s/dns/v1/projects/%s/managedZones/record-test-zone/rrsets",
 		baseURL, project)
 	out := httpDoJSON(t, "POST", url,
@@ -63,9 +58,8 @@ func TestDNS_CreateAndListRecordSets(t *testing.T) {
 	require.Len(t, record.Rrdatas, 1)
 	assert.Equal(t, "10.0.0.1", record.Rrdatas[0])
 
-	// List record sets. A managed zone is created with its own SOA and NS
-	// records, so a non-empty list proves nothing — the created A record has to
-	// be found by name and type, carrying the address it was created with.
+	// A managed zone starts with its own SOA and NS records, so find the created A
+	// record by name and type.
 	out = httpDoJSON(t, "GET", url, "")
 	var listResult struct {
 		Rrsets []struct {
@@ -128,9 +122,8 @@ func TestDNS_RecordSetTransactionAndUpdateCLI(t *testing.T) {
 		"--format=json",
 	))
 
-	// The transaction is only real if the record it added is in the zone. Read
-	// it back before the update below overwrites it, otherwise a transaction
-	// that changed nothing is indistinguishable from one that worked.
+	// Read the added record before the update overwrites it, so a transaction that
+	// changed nothing fails.
 	added := runCLI(t, gcloudCLI("dns", "record-sets", "describe", recordName,
 		"--zone", zone,
 		"--type", "A",
@@ -168,8 +161,6 @@ func TestDNS_RecordSetTransactionAndUpdateCLI(t *testing.T) {
 	require.Equal(t, 600, updated.TTL)
 	require.Equal(t, []string{"203.0.113.21"}, updated.Rrdatas)
 
-	// And the zone holds the updated record, not just the response the update
-	// echoed.
 	var reread struct {
 		TTL     int      `json:"ttl"`
 		Rrdatas []string `json:"rrdatas"`
@@ -191,11 +182,10 @@ func TestDNS_DeleteZone(t *testing.T) {
 
 	runCLI(t, gcloudCLI("dns", "managed-zones", "delete", "delete-test-zone"))
 
-	// Verify it's gone - describe should fail
 	failure := gcloudCLIFails(t, gcloudCLI("dns", "managed-zones", "describe",
 		"delete-test-zone", "--format=json"))
-	// gcloud renders the service's 404 as NOT_FOUND for this command group;
-	// the bare status code is how `gcloud storage` renders it.
+	// gcloud renders the 404 as NOT_FOUND for this command group; `gcloud storage`
+	// renders the bare status code.
 	assert.Contains(t, failure, "NOT_FOUND",
 		"describing a deleted managed zone must be refused as not found, got: %s", failure)
 }

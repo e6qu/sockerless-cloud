@@ -10,14 +10,10 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// fuzzTargets are mutating GCP endpoints whose handlers parse an untrusted JSON
-// body into map[string]any and pull fields out with type assertions. Each is a
-// candidate for a weak-type panic when a client sends a value of the wrong JSON
-// type (e.g. {"name": 123} where the handler does v["name"].(string)).
-//
-// Every entry must address a mounted handler: a URI no route answers spends the
-// fuzzer's budget on Go's mux miss and proves nothing about any handler.
-// TestFuzzTargetsAreMounted holds the list to that.
+// fuzzTargets are mutating endpoints whose handlers parse an untrusted JSON
+// body into map[string]any and type-assert its fields, so a wrong-typed value
+// ({"name": 123}) could panic one. TestFuzzTargetsAreMounted holds every entry
+// to a mounted handler.
 var fuzzTargets = []struct {
 	method string
 	path   string
@@ -82,11 +78,9 @@ func newFuzzSim(t testing.TB) *sim.Server {
 	return srv
 }
 
-// TestFuzzTargetsAreMounted keeps the fuzz corpus honest: a target URI that no
-// route answers gets Go's own mux miss, so the fuzzer explores the mux rather
-// than a handler and the whole slice of its budget spent on that entry proves
-// nothing. Go's plain-text "404 page not found" is the miss; a service 404 is a
-// JSON envelope and means a handler answered.
+// TestFuzzTargetsAreMounted keeps the fuzz corpus honest: a target no route
+// answers gets ServeMux's plain-text "404 page not found", and fuzzing it
+// explores the mux rather than a handler. A service 404 is a JSON envelope.
 func TestFuzzTargetsAreMounted(t *testing.T) {
 	srv := newFuzzSim(t)
 	for _, tgt := range fuzzTargets {
@@ -102,19 +96,11 @@ func TestFuzzTargetsAreMounted(t *testing.T) {
 	}
 }
 
-// FuzzHandlerMalformedBody drives every mutating handler with malformed-type
-// JSON bodies. Three properties hold for every input:
-//
-//   - No panic. An unchecked type assertion on a body field crashes the
-//     handler; the panic propagates out of ServeHTTP and fails the case,
-//     pinpointing the weak-type assertion.
-//   - No 5xx. A 500 is the status a recovered panic surfaces as, so a body the
-//     caller malformed must never produce one — an unreadable request is the
-//     caller's error, not the server's.
-//   - A refusal carries the service's error envelope. Every 4xx must decode as
-//     Google's `{"error":{"code","status","message"}}` with the envelope's code
-//     agreeing with the HTTP status, so a handler cannot answer a malformed
-//     body with a bare string, an empty document, or a silent no-op.
+// FuzzHandlerMalformedBody drives every mutating handler with wrong-typed JSON
+// bodies and requires, for every input: no panic; no 5xx, the status a
+// recovered panic surfaces as; and every 4xx in Google's
+// `{"error":{"code","status","message"}}` envelope with its code matching the
+// HTTP status.
 func FuzzHandlerMalformedBody(f *testing.F) {
 	for ti := range fuzzTargets {
 		for bi := range fuzzBodies {

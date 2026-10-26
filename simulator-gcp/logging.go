@@ -34,9 +34,6 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-// Cloud Logging types (internal representation)
-
-// LogEntry represents a Cloud Logging log entry.
 type LogEntry struct {
 	LogName     string             `json:"logName"`
 	Resource    *MonitoredResource `json:"resource,omitempty"`
@@ -110,25 +107,23 @@ type MonitoredResourceDescriptor struct {
 	DisplayName string `json:"displayName,omitempty"`
 }
 
-// loggingMonitoredResourceDescriptors is the descriptor set this simulator
-// serves, and the single source both doors read: the REST
-// GET /v2/monitoredResourceDescriptors handler and the gRPC
-// ListMonitoredResourceDescriptors method.
+// loggingMonitoredResourceDescriptors is the descriptor set the REST
+// monitoredResourceDescriptors.list and the gRPC
+// ListMonitoredResourceDescriptors both serve.
 var loggingMonitoredResourceDescriptors = []MonitoredResourceDescriptor{
 	{Name: "monitoredResourceDescriptors/global", Type: "global", DisplayName: "Global"},
 	{Name: "monitoredResourceDescriptors/gce_instance", Type: "gce_instance", DisplayName: "GCE VM Instance"},
 	{Name: "monitoredResourceDescriptors/cloud_run_revision", Type: "cloud_run_revision", DisplayName: "Cloud Run Revision"},
 }
 
-// Package-level state store shared between HTTP and gRPC handlers.
+// logSinks is shared by the REST and gRPC handlers.
 var logSinks sim.Store[LoggingSink]
 var logMetrics sim.Store[LoggingMetric]
 
 type LoggingSink struct {
 	Name string `json:"name"`
-	// ResourceName is the output-only full path projects/{p}/sinks/{name}.
-	// Real Cloud Logging returns the short identifier in Name and the full
-	// path here as a distinct field (logging/v2 LogSink.resourceName).
+	// ResourceName is the output-only full path projects/{p}/sinks/{name}; Cloud
+	// Logging returns the short identifier in Name.
 	ResourceName         string                  `json:"resourceName,omitempty"`
 	Destination          string                  `json:"destination"`
 	Filter               string                  `json:"filter,omitempty"`
@@ -160,18 +155,16 @@ type LoggingMetric struct {
 	Version          string            `json:"version,omitempty"`
 	LabelExtractors  map[string]string `json:"labelExtractors,omitempty"`
 	MetricDescriptor map[string]any    `json:"metricDescriptor,omitempty"`
-	// BucketOptions is a nested writable object the sim persists verbatim
-	// so create→get round-trips byte-exact for distribution metrics.
+	// BucketOptions is stored verbatim so a distribution metric reads back as
+	// written.
 	BucketOptions json.RawMessage `json:"bucketOptions,omitempty"`
 	BucketName    string          `json:"bucketName,omitempty"`
 }
 
-// listLogEntries is the shared implementation for listing log entries,
-// used by both the REST handler and the gRPC server. It returns the requested
-// page plus an opaque next-page token (empty when no more entries remain);
-// pageSize/pageToken only take effect when pageSize > 0.
-// A filter the query language does not admit, or a token it never issued,
-// answers an error whose text names the argument.
+// listLogEntries lists log entries for both the REST and gRPC handlers. It
+// returns the page and an opaque next-page token, empty after the last; paging
+// applies only when pageSize > 0. A filter the query language does not admit,
+// or a token it never issued, is an error naming the argument.
 func listLogEntries(filter string, resourceNames []string, pageSize int, pageToken string, orderBy string) ([]LogEntry, string, error) {
 	node, err := parseLogFilter(filter)
 	if err != nil {
@@ -210,12 +203,10 @@ func listLogEntries(filter string, resourceNames []string, pageSize int, pageTok
 		allEntries = filtered
 	}
 
-	// orderBy "timestamp desc" returns newest-first; the default ("timestamp
-	// asc") is oldest-first, and entries with identical timestamps follow in
-	// insertId order. The page token resumes after the last entry's position
-	// in that order, so an entry written between two reads moves no other
-	// entry across a page boundary.
-	// Order on the instant, not the string: writers stamp entries with
+	// "timestamp desc" orders newest first and the default "timestamp asc" oldest
+	// first, identical timestamps in insertId order. The page token resumes after
+	// the last entry's position, so a write between reads moves no other entry
+	// across a page boundary. Order on the instant, not the string: writers stamp
 	// differing fractional precision, and "…:05Z" sorts after "…:05.2Z".
 	type orderedEntry struct {
 		entry LogEntry
@@ -376,10 +367,9 @@ func loggingViewTerm(term string) (func(LogEntry) bool, error) {
 	return nil, fmt.Errorf("view filter term %q is not SOURCE(), LOG_ID() or resource.type", term)
 }
 
-// writeLogEntries is the shared implementation for writing log entries,
-// used by both the REST handler and the gRPC server.
-// writeLogEntries stores each entry in the log buckets its scope's sinks
-// route it to, and drops an entry they route nowhere, as Cloud Logging does.
+// writeLogEntries writes log entries for both the REST and gRPC handlers. It
+// stores each entry in the log buckets its scope's sinks route it to and drops
+// an entry they route nowhere, as Cloud Logging does.
 func writeLogEntries(logName string, resource *MonitoredResource, labels map[string]string, entries []LogEntry) error {
 	for i := range entries {
 		entry := &entries[i]
@@ -428,9 +418,6 @@ func writeLogEntries(logName string, resource *MonitoredResource, labels map[str
 	return nil
 }
 
-// REST request/response types
-
-// ListLogEntriesRESTRequest is the request body for listing log entries via REST.
 type ListLogEntriesRESTRequest struct {
 	ResourceNames []string `json:"resourceNames"`
 	Filter        string   `json:"filter"`
@@ -439,13 +426,11 @@ type ListLogEntriesRESTRequest struct {
 	PageToken     string   `json:"pageToken"`
 }
 
-// ListLogEntriesRESTResponse is the response body for listing log entries via REST.
 type ListLogEntriesRESTResponse struct {
 	Entries       []LogEntry `json:"entries"`
 	NextPageToken string     `json:"nextPageToken,omitempty"`
 }
 
-// WriteLogEntriesRESTRequest is the request body for writing log entries via REST.
 type WriteLogEntriesRESTRequest struct {
 	LogName  string             `json:"logName"`
 	Resource *MonitoredResource `json:"resource,omitempty"`
@@ -458,7 +443,6 @@ func registerCloudLogging(srv *sim.Server) {
 	logSinks = sim.MakeStore[LoggingSink](srv.DB(), "logging_sinks")
 	logMetrics = sim.MakeStore[LoggingMetric](srv.DB(), "logging_metrics")
 
-	// List log entries (REST)
 	srv.HandleFunc("POST /v2/entries:list", func(w http.ResponseWriter, r *http.Request) {
 		var req ListLogEntriesRESTRequest
 		if err := sim.ReadJSON(r, &req); err != nil {
@@ -476,7 +460,6 @@ func registerCloudLogging(srv *sim.Server) {
 		})
 	})
 
-	// Write log entries (REST)
 	srv.HandleFunc("POST /v2/entries:write", func(w http.ResponseWriter, r *http.Request) {
 		var req WriteLogEntriesRESTRequest
 		if err := sim.ReadJSON(r, &req); err != nil {
@@ -605,9 +588,8 @@ func loggingServiceAgent(parent string) (string, bool) {
 	return "", false
 }
 
-// loggingUniqueWriter reads the uniqueWriterIdentity request flag, which real
-// Cloud Logging accepts as a query param on sinks.create / sinks.update (the
-// LogSink body field is a sim convenience fallback).
+// loggingUniqueWriter reads the uniqueWriterIdentity query parameter of
+// sinks.create and sinks.update, or else the LogSink body field.
 func loggingUniqueWriter(r *http.Request, sink LoggingSink) bool {
 	return r.URL.Query().Get("uniqueWriterIdentity") == "true" || sink.UniqueWriterIdentity
 }
@@ -621,11 +603,10 @@ func normalizeLoggingMetric(project string, metric LoggingMetric) LoggingMetric 
 	return metric
 }
 
-// loggingSinkResponse / loggingMetricResponse strip the stored full-path name
-// down to the short resource name. Real Cloud Logging returns the SHORT name in
-// LogSink.name / LogMetric.name (e.g. "tf-log-sink"); the sim keys by full path
-// internally but must respond with the short name or terraform-provider-google
-// plans an in-place/replacement change on every refresh.
+// loggingSinkResponse and loggingMetricResponse answer the short name Cloud
+// Logging returns in LogSink.name and LogMetric.name ("tf-log-sink"); the
+// store keys by full path. terraform-provider-google plans a change on every
+// refresh otherwise.
 func loggingSinkResponse(project string, s LoggingSink) LoggingSink {
 	s.Name = strings.TrimPrefix(s.Name, fmt.Sprintf("projects/%s/sinks/", project))
 	s.ResourceName = fmt.Sprintf("projects/%s/sinks/%s", project, s.Name)
@@ -793,8 +774,6 @@ func handleDeleteLoggingMetric(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
-// gRPC Cloud Logging server
-
 type loggingServer struct {
 	loggingpb.UnimplementedLoggingServiceV2Server
 }
@@ -870,10 +849,8 @@ func (s *loggingServer) ListLogs(_ context.Context, req *loggingpb.ListLogsReque
 	return &loggingpb.ListLogsResponse{LogNames: page, NextPageToken: next}, nil
 }
 
-// ListMonitoredResourceDescriptors serves the descriptor set in
-// loggingMonitoredResourceDescriptors, which the REST
-// monitoredResourceDescriptors.list handler serves too. The set is small enough
-// that the REST spelling returns it whole; this door does the same.
+// ListMonitoredResourceDescriptors answers the whole of
+// loggingMonitoredResourceDescriptors, as the REST list does.
 func (s *loggingServer) ListMonitoredResourceDescriptors(_ context.Context, req *loggingpb.ListMonitoredResourceDescriptorsRequest) (*loggingpb.ListMonitoredResourceDescriptorsResponse, error) {
 	descriptors := make([]*monitoredres.MonitoredResourceDescriptor, 0, len(loggingMonitoredResourceDescriptors))
 	for _, d := range loggingMonitoredResourceDescriptors {
@@ -886,11 +863,10 @@ func (s *loggingServer) ListMonitoredResourceDescriptors(_ context.Context, req 
 	return &loggingpb.ListMonitoredResourceDescriptorsResponse{ResourceDescriptors: descriptors}, nil
 }
 
-// Tail flush bounds. The buffer window is the client's, straight from the
-// request: Cloud Logging holds entries that long before returning them so late
-// arrivals are not reported out of order, and defaults to two seconds. The
-// floor keeps a zero window from spinning; it is the same cadence the Pub/Sub
-// streaming pull uses to observe its queues.
+// The buffer window is the client's: Cloud Logging holds entries that long so
+// late arrivals stay in order, two seconds by default. The floor keeps a zero
+// window from spinning, at the cadence Pub/Sub streaming pull polls its
+// queues.
 const (
 	loggingTailDefaultBufferWindow = 2 * time.Second
 	loggingTailMaxBufferWindow     = 60 * time.Second
@@ -898,9 +874,7 @@ const (
 )
 
 // TailLogEntries streams the entries written to the tailed resources after the
-// stream opens, until the client goes away. Every entry it sends was written
-// through WriteLogEntries (either door), and a tail of a store nothing writes
-// to stays silent.
+// stream opens, until the client goes away.
 func (s *loggingServer) TailLogEntries(stream loggingpb.LoggingServiceV2_TailLogEntriesServer) error {
 	ctx := stream.Context()
 	sent := loggingTailBaseline()
@@ -974,10 +948,9 @@ func (s *loggingServer) TailLogEntries(stream loggingpb.LoggingServiceV2_TailLog
 	}
 }
 
-// loggingTailBaseline marks sent what the store holds as a tail opens: a tail
-// streams entries as they are ingested. Entries are tracked by log and insert
-// ID rather than by a timestamp cursor, so an entry that lands out of order is
-// still delivered exactly once.
+// loggingTailBaseline marks sent what the store holds as a tail opens. Entries
+// are tracked by log and insert ID rather than a timestamp cursor, so an entry
+// that lands out of order is still delivered exactly once.
 func loggingTailBaseline() map[string]bool {
 	sent := map[string]bool{}
 	for _, e := range loggingHeldEntries("", loggingBucketCutoffs(time.Now())) {
@@ -1027,8 +1000,6 @@ func loggingPageOfNames(names []string, pageSize int, pageToken string) ([]strin
 func registerCloudLoggingGRPC(gs *grpc.Server) {
 	loggingpb.RegisterLoggingServiceV2Server(gs, &loggingServer{})
 }
-
-// Conversion helpers
 
 func protoToLogEntry(pe *loggingpb.LogEntry) (LogEntry, error) {
 	entry := LogEntry{

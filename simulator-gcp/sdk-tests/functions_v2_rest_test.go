@@ -11,11 +11,6 @@ import (
 	"google.golang.org/api/option"
 )
 
-// These tests exercise the Cloud Functions v2 surface through the official
-// Discovery REST client (google.golang.org/api/cloudfunctions/v2): the
-// locations / operations / runtimes list collections, the AIP-141 IAM verbs,
-// generateUploadUrl / generateDownloadUrl, and an upgrade-lifecycle verb.
-
 func newCloudFunctionsV2Service(t *testing.T) *cloudfunctions.Service {
 	t.Helper()
 	svc, err := cloudfunctions.NewService(ctx,
@@ -26,8 +21,8 @@ func newCloudFunctionsV2Service(t *testing.T) *cloudfunctions.Service {
 	return svc
 }
 
-// createV2Function creates a function via the REST client and waits out the LRO
-// by returning its name. The LRO is synchronous in the sim (done=true).
+// createV2Function requires the create's operation to be done when it
+// answers.
 func createV2Function(t *testing.T, svc *cloudfunctions.Service, parent, id string) string {
 	t.Helper()
 	op, err := svc.Projects.Locations.Functions.Create(parent, &cloudfunctions.Function{
@@ -60,9 +55,8 @@ func TestSDK_CloudFunctionsV2_ListLocations(t *testing.T) {
 		assert.Equal(t, loc.LocationId, loc.DisplayName)
 		assert.Equal(t, loc.LocationId, loc.Labels["cloud.googleapis.com/region"])
 	}
-	// Cloud Functions is offered on at least one region of each continent the
-	// runtime targets; the deployment region the rest of this suite uses must
-	// be among them.
+	// Cloud Functions runs in at least one region per continent; the suite's
+	// deployment region must be among them.
 	assert.Subset(t, ids, []string{"us-central1", "europe-west1", "asia-east1"})
 	assert.Len(t, ids, len(resp.Locations), "every location must carry a locationId")
 }
@@ -84,8 +78,6 @@ func TestSDK_CloudFunctionsV2_ListRuntimes(t *testing.T) {
 		assert.Equal(t, "GA", rt.Stage, "runtime %s", rt.Name)
 		names = append(names, rt.Name)
 	}
-	// The runtimes createV2Function deploys with must be offered, alongside a
-	// representative of each other language family.
 	assert.Subset(t, names, []string{"go122", "go121", "nodejs20", "python312", "java21"})
 }
 
@@ -94,8 +86,6 @@ func TestSDK_CloudFunctionsV2_ListAndGetOperations(t *testing.T) {
 	svc := newCloudFunctionsV2Service(t)
 	parent := "projects/test-project/locations/us-central1"
 
-	// Creating a function records an LRO under the location's operations
-	// collection; list it back and Get it by name.
 	op, err := svc.Projects.Locations.Functions.Create(parent, &cloudfunctions.Function{
 		BuildConfig: &cloudfunctions.BuildConfig{Runtime: "go122", EntryPoint: "Handler"},
 	}).FunctionId("sdk-v2-ops-fn").Do()
@@ -125,7 +115,6 @@ func TestSDK_CloudFunctionsV2_IAMPolicy(t *testing.T) {
 	parent := "projects/test-project/locations/us-central1"
 	name := createV2Function(t, svc, parent, "sdk-v2-iam-fn")
 
-	// setIamPolicy then getIamPolicy round-trips the binding.
 	setResp, err := svc.Projects.Locations.Functions.SetIamPolicy(name, &cloudfunctions.SetIamPolicyRequest{
 		Policy: &cloudfunctions.Policy{
 			Bindings: []*cloudfunctions.Binding{{
@@ -151,9 +140,8 @@ func TestSDK_CloudFunctionsV2_IAMPolicy(t *testing.T) {
 	assert.Equal(t, []string{"cloudfunctions.functions.invoke"}, tip.Permissions)
 }
 
-// generateUploadURL calls generateUploadUrl for a location. The source bucket it
-// names is the location's own, so a second endpoint's URL can be checked against
-// it rather than against a bucket name spelled out in the test.
+// generateUploadURL names the location's own source bucket, so another
+// endpoint's URL can be checked against it.
 func generateUploadURL(t *testing.T, svc *cloudfunctions.Service, parent string) *cloudfunctions.GenerateUploadUrlResponse {
 	t.Helper()
 	resp, err := svc.Projects.Locations.Functions.GenerateUploadUrl(parent, &cloudfunctions.GenerateUploadUrlRequest{
@@ -163,8 +151,7 @@ func generateUploadURL(t *testing.T, svc *cloudfunctions.Service, parent string)
 	return resp
 }
 
-// endpointHost is the host:port the simulator serves on — the host of every URL
-// the simulator hands back to a client.
+// endpointHost is the host:port of every URL the simulator hands back.
 func endpointHost(t *testing.T) string {
 	t.Helper()
 	u, err := url.Parse(baseURL)
@@ -183,10 +170,8 @@ func TestSDK_CloudFunctionsV2_GenerateUploadUrl(t *testing.T) {
 	require.NotEmpty(t, resp.StorageSource.Object)
 	require.NotEmpty(t, resp.UploadUrl)
 
-	// The upload URL and the storageSource describe one destination: the client
-	// PUTs the function's zip at the URL and then hands the storageSource to
-	// CreateFunction, so a URL addressing any other bucket or object would
-	// create a function whose source went somewhere else.
+	// The client PUTs the zip at the upload URL and hands the storageSource to
+	// CreateFunction, so the two must name one bucket and object.
 	upload, err := url.Parse(resp.UploadUrl)
 	require.NoError(t, err, "uploadUrl must be an absolute URL: %q", resp.UploadUrl)
 	assert.Equal(t, endpointHost(t), upload.Host, "the upload URL must address the service that issued it")
@@ -197,7 +182,7 @@ func TestSDK_CloudFunctionsV2_GenerateUploadUrl(t *testing.T) {
 	assert.Equal(t, resp.StorageSource.Object, upload.Query().Get("name"),
 		"the upload URL must target the object the response names")
 
-	// Two calls hand out two objects: concurrent deployments must not overwrite
+	// Two calls hand out two objects, so concurrent deployments cannot overwrite
 	// each other's source.
 	other := generateUploadURL(t, svc, parent)
 	assert.Equal(t, resp.StorageSource.Bucket, other.StorageSource.Bucket,
@@ -250,9 +235,8 @@ func TestSDK_CloudFunctionsV2_UpgradeLifecycle(t *testing.T) {
 	parent := "projects/test-project/locations/us-central1"
 	name := createV2Function(t, svc, parent, "sdk-v2-upgrade-fn")
 
-	// setupFunctionUpgradeConfig drives upgradeInfo.upgradeState to the
-	// setup-complete state; the LRO resolves done with the Function in
-	// its response.
+	// setupFunctionUpgradeConfig moves upgradeInfo.upgradeState to setup-complete;
+	// its operation resolves done with the Function in its response.
 	op, err := svc.Projects.Locations.Functions.SetupFunctionUpgradeConfig(name,
 		&cloudfunctions.SetupFunctionUpgradeConfigRequest{}).Do()
 	require.NoError(t, err)

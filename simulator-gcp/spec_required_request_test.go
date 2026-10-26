@@ -15,15 +15,11 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// A Discovery document expresses required-ness only for requests, and it does
-// so per method: a schema property carries annotations.required listing the
-// method ids the property is required *for*. Route.destRange is required for
-// compute.routes.insert and optional everywhere else.
-//
-// Nothing checked that the simulator refuses a request that omits one. That is
-// the same defect two Azure API Management contracts had — a resource stored
-// that the service would have refused — and it is invisible to the response
-// validators, which can only judge fields that are present.
+// A Discovery document marks required-ness per method: a property's
+// annotations.required lists the method ids it is required for
+// (Route.destRange for compute.routes.insert). The response validators cannot
+// see a request the simulator should have refused, so this test probes for
+// them.
 
 // requiredRequestProperty is one property a method requires of its request.
 type requiredRequestProperty struct {
@@ -36,10 +32,9 @@ type requiredRequestProperty struct {
 	Property   string
 }
 
-// TestRequestsMissingARequiredPropertyAreRefused drives every method that
-// declares a required request property with a body that omits it, and requires
-// a refusal. A request the service would reject must not be accepted here:
-// accepting it stores a resource the caller could never have created.
+// TestRequestsMissingARequiredPropertyAreRefused sends every method that
+// declares a required request property a body omitting it, and requires a
+// refusal.
 func TestRequestsMissingARequiredPropertyAreRefused(t *testing.T) {
 	required := loadRequiredRequestProperties(t)
 	if len(required) == 0 {
@@ -76,26 +71,21 @@ func TestRequestsMissingARequiredPropertyAreRefused(t *testing.T) {
 				rec.Code, strings.TrimSpace(body)))
 			continue
 		}
-		// A refusal has to say what it refused. A bare status with no error
-		// document is not something a client can act on, and it would let an
-		// empty response stand in for a rejection.
+		// A refusal must carry an error document a client can act on.
 		if !strings.Contains(body, `"error"`) {
 			accepted = append(accepted, fmt.Sprintf(
 				"%s: %s refused a request omitting %s.%s with %d and no error document (%s %s)",
 				req.File, req.MethodID, req.Schema, req.Property, rec.Code, req.HTTPMethod, uri))
 			continue
 		}
-		// A method that answers 404 refused the parent, not the omission, so
-		// the probe never reached the validation it is here to check. Counting
-		// those as passes is how this gate would go quiet: the count below is
-		// what says how much of the corpus it actually judged.
+		// A 404 refused the parent, not the omission, so it is not judged; the count
+		// below says how much of the corpus was.
 		if rec.Code != http.StatusNotFound {
 			judged++
 		}
 	}
-	// The judged count may only grow. A method that starts answering 404 to a
-	// probe it used to validate has stopped being covered, and the count is
-	// the only thing that notices.
+	// The judged count may only grow: a method that starts answering 404 has
+	// stopped being covered.
 	if judged < requiredRequestJudgedFloor {
 		t.Errorf("the probe judged %d of %d required properties, below the floor of %d — "+
 			"a method that used to reject the omission now refuses the parent instead, "+
@@ -253,11 +243,9 @@ func loadRequiredRequestProperties(t *testing.T) []requiredRequestProperty {
 	return out
 }
 
-// requiredRequestJudgedFloor is how many of the corpus's required properties
-// the probe reaches validation for. The rest answer 404 because the probe
-// addresses a parent resource nothing created — the omission is never reached,
-// so those are unjudged rather than passing. Raise this when a method starts
-// being judged; a fall means one stopped.
+// requiredRequestJudgedFloor is how many required properties the probe reaches
+// validation for; the rest answer 404 for a parent nothing created. Raise it
+// when a method starts being judged.
 const requiredRequestJudgedFloor = 53
 
 // requiredRequestExemptions names a method-and-property pair the probe cannot

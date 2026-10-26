@@ -8,10 +8,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// gcloud compute interconnects locations against the simulator. The catalogue
-// is vendored from Google's published colocation-facility documentation, and
-// this drives the read the way an operator does when choosing where to order a
-// cross-connect: list the facilities, then describe the one they picked.
+// TestGcloudComputeInterconnectLocations lists the colocation facilities,
+// vendored from Google's published documentation, and describes one.
 func TestGcloudComputeInterconnectLocations(t *testing.T) {
 	t.Parallel()
 	out, err := gcloudCLI("compute", "interconnects", "locations", "list",
@@ -50,8 +48,7 @@ func TestGcloudComputeInterconnectLocations(t *testing.T) {
 	require.NotEmpty(t, location.RegionInfos)
 	assert.Equal(t, "europe-west4", location.RegionInfos[0].Region)
 
-	// What Google's page does not state is absent here too, so an operator
-	// reading this through the CLI cannot mistake an omission for a fact.
+	// What Google's page does not state stays empty.
 	assert.Empty(t, location.Address)
 	assert.Empty(t, location.FacilityProvider)
 	assert.Empty(t, location.Continent)

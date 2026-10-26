@@ -17,11 +17,9 @@ import (
 	"google.golang.org/protobuf/types/known/fieldmaskpb"
 )
 
-// Cloud Run v2 ratchet: worker pools, instances, job update, execution
-// delete, and tasks — all driven through the canonical
-// cloud.google.com/go/run/apiv2 REST clients (the same the cloudrun
-// backend uses) so their path shapes and wire bodies stay pinned to the
-// Discovery document.
+// cloud.google.com/go/run/apiv2's REST clients drive worker pools, instances,
+// job update, execution delete and tasks, pinning the path shapes and bodies to
+// the Discovery document.
 
 func newWorkerPoolsClient(t *testing.T) *run.WorkerPoolsClient {
 	t.Helper()
@@ -82,7 +80,6 @@ func TestSDK_CloudRunV2_WorkerPools_RoundTrip(t *testing.T) {
 	require.Len(t, got.Template.Containers, 1)
 	assert.Equal(t, "gcr.io/test-project/"+id, got.Template.Containers[0].Image)
 
-	// List finds it.
 	it := pools.ListWorkerPools(ctx, &runpb.ListWorkerPoolsRequest{Parent: parent})
 	var found bool
 	for {
@@ -112,7 +109,6 @@ func TestSDK_CloudRunV2_WorkerPools_RoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, int64(2), updated.Generation)
 
-	// Worker-pool revisions are read back via the shared RevisionsClient.
 	revIt := revisions.ListRevisions(ctx, &runpb.ListRevisionsRequest{Parent: name})
 	var revNames []string
 	for {
@@ -263,9 +259,8 @@ func TestSDK_CloudRunV2_Instances_IAM(t *testing.T) {
 		}
 	})
 
-	// The run/apiv2 InstancesClient does not wrap the instance IAM verbs,
-	// so they are exercised over the raw v2 wire paths the Discovery
-	// document defines (the same shapes a generic IAM client emits).
+	// The run/apiv2 InstancesClient does not wrap the instance IAM verbs, so send
+	// them on the raw v2 paths the Discovery document defines.
 	setBody := `{"policy":{"bindings":[{"role":"roles/run.invoker","members":["user:dev@example.com"]}]}}`
 	setResp, err := http.Post(baseURL+"/v2/"+name+":setIamPolicy", "application/json", strings.NewReader(setBody))
 	require.NoError(t, err)
@@ -347,14 +342,12 @@ func TestSDK_CloudRunV2_JobUpdate_And_ExecutionTasks(t *testing.T) {
 	assert.Equal(t, int64(2), updated.Generation)
 	assert.Equal(t, "ratchet", updated.Labels["team"])
 
-	// Run an execution; the sim materializes one task per index.
 	runOp, err := jobs.RunJob(ctx, &runpb.RunJobRequest{Name: jobName})
 	require.NoError(t, err)
 	exec, err := runOp.Wait(ctx)
 	require.NoError(t, err)
 	require.NotEmpty(t, exec.Name)
 
-	// ListTasks returns the execution's tasks.
 	it := tasks.ListTasks(ctx, &runpb.ListTasksRequest{Parent: exec.Name})
 	var taskNames []string
 	for {
@@ -372,7 +365,6 @@ func TestSDK_CloudRunV2_JobUpdate_And_ExecutionTasks(t *testing.T) {
 	assert.Equal(t, taskNames[0], tk0.Name)
 	assert.Equal(t, exec.Name, tk0.Execution)
 
-	// DeleteExecution removes the execution (and its tasks).
 	delExecOp, err := execs.DeleteExecution(ctx, &runpb.DeleteExecutionRequest{Name: exec.Name})
 	require.NoError(t, err)
 	_, err = delExecOp.Wait(ctx)

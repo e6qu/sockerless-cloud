@@ -14,10 +14,8 @@ import (
 	"google.golang.org/api/googleapi"
 )
 
-// TestCloudBuild_WorkerPoolCRUD round-trips a Cloud Build private worker
-// pool through the Google Cloud Go SDK: create returns an LRO carrying the
-// pool; get/list/patch/delete operate on the regional resource. The pool
-// has a state lifecycle (CREATING → RUNNING) the simulator must report.
+// TestCloudBuild_WorkerPoolCRUD: create returns an operation carrying the pool,
+// which reports CREATING and then RUNNING.
 func TestCloudBuild_WorkerPoolCRUD(t *testing.T) {
 	t.Parallel()
 	svc := cloudbuildService(t)
@@ -101,8 +99,6 @@ func TestCloudBuild_WorkerPoolCRUD(t *testing.T) {
 	assert.NotEqual(t, patchOp.Name, delOp.Name, "patch and delete are distinct operations")
 }
 
-// TestCloudBuild_GitHubEnterpriseConfigCRUD round-trips a GitHub Enterprise
-// source-host config through the global githubEnterpriseConfigs collection.
 func TestCloudBuild_GitHubEnterpriseConfigCRUD(t *testing.T) {
 	t.Parallel()
 	svc := cloudbuildService(t)
@@ -166,8 +162,6 @@ func TestCloudBuild_GitHubEnterpriseConfigCRUD(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, apiErr.Code, "deleting a config twice finds nothing the second time")
 }
 
-// TestCloudBuild_GitHubEnterpriseConfigRegional covers the regional
-// githubEnterpriseConfigs collection (locations/{loc}/...).
 func TestCloudBuild_GitHubEnterpriseConfigRegional(t *testing.T) {
 	t.Parallel()
 	svc := cloudbuildService(t)
@@ -185,9 +179,8 @@ func TestCloudBuild_GitHubEnterpriseConfigRegional(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "https://ghe-rgn.example.com", got.HostUrl)
 
-	// The listing must be the regional collection under this parent, holding
-	// the config just created: a handler that ignored its parent and answered
-	// with the global collection would still be non-empty.
+	// A handler that ignored the parent and answered with the global collection
+	// would still be non-empty, so find this config.
 	list, err := svc.Projects.Locations.GithubEnterpriseConfigs.List(parent).Do()
 	require.NoError(t, err)
 	found := false
@@ -206,8 +199,6 @@ func TestCloudBuild_GitHubEnterpriseConfigRegional(t *testing.T) {
 	require.Error(t, err, "a deleted regional GHE config must no longer be readable")
 }
 
-// TestCloudBuild_BitbucketServerConfigCRUD round-trips a Bitbucket Server
-// source-host config plus its repos-list endpoint.
 func TestCloudBuild_BitbucketServerConfigCRUD(t *testing.T) {
 	t.Parallel()
 	svc := cloudbuildService(t)
@@ -259,9 +250,6 @@ func TestCloudBuild_BitbucketServerConfigCRUD(t *testing.T) {
 	require.Error(t, err)
 }
 
-// TestCloudBuild_RegionalBuildsReadback creates a build via the global
-// endpoint, then reads it back through the regional builds list + get
-// endpoints (which mirror the global ones).
 func TestCloudBuild_RegionalBuildsReadback(t *testing.T) {
 	t.Parallel()
 	project := "cb-regional-builds"
@@ -271,14 +259,12 @@ func TestCloudBuild_RegionalBuildsReadback(t *testing.T) {
 	tarball := makeTarGz(t, map[string]string{"Dockerfile": "FROM scratch\n"})
 	uploadGCSObject(t, bucket, objectName, tarball)
 
-	// Submit via the global endpoint; we only need the build record to exist.
 	buildURL := fmt.Sprintf("%s/v1/projects/%s/builds", baseURL, project)
 	body := fmt.Sprintf(`{"source":{"storageSource":{"bucket":%q,"object":%q}}}`, bucket, objectName)
 	resp := httpPOST(t, buildURL, body)
 	require.Contains(t, resp, `"build"`, "create LRO metadata should carry the build")
 
 	svc := cloudbuildService(t)
-	// Regional list must surface the build created for this project.
 	list, err := svc.Projects.Locations.Builds.List(
 		fmt.Sprintf("projects/%s/locations/us-central1", project)).Do()
 	require.NoError(t, err)
@@ -286,7 +272,6 @@ func TestCloudBuild_RegionalBuildsReadback(t *testing.T) {
 	id := list.Builds[0].Id
 	require.NotEmpty(t, id)
 
-	// Regional get by name.
 	got, err := svc.Projects.Locations.Builds.Get(
 		fmt.Sprintf("projects/%s/locations/us-central1/builds/%s", project, id)).Do()
 	require.NoError(t, err)

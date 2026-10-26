@@ -12,10 +12,8 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// TestBigtable_DataPlane exercises the Cloud Bigtable data API via the
-// official `cloud.google.com/go/bigtable` client over gRPC, at the simulator's
-// endpoint with the bootstrap credential: MutateRow, ReadRow/ReadRows with a RowFilter, ReadModifyWrite
-// increment, CheckAndMutateRow, a row-range scan, and DeleteFromRow.
+// TestBigtable_DataPlane drives the Cloud Bigtable data API through
+// `cloud.google.com/go/bigtable` over gRPC with the bootstrap credential.
 func TestBigtable_DataPlane(t *testing.T) {
 	t.Parallel()
 	const (
@@ -47,7 +45,6 @@ func TestBigtable_DataPlane(t *testing.T) {
 	defer client.Close()
 	tbl := client.Open(table)
 
-	// MutateRow (SetCell) + ReadRow.
 	mut := bigtable.NewMutation()
 	mut.Set(family, "name", bigtable.Now(), []byte("alice"))
 	require.NoError(t, tbl.Apply(ctx, "user#1", mut))
@@ -70,7 +67,6 @@ func TestBigtable_DataPlane(t *testing.T) {
 	require.Len(t, row[family], 1, "LatestNFilter(1) must keep one cell")
 	assert.Equal(t, "v3", string(row[family][0].Value))
 
-	// ReadModifyWrite increment.
 	rmw := bigtable.NewReadModifyWrite()
 	rmw.Increment(family, "count", 5)
 	if _, err := tbl.ApplyReadModifyWrite(ctx, "user#1", rmw); err != nil {
@@ -98,7 +94,7 @@ func TestBigtable_DataPlane(t *testing.T) {
 	require.Len(t, row[family], 1)
 	assert.Equal(t, "yes", string(row[family][0].Value))
 
-	// Row-range scan: write a few keys, scan [user#1, user#3).
+	// Write a few keys and scan [user#1, user#3).
 	for _, k := range []string{"user#2", "user#3"} {
 		m := bigtable.NewMutation()
 		m.Set(family, "name", bigtable.Now(), []byte(k))
@@ -112,7 +108,6 @@ func TestBigtable_DataPlane(t *testing.T) {
 	require.NoError(t, err)
 	assert.ElementsMatch(t, []string{"user#1", "user#2"}, scanned, "[user#1,user#3) excludes user#3")
 
-	// DeleteFromRow removes the row entirely.
 	del := bigtable.NewMutation()
 	del.DeleteRow()
 	require.NoError(t, tbl.Apply(ctx, "user#2", del))
@@ -131,10 +126,8 @@ func bigEndian(b []byte) uint64 {
 
 var btFilterCounter int
 
-// btSetupDataPlane provisions a fresh instance + table with the named column
-// families against the running simulator's gRPC endpoint, and returns the
-// opened *Table. The instance/table names are
-// caller-supplied so every test owns a private keyspace.
+// btSetupDataPlane provisions an instance and table with the named column
+// families; callers name them so every test owns a private keyspace.
 func btSetupDataPlane(t *testing.T, project, instance, table string, families ...string) *bigtable.Table {
 	t.Helper()
 
@@ -163,9 +156,9 @@ func btSetupDataPlane(t *testing.T, project, instance, table string, families ..
 	return client.Open(table)
 }
 
-// btCellStr flattens a bigtable.Row into "fam:qual=v@ts" strings ordered
-// (family, qualifier, ts desc) so a filter subtest can assert exactly which
-// cells survived, not just that the call returned no error.
+// btCellStr flattens a row into "fam:qual=v@ts" strings ordered by family,
+// qualifier and descending timestamp, so a subtest can assert exactly which
+// cells survived.
 func btCellStr(row bigtable.Row) []string {
 	type cell struct {
 		fam, col string
@@ -194,11 +187,8 @@ func btCellStr(row bigtable.Row) []string {
 	return out
 }
 
-// TestBigtable_DataPlane_Filters enumerates every RowFilter the sim implements
-// (one t.Run subtest per filter), seeding deterministic cells and asserting
-// real survival semantics. Fills the SDK-test gap: of 18 implemented
-// filters, the original TestBigtable_DataPlane exercised only ColumnFilter +
-// LatestNFilter; this test covers the rest.
+// TestBigtable_DataPlane_Filters runs one subtest per RowFilter over
+// deterministic cells and asserts which survive.
 func TestBigtable_DataPlane_Filters(t *testing.T) {
 	t.Parallel()
 	const (
@@ -207,10 +197,9 @@ func TestBigtable_DataPlane_Filters(t *testing.T) {
 		table    = "filt"
 	)
 
-	// Seed: row "r1" carries three versions of f1:a (ts desc → "a3","a2","a1"),
-	// one f1:b, and one f2:a. The flattened cell order the sim emits is
-	// f1:a@3, f1:a@2, f1:a@1, f1:b@3, f2:a@3 — that order is what the
-	// per-row limit/offset filters slice.
+	// Row "r1" holds three versions of f1:a, one f1:b and one f2:a; the per-row
+	// limit and offset filters slice the flattened order f1:a@3, f1:a@2, f1:a@1,
+	// f1:b@3, f2:a@3.
 	seed := func(t *testing.T, tbl *bigtable.Table) {
 		t.Helper()
 		for _, q := range []struct {
@@ -231,9 +220,8 @@ func TestBigtable_DataPlane_Filters(t *testing.T) {
 	}
 
 	newTable := func(t *testing.T) *bigtable.Table {
-		// t.Name() carries '/' between parent and subtest — illegal in
-		// Bigtable instance IDs, so derive a private keyspace from a per-test
-		// counter instead.
+		// t.Name() carries '/', which Bigtable instance IDs refuse, so take the
+		// keyspace from a counter.
 		btFilterCounter++
 		suffix := itoa(btFilterCounter)
 		tbl := btSetupDataPlane(t, project, instance+suffix, table, "f1", "f2")
@@ -265,8 +253,7 @@ func TestBigtable_DataPlane_Filters(t *testing.T) {
 		tbl := newTable(t)
 		row := readFiltered(t, tbl, bigtable.RowKeyFilter("^r1$"))
 		assert.Len(t, btCellStr(row), 5, "row-key matches → all cells survive")
-		// A non-matching row key returns nothing. Seed a second row and prove
-		// a ReadRows scan over both yields only the matching one.
+		// Seed a second row: a ReadRows scan over both yields only the matching one.
 		m := bigtable.NewMutation()
 		m.Set("f1", "a", 3000, []byte("other"))
 		require.NoError(t, tbl.Apply(ctx, "other", m))
@@ -286,17 +273,15 @@ func TestBigtable_DataPlane_Filters(t *testing.T) {
 
 	t.Run("ColumnFilter", func(t *testing.T) {
 		tbl := newTable(t)
-		// ColumnFilter is a qualifier regex. f1:b matches; f1:a does too —
-		// "a" is a substring match? No: the sim anchors the pattern, so "^b$"
-		// matches only the "b" qualifier.
+		// Bigtable matches the qualifier regex against the whole qualifier, so "^b$"
+		// keeps only "b".
 		row := readFiltered(t, tbl, bigtable.ColumnFilter("^b$"))
 		assert.ElementsMatch(t, []string{"f1/f1:b=b3"}, btCellStr(row))
 	})
 
 	t.Run("ValueFilter", func(t *testing.T) {
 		tbl := newTable(t)
-		// ValueFilter anchors full-string match (per sim RE2 anchoring);
-		// "a2" keeps exactly one cell.
+		// ValueFilter matches the whole value, so "a2" keeps exactly one cell.
 		row := readFiltered(t, tbl, bigtable.ValueFilter("a2"))
 		assert.ElementsMatch(t, []string{"f1/f1:a=a2"}, btCellStr(row))
 	})
@@ -310,27 +295,24 @@ func TestBigtable_DataPlane_Filters(t *testing.T) {
 
 	t.Run("TimestampRangeFilterMicros", func(t *testing.T) {
 		tbl := newTable(t)
-		// Keep cells with ts in [2000, 3000). That's the @2000 cells only.
+		// [2000, 3000) keeps the @2000 cells only.
 		row := readFiltered(t, tbl, bigtable.TimestampRangeFilterMicros(2000, 3000))
 		assert.ElementsMatch(t, []string{"f1/f1:a=a2"}, btCellStr(row))
 	})
 
 	t.Run("TimestampRangeFilter", func(t *testing.T) {
 		tbl := newTable(t)
-		// Time-based variant: same [2000μs, 3000μs) window, expressed as
-		// time.Time (millisecond granularity per the SDK contract).
+		// The same window as time.Time, which the client truncates to milliseconds:
+		// @2000 becomes 2ms and @3000 3ms, so [2ms, 3ms) keeps only the @2000 cell.
 		row := readFiltered(t, tbl, bigtable.TimestampRangeFilter(
 			time.UnixMicro(2000), time.UnixMicro(3000)))
-		// TruncateToMilliseconds means @2000→2ms, @3000→3ms; the window
-		// [2ms, 3ms) keeps only the @2000 cell.
 		assert.ElementsMatch(t, []string{"f1/f1:a=a2"}, btCellStr(row))
 	})
 
 	t.Run("ValueRangeFilter", func(t *testing.T) {
 		tbl := newTable(t)
-		// SDK contract: ValueRangeFilter(start, end) is [start, end) —
-		// start inclusive, end exclusive. ["a1", "a9") keeps the three
-		// f1:a cells (a1,a2,a3) and drops f1:b (b3 ≥ a9) and f2:a (c3 ≥ a9).
+		// ValueRangeFilter is [start, end): ["a1", "a9") keeps the three f1:a cells
+		// and drops b3 and c3.
 		row := readFiltered(t, tbl, bigtable.ValueRangeFilter([]byte("a1"), []byte("a9")))
 		assert.ElementsMatch(t, []string{"f1/f1:a=a3", "f1/f1:a=a2", "f1/f1:a=a1"}, btCellStr(row))
 	})
@@ -394,8 +376,7 @@ func TestBigtable_DataPlane_Filters(t *testing.T) {
 
 	t.Run("ConditionFilter", func(t *testing.T) {
 		tbl := newTable(t)
-		// Predicate: ColumnFilter(^a$) matches → apply FamilyFilter(^f2$)
-		// (else BranchAll-equivalent nil). Only f2:a survives.
+		// ColumnFilter(^a$) matches, so FamilyFilter(^f2$) applies: only f2:a survives.
 		row := readFiltered(t, tbl, bigtable.ConditionFilter(
 			bigtable.ColumnFilter("^a$"),
 			bigtable.FamilyFilter("^f2$"),
@@ -419,9 +400,8 @@ func TestBigtable_DataPlane_Filters(t *testing.T) {
 	})
 }
 
-// TestBigtable_DataPlane_Mutations covers the three Mutation kinds the
-// original test never exercised: DeleteCellsInColumn, DeleteCellsInFamily,
-// and DeleteTimestampRange (the time-bounded DeleteFromColumn variant).
+// TestBigtable_DataPlane_Mutations covers DeleteCellsInColumn,
+// DeleteCellsInFamily and DeleteTimestampRange.
 func TestBigtable_DataPlane_Mutations(t *testing.T) {
 	t.Parallel()
 	const (
@@ -494,14 +474,11 @@ func TestBigtable_DataPlane_Mutations(t *testing.T) {
 	})
 }
 
-// TestBigtable_DataPlane_AppendValue covers the ReadModifyWrite AppendValue
-// rule (the original test only exercised Increment).
 func TestBigtable_DataPlane_AppendValue(t *testing.T) {
 	t.Parallel()
 	tbl := btSetupDataPlane(t, "bt-append-proj", "bt-append-inst", "app", "cf")
 
-	// Seed an initial value, then append twice — the returned row carries the
-	// post-append latest value each time.
+	// Each append returns the row with the post-append latest value.
 	require.NoError(t, tbl.Apply(ctx, "r", func() *bigtable.Mutation {
 		m := bigtable.NewMutation()
 		m.Set("cf", "buf", 1000, []byte("hello"))
@@ -520,15 +497,13 @@ func TestBigtable_DataPlane_AppendValue(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "hello world!", string(after2["cf"][0].Value))
 
-	// A ReadRow confirms the persisted latest value.
 	row, err := tbl.ReadRow(ctx, "r", bigtable.RowFilter(bigtable.LatestNFilter(1)))
 	require.NoError(t, err)
 	assert.Equal(t, "hello world!", string(row["cf"][0].Value))
 }
 
-// TestBigtable_DataPlane_ApplyBulk exercises the MutateRows batch gRPC path
-// (ApplyBulk in the Go SDK), which returns a per-row error slice in addition
-// to the top-level error. The original test only used single-row Apply.
+// TestBigtable_DataPlane_ApplyBulk drives MutateRows, which returns a per-row
+// error slice besides the top-level error.
 func TestBigtable_DataPlane_ApplyBulk(t *testing.T) {
 	t.Parallel()
 	tbl := btSetupDataPlane(t, "bt-bulk-proj", "bt-bulk-inst", "bulk", "cf")
@@ -543,14 +518,12 @@ func TestBigtable_DataPlane_ApplyBulk(t *testing.T) {
 
 	errs, err := tbl.ApplyBulk(ctx, rows, muts)
 	require.NoError(t, err)
-	// The Go SDK returns either a nil errs slice or one nil-per-row when every
-	// entry succeeds; either shape is acceptable as long as no element is a
-	// non-nil error.
+	// The client returns a nil slice or one nil per row when every entry
+	// succeeds.
 	for _, e := range errs {
 		assert.NoError(t, e)
 	}
 
-	// Read them back via a ReadRows scan.
 	var got []string
 	require.NoError(t, tbl.ReadRows(ctx, bigtable.NewRange("b1", "b9"), func(r bigtable.Row) bool {
 		got = append(got, r.Key())
@@ -558,8 +531,7 @@ func TestBigtable_DataPlane_ApplyBulk(t *testing.T) {
 	}))
 	assert.ElementsMatch(t, []string{"b1", "b2", "b3"}, got)
 
-	// Per-entry failure: a mutation targeting an unknown family must report
-	// that entry's status only, leaving the other entries' status OK.
+	// A mutation on an unknown family fails that entry alone.
 	bad := bigtable.NewMutation()
 	bad.Set("nope", "v", 1000, []byte("x"))
 	errs2, err2 := tbl.ApplyBulk(ctx, []string{"ok1", "bad"}, []*bigtable.Mutation{mk("ok"), bad})
@@ -570,9 +542,8 @@ func TestBigtable_DataPlane_ApplyBulk(t *testing.T) {
 		"an unknown column family must come back as that entry's NotFound: %v", errs2[1])
 }
 
-// TestBigtable_DataPlane_SampleRowKeys directly exercises SampleRowKeys —
-// the client uses it internally to shard parallel scans, but no test asserted
-// the gRPC method directly.
+// TestBigtable_DataPlane_SampleRowKeys: the client uses SampleRowKeys to shard
+// parallel scans.
 func TestBigtable_DataPlane_SampleRowKeys(t *testing.T) {
 	t.Parallel()
 	tbl := btSetupDataPlane(t, "bt-samp-proj", "bt-samp-inst", "samp", "cf")
@@ -588,10 +559,8 @@ func TestBigtable_DataPlane_SampleRowKeys(t *testing.T) {
 
 	keys, err := tbl.SampleRowKeys(ctx)
 	require.NoError(t, err)
-	// Exactly the sample points the cadence defines, in ascending row-key
-	// order — the order a client relies on to cut a scan into shards. A
-	// sampler that collapsed to a single point, or that emitted keys the table
-	// does not hold, answers differently here.
+	// Exactly the cadence's sample points in ascending key order, the order a
+	// client relies on to cut a scan into shards.
 	assert.Equal(t, []string{"k000", "k100", "k149"}, keys)
 }
 

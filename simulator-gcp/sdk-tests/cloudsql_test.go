@@ -24,9 +24,6 @@ func sqlAdminService(t *testing.T) *sqladmin.Service {
 	return svc
 }
 
-// TestCloudSQL_InstanceDatabaseUserLifecycle exercises:
-// Insert instance → Get → List → Patch → Insert database → Insert
-// user → List databases → List users → Delete instance.
 func TestCloudSQL_InstanceDatabaseUserLifecycle(t *testing.T) {
 	t.Parallel()
 	svc := sqlAdminService(t)
@@ -58,7 +55,6 @@ func TestCloudSQL_InstanceDatabaseUserLifecycle(t *testing.T) {
 	}
 	assert.True(t, found)
 
-	// Insert a database.
 	_, err = svc.Databases.Insert(project, instanceName, &sqladmin.Database{
 		Name: "appdb",
 	}).Do()
@@ -69,7 +65,6 @@ func TestCloudSQL_InstanceDatabaseUserLifecycle(t *testing.T) {
 	require.Len(t, dbList.Items, 1)
 	assert.Equal(t, "appdb", dbList.Items[0].Name)
 
-	// Insert a user.
 	_, err = svc.Users.Insert(project, instanceName, &sqladmin.User{
 		Name: "appuser",
 		Host: "%",
@@ -88,7 +83,6 @@ func TestCloudSQL_InstanceDatabaseUserLifecycle(t *testing.T) {
 	assert.True(t, names["appuser"], "the inserted user must be listed")
 	assert.True(t, names["postgres"], "the built-in admin must be listed")
 
-	// Delete instance (cascade).
 	_, err = svc.Instances.Delete(project, instanceName).Do()
 	require.NoError(t, err)
 }
@@ -235,9 +229,8 @@ func TestCloudSQL_BackupRunsReturnOperations(t *testing.T) {
 	require.Equal(t, "DELETE_BACKUP", deleteOp.OperationType)
 }
 
-// TestCloudSQL_InstanceUpdateAndActions exercises instances.update (PUT) and
-// a representative instances.* action verb (restart), both of which return
-// the canonical DONE Operation.
+// TestCloudSQL_InstanceUpdateAndActions: instances.update (PUT) and
+// instances.restart each return a DONE Operation.
 func TestCloudSQL_InstanceUpdateAndActions(t *testing.T) {
 	t.Parallel()
 	svc := sqlAdminService(t)
@@ -252,7 +245,6 @@ func TestCloudSQL_InstanceUpdateAndActions(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = svc.Instances.Delete(project, instanceName).Do() })
 
-	// instances.update — full-replace PUT returning an Operation.
 	updateOp, err := svc.Instances.Update(project, instanceName, &sqladmin.DatabaseInstance{
 		Name:            instanceName,
 		DatabaseVersion: "POSTGRES_16",
@@ -267,15 +259,12 @@ func TestCloudSQL_InstanceUpdateAndActions(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "POSTGRES_16", inst.DatabaseVersion)
 
-	// instances.restart — action verb returning an Operation.
 	restartOp, err := svc.Instances.Restart(project, instanceName).Do()
 	require.NoError(t, err)
 	require.Equal(t, "DONE", restartOp.Status)
 	require.Equal(t, "RESTART", restartOp.OperationType)
 }
 
-// TestCloudSQL_FlagsAndTiers exercises the static reference surfaces
-// flags.list and tiers.list, asserting real Cloud SQL flag/tier shapes.
 func TestCloudSQL_FlagsAndTiers(t *testing.T) {
 	t.Parallel()
 	svc := sqlAdminService(t)
@@ -306,9 +295,8 @@ func TestCloudSQL_FlagsAndTiers(t *testing.T) {
 	assert.True(t, foundTier, "db-f1-micro tier present")
 }
 
-// TestCloudSQL_BackupsLifecycle exercises the projects.backups resource
-// (distinct from the per-instance backupRuns): CreateBackup → ListBackups →
-// GetBackup → UpdateBackup → DeleteBackup.
+// TestCloudSQL_BackupsLifecycle drives projects.backups, which is distinct
+// from the per-instance backupRuns.
 func TestCloudSQL_BackupsLifecycle(t *testing.T) {
 	t.Parallel()
 	svc := sqlAdminService(t)
@@ -364,8 +352,6 @@ func TestCloudSQL_BackupsLifecycle(t *testing.T) {
 	require.Equal(t, "DELETE_BACKUP", deleteOp.OperationType)
 }
 
-// TestCloudSQL_SslCertsAndConnect exercises the sslCerts resource lifecycle
-// plus connect.get (connectSettings) and instances.listServerCas.
 func TestCloudSQL_SslCertsAndConnect(t *testing.T) {
 	t.Parallel()
 	svc := sqlAdminService(t)
@@ -411,8 +397,8 @@ func TestCloudSQL_SslCertsAndConnect(t *testing.T) {
 }
 
 // A Cloud SQL instance lists only the addresses it serves on. The simulator
-// runs no SQL Server engine, so a SQL Server instance, its connect settings
-// and its clone carry no address at all.
+// runs no SQL Server engine, so a SQL Server instance, its connect settings and
+// its clone carry no address.
 func TestCloudSQL_InstanceWithoutADataPlaneHasNoAddress(t *testing.T) {
 	t.Parallel()
 	svc := sqlAdminService(t)

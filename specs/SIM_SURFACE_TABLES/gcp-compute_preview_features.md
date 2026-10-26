@@ -17,9 +17,9 @@ The extractor reads the route out of a single string literal, so a registration 
 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
-| `PATCH /compute/v1/projects/{project}/global/previewFeatures/{previewFeature}` | ✓ `simulator-gcp/compute_preview_features.go:40::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `GET /compute/v1/projects/{project}/global/previewFeatures/{previewFeature}` | ✓ `simulator-gcp/compute_preview_features.go:68::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `GET /compute/v1/projects/{project}/global/previewFeatures` | ✓ `simulator-gcp/compute_preview_features.go:78::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `PATCH /compute/v1/projects/{project}/global/previewFeatures/{previewFeature}` | ✓ `simulator-gcp/compute_preview_features.go:29::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `GET /compute/v1/projects/{project}/global/previewFeatures/{previewFeature}` | ✓ `simulator-gcp/compute_preview_features.go:57::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `GET /compute/v1/projects/{project}/global/previewFeatures` | ✓ `simulator-gcp/compute_preview_features.go:67::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
 
 ## Coverage status
 

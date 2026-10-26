@@ -11,53 +11,46 @@ import (
 	"google.golang.org/api/googleapi"
 )
 
-// Exercises the Compute Engine (compute v1) control-plane CRUD surface
-// added in compute_more.go via the official google.golang.org/api/compute/v1
-// client. Every resource here is metadata-only — insert returns an
-// Operation (DONE synchronously) and get/list/aggregatedList read the
-// stored resource back — so these run on every host (no real-exec network).
+// Literal wire routes the SDK calls below reach:
 //
-// The catalog/operations/aggregated/instance-action handlers are mounted at
-// these literal wire routes (the SDK calls below invoke them by method name):
-//
-//	GET    /compute/v1/projects/{project}/regions
-//	GET    /compute/v1/projects/{project}/regions/{region}
-//	GET    /compute/v1/projects/{project}/zones/{zone}/acceleratorTypes
-//	GET    /compute/v1/projects/{project}/zones/{zone}/acceleratorTypes/{acceleratorType}
-//	GET    /compute/v1/projects/{project}/aggregated/acceleratorTypes
-//	GET    /compute/v1/projects/{project}/zones/{zone}/diskTypes
-//	GET    /compute/v1/projects/{project}/aggregated/diskTypes
-//	GET    /compute/v1/projects/{project}/aggregated/machineTypes
-//	GET    /compute/v1/projects/{project}/zones/{zone}/operations
-//	GET    /compute/v1/projects/{project}/regions/{region}/operations
-//	GET    /compute/v1/projects/{project}/global/operations
-//	DELETE /compute/v1/projects/{project}/zones/{zone}/operations/{name}
-//	DELETE /compute/v1/projects/{project}/regions/{region}/operations/{name}
-//	DELETE /compute/v1/projects/{project}/global/operations/{name}
-//	POST   /compute/v1/projects/{project}/global/operations/{name}/wait
-//	GET    /compute/v1/projects/{project}/aggregated/operations
-//	GET    /compute/v1/projects/{project}/aggregated/subnetworks
-//	GET    /compute/v1/projects/{project}/aggregated/addresses
-//	GET    /compute/v1/projects/{project}/aggregated/backendServices
-//	GET    /compute/v1/projects/{project}/aggregated/healthChecks
-//	GET    /compute/v1/projects/{project}/aggregated/urlMaps
-//	GET    /compute/v1/projects/{project}/aggregated/targetHttpProxies
-//	GET    /compute/v1/projects/{project}/aggregated/forwardingRules
-//	GET    /compute/v1/projects/{project}/aggregated/instanceGroups
-//	POST   /compute/v1/projects/{project}/zones/{zone}/instances/{name}/reset
-//	POST   /compute/v1/projects/{project}/zones/{zone}/instances/{name}/setMachineType
-//	POST   /compute/v1/projects/{project}/zones/{zone}/instances/{name}/setMetadata
-//	POST   /compute/v1/projects/{project}/zones/{zone}/instances/{name}/attachDisk
-//	POST   /compute/v1/projects/{project}/zones/{zone}/instances/{name}/detachDisk
-//	GET    /compute/v1/projects/{project}/zones/{zone}/instances/{name}/serialPort
+//   GET    /compute/v1/projects/{project}/regions
+//   GET    /compute/v1/projects/{project}/regions/{region}
+//   GET    /compute/v1/projects/{project}/zones/{zone}/acceleratorTypes
+//   GET    /compute/v1/projects/{project}/zones/{zone}/acceleratorTypes/{acceleratorType}
+//   GET    /compute/v1/projects/{project}/aggregated/acceleratorTypes
+//   GET    /compute/v1/projects/{project}/zones/{zone}/diskTypes
+//   GET    /compute/v1/projects/{project}/aggregated/diskTypes
+//   GET    /compute/v1/projects/{project}/aggregated/machineTypes
+//   GET    /compute/v1/projects/{project}/zones/{zone}/operations
+//   GET    /compute/v1/projects/{project}/regions/{region}/operations
+//   GET    /compute/v1/projects/{project}/global/operations
+//   DELETE /compute/v1/projects/{project}/zones/{zone}/operations/{name}
+//   DELETE /compute/v1/projects/{project}/regions/{region}/operations/{name}
+//   DELETE /compute/v1/projects/{project}/global/operations/{name}
+//   POST   /compute/v1/projects/{project}/global/operations/{name}/wait
+//   GET    /compute/v1/projects/{project}/aggregated/operations
+//   GET    /compute/v1/projects/{project}/aggregated/subnetworks
+//   GET    /compute/v1/projects/{project}/aggregated/addresses
+//   GET    /compute/v1/projects/{project}/aggregated/backendServices
+//   GET    /compute/v1/projects/{project}/aggregated/healthChecks
+//   GET    /compute/v1/projects/{project}/aggregated/urlMaps
+//   GET    /compute/v1/projects/{project}/aggregated/targetHttpProxies
+//   GET    /compute/v1/projects/{project}/aggregated/forwardingRules
+//   GET    /compute/v1/projects/{project}/aggregated/instanceGroups
+//   POST   /compute/v1/projects/{project}/zones/{zone}/instances/{name}/reset
+//   POST   /compute/v1/projects/{project}/zones/{zone}/instances/{name}/setMachineType
+//   POST   /compute/v1/projects/{project}/zones/{zone}/instances/{name}/setMetadata
+//   POST   /compute/v1/projects/{project}/zones/{zone}/instances/{name}/attachDisk
+//   POST   /compute/v1/projects/{project}/zones/{zone}/instances/{name}/detachDisk
+//   GET    /compute/v1/projects/{project}/zones/{zone}/instances/{name}/serialPort
 
 const moreProject = "test-project"
 
 func TestCompute_Images_CRUD(t *testing.T) {
 	t.Parallel()
 	svc := computeService(t)
-	// images.insert takes the image's source: a raw disk, which on this
-	// simulator is an OCI reference an instance of the image runs.
+	// The simulator takes an OCI reference as the raw disk an instance of the
+	// image runs.
 	img := &compute.Image{Name: "sdk-image-1", SourceType: "RAW", DiskSizeGb: 10,
 		RawDisk: &compute.ImageRawDisk{Source: "mirror.gcr.io/library/debian:12"}}
 	_, err := svc.Images.Insert(moreProject, img).Do()
@@ -397,12 +390,10 @@ func TestCompute_Catalog_Regions_DiskTypes_Accelerators(t *testing.T) {
 	assert.NotNil(t, accAgg.Items)
 }
 
-// Compute Engine records every mutation as an operation in the scope that owns
-// the resource it touched. Each scoped listing reports the operations of its own
-// scope, the aggregated listing groups the same records under their scope keys,
-// and delete acknowledges an operation the service issued while refusing a name
-// it never handed out. A zonal disk, a regional disk and a global image are all
-// metadata writes, so the three scopes are covered on every host.
+// Compute Engine records every mutation as an operation in the scope owning
+// the resource: each scoped listing reports its own scope, the aggregated
+// listing groups the records under their scope keys, and delete accepts an
+// issued operation while refusing a name never handed out.
 func TestCompute_Operations_ListDelete(t *testing.T) {
 	t.Parallel()
 	svc := computeService(t)
@@ -458,11 +449,9 @@ func TestCompute_Operations_ListDelete(t *testing.T) {
 	assert.NotNil(t, findComputeOperation(gAgg.Items["global"].Operations, globalOp.Name),
 		"the aggregated listing omits the global operation")
 
-	// Deleting an operation the service issued is accepted.
 	require.NoError(t, svc.ZoneOperations.Delete(moreProject, zone, zoneOp.Name).Do())
 
-	// An unknown operation 404s on get/delete/wait — the sim never
-	// fabricates a DONE for a name it never handed out.
+	// An unknown operation is 404 on get, delete and wait.
 	assert.Error(t, svc.ZoneOperations.Delete(moreProject, zone, "operation-unknown").Do())
 	assert.Error(t, svc.RegionOperations.Delete(moreProject, region, "operation-unknown").Do())
 	assert.Error(t, svc.GlobalOperations.Delete(moreProject, "operation-unknown").Do())
@@ -470,11 +459,9 @@ func TestCompute_Operations_ListDelete(t *testing.T) {
 	assert.Error(t, err)
 }
 
-// An aggregated list is how a client enumerates one collection across every
-// scope of a project in a single call, so each endpoint has to report the
-// project's resource under that resource's own scope key, beneath the kind the
-// service declares for the response. Reading the endpoints without first
-// creating anything proves only that the routes exist.
+// An aggregated list must report the project's resource under its own scope
+// key, beneath the kind the service declares; reading without first creating
+// proves only that the routes exist.
 func TestCompute_AggregatedLists_Existing(t *testing.T) {
 	t.Parallel()
 	svc := computeService(t)
@@ -535,8 +522,7 @@ func TestCompute_AggregatedLists_Existing(t *testing.T) {
 	require.Contains(t, igAgg.Items, "zones/"+zone)
 	assertComputeListHasName(t, igAgg.Items["zones/"+zone].InstanceGroups, func(g *compute.InstanceGroup) string { return g.Name }, "agg-ig")
 
-	// Subnetworks and addresses are backed by real host networking, so the two
-	// aggregated views over them are read wherever that kernel support exists.
+	// Subnetworks and addresses are backed by real host networking.
 	t.Run("scopes backed by real host networking", func(t *testing.T) {
 		const region = "us-central1"
 
@@ -596,9 +582,8 @@ func TestCompute_InstanceActions(t *testing.T) {
 	op, err := svc.Instances.Insert(moreProject, zone, inst).Do()
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = svc.Instances.Delete(moreProject, zone, name).Do() })
-	// Compute Engine brings the machine up behind the insert operation, so a
-	// client that is about to mutate the instance waits for that operation
-	// first — as it must against the real service.
+	// Compute Engine brings the machine up behind the insert operation, so wait
+	// for it before mutating the instance.
 	done := awaitZoneOperation(t, svc, moreProject, zone, op.Name)
 	require.Nil(t, done.Error, "the insert operation failed: %+v", done.Error)
 
@@ -698,12 +683,9 @@ func mustDelete(_ *compute.Operation, err error) error { return err }
 
 func strPtr(s string) *string { return &s }
 
-// assertComputeListHasName fails unless a Compute list method reported the
-// resource the calling test created. Every test in this suite shares one
-// project, so a listing that dropped the resource under test still carries
-// another test's and satisfies a length check; only the name proves the
-// collection reported this one. nameOf projects a list item to its name because
-// each Compute collection answers with its own item type.
+// assertComputeListHasName: the suite shares one project, so a listing that
+// dropped this test's resource still satisfies a length check with another
+// test's; only the name proves it.
 func assertComputeListHasName[T any](t *testing.T, items []T, nameOf func(T) string, want string) {
 	t.Helper()
 	names := make([]string, 0, len(items))
@@ -713,8 +695,6 @@ func assertComputeListHasName[T any](t *testing.T, items []T, nameOf func(T) str
 	assert.Contains(t, names, want, "the listing did not report the resource this test created")
 }
 
-// findComputeOperation returns the operation with the given name, or nil when
-// the listing does not carry it.
 func findComputeOperation(items []*compute.Operation, name string) *compute.Operation {
 	for _, item := range items {
 		if item.Name == name {

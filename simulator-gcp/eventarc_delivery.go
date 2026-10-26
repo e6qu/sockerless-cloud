@@ -348,7 +348,6 @@ var eventarcAuditBus = eventbus.New(nil, eventbus.Config[eventarcAuditEvent, Eve
 	Sink: func(_ EventarcTrigger, p eventarcAuditPublish) { eventarcPublishAuditEntry(p) },
 })
 
-// eventarcAuditLogTriggers lists the project's Cloud Audit Logs triggers.
 func eventarcAuditLogTriggers(project string) []EventarcTrigger {
 	var triggers []EventarcTrigger
 	for _, row := range eventarcTriggers.ListPrefix(project + "/") {

@@ -16,9 +16,6 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 )
 
-// runJobWithGCSVolumes creates a Cloud Run job whose single container runs
-// script with volumes mounted, runs it, and returns the settled execution once
-// the RunJob operation completes.
 func runJobWithGCSVolumes(t *testing.T, jobID string, volumes []*runpb.Volume, mounts []*runpb.VolumeMount, script string) *runpb.Execution {
 	t.Helper()
 	jobs := newJobsClient(t)

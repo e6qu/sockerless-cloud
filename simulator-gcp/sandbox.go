@@ -4,12 +4,10 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// SandboxCloudRun matches Cloud Run / Cloud Run Functions Gen2's
-// container execution environment. Cloud Run gVisor sandbox denies
-// privileged, bans CAP_SYS_ADMIN, disallows raw sockets. User defaults
-// to non-root unless the image's USER directive overrides. gVisor's
-// syscall filter is stricter than local Docker enforces; these
-// settings match the cap deny list Cloud Run applies on top of gVisor.
+// SandboxCloudRun matches Cloud Run's container execution environment, which
+// Cloud Run functions share: gVisor denies privileged mode, CAP_SYS_ADMIN and
+// raw sockets, and the user is non-root unless the image's USER says
+// otherwise.
 var SandboxCloudRun = sim.SandboxProfile{
 	Privileged:       false,
 	ReadonlyRootfs:   false,

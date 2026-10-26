@@ -109,9 +109,8 @@ func FuzzKMSVersionNumber(f *testing.F) {
 		"/cryptoKeyVersions/99999999999999999999999999",
 		"/cryptoKeyVersions/-1",
 		"/cryptoKeyVersions/0x10",
-		// Found by this target on the nightly run: Atoi accepts a leading sign
-		// and leading zeros, so these named version 1 under three more spellings
-		// than the resource has.
+		// Atoi accepts a sign and leading zeros, so these would otherwise name version
+		// 1 under spellings it does not have.
 		"/cryptoKeyVersions/0000000000000000001",
 		"/cryptoKeyVersions/01",
 		"/cryptoKeyVersions/+1",

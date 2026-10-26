@@ -8,9 +8,6 @@ import (
 	compute "google.golang.org/api/compute/v1"
 )
 
-// A URL map's validate, the difference between patch and update, the settings
-// singletons, and the regional instance group a regional manager keeps.
-
 func TestCompute_URLMapValidateChecksItsTestsAgainstItsOwnRouting(t *testing.T) {
 	t.Parallel()
 	svc := computeService(t)

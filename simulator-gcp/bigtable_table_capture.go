@@ -4,17 +4,10 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// A Cloud Bigtable backup and a Cloud Bigtable snapshot are both copies of a
-// table, and restoring either yields a table holding the rows the source held
-// when the copy was taken. Recording only the Backup or Snapshot resource's
-// metadata would make RestoreTable and CreateTableFromSnapshot answer with an
-// empty table: a restore that reports success and silently drops every row.
-//
-// The capture store below holds what those resources capture — the source
-// table's schema and its rows at capture time, keyed by the backup's or
-// snapshot's own resource name — and it is the only thing a restore reads.
-// Both doors onto the backup family write and read it through the helpers
-// here, so a backup taken over REST restores over gRPC and the reverse.
+// Restoring a Cloud Bigtable backup or snapshot yields the rows the source held
+// when the copy was taken, so the capture store keeps the source table's schema
+// and rows under the backup's or snapshot's resource name. Both doors use these
+// helpers, so a backup taken over REST restores over gRPC and the reverse.
 type btBackupPayload struct {
 	Table bigtableTable     `json:"table"`
 	Rows  btStoredTableData `json:"rows"`
@@ -46,7 +39,6 @@ func btCopyCapture(destination, source string) {
 	}
 }
 
-// btDeleteCapture drops a deleted backup's or snapshot's captured contents.
 func btDeleteCapture(captureName string) {
 	bigtableTableCaptures.Delete(captureName)
 }

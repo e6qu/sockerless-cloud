@@ -14,17 +14,11 @@ import (
 	run "google.golang.org/api/run/v1"
 )
 
-// Cloud Run v1 services SDK tests (Knative-style API). Sockerless
-// doesn't use this API on the runner path today, but the simulator
-// ships the slice so `gcloud run services *` and the run/v1 client
-// round-trip. The direct-REST tests assert wire-level member shapes;
 // TestCloudRunServices_RunV1ClientRoundTrip drives the canonical
 // google.golang.org/api/run/v1 client, which builds the real
-// /apis/serving.knative.dev/v1/... method paths and so pins the
-// simulator's path shape to the Discovery document's.
+// /apis/serving.knative.dev/v1/... paths; the direct-REST tests assert member
+// shapes on the wire.
 
-// TestCloudRunServices_RunV1ClientRoundTrip exercises the knative
-// namespaces.services surface through the official run/v1 client.
 func TestCloudRunServices_RunV1ClientRoundTrip(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -68,7 +62,6 @@ func TestCloudRunServices_CreateGetListDelete(t *testing.T) {
 	t.Parallel()
 	namespace := "test-project"
 
-	// Create.
 	createBody := `{
 		"apiVersion":"serving.knative.dev/v1",
 		"kind":"Service",
@@ -93,13 +86,11 @@ func TestCloudRunServices_CreateGetListDelete(t *testing.T) {
 	assert.Equal(t, "Ready", created.Status.Conditions[0].Type)
 	assert.Equal(t, "True", created.Status.Conditions[0].Status)
 
-	// Get.
 	getResp := doKnativeGET(t, "/apis/serving.knative.dev/v1/namespaces/"+namespace+"/services/svc-roundtrip")
 	var got struct{ Metadata CRServiceMetaResp }
 	require.NoError(t, json.Unmarshal([]byte(getResp), &got))
 	assert.Equal(t, "svc-roundtrip", got.Metadata.Name)
 
-	// List — should contain the service we created.
 	listResp := doKnativeGET(t, "/apis/serving.knative.dev/v1/namespaces/"+namespace+"/services")
 	var list struct {
 		Items []struct{ Metadata CRServiceMetaResp } `json:"items"`
@@ -111,10 +102,8 @@ func TestCloudRunServices_CreateGetListDelete(t *testing.T) {
 	}
 	assert.Contains(t, names, "svc-roundtrip")
 
-	// Delete.
 	doKnativeDELETE(t, "/apis/serving.knative.dev/v1/namespaces/"+namespace+"/services/svc-roundtrip")
 
-	// Verify gone.
 	req, _ := http.NewRequest("GET", baseURL+"/apis/serving.knative.dev/v1/namespaces/"+namespace+"/services/svc-roundtrip", nil)
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
@@ -150,7 +139,6 @@ func TestCloudRunServices_ReplaceBumpsGeneration(t *testing.T) {
 		"the changed template deploys a revision named for the generation")
 	assert.Equal(t, "v2", updated.Metadata.Labels["version"])
 
-	// Cleanup.
 	doKnativeDELETE(t, "/apis/serving.knative.dev/v1/namespaces/"+namespace+"/services/svc-rev")
 }
 

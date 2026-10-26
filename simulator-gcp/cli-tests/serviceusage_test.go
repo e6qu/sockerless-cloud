@@ -47,8 +47,6 @@ func TestServiceUsage_EnableAndList(t *testing.T) {
 	assert.NotEmpty(t, result.Services)
 }
 
-// TestServiceUsage_ListPagination asserts the ListServices handler honors
-// pageSize + pageToken rather than returning the whole set.
 func TestServiceUsage_ListPagination(t *testing.T) {
 	t.Parallel()
 	svcs := []string{"page-a.googleapis.com", "page-b.googleapis.com", "page-c.googleapis.com"}
@@ -59,9 +57,8 @@ func TestServiceUsage_ListPagination(t *testing.T) {
 	listBase := fmt.Sprintf("%s/v1/projects/%s/services", baseURL, project)
 	token := ""
 	pages := 0
-	// Identities, not a count: a handler that returned the same service on
-	// every page would satisfy a total, so every page's entries are recorded
-	// and a repeat is a failure.
+	// Record every page's entries and fail on a repeat: a handler that returned
+	// the same service on every page would satisfy a count.
 	seen := map[string]bool{}
 	for {
 		url := listBase + "?pageSize=1"
@@ -97,7 +94,7 @@ func TestServiceUsage_ListPagination(t *testing.T) {
 
 func TestServiceUsage_Disable(t *testing.T) {
 	t.Parallel()
-	// A service of its own: the suite's harness enabled the ones it drives.
+	// The harness enabled the services the suite drives, so this test uses its own.
 	const service = "cli-disable.googleapis.com"
 	httpDoJSON(t, "POST", serviceURL(service+":enable"), `{}`)
 	httpDoJSON(t, "POST", serviceURL(service+":disable"), `{}`)

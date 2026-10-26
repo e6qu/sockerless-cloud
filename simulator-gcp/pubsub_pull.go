@@ -16,15 +16,10 @@ import (
 // response rather than DEADLINE_EXCEEDED.
 const psPullWait = 10 * time.Second
 
-// psArrivals wakes waiting Pull calls, idle StreamingPull streams and the
-// push and dead-letter loops, keyed by subscription name.
-// psSignalSubscription signals a subscription whose deliverable set may have
-// changed: a publish, a negative acknowledgement or ack deadline change, an
-// acknowledgement that unblocks an ordering key or frees flow-control budget,
-// a seek, or the subscription's deletion, detachment or update. A message
-// changing state on its own — an ack deadline lapsing, which frees
-// flow-control budget, or a retry backoff ending — wakes them at the instant
-// the queue stores for it.
+// psArrivals wakes waiting Pull calls, idle StreamingPull streams and the push
+// and dead-letter loops, keyed by subscription name: on a signal, and at the
+// instant a message changes state on its own (an ack deadline lapsing, a retry
+// backoff ending).
 var psArrivals = msgq.NewWaiter(func(subName string, now time.Time) (time.Time, bool) {
 	s, ok := psSubscriptions.Get(subName)
 	if !ok {
@@ -37,6 +32,10 @@ var psArrivals = msgq.NewWaiter(func(subName string, now time.Time) (time.Time, 
 	return q.Queue.NextChange(psPolicy(s), now)
 })
 
+// psSignalSubscription wakes a subscription's waiters when its deliverable set
+// may have changed: a publish, a nack or ack deadline change, an ack that
+// unblocks an ordering key or frees flow-control budget, a seek, or the
+// subscription's deletion, detachment or update.
 func psSignalSubscription(name string) { psArrivals.Signal(name) }
 
 // psPull leases up to max messages. Without returnImmediately it holds an

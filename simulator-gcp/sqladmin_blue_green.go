@@ -8,14 +8,10 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// Cloud SQL blue-green deployment: a green copy of a running instance that
-// takes the source's place at switchover.
-//
-// The collection is addressed by location — projects/{p}/locations/{l}/
-// blueGreenDeployments/{d} — while the instance it copies is addressed by
-// project alone, so the deployment records the source instance by name and the
-// green instance is a real instance in the same store every other Cloud SQL
-// read serves.
+// A Cloud SQL blue-green deployment is a green copy of a running instance that
+// takes the source's place at switchover. The deployment is addressed by
+// location and the instance by project, so the deployment records the source
+// by name, and the green is a real instance in the instance store.
 
 // SQLBlueGreenDeployment mirrors the Discovery BlueGreenDeployment schema.
 type SQLBlueGreenDeployment struct {
@@ -73,8 +69,8 @@ func sqlBlueGreenGreenInstance(deployment string) string {
 }
 
 func registerCloudSQLBlueGreenPrefix(srv *sim.Server, prefix string) {
-	// Written out per route rather than through a shared base: the generated
-	// surface tables read the literal path out of each registration.
+	// Write each route out: the surface tables read the literal path from each
+	// registration.
 	srv.HandleFunc("POST "+prefix+"/projects/{project}/locations/{location}/blueGreenDeployments", handleSQLCreateBlueGreenDeployment)
 	srv.HandleFunc("GET "+prefix+"/projects/{project}/locations/{location}/blueGreenDeployments", handleSQLListBlueGreenDeployments)
 	srv.HandleFunc("GET "+prefix+"/projects/{project}/locations/{location}/blueGreenDeployments/{deployment}", handleSQLGetBlueGreenDeployment)
@@ -113,8 +109,7 @@ func handleSQLCreateBlueGreenDeployment(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// The green instance is a real copy of the source, in the same store, so
-	// every other Cloud SQL read sees it exactly as it sees the source.
+	// The green is a real copy of the source in the same store.
 	green := source
 	green.Name = sqlBlueGreenGreenInstance(id)
 	green.State = "RUNNABLE"
@@ -198,7 +193,6 @@ func handleSQLDeleteBlueGreenDeployment(w http.ResponseWriter, r *http.Request) 
 		newSQLOperation(project, "DELETE_BLUE_GREEN_DEPLOYMENT", sqlBlueGreenGreenInstance(id)))
 }
 
-// handleSQLBlueGreenDeploymentAction serves the colon verbs on a deployment.
 func handleSQLBlueGreenDeploymentAction(w http.ResponseWriter, r *http.Request) {
 	project, location := sim.PathParam(r, "project"), sim.PathParam(r, "location")
 	id, action, found := strings.Cut(sim.PathParam(r, "deploymentAction"), ":")

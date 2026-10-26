@@ -17,31 +17,31 @@ The extractor reads the route out of a single string literal, so a registration 
 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
-| `GET /v1/billingAccounts` | ✓ `simulator-gcp/cloudbilling.go:105::handleBillingListAccounts` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /v1/billingAccounts` | ✓ `simulator-gcp/cloudbilling.go:106::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /v1/billingAccounts/{accountAction}` | ✓ `simulator-gcp/cloudbilling.go:113::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /v1/billingAccounts/{accountAction}` | ✓ `simulator-gcp/cloudbilling.go:129::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `PATCH /v1/billingAccounts/{account}` | ✓ `simulator-gcp/cloudbilling.go:156::handleBillingPatchAccount` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /v1/billingAccounts/{account}/subAccounts` | ✓ `simulator-gcp/cloudbilling.go:157::handleBillingListSubAccounts` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /v1/billingAccounts/{account}/subAccounts` | ✓ `simulator-gcp/cloudbilling.go:158::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /v1/billingAccounts/{account}/projects` | ✓ `simulator-gcp/cloudbilling.go:166::handleBillingListAccountProjects` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /v1/organizations/{organization}/billingAccounts` | ✓ `simulator-gcp/cloudbilling.go:172::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /v1/organizations/{organization}/billingAccounts` | ✓ `simulator-gcp/cloudbilling.go:182::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /v1/organizations/{organization}/billingAccounts/{accountAction}` | ✓ `simulator-gcp/cloudbilling.go:185::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `PUT /v1/projects/{project}/billingInfo` | ✓ `simulator-gcp/cloudbilling.go:201::handleBillingUpdateProjectInfo` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /v1/services` | ○ `simulator-gcp/cloudbilling.go:204::handleBillingListServices` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /v1/services/{service}/skus` | ○ `simulator-gcp/cloudbilling.go:205::handleBillingListSkus` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /v1/tasks/{tasksAction}` | 501 `simulator-gcp/cloudbilling.go:242::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /v1/tasks/{tasksAction}` | 501 `simulator-gcp/cloudbilling.go:254::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /v1/tasks/{tasksId}/pushNotificationConfigs` | 501 `simulator-gcp/cloudbilling.go:262::taskWhy` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /v1/tasks/{tasksId}/pushNotificationConfigs` | 501 `simulator-gcp/cloudbilling.go:263::taskWhy` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /v1/tasks/{tasksId}/pushNotificationConfigs/{pushNotificationConfigsId}` | 501 `simulator-gcp/cloudbilling.go:264::taskWhy` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `DELETE /v1/tasks/{tasksId}/pushNotificationConfigs/{pushNotificationConfigsId}` | 501 `simulator-gcp/cloudbilling.go:265::taskWhy` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /v1/card` | 501 `simulator-gcp/cloudbilling.go:266::cardWhy` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /v1/message:send` | 501 `simulator-gcp/cloudbilling.go:267::messageWhy` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /v1/message:stream` | 501 `simulator-gcp/cloudbilling.go:268::messageWhy` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /v1/tasks/{rest...}` | 501 `simulator-gcp/cloudbilling.go:278::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `DELETE /v1/tasks/{rest...}` | 501 `simulator-gcp/cloudbilling.go:293::taskWhy` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v1/billingAccounts/{accountAction}` | ✓ `simulator-gcp/cloudbilling.go:111::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `PATCH /v1/billingAccounts/{account}` | ✓ `simulator-gcp/cloudbilling.go:138::handleBillingPatchAccount` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v1/billingAccounts/{account}/subAccounts` | ✓ `simulator-gcp/cloudbilling.go:139::handleBillingListSubAccounts` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v1/billingAccounts/{account}/subAccounts` | ✓ `simulator-gcp/cloudbilling.go:140::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v1/billingAccounts/{account}/projects` | ✓ `simulator-gcp/cloudbilling.go:148::handleBillingListAccountProjects` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v1/organizations/{organization}/billingAccounts` | ✓ `simulator-gcp/cloudbilling.go:153::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v1/organizations/{organization}/billingAccounts` | ✓ `simulator-gcp/cloudbilling.go:163::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v1/organizations/{organization}/billingAccounts/{accountAction}` | ✓ `simulator-gcp/cloudbilling.go:166::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `PUT /v1/projects/{project}/billingInfo` | ✓ `simulator-gcp/cloudbilling.go:182::handleBillingUpdateProjectInfo` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v1/services` | ○ `simulator-gcp/cloudbilling.go:184::handleBillingListServices` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v1/services/{service}/skus` | ○ `simulator-gcp/cloudbilling.go:185::handleBillingListSkus` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v1/tasks/{tasksAction}` | 501 `simulator-gcp/cloudbilling.go:209::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v1/tasks/{tasksAction}` | 501 `simulator-gcp/cloudbilling.go:221::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v1/tasks/{tasksId}/pushNotificationConfigs` | 501 `simulator-gcp/cloudbilling.go:229::taskWhy` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v1/tasks/{tasksId}/pushNotificationConfigs` | 501 `simulator-gcp/cloudbilling.go:230::taskWhy` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v1/tasks/{tasksId}/pushNotificationConfigs/{pushNotificationConfigsId}` | 501 `simulator-gcp/cloudbilling.go:231::taskWhy` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `DELETE /v1/tasks/{tasksId}/pushNotificationConfigs/{pushNotificationConfigsId}` | 501 `simulator-gcp/cloudbilling.go:232::taskWhy` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v1/card` | 501 `simulator-gcp/cloudbilling.go:233::cardWhy` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v1/message:send` | 501 `simulator-gcp/cloudbilling.go:234::messageWhy` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v1/message:stream` | 501 `simulator-gcp/cloudbilling.go:235::messageWhy` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v1/tasks/{rest...}` | 501 `simulator-gcp/cloudbilling.go:240::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `DELETE /v1/tasks/{rest...}` | 501 `simulator-gcp/cloudbilling.go:255::taskWhy` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v1/billingAccounts` | ✓ `simulator-gcp/cloudbilling.go:88::handleBillingListAccounts` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v1/billingAccounts` | ✓ `simulator-gcp/cloudbilling.go:89::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v1/billingAccounts/{accountAction}` | ✓ `simulator-gcp/cloudbilling.go:95::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 
 ## Coverage status
 

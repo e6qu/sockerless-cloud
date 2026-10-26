@@ -8,36 +8,17 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// The hosts a reservation's capacity is held on.
+// A reservation's hosts derive from the machine count of the association
+// (reservation, block or sub-block) they belong to, as blocks, sub-blocks and
+// slots derive from their parent, so a resize reaches them all.
 //
-// A host is one machine of the capacity, so the hosts of an association are
-// derived from the count that association holds — the same way a reservation's
-// blocks are derived from the reservation, its sub-blocks from the block, and
-// its slots from the sub-block. Deriving keeps them from disagreeing after a
-// resize: a reservation resized to forty machines reports forty hosts across
-// three blocks without anything being written twice.
-//
-// Compute Engine addresses a host through the association it belongs to, and
-// the document spells that association three ways — a reservation, one of its
-// blocks, or one of that block's sub-blocks. It is one Discovery parameter
-// holding a whole path, declared without reserved expansion, so a generated
-// client percent-encodes the separators inside it and sends
-// "reservations%2Fname%2FreservationBlocks%2Fblock" as a single segment.
-//
-// Go's router matches one segment at a time and cannot express a segment whose
-// value is itself a path: a lone wildcard there is ambiguous against every
-// other zone collection, because machineTypes/{machineType} occupies the same
-// two segments and neither is more specific. Mounting the family on an invented
-// reservations/{name}/hosts is not the answer either — that is a path the
-// service does not describe, and no client would arrive on it.
-//
-// So the family takes the zone subtree as a multi-segment mount and routes the
-// tail itself, the way the Cloud Spanner instance subtree does. A concrete
-// pattern always beats a multi-segment wildcard in Go's router, so every zone
-// collection the simulator serves keeps its own route, and a tail this handler
-// does not own is answered as a method not found — which the coverage probe
-// reads as unserved, so nothing else in the zone subtree counts as covered on
-// account of this mount.
+// The association is one Discovery parameter holding a path, declared without
+// reserved expansion, so clients send it percent-encoded as one segment.
+// ServeMux cannot match that against the other two-segment zone reads, so the
+// family mounts the zone subtree as a multi-segment wildcard and routes the
+// tail itself, as the Cloud Spanner instance subtree does. Concrete routes
+// still win, and a tail it does not own is method-not-found, which the
+// coverage probe reads as unserved.
 
 // computeReservationHosts names one host per machine the association holds.
 func computeReservationHosts(parent string, count int) []map[string]any {
@@ -49,14 +30,10 @@ func computeReservationHosts(parent string, count int) []map[string]any {
 		hosts = append(hosts, map[string]any{
 			"kind": "compute#host",
 			"name": parent + "-host-" + itoa(i),
-			// A host of a reservation that exists is a machine held for it, and
-			// the reservation reports its blocks READY, so the machine under
-			// them is active.
-			//
-			// The status beside the state is left out: it carries the physical
-			// topology of Google's own datacenter and the instances placed on
-			// this particular machine, and the simulator has neither a
-			// datacenter layout nor a placement of instances onto hosts.
+			// The reservation reports its blocks READY, so each host under them is
+			// ACTIVE. The status beside the state carries Google's datacenter topology
+			// and instance placement, which the simulator does not have, so it stays
+			// absent.
 			"state": "ACTIVE",
 		})
 	}
@@ -79,12 +56,9 @@ var (
 func registerComputeReservationHosts(srv *sim.Server, reservations sim.Store[map[string]any]) {
 	const base = "/compute/v1/projects/{project}/zones/{zone}"
 	route := func(w http.ResponseWriter, r *http.Request) {
-		// The separators inside the association arrive encoded, because
-		// Discovery declares the parameter without reserved expansion.
-		// Restoring them is what the real service does with a simply-expanded
-		// multi-segment variable; the escaped path is read rather than the
-		// decoded one so a name that genuinely contains an encoded slash — a
-		// Cloud Storage object elsewhere in the simulator — is untouched by it.
+		// Discovery declares the parameter without reserved expansion, so restore
+		// the encoded separators as Google does. Read the escaped path so an encoded
+		// slash elsewhere (a Cloud Storage object name) stays intact.
 		path := strings.ReplaceAll(r.URL.EscapedPath(), "%2F", "/")
 		path = strings.ReplaceAll(path, "%2f", "/")
 
@@ -104,9 +78,8 @@ func registerComputeReservationHosts(srv *sim.Server, reservations sim.Store[map
 				return
 			}
 		}
-		// This mount routes its own tail, so this is the sub-router's miss: no
-		// zone method the simulator serves has this shape. A concrete route
-		// would have won before reaching here.
+		// No zone method the simulator serves has this tail; a concrete route would
+		// have matched first.
 		gcpMethodNotFound(w)
 	}
 	srv.HandleFunc("GET "+base+"/{rest...}", route)
@@ -203,9 +176,8 @@ func computeHostGet(
 	GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "host %q not found", wanted)
 }
 
-// The document declares getVersion returning an Operation rather than a version
-// payload, so the answer is the operation the request starts — the same shape
-// the maintenance verbs beside it answer with.
+// The document declares getVersion returning an Operation, as the maintenance
+// verbs beside it do.
 func computeHostGetVersion(
 	w http.ResponseWriter, reservations sim.Store[map[string]any],
 	project, zone, association, wanted string,

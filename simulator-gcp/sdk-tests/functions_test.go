@@ -25,9 +25,8 @@ import (
 )
 
 // deployFunction creates a function, deploys a container to the Cloud Run
-// service that serves it, the image swap a deploy pipeline makes once its
-// build has run, and grants the shared invoker roles/run.invoker on that
-// service. It returns the function as GetFunction reads it back.
+// service that serves it, the image swap a deploy pipeline makes after its
+// build, and grants the shared invoker roles/run.invoker on that service.
 func deployFunction(t *testing.T, client *functions.FunctionClient, functionID string, container *runpb.Container) *functionspb.Function {
 	t.Helper()
 	op, err := client.CreateFunction(ctx, &functionspb.CreateFunctionRequest{
@@ -233,11 +232,9 @@ func waitForFunctionLogMessage(t *testing.T, functionID, message string) {
 		func(messages []string) bool { return slices.Contains(messages, message) })
 }
 
-// followLogMessages follows the text payloads of the Cloud Logging entries
-// filter matches until done accepts them, and returns them. It opens a
-// TailLogEntries stream, waits for it to stream, and then lists what was
-// already logged, so an entry written between the two reads arrives on one of
-// them; an entry both report counts once, by insert ID.
+// followLogMessages opens a TailLogEntries stream, waits for it to stream,
+// then lists what was already logged, so an entry written between the two
+// reads arrives on one of them; an entry both report counts once, by insert ID.
 func followLogMessages(t *testing.T, filter string, done func(messages []string) bool) []string {
 	t.Helper()
 	return followLogMessagesAt(t, grpcAddr, simTokenSource(), filter, done)
@@ -260,7 +257,6 @@ func followLogMessagesAt(t *testing.T, address string, ts oauth2.TokenSource, fi
 	defer listClient.Close()
 	stream, early := openReadyTail(t, tailCtx, tailClient, "test-project", filter)
 
-	// The tail and the listing can both report an entry; count it once.
 	seen := map[string]bool{}
 	var messages []string
 	add := func(insertID, text string) {

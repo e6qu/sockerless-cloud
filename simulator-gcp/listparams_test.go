@@ -110,7 +110,7 @@ func TestGCPApplyListParams_Filter(t *testing.T) {
 		t.Fatalf("NOT state=ACTIVE → %v", got)
 	}
 
-	// Parentheses + precedence: (a OR b) AND prod-env.
+	// Parentheses and precedence: (a OR b) AND prod-env.
 	got = lpApply(t, gcpApplyListParams[lpItem], items, lpReq(map[string]string{"filter": `(name="a" OR name="b") AND labels.env="prod"`}))
 	if len(got) != 1 || got[0].Name != "a" {
 		t.Fatalf("(a OR b) AND env=prod → %v", got)
@@ -122,7 +122,7 @@ func TestGCPApplyListParams_Filter(t *testing.T) {
 		t.Fatalf("implicit-AND → %v", got)
 	}
 
-	// Has-operator wildcard (labels.env present).
+	// The has-operator wildcard: labels.env present.
 	got = lpApply(t, gcpApplyListParams[lpItem], items, lpReq(map[string]string{"filter": `labels.env:*`}))
 	if len(got) != 3 {
 		t.Fatalf("labels.env:* → %v", got)

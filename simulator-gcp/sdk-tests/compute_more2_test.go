@@ -9,13 +9,6 @@ import (
 	"google.golang.org/api/compute/v1"
 )
 
-// Exercises the second wave of Compute Engine (compute v1) control-plane
-// metadata CRUD added in compute_more2.go via the official
-// google.golang.org/api/compute/v1 client. Every resource here is
-// metadata-only — insert returns a DONE Operation synchronously and
-// get/list/aggregatedList/iamPolicy read the stored state back — so these
-// run on every host (no real-exec network).
-
 const (
 	more2Project = "test-project"
 	more2Region  = "us-central1"
@@ -43,7 +36,6 @@ func TestCompute2_BackendBuckets_CRUD_IAM(t *testing.T) {
 	require.NoError(t, err)
 	assertComputeListHasName(t, list.Items, func(b *compute.BackendBucket) string { return b.Name }, "sdk-bb-1")
 
-	// IAM triplet.
 	pol, err := svc.BackendBuckets.GetIamPolicy(more2Project, "sdk-bb-1").Do()
 	require.NoError(t, err)
 	assert.NotEmpty(t, pol.Etag)
@@ -79,8 +71,8 @@ func TestCompute2_Licenses_CRUD(t *testing.T) {
 	require.NoError(t, err)
 	assertComputeListHasName(t, list.Items, func(l *compute.License) string { return l.Name }, "sdk-lic-1")
 
-	// The code the licence is attached to images and disks by, which Compute
-	// Engine assigns and reads back as a resource of its own.
+	// Compute Engine assigns the licence a code that images and disks reference,
+	// readable as a resource of its own.
 	require.NotZero(t, got.LicenseCode)
 	issued := strconv.FormatUint(got.LicenseCode, 10)
 	code, err := svc.LicenseCodes.Get(more2Project, issued).Do()
@@ -135,9 +127,8 @@ func TestCompute2_TargetSslProxies_CRUD_Setters(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "sdk-tsp-1", got.Name)
 
-	// Each setter answers with the global operation that names the proxy it
-	// targeted and the verb it carried out, which is what a client polls and
-	// what gcloud reads to report the resource it changed.
+	// Each setter answers with the global operation naming the proxy and the verb,
+	// which a client polls and gcloud reads to report the resource it changed.
 	backendOp, err := svc.TargetSslProxies.SetBackendService(more2Project, "sdk-tsp-1", &compute.TargetSslProxiesSetBackendServiceRequest{Service: "https://www.googleapis.com/compute/v1/projects/test-project/regions/us-central1/backendServices/bs"}).Do()
 	require.NoError(t, err)
 	assert.Equal(t, "setBackendService", backendOp.OperationType)
@@ -336,10 +327,8 @@ func TestCompute2_PacketMirrorings_CRUD(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// A packet mirroring policy is only meaningful if the members that decide what
-// is mirrored and where it goes survive the round trip: the resolver reads
-// mirroredResources, collectorIlb and filter to start the sessions, so a
-// dropped member is a policy that mirrors the wrong traffic or none.
+// The resolver reads mirroredResources, collectorIlb and filter to start the
+// sessions, so a dropped member mirrors the wrong traffic or none.
 func TestCompute2_PacketMirrorings_PolicyShapeRoundTrips(t *testing.T) {
 	t.Parallel()
 	svc := computeService(t)
@@ -394,8 +383,8 @@ func TestCompute2_PacketMirrorings_PolicyShapeRoundTrips(t *testing.T) {
 	assert.Equal(t, "compute#packetMirroring", got.Kind)
 	assert.Contains(t, got.SelfLink, "/regions/"+more2Region+"/packetMirrorings/"+name)
 
-	// Disabling is how an operator stops a policy mirroring without deleting
-	// it, so the member the resolver reads has to change on a patch.
+	// Disabling stops a policy mirroring without deleting it, so the patch must
+	// change the member the resolver reads.
 	_, err = svc.PacketMirrorings.Patch(more2Project, more2Region, name,
 		&compute.PacketMirroring{Enable: "FALSE"}).Do()
 	require.NoError(t, err)
@@ -470,8 +459,8 @@ func TestCompute2_RegionTargetHttpsProxies_CRUD(t *testing.T) {
 	got, err := svc.RegionTargetHttpsProxies.Get(more2Project, more2Region, "sdk-rthp-1").Do()
 	require.NoError(t, err)
 	assert.Equal(t, "sdk-rthp-1", got.Name)
-	// setUrlMap answers with the regional operation that names the proxy it
-	// targeted and the verb it carried out, which is what a client polls.
+	// setUrlMap answers with the regional operation naming the proxy and the verb,
+	// which a client polls.
 	urlMapOp, err := svc.RegionTargetHttpsProxies.SetUrlMap(more2Project, more2Region, "sdk-rthp-1", &compute.UrlMapReference{UrlMap: "url-map-ref"}).Do()
 	require.NoError(t, err)
 	assert.Equal(t, "setUrlMap", urlMapOp.OperationType)
@@ -508,10 +497,8 @@ func TestCompute2_Autoscalers_CRUD_PatchUpdate(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "sdk-as-1", got.Name)
 
-	// autoscalers.patch / update target the autoscaler by query param. The
-	// patch is read back before the update runs, because the update that
-	// follows rewrites the same member and would hide whether the patch ever
-	// landed.
+	// patch and update target the autoscaler by query parameter. Read the patch
+	// back before the update, which rewrites the same member.
 	_, err = svc.Autoscalers.Patch(more2Project, more2Zone, &compute.Autoscaler{Name: "sdk-as-1", Description: "patched"}).Autoscaler("sdk-as-1").Do()
 	require.NoError(t, err)
 	got1, err := svc.Autoscalers.Get(more2Project, more2Zone, "sdk-as-1").Do()

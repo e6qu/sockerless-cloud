@@ -342,7 +342,6 @@ func (w *gcsMountWatcher) settleMove() {
 	w.movedOut(move.from, move.dir)
 }
 
-// watchLocked adds a watch on the directory at.
 func (w *gcsMountWatcher) watchLocked(at gcsMountPath) error {
 	wd, err := unix.InotifyAddWatch(w.fd, gcsMountHostPath(at), gcsMountWatchMask)
 	if err != nil {

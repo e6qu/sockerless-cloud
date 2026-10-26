@@ -18,8 +18,8 @@ import (
 )
 
 // objectContextsAPI calls objects.viewFullContext, which neither
-// cloud.google.com/go/storage nor google.golang.org/api/storage/v1 wraps yet,
-// over the JSON API with the client's own credentials.
+// cloud.google.com/go/storage nor google.golang.org/api/storage/v1 wraps, over
+// the JSON API with the client's credentials.
 type objectContextsAPI struct{ client *http.Client }
 
 type objectFullContext struct {

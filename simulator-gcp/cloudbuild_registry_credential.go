@@ -31,15 +31,11 @@ func cloudBuildServiceAccount(b Build) (string, error) {
 }
 
 // cloudBuildDockerConfig writes the Docker client configuration a build's
-// docker steps run with: a credential helper that answers Artifact Registry
-// and Container Registry — by their hosts, or by this simulator's own port,
-// at which a coordinate that relocates the registry reaches it — with an
-// access token of the build's service account as the `oauth2accesstoken`
-// password, and hands any other registry to the helper the host
-// configured, which the step otherwise reaches anonymously. Real Cloud
-// Build's docker builder carries the same credential through the gcloud
-// helper. The directory is DOCKER_CONFIG for the steps; the caller removes
-// it after the build.
+// docker steps run with: a credential helper that answers Artifact Registry and
+// Container Registry, by host or by this simulator's port, with an access token
+// of the build's service account as the `oauth2accesstoken` password, as Cloud
+// Build's gcloud helper does, and defers any other registry to the host's own
+// helper. The caller removes the directory after the build.
 func cloudBuildDockerConfig(b Build, workDir string) (string, error) {
 	account, err := cloudBuildServiceAccount(b)
 	if err != nil {

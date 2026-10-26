@@ -45,34 +45,27 @@ provider "google" {
   spanner_custom_endpoint           = "${var.endpoint}/spanner/v1/"
   bigtable_custom_endpoint          = "${var.bigtable_endpoint}/v2/"
   dataflow_custom_endpoint          = "${var.endpoint}/v1b3/"
-  # iam_beta_custom_endpoint routes the `google_service_account` resource's
-  # iambeta.NewClient → iam.googleapis.com surface; without it the resource
-  # hits real iam.googleapis.com regardless of `iam_custom_endpoint`.
+  # google_service_account builds on iambeta.NewClient, which only
+  # iam_beta_custom_endpoint routes.
   iam_beta_custom_endpoint = "${var.endpoint}/v1/"
 
-  # iam_custom_endpoint routes the handwritten IAM client that backs
-  # `google_service_account_key` (projects.serviceAccounts.keys.create/.get).
+  # iam_custom_endpoint routes the handwritten IAM client behind
+  # google_service_account_key.
   iam_custom_endpoint = "${var.endpoint}/v1/"
 
-  # google_project speaks the Cloud Resource Manager v1 wire (create +
-  # operation wait + read + delete) and reads Cloud Billing's
-  # projects.getBillingInfo on every Read — the handwritten cloudbilling
-  # client honors cloud_billing_custom_endpoint (NOT billing_custom_endpoint,
-  # which routes the Billing Budgets product).
+  # google_project speaks Cloud Resource Manager v1 and reads Cloud Billing's
+  # projects.getBillingInfo on every Read, through cloud_billing_custom_endpoint;
+  # billing_custom_endpoint routes Billing Budgets instead.
   resource_manager_custom_endpoint = "${var.endpoint}/v1/"
   cloud_billing_custom_endpoint    = "${var.endpoint}/v1/"
 
-  # google_folder speaks the Cloud Resource Manager v3 folders collection
-  # through its own generated client, which honors
-  # resource_manager_v3_custom_endpoint — without it the resource reaches real
-  # cloudresourcemanager.googleapis.com regardless of the v1 override above.
-  # google_folder_organization_policy addresses the same folder over the v1
-  # org-policy verbs, which resource_manager_custom_endpoint routes.
+  # google_folder's generated client honours only
+  # resource_manager_v3_custom_endpoint. google_folder_organization_policy
+  # reaches the same folder over the v1 org-policy verbs.
   resource_manager_v3_custom_endpoint = "${var.endpoint}/v3/"
 
-  # iam_credentials_custom_endpoint routes the handwritten IAM Service Account
-  # Credentials client that backs the `google_service_account_access_token`
-  # data source (projects.serviceAccounts.generateAccessToken).
+  # iam_credentials_custom_endpoint routes the IAM Service Account Credentials
+  # client behind the google_service_account_access_token data source.
   iam_credentials_custom_endpoint = "${var.endpoint}/v1/"
 
 }
@@ -87,16 +80,11 @@ provider "google-beta" {
   api_gateway_custom_endpoint = "${var.endpoint}/v1/"
 }
 
-# ---------- Compute (network + disks) ----------
-
 resource "google_compute_network" "main" {
   name                    = "tf-test-network"
   auto_create_subnetworks = false
 }
 
-# Compute disk CRUD. Exercises the same wire shape gcloud uses
-# (zoneOp with operationType, full zone URL, kind=compute#operation)
-# from a third consumer.
 resource "google_compute_disk" "tf_disk" {
   name = "tf-test-disk"
   zone = "us-central1-a"
@@ -104,9 +92,6 @@ resource "google_compute_disk" "tf_disk" {
   type = "pd-balanced"
 }
 
-# Subnetwork inside the test network. Real runner pods get attached to
-# subnets; the sim's POST /compute/v1/projects/{}/regions/{}/subnetworks
-# is the wire surface terraform-provider-google calls.
 resource "google_compute_subnetwork" "tf_subnet" {
   name          = "tf-test-subnet"
   region        = "us-central1"
@@ -121,9 +106,6 @@ resource "google_vpc_access_connector" "tf_connector" {
   ip_cidr_range = "10.43.0.0/28"
 }
 
-# Global firewall rule attached to the network. Runner backends create
-# matching allow-rules for SSH / health-check ranges; this exercises the
-# /compute/v1/projects/{}/global/firewalls surface.
 resource "google_compute_firewall" "tf_fw" {
   name    = "tf-test-fw-allow-ssh"
   network = google_compute_network.main.name
@@ -234,17 +216,13 @@ resource "google_compute_global_forwarding_rule" "tf_lb_rule" {
   port_range = "80"
 }
 
-# ---------- DNS (public + private zone) ----------
-
 resource "google_dns_managed_zone" "main" {
   name     = "tf-test-zone"
   dns_name = "tf-test.example.com."
 }
 
-# Private managed zone auto-backs itself with a real Docker network
-# inside the simulator (see simulators/gcp/dns.go handleCreateZone).
-# Terraform round-trip covers zone Create + Get + Delete so the
-# `Visibility=private` path triggers the simulator's network lifecycle.
+# A private managed zone makes the simulator create a Docker network behind
+# it; create, read and delete drive that network's lifecycle.
 resource "google_dns_managed_zone" "private_xjob" {
   name        = "tf-xjob-zone"
   dns_name    = "tf-xjob.local."
@@ -260,11 +238,8 @@ resource "google_dns_record_set" "main_a" {
   rrdatas      = ["203.0.113.30"]
 }
 
-# ---------- Artifact Registry (Docker repo + cleanup policy) ----------
-
-# Docker-format repository — backs both Cloud Run image pulls and the
-# OCI distribution proxy at `/v2/{repo}/manifests/...`. Real production
-# stacks reach for this in their pre-deploy step before `google_cloud_run_v2_service`.
+# A Docker-format repository serves Cloud Run image pulls and the OCI
+# distribution API under /v2/.
 resource "google_artifact_registry_repository" "tf_ar_docker" {
   location      = "us-central1"
   repository_id = "tf-ar-docker"
@@ -272,8 +247,7 @@ resource "google_artifact_registry_repository" "tf_ar_docker" {
   format        = "DOCKER"
 }
 
-# Remote Docker Hub repository — same Artifact Registry shape the
-# production Cloud Run/GCF modules use for Docker Hub image resolution.
+# A remote repository that resolves images from Docker Hub.
 resource "google_artifact_registry_repository" "tf_ar_docker_hub" {
   location      = "us-central1"
   repository_id = "docker-hub"
@@ -288,8 +262,6 @@ resource "google_artifact_registry_repository" "tf_ar_docker_hub" {
     }
   }
 }
-
-# ---------- Cloud Run v2 (Service + Job) ----------
 
 resource "google_cloud_run_v2_service" "tf_crv2_svc" {
   name                = "tf-crv2-svc"
@@ -383,20 +355,16 @@ resource "google_cloud_run_v2_worker_pool" "tf_crv2_worker_pool" {
   description         = "terraform-managed Cloud Run worker pool"
   launch_stage        = "GA"
 
-  # custom_audiences is deliberately absent. The provider deprecates it on this
-  # resource — "not applicable to WorkerPool" — and the 8.0.0 major removes the
-  # argument outright, so setting it is a warning today and a hard schema error
-  # the moment that major is adopted. The Cloud Run v2 document does declare
-  # customAudiences on GoogleCloudRunV2WorkerPool, and the simulator serves it:
-  # cloudrun_v2_workerpools_instances_rest_test.go sets it and reads it back
-  # through the API, which is where a field the provider declines to model
-  # belongs.
+  # custom_audiences stays unset: the provider deprecates it on this resource as
+  # not applicable to WorkerPool, and its next major release removes it.
+  # cloudrun_v2_workerpools_instances_rest_test.go covers customAudiences
+  # through the API.
 
   labels = { managed_by = "terraform" }
 
-  # Automatic scaling: scaling_mode/min_instance_count/max_instance_count are
-  # members the pinned Cloud Run Discovery revision does not publish but the
-  # provider sends and reads back (see specs/SIM_SURFACE_TABLES/gcp-cloudrun.md).
+  # scaling_mode, min_instance_count and max_instance_count are members the
+  # pinned Cloud Run Discovery revision does not publish but the provider sends
+  # and reads back.
   scaling {
     scaling_mode       = "AUTOMATIC"
     min_instance_count = 1
@@ -543,8 +511,6 @@ resource "google_cloud_run_v2_job" "tf_crv2_job" {
   depends_on = [google_artifact_registry_repository.tf_ar_docker]
 }
 
-# ---------- Cloud Functions v2 ----------
-
 data "archive_file" "tf_function_source" {
   type        = "zip"
   output_path = "${path.module}/.terraform/function-source.zip"
@@ -592,8 +558,6 @@ resource "google_cloudfunctions2_function" "tf_gcfv2_function" {
   depends_on = [google_storage_bucket_object.tf_function_source]
 }
 
-# ---------- Eventarc ----------
-
 resource "google_eventarc_trigger" "tf_eventarc_trigger" {
   name     = "tf-eventarc-trigger"
   location = "us-central1"
@@ -626,10 +590,8 @@ resource "google_eventarc_channel" "tf_eventarc_channel" {
   }
 }
 
-# ---------- Pub/Sub ----------
-
-# message_retention_duration was dropped on create, so the provider read it
-# back as null and drifted every plan.
+# The provider reads message_retention_duration back, so a create that drops
+# it drifts every plan.
 resource "google_pubsub_topic" "tf_pubsub_topic" {
   name                       = "tf-pubsub-topic"
   message_retention_duration = "86400s"
@@ -644,8 +606,8 @@ resource "google_pubsub_topic" "tf_pubsub_dlq" {
   name = "tf-pubsub-dlq"
 }
 
-# dead_letter_policy + retry_policy were dropped on create → the subscription
-# drifted every plan. Exercise both round-trips here.
+# dead_letter_policy and retry_policy must round-trip, or the subscription
+# drifts every plan.
 resource "google_pubsub_subscription" "tf_pubsub_subscription" {
   name                 = "tf-pubsub-subscription"
   topic                = google_pubsub_topic.tf_pubsub_topic.id
@@ -666,8 +628,6 @@ resource "google_pubsub_subscription" "tf_pubsub_subscription" {
   }
 }
 
-# ---------- Cloud Build ----------
-
 resource "google_cloudbuild_trigger" "tf_cloudbuild_trigger" {
   name     = "tf-cloudbuild-trigger"
   location = "us-central1"
@@ -682,8 +642,6 @@ resource "google_cloudbuild_trigger" "tf_cloudbuild_trigger" {
     _ENV = "terraform"
   }
 }
-
-# ---------- API Gateway ----------
 
 resource "google_api_gateway_api" "tf_apigw_api" {
   provider = google-beta
@@ -744,8 +702,6 @@ resource "google_api_gateway_gateway" "tf_apigw_gateway" {
     env = "terraform"
   }
 }
-
-# ---------- Cloud Storage ----------
 
 resource "google_storage_bucket" "tf_bucket" {
   name          = "tf-test-bucket-${random_id.bucket_suffix.hex}"
@@ -821,8 +777,7 @@ resource "random_id" "bucket_suffix" {
   byte_length = 4
 }
 
-# GCS object inside the bucket — runner workflows stage build artifacts
-# / function source archives here. Exercises POST /upload/storage/v1/b/{bucket}/o.
+# Uploaded through POST /upload/storage/v1/b/{bucket}/o.
 resource "google_storage_bucket_object" "tf_artifact" {
   name    = "tf-test-artifact.txt"
   bucket  = google_storage_bucket.tf_bucket.name
@@ -847,8 +802,6 @@ resource "google_storage_bucket_object" "tf_context_object" {
     }
   }
 }
-
-# ---------- Cloud Logging ----------
 
 resource "google_logging_project_sink" "tf_log_sink" {
   name                   = "tf-log-sink"
@@ -882,8 +835,6 @@ resource "google_logging_metric" "tf_log_metric" {
     value_type  = "INT64"
   }
 }
-
-# ---------- Data SaaS (BigQuery + Firestore) ----------
 
 resource "google_bigquery_dataset" "tf_bq_dataset" {
   dataset_id = "tf_test_dataset"
@@ -959,8 +910,6 @@ resource "google_sql_user" "tf_sql_user" {
   password = "Str0ng-password-12345!"
 }
 
-# ---------- Spanner ----------
-
 resource "google_spanner_instance" "tf_spanner" {
   name         = "tf-spanner"
   config       = "regional-us-central1"
@@ -981,8 +930,6 @@ resource "google_spanner_database" "tf_spanner_db" {
     "CREATE TABLE Users (UserId STRING(36) NOT NULL, DisplayName STRING(MAX)) PRIMARY KEY (UserId)"
   ]
 }
-
-# ---------- Cloud Bigtable ----------
 
 resource "google_bigtable_instance" "tf_bigtable" {
   name                = "tf-bt1"
@@ -1013,8 +960,6 @@ resource "google_bigtable_table" "tf_bigtable_table" {
   }
 }
 
-# ---------- Secret Manager ----------
-
 resource "google_secret_manager_secret" "tf_secret" {
   secret_id       = "tf-test-secret"
   deletion_policy = "DELETE"
@@ -1034,23 +979,15 @@ resource "google_secret_manager_secret_version" "tf_secret_v1" {
   deletion_policy = "DELETE"
 }
 
-# ---------- IAM (service account) ----------
-
-# Service accounts are the runner identity primitive. The sim exposes
-# POST /v1/projects/{}/serviceAccounts; terraform-provider-google routes
-# google_service_account through iambeta.NewClient which is configured
-# via iam_beta_custom_endpoint (above).
 resource "google_service_account" "tf_sa" {
   account_id   = "tf-test-runner-sa"
   display_name = "tf-test runner service account"
 }
 
-# A service-account key is the credential a non-interactive client — the gcloud
-# CLI's `auth activate-service-account`, a backend reading
-# GOOGLE_APPLICATION_CREDENTIALS — authenticates with. The provider creates it
-# through IAM's projects.serviceAccounts.keys.create and reads it back through
-# keys.get, so private_key carries the base64 PKCS#8 credential file the API
-# returns once at creation, and public_key carries the registered public half.
+# The credential a non-interactive client authenticates with. The provider
+# creates it through projects.serviceAccounts.keys.create and reads it through
+# keys.get: private_key carries the base64 PKCS#8 credential file IAM returns
+# once, at creation, and public_key the registered public half.
 resource "google_service_account_key" "tf_sa_key" {
   service_account_id = google_service_account.tf_sa.name
   key_algorithm      = "KEY_ALG_RSA_2048"
@@ -1120,16 +1057,12 @@ resource "google_resource_manager_lien" "tf_lien" {
   reason       = "Terraform lien coverage"
 }
 
-# ---------- Outputs (cross-resource invariants) ----------
-
 output "compute_disk_self_link" {
   value = google_compute_disk.tf_disk.self_link
 }
 
-# The virtual machine's status after apply. `instances.insert` answers with a
-# RUNNING zone operation and boots behind it, so the provider only reads this
-# once it has polled zoneOperations through to DONE — a status of RUNNING here
-# is the whole asynchronous insert working end to end.
+# `instances.insert` answers with a RUNNING zone operation, so the provider
+# reads these only after polling zoneOperations through to DONE.
 output "compute_instance_self_link" {
   value = google_compute_instance.tf_vm.self_link
 }
@@ -1552,9 +1485,8 @@ output "project_org_policy_enforced" {
   value = google_project_organization_policy.tf_project_org_policy.boolean_policy[0].enforced
 }
 
-# etag and update_time are computed only from what getOrgPolicy answers — the
-# provider has nothing in configuration to fall back on — so they are the half
-# of the round trip a stored policy has to produce.
+# etag and update_time have no counterpart in configuration, so only a policy
+# getOrgPolicy actually stored produces them.
 output "project_org_policy_etag" {
   value = google_project_organization_policy.tf_project_org_policy.etag
 }
@@ -1571,10 +1503,8 @@ output "organization_org_policy_constraint" {
   value = google_organization_policy.tf_org_policy.constraint
 }
 
-# The organization-level policy is written with enforced = false while the
-# project-level one is written with enforced = true, so the pair distinguishes a
-# stored boolean policy from a constant: a getOrgPolicy that always reported
-# enforcement would answer true here.
+# Written enforced = false against the project policy's true, so a
+# getOrgPolicy that always reported enforcement fails here.
 output "organization_org_policy_enforced" {
   value = google_organization_policy.tf_org_policy.boolean_policy[0].enforced
 }
@@ -1583,26 +1513,19 @@ output "resource_manager_lien_name" {
   value = google_resource_manager_lien.tf_lien.name
 }
 
-# The IAM Service Account Credentials `generateAccessToken` method, reached the
-# way Terraform reaches it. The data source's `lifetime` is the request member
-# the API honours up to the ceiling in force for the account — one hour by
-# default — so a reduced lifetime here must mint a token rather than be
-# ignored in favour of a fixed hour.
+# generateAccessToken honours `lifetime` up to the account's ceiling, one hour
+# by default, so a reduced lifetime must mint a shorter-lived token.
 data "google_service_account_access_token" "tf_sa_token" {
   target_service_account = google_service_account.tf_sa.email
   scopes                 = ["https://www.googleapis.com/auth/cloud-platform"]
   lifetime               = "600s"
 }
 
-# `lifetime` is a request member the data source never re-reads from the
-# response, so the state attribute is the configured literal and proves
-# nothing about the mint. The minted token itself carries what the API
-# decided: its claim set spans exactly the requested lifetime, and an API
-# that ignored `lifetime` in favour of the one-hour default would span 3600
-# seconds instead. Decode the claims segment — base64url, which
-# `base64decode` (standard alphabet, padded) reaches only after the
-# alphabet swap and the padding it needs — and publish the span, a value
-# that is stable across re-reads even though the token is not.
+# The data source never re-reads `lifetime`, so the token's claim span is the
+# API's answer; one that ignored the request spans 3600 seconds. base64decode
+# takes the standard padded alphabet, so swap the base64url claims segment's
+# alphabet and pad it first. The span stays stable across re-reads even though
+# the token does not.
 locals {
   sa_token_claims_segment = split(".", nonsensitive(data.google_service_account_access_token.tf_sa_token.access_token))[1]
   sa_token_claims = jsondecode(base64decode(join("", [

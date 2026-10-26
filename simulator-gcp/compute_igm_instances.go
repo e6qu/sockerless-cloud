@@ -13,19 +13,9 @@ import (
 )
 
 // A managed instance group's instances, per-instance configurations and resize
-// requests.
-//
-// The group used to be metadata alone, and listManagedInstances answered with
-// an empty list whatever the group's target size — which is the shape a stub
-// has. The verbs beside it only mean something against instances that exist, so
-// the group owns them here: createInstances names them, the lifecycle verbs
-// move them between states, deleteInstances and abandonInstances remove them,
-// and listManagedInstances reports what is actually there.
-//
-// The instances are records rather than running virtual machines. That is the
-// honest scope of this collection: Compute Engine's own managed-instance list
-// reports each instance's name, its current action and its status, and those
-// are exactly what a client reads back here.
+// requests. The instances are records, not running machines: Compute Engine's
+// managed-instance list reports each one's name, current action and status,
+// and those are what the group holds.
 
 // ComputeManagedInstance is one instance a group manages.
 type ComputeManagedInstance struct {
@@ -117,7 +107,6 @@ func registerComputeInstanceGroupInstances(srv *sim.Server, store sim.Store[map[
 			return sim.PathParam(r, "region") + "-a"
 		}
 
-		// The instances the group manages.
 		srv.HandleFunc("POST "+base+"/{name}/createInstances", func(w http.ResponseWriter, r *http.Request) {
 			key, ok := load(w, r)
 			if !ok {
@@ -160,9 +149,8 @@ func registerComputeInstanceGroupInstances(srv *sim.Server, store sim.Store[map[
 			sim.WriteJSON(w, http.StatusOK, operation(r, key, "createInstances"))
 		})
 
-		// The verbs that act on instances the group already manages. Each takes
-		// the same request shape and differs only in what it does to the
-		// record, so they are registered from one table.
+		// The verbs on instances the group already manages share one request shape and
+		// differ only in what they do to the record.
 		type instanceVerb struct {
 			verb string
 			// apply reports the instance's state after the verb, and whether
@@ -247,9 +235,7 @@ func registerComputeInstanceGroupInstances(srv *sim.Server, store sim.Store[map[
 			sim.WriteJSON(w, http.StatusOK, operation(r, key, "setTargetPools"))
 		})
 
-		// The errors a group recorded while trying to reach its target size.
-		// Nothing here fails a creation, so the list is empty — and it is empty
-		// because nothing failed, not because nothing looked.
+		// Nothing here fails a creation, so the group has recorded no errors.
 		srv.HandleFunc("GET "+base+"/{name}/listErrors", func(w http.ResponseWriter, r *http.Request) {
 			if _, ok := load(w, r); !ok {
 				return
@@ -257,7 +243,6 @@ func registerComputeInstanceGroupInstances(srv *sim.Server, store sim.Store[map[
 			sim.WriteJSON(w, http.StatusOK, map[string]any{"items": []any{}})
 		})
 
-		// Per-instance configurations.
 		srv.HandleFunc("POST "+base+"/{name}/listPerInstanceConfigs", func(w http.ResponseWriter, r *http.Request) {
 			key, ok := load(w, r)
 			if !ok {
@@ -300,8 +285,7 @@ func registerComputeInstanceGroupInstances(srv *sim.Server, store sim.Store[map[
 					if !held {
 						config = ComputeInstanceGroupPerInstanceConfig{Group: key, Name: wanted.Name}
 					}
-					// An update replaces the preserved state; a patch merges
-					// into it, which is the whole difference between the two.
+					// An update replaces the preserved state; a patch merges into it.
 					if opType == "updatePerInstanceConfigs" || config.PreservedState == nil {
 						config.PreservedState = wanted.PreservedState
 					} else {
@@ -341,7 +325,6 @@ func registerComputeInstanceGroupInstances(srv *sim.Server, store sim.Store[map[
 			sim.WriteJSON(w, http.StatusOK, operation(r, key, "deletePerInstanceConfigs"))
 		})
 
-		// Resize requests, a sub-collection of the group.
 		requestKey := func(r *http.Request) string {
 			return computeManagedInstanceKey(groupKey(r), sim.PathParam(r, "resizeRequest"))
 		}
@@ -428,14 +411,9 @@ func registerComputeInstanceGroupInstances(srv *sim.Server, store sim.Store[map[
 	}
 }
 
-// computeListManagedInstances reports the instances a group actually manages,
-// which is what the lifecycle verbs above have left it holding.
-// computeReconcileManagedInstances brings the instances a managed group holds
-// to the size it is set to: growing creates them, shrinking removes the ones
-// added last, and deleting the manager removes them all. Compute Engine's
-// managed group does this itself, so a target size the group does not actually
-// manage is a state the real service never reports — listManagedInstances, the
-// group's size and its members all read the same reconciled set.
+// computeReconcileManagedInstances brings a managed group's instances to its
+// target size, as Compute Engine's managed group does: growing creates them,
+// shrinking removes the newest, and deleting the manager removes them all.
 func computeReconcileManagedInstances(managers sim.Store[map[string]any], key string) {
 	held := computeManagedInstances.Filter(func(i ComputeManagedInstance) bool { return i.Group == key })
 	sort.Slice(held, func(i, j int) bool { return held[i].Name < held[j].Name })
@@ -493,13 +471,10 @@ func computeReconcileManagedInstances(managers sim.Store[map[string]any], key st
 	}
 }
 
-// computeStoredInt reads a number a client sent. It arrives in more shapes than
-// one: a store that round-trips through JSON hands back a float64 and one that
-// holds the value in memory hands back what was parsed, and Compute Engine puts
-// every int64 member on the wire as a string — a disk's size, a reservation's
-// count — so a resource stored as the client sent it holds those as text. A
-// reader that knows only one shape silently reads zero, and a size compared
-// against zero admits a shrink that should have been refused.
+// computeStoredInt reads a number a client sent: a float64 after a JSON
+// round-trip, the parsed value in memory, or the string Compute Engine puts
+// every int64 on the wire as. Reading only one shape reads zero and admits a
+// shrink that should have been refused.
 func computeStoredInt(value any) int {
 	switch n := value.(type) {
 	case int:

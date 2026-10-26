@@ -17,15 +17,11 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// Cloud Spanner backups, backup schedules and RestoreDatabase.
-//
-// A backup here holds the database's real bytes. CreateBackup serializes the
-// database's live SQLite engine — the very engine ExecuteSql and Commit run
-// against — into a self-contained SQLite image with VACUUM INTO, and stores
-// that image alongside the schema statements that built it. RestoreDatabase
-// materializes a new database's engine from that image, so the rows a client
-// wrote before the backup are the rows it reads after the restore, byte for
-// byte. Nothing about a backup is derived from metadata alone.
+// Cloud Spanner backups, backup schedules and RestoreDatabase. CreateBackup
+// serializes the database's live SQLite engine, the one ExecuteSql and Commit
+// use, into a self-contained image with VACUUM INTO, stored with the schema
+// statements that built it; RestoreDatabase builds the new database's engine
+// from that image, so the rows come back byte for byte.
 
 // spannerBackup mirrors the Discovery Backup schema. Sizes are int64 fields,
 // which the JSON mapping spells as decimal strings.
@@ -47,10 +43,9 @@ type spannerBackup struct {
 	BackupSchedules      []string `json:"backupSchedules,omitempty"`
 }
 
-// spannerBackupImage is the backup's payload: the SQLite image of the database
-// at the moment the backup was taken, plus the DDL that built its schema. It is
-// kept out of the Backup resource because the API never returns bytes to a
-// client — a client gets them back only by restoring.
+// spannerBackupImage is the backup's SQLite image and the DDL that built its
+// schema, kept apart from the Backup resource: a client gets the bytes back
+// only by restoring.
 type spannerBackupImage struct {
 	Backup           string   `json:"backup"`
 	Image            []byte   `json:"image"`
@@ -80,8 +75,6 @@ type spannerCrontabSpec struct {
 	CreationWindow string `json:"creationWindow,omitempty"`
 }
 
-// real bytes: capture and restore of a database's SQLite image
-
 // spannerSQLiteStringLiteral renders a filesystem path as a SQLite string
 // literal for the VACUUM INTO / ATTACH DATABASE statements, which take the path
 // inline rather than as a bind parameter.
@@ -89,11 +82,9 @@ func spannerSQLiteStringLiteral(path string) string {
 	return "'" + strings.ReplaceAll(path, "'", "''") + "'"
 }
 
-// spannerCaptureBackupImage serializes a database's live engine into a
-// self-contained SQLite image. VACUUM INTO writes a consistent snapshot of
-// everything the engine holds — schema, rows, indexes and the applied-DDL
-// bookkeeping — which is what makes the restore give back the same rows rather
-// than an empty database.
+// spannerCaptureBackupImage serializes a database's live engine with VACUUM
+// INTO: a consistent snapshot of schema, rows, indexes and the applied-DDL
+// bookkeeping.
 func spannerCaptureBackupImage(dbName string) ([]byte, error) {
 	b, err := spannerBackendFor(dbName)
 	if err != nil {
@@ -117,10 +108,8 @@ func spannerCaptureBackupImage(dbName string) ([]byte, error) {
 	return image, nil
 }
 
-// spannerMaterializeFromImage builds a database's engine from a backup image.
-// The image is attached as a second SQLite database and its schema and every
-// row are copied into the new engine, so the restored database starts life
-// holding exactly the content the backup captured.
+// spannerMaterializeFromImage builds a database's engine from a backup image:
+// it attaches the image as a second database and copies its schema and rows.
 func spannerMaterializeFromImage(ctx context.Context, dbName string, image []byte) error {
 	if len(image) == 0 {
 		return status.Errorf(codes.FailedPrecondition, "backup image for %s holds no bytes", dbName)
@@ -211,16 +200,12 @@ func spannerMaterializeFromImage(ctx context.Context, dbName string, image []byt
 	return nil
 }
 
-// backups
-
 func spannerBackupName(project, instance, backup string) string {
 	return fmt.Sprintf("%s/backups/%s", spannerInstanceName(project, instance), backup)
 }
 
-// spannerTakeBackup captures the database's bytes and records the backup. It is
-// the single path every backup travels — the API's CreateBackup and the backup
-// scheduler both call it, so a scheduled backup holds real bytes exactly as a
-// client-requested one does.
+// spannerTakeBackup captures the database's bytes and records the backup;
+// CreateBackup and the backup scheduler both take this path.
 func spannerTakeBackup(name, dbName string, createTime, expireTime time.Time, schedules []string) (spannerBackup, error) {
 	db, ok := spannerDatabases.Get(dbName)
 	if !ok {
@@ -454,8 +439,6 @@ func handleSpannerBackupIAM(w http.ResponseWriter, r *http.Request, instance, ba
 	}
 }
 
-// RestoreDatabase
-
 func handleSpannerRestoreDatabase(w http.ResponseWriter, r *http.Request, instance string) {
 	project := sim.PathParam(r, "project")
 	instanceName := spannerInstanceName(project, instance)
@@ -555,8 +538,6 @@ func appendUniqueString(list []string, v string) []string {
 	}
 	return append(list, v)
 }
-
-// backup schedules
 
 func handleSpannerCreateBackupSchedule(w http.ResponseWriter, r *http.Request, instance, database string) {
 	dbName := spannerDatabaseName(sim.PathParam(r, "project"), instance, database)
@@ -699,9 +680,8 @@ func handleSpannerDeleteBackupSchedule(w http.ResponseWriter, r *http.Request, d
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
-// spannerDeleteBackupSchedulesFor removes the schedules attached to a database
-// that is going away. The backups they already produced outlive the database,
-// exactly as backups do on the real service.
+// spannerDeleteBackupSchedulesFor removes a dropped database's schedules; the
+// backups they produced outlive it, as in Cloud Spanner.
 func spannerDeleteBackupSchedulesFor(dbName string) {
 	prefix := dbName + "/backupSchedules/"
 	for _, schedule := range spannerBackupSchedules.List() {
@@ -730,9 +710,8 @@ func spannerCrontab(text string) (cron.Schedule, error) {
 	return crontab, nil
 }
 
-// spannerBackupScheduleWindow bounds how late a missed crontab occurrence may
-// still produce its backup. A simulator that was not running did not take the
-// backups it was asleep for, and the real service does not backfill either.
+// spannerBackupScheduleWindow bounds how late a missed occurrence may still
+// take its backup: Cloud Spanner does not backfill backups either.
 const spannerBackupScheduleWindow = 24 * time.Hour
 
 // spannerBackupScheduleTicker takes one real backup at every crontab
@@ -778,7 +757,6 @@ func spannerTakeScheduledBackup(schedule spannerBackupSchedule, occurrence time.
 	}
 }
 
-// GetCronText reads the crontab text out of a possibly-absent spec.
 func (s *spannerBackupScheduleSpec) GetCronText() string {
 	if s == nil || s.CronSpec == nil {
 		return ""

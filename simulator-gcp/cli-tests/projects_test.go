@@ -1,11 +1,8 @@
 package gcp_cli_test
 
-// `gcloud projects` lifecycle against the simulator's Cloud Resource Manager
-// slice. gcloud's projects surface speaks the v1 API — create POSTs the v1
-// Project and waits on the returned operation, describe/list/delete/undelete
-// use the v1 reads and colon-verbs, and list always sends the
-// lifecycleState:ACTIVE filter — riding the
-// CLOUDSDK_API_ENDPOINT_OVERRIDES_CLOUDRESOURCEMANAGER coordinate.
+// `gcloud projects` speaks Cloud Resource Manager v1 over the
+// CLOUDSDK_API_ENDPOINT_OVERRIDES_CLOUDRESOURCEMANAGER coordinate: create waits
+// on the returned operation, and list always sends lifecycleState:ACTIVE.
 
 import (
 	"encoding/json"
@@ -53,10 +50,8 @@ func TestProjectsLifecycleCLI(t *testing.T) {
 	require.Equal(t, "organization", described.Parent.Type)
 	require.Equal(t, "123456789012", described.Parent.ID)
 
-	// Duplicate project ID: the CLI fails. What it prints is gcloud's own
-	// rendering of the refusal and moves with the CLI release, so the contract
-	// is pinned where the service states it — the same create on the wire
-	// answers 409 ALREADY_EXISTS.
+	// gcloud's rendering of the refusal moves with its releases, so pin the
+	// contract on the wire: the same create answers 409 ALREADY_EXISTS.
 	dupOut, dupErr := gcloudCLI("projects", "create", projectID).CombinedOutput()
 	require.Error(t, dupErr, "duplicate create must fail, got: %s", dupOut)
 
@@ -74,10 +69,8 @@ func TestProjectsLifecycleCLI(t *testing.T) {
 	require.NoError(t, json.Unmarshal(dupBody, &conflict), "body: %s", dupBody)
 	assert.Equal(t, "ALREADY_EXISTS", conflict.Error.Status)
 
-	// list (gcloud sends filter=lifecycleState:ACTIVE) includes the project.
 	require.Contains(t, cliListProjectIDs(t), projectID)
 
-	// update renames via the v1 read-modify-write PUT.
 	out = runCLI(t, gcloudCLI("projects", "update", projectID, "--name=CLI Renamed", "--format=json"))
 	require.Contains(t, out, "CLI Renamed")
 
@@ -110,8 +103,6 @@ func TestProjectsDescribeUnknownCLI(t *testing.T) {
 	assert.Contains(t, string(out), "does not have permission", "the real API answers 403 PERMISSION_DENIED: %s", out)
 }
 
-// cliListProjectIDs runs `gcloud projects list` (which filters to ACTIVE)
-// and returns the listed project IDs.
 func cliListProjectIDs(t *testing.T) []string {
 	t.Helper()
 	out := runCLI(t, gcloudCLI("projects", "list", "--format=json"))

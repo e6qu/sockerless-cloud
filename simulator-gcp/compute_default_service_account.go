@@ -16,9 +16,8 @@ func computeDefaultServiceAccountEmail(projectNumber string) string {
 }
 
 // iamEnsureComputeDefaultServiceAccount gives a project the service account
-// Compute Engine creates when its API is enabled. Every API is enabled on a new
-// project here, so the account exists as soon as the project does, and
-// Terraform's google_compute_default_service_account reads it back from IAM.
+// Compute Engine creates when its API is enabled. Every API is enabled on a
+// new project here, so the account exists with the project.
 func iamEnsureComputeDefaultServiceAccount(p CRMProject) {
 	number := strings.TrimPrefix(p.Name, "projects/")
 	email := computeDefaultServiceAccountEmail(number)

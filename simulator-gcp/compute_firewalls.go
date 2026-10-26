@@ -8,7 +8,6 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// registerComputeFirewalls mounts VPC firewall rules.
 func registerComputeFirewalls(srv *sim.Server, firewalls sim.Store[ComputeFirewall]) {
 	srv.HandleFunc("POST /compute/v1/projects/{project}/global/firewalls", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
@@ -69,9 +68,8 @@ func registerComputeFirewalls(srv *sim.Server, firewalls sim.Store[ComputeFirewa
 			return
 		}
 		gcpReapplyIngress()
-		// Real Compute Engine stamps a delete operation `operationType: "delete"`;
-		// gcloud keys off it to report the resource as deleted instead of
-		// re-fetching it (which then 404s and fails the command).
+		// Compute Engine stamps a delete operation `operationType: "delete"`; gcloud
+		// reports the resource deleted on it instead of re-fetching a 404.
 		op := newComputeOpWithType(project, "global", selfLink, "delete")
 		sim.WriteJSON(w, http.StatusOK, op)
 	})

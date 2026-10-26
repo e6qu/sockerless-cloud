@@ -14,11 +14,10 @@ import (
 	sqladmin "google.golang.org/api/sqladmin/v1"
 )
 
-// The MySQL half of the Cloud SQL data plane, proven the same way as the
-// PostgreSQL half: a MYSQL_8_0 instance serves a real MySQL engine at its
-// PRIMARY address on MySQL's own port, the declared user is a real account
-// inside it, a backup captures the data, and instances.restoreBackup returns
-// to it — all through the stock go-sql-driver client.
+// A MYSQL_8_0 instance serves a real MySQL engine at its PRIMARY address on
+// MySQL's own port, the declared user is a real account in it, a backup
+// captures the data, and instances.restoreBackup returns to it, all through the
+// stock go-sql-driver client.
 func TestCloudSQL_MySQLBackupCapturesDataAndRestoreReturnsToIt(t *testing.T) {
 	t.Parallel()
 	testContext, cancel := context.WithTimeout(context.Background(), 8*time.Minute)

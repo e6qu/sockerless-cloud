@@ -17,11 +17,11 @@ The extractor reads the route out of a single string literal, so a registration 
 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
-| `GET /compute/v1/projects/{project}/global/images` | ✓ `simulator-gcp/compute_images_catalog.go:434::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /compute/v1/projects/{project}/global/images/{image}` | ✓ `simulator-gcp/compute_images_catalog.go:460::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /compute/v1/projects/{project}/global/images/{first}/{second}` | ✓ `simulator-gcp/compute_images_catalog.go:476::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /compute/v1/projects/{project}/global/images` | ✓ `simulator-gcp/compute_images_catalog.go:508::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `DELETE /compute/v1/projects/{project}/global/images/{image}` | ✓ `simulator-gcp/compute_images_catalog.go:599::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /compute/v1/projects/{project}/global/images` | ✓ `simulator-gcp/compute_images_catalog.go:432::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /compute/v1/projects/{project}/global/images/{image}` | ✓ `simulator-gcp/compute_images_catalog.go:458::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /compute/v1/projects/{project}/global/images/{first}/{second}` | ✓ `simulator-gcp/compute_images_catalog.go:471::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /compute/v1/projects/{project}/global/images` | ✓ `simulator-gcp/compute_images_catalog.go:503::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `DELETE /compute/v1/projects/{project}/global/images/{image}` | ✓ `simulator-gcp/compute_images_catalog.go:594::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 
 ## Coverage status
 

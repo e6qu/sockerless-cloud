@@ -8,9 +8,6 @@ import (
 	compute "google.golang.org/api/compute/v1"
 )
 
-// A router's named sets, a CDN backend's signed-URL keys, and the operations an
-// organization-scoped call produces.
-
 func TestCompute_RouterNamedSets(t *testing.T) {
 	t.Parallel()
 	svc := computeService(t)
@@ -62,9 +59,8 @@ func TestCompute_RouterNamedSets(t *testing.T) {
 	assert.Contains(t, err.Error(), "not found")
 }
 
-// A signed-URL key's value is write-only: Compute Engine reports the names a
-// backend holds and never the key material, which is the whole point of it
-// being a signing key.
+// A signed-URL key's value is write-only: Compute Engine reports the key names
+// and never the key material.
 func TestCompute_BackendBucketSignedUrlKeys(t *testing.T) {
 	t.Parallel()
 	svc := computeService(t)
@@ -111,9 +107,9 @@ func TestCompute_BackendBucketSignedUrlKeys(t *testing.T) {
 	assert.Contains(t, err.Error(), "no signed-URL key")
 }
 
-// The operations an organization-scoped call produces are addressed without a
-// project, because the resource they acted on has none. They come out of the
-// same store every other Compute operation is recorded in.
+// Organization-scoped operations are addressed without a project, because
+// their resource has none, and come from the same store as every Compute
+// operation.
 func TestCompute_OrganizationOperations(t *testing.T) {
 	t.Parallel()
 	svc := computeService(t)
@@ -143,9 +139,8 @@ func TestCompute_GlobalBackendServiceSecurityAndSigning(t *testing.T) {
 	}).Do()
 	require.NoError(t, err)
 
-	// A service sits behind a policy at the origin and, for cached content,
-	// one at the edge. Both arrive as a SecurityPolicyReference, so the same
-	// body member has to land on two different resource members.
+	// Both the origin policy and the edge policy arrive as a
+	// SecurityPolicyReference, so one body member lands on two resource members.
 	_, err = svc.BackendServices.SetSecurityPolicy(project, name,
 		&compute.SecurityPolicyReference{SecurityPolicy: "global/securityPolicies/origin-armour"}).Do()
 	require.NoError(t, err)
@@ -159,9 +154,8 @@ func TestCompute_GlobalBackendServiceSecurityAndSigning(t *testing.T) {
 	assert.Contains(t, got.EdgeSecurityPolicy, "edge-armour")
 	assert.Equal(t, "HTTP", got.Protocol, "a set-verb leaves the rest of the service alone")
 
-	// The effective-policies read answers for a service that exists. Compute
-	// Engine declares no response for it, so there is nothing to assert but
-	// that it succeeds — and that it refuses a service that is not there.
+	// Compute Engine declares no response for the effective-policies read, so
+	// assert only that it succeeds and refuses an absent service.
 	require.NoError(t, svc.BackendServices.GetEffectiveSecurityPolicies(project, name).Do())
 	require.Error(t, svc.BackendServices.GetEffectiveSecurityPolicies(project, "absent").Do())
 

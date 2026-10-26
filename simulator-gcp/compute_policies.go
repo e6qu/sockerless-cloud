@@ -9,28 +9,15 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// The Compute Engine policy collections — security policies and firewall
-// policies, each in their project-global, regional and organization spellings.
-//
-// They are one surface repeated six times: a policy document holding an
-// ordered list of rules and a list of associations, with verbs that add, read,
-// patch and remove a rule by its priority, attach and detach a target, move the
-// policy under a new parent, and clone another policy's rules. Registering them
-// once and pointing the registration at each base is what keeps the six honest
-// about each other — a rule added through one spelling is read back by the same
-// code that serves the rest.
-//
-// listPreconfiguredExpressionSets returns Google's own catalogue of WAF
-// expression sets. It is published, so it is vendored from that publication and
-// served — see compute_waf_expression_sets.go. It stays mounted before the
-// `{policy}` read, which would otherwise swallow the path and report the method
-// as a policy that does not exist: a gap disguised as a served read, which is
-// what TestServiceConformance_GCPNoPhantomCoverage exists to catch.
+// The Compute Engine security and firewall policy collections, each in its
+// project-global, regional and organization spelling, share one registration:
+// a policy holds an ordered rule list and associations, with verbs to add,
+// read, patch and remove a rule by priority, attach and detach a target, move
+// the policy and clone another's rules. listPreconfiguredExpressionSets serves
+// the vendored catalogue in compute_waf_expression_sets.go.
 
-// computePolicyFamily describes one policy collection's declared surface. Each
-// toggle mirrors a method the Discovery document declares for that collection
-// and nothing more, because a route Google does not publish is a route no
-// client will send.
+// computePolicyFamily describes one policy collection's declared surface: each
+// toggle is a method the Discovery document declares for it.
 type computePolicyFamily struct {
 	base  string // route base, without the trailing resource segment
 	store sim.Store[map[string]any]
@@ -76,8 +63,8 @@ func computePolicyOperation(r *http.Request, scope computeScopeKind, target, opT
 	return newComputeOpWithType(project, segment, computeSelfLink(target), opType)
 }
 
-// computePolicyRules reads a policy's rule list, which is stored on the policy
-// itself exactly as the document describes it.
+// computePolicyRules reads a policy's rule list, stored on the policy as the
+// document describes it.
 func computePolicyRules(policy map[string]any, field string) []any {
 	rules, _ := policy[field].([]any)
 	return rules
@@ -138,11 +125,10 @@ func (f computePolicyFamily) register(srv *sim.Server) {
 		return key, policy, true
 	}
 
-	// Named before the {policy} read so the catalogue path is not taken for a
-	// policy name.
+	// Mount before the {policy} read, which would otherwise take the catalogue
+	// path for a policy name.
 	srv.HandleFunc("GET "+f.base+"/listPreconfiguredExpressionSets", handleWafPreconfiguredExpressionSets)
 
-	// The policy itself.
 	srv.HandleFunc("POST "+f.base, func(w http.ResponseWriter, r *http.Request) {
 		var body map[string]any
 		if err := sim.ReadJSON(r, &body); err != nil {
@@ -340,10 +326,9 @@ func (f computePolicyFamily) register(srv *sim.Server) {
 	}
 }
 
-// registerRuleVerbs mounts the add/get/patch/remove quartet over one rule list.
-// The packet-mirroring rules of a network firewall policy are a second list
-// with the same semantics, which is why the field and the verb infix are
-// parameters rather than literals.
+// registerRuleVerbs mounts add, get, patch and remove over one rule list; a
+// network firewall policy's packet-mirroring rules are a second list with the
+// same semantics.
 func (f computePolicyFamily) registerRuleVerbs(
 	srv *sim.Server,
 	resource, field, infix string,
@@ -529,7 +514,6 @@ func (f computePolicyFamily) registerAssociationVerbs(
 	})
 }
 
-// computeShortName is the last path segment of a resource URL.
 func computeShortName(value string) string {
 	if at := strings.LastIndex(value, "/"); at >= 0 {
 		return value[at+1:]
@@ -553,10 +537,8 @@ func registerComputePolicies(srv *sim.Server) {
 			kind: "compute#securityPolicy", scope: cScopeGlobal, rules: true, associations: true,
 			listAssociations: true, move: true, cloneRulesVerb: "copyRules", sourceQueryParam: "sourceSecurityPolicy"},
 
-		// Firewall policies, organization spelling. The project-global and
-		// regional network firewall policies have a registrar of their own in
-		// compute_more3.go, which already serves their rules, associations and
-		// IAM.
+		// Firewall policies, organization spelling; compute_more3.go registers the
+		// project-global and regional network firewall policies.
 		{base: "/compute/v1/locations/global/firewallPolicies", store: mk("compute_org_firewall_policies"),
 			kind: "compute#firewallPolicy", scope: cScopeGlobal, rules: true, associations: true,
 			listAssociations: true, move: true, cloneRulesVerb: "cloneRules", sourceQueryParam: "sourceFirewallPolicy",

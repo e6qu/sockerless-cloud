@@ -13,19 +13,12 @@ import (
 	runv2 "google.golang.org/api/run/v2"
 )
 
-// The custom methods the Cloud Run v2 executions collection publishes.
-//
-// The document declares exactly one POST custom method on an execution —
-// executions.cancel — and the simulator mounts one handler on
-// "executions/{execAction}" to serve it, because Go's mux cannot spell a
-// colon verb. The handler therefore sees every verb a client can name on an
-// execution, and the only thing that distinguishes "the service serves this
-// method" from "the service does not" is its own answer.
-//
-// The canonical client can only spell the published method, so the served half
-// is driven through it; the refused half is a raw request naming a method the
-// service does not publish, which is exactly what a client of a non-existent
-// method would put on the wire.
+// The Cloud Run v2 document declares one POST custom method on an execution,
+// executions.cancel. Go's mux cannot spell a colon verb, so one handler on
+// "executions/{execAction}" sees every verb a client names, and only its answer
+// separates a served method from an unserved one. The canonical client spells
+// only the published method; the refused half is the raw request a client of an
+// unpublished method would send.
 
 func TestCloudRunV2_Executions_CancelIsServedAndUnknownVerbsAreNot(t *testing.T) {
 	t.Parallel()
@@ -91,8 +84,6 @@ func TestCloudRunV2_Executions_CancelIsServedAndUnknownVerbsAreNot(t *testing.T)
 	assert.Equal(t, int64(1), finished.Error.Code, "google.rpc.Code.CANCELLED")
 }
 
-// postRunV2Verb POSTs an AIP-136 custom method on a Cloud Run v2 resource by
-// its resource name, the way a client of that method would.
 func postRunV2Verb(t *testing.T, resourceName, verb string) (int, string) {
 	t.Helper()
 	uri := baseURL + "/v2/" + resourceName

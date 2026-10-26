@@ -9,17 +9,13 @@ import (
 	runv2 "google.golang.org/api/run/v2"
 )
 
-// Container health probes and secret-sourced environment variables driven
-// through the official Cloud Run v2 Discovery REST client. Probe and
-// EnvVar.valueSource are members of google.cloud.run.v2.Container, the type
-// Jobs, Services, Worker Pools and Instances all embed, so every one of the
-// four resources must round-trip them through create, get, list and patch: a
-// dropped member is invisible to a smoke test but makes terraform re-plan the
-// resource on every run.
+// Probe and EnvVar.valueSource are members of google.cloud.run.v2.Container,
+// which Jobs, Services, Worker Pools and Instances all embed, so each must
+// round-trip them through create, get, list and patch: a dropped member makes
+// Terraform re-plan the resource on every run.
 
-// probedContainer builds a container carrying all three probes — one per
-// handler kind the API defines — plus a literal and a Secret Manager-sourced
-// environment variable.
+// probedContainer carries one probe per handler kind the API defines, a
+// literal environment variable and a Secret Manager-sourced one.
 func probedContainer(image string) *runv2.GoogleCloudRunV2Container {
 	return &runv2.GoogleCloudRunV2Container{
 		Name:  "app",
@@ -65,8 +61,6 @@ func probedContainer(image string) *runv2.GoogleCloudRunV2Container {
 	}
 }
 
-// assertProbedContainer requires every probe member and both environment
-// variables back, exactly as probedContainer set them.
 func assertProbedContainer(t *testing.T, got *runv2.GoogleCloudRunV2Container) {
 	t.Helper()
 	require.NotNil(t, got.StartupProbe, "startupProbe must survive the round trip")

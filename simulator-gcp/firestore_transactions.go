@@ -7,22 +7,12 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// Firestore transactions: beginTransaction / commit (with a transaction) /
-// rollback, plus transactional reads (batchGet / runQuery carrying a
-// `transaction` token). The model matches the Firestore v1 REST surface the
-// high-level `cloud.google.com/go/firestore` client drives via RunTransaction:
-//
-//   - beginTransaction issues an opaque token and pins a read snapshot time.
-//   - A read carrying the token reports that snapshot time as its readTime.
-//   - commit carrying the token applies its writes atomically (the same
-//     precondition-checked path as a non-transactional commit) and retires the
-//     token — a transaction can be committed at most once.
-//   - rollback retires the token.
-//
-// The simulator serves requests serially per transaction (the client issues a
-// transaction's reads and its commit in sequence), so a single stored snapshot
-// time is sufficient; an unknown or already-retired token is rejected with
-// INVALID_ARGUMENT exactly as real Firestore does, never silently accepted.
+// Firestore transactions as the cloud.google.com/go/firestore client's
+// RunTransaction drives them: beginTransaction issues an opaque token pinning
+// a read snapshot, a read carrying the token reports that snapshot time,
+// commit applies the writes atomically and retires the token, and rollback
+// retires it. An unknown or retired token is INVALID_ARGUMENT, as Firestore
+// answers.
 
 type fsTxn struct {
 	ID       string `json:"id"`
@@ -79,10 +69,9 @@ func handleFSRollback(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
-// fsReadTimeForTxn resolves the readTime a read should report. With no
-// transaction it's the current time; with a transaction it's the pinned
-// snapshot time, and an unknown/retired token reports ok=false so the caller can
-// reject it with INVALID_ARGUMENT.
+// fsReadTimeForTxn resolves the readTime a read reports: now without a
+// transaction, the pinned snapshot with one, and ok=false for an unknown or
+// retired token.
 func fsReadTimeForTxn(token string) (string, bool) {
 	if token == "" {
 		return fsNow(), true

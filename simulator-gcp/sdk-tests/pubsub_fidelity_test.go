@@ -8,11 +8,9 @@ import (
 	pubsub "google.golang.org/api/pubsub/v1"
 )
 
-// TestPubSub_TopicSubscriptionFidelity proves the topic + subscription fields
-// terraform-provider-google reads back round-trip: topic kms_key_name /
-// message_retention_duration / message_storage_policy, and subscription
-// dead_letter_policy / retry_policy — all were dropped before, drifting every
-// plan.
+// TestPubSub_TopicSubscriptionFidelity: terraform-provider-google reads back
+// topic kms_key_name, message_retention_duration and message_storage_policy and
+// subscription dead_letter_policy and retry_policy, and drifts on any dropped.
 func TestPubSub_TopicSubscriptionFidelity(t *testing.T) {
 	t.Parallel()
 	svc := pubsubService(t)
@@ -27,7 +25,6 @@ func TestPubSub_TopicSubscriptionFidelity(t *testing.T) {
 		defer svc.Projects.Topics.Delete(n).Do() //nolint:errcheck
 	}
 
-	// Topic with kms + retention + storage policy.
 	topic, err := svc.Projects.Topics.Create(topicName, &pubsub.Topic{
 		Name:                     topicName,
 		KmsKeyName:               "projects/test-project/locations/us/keyRings/r/cryptoKeys/k",
@@ -37,8 +34,7 @@ func TestPubSub_TopicSubscriptionFidelity(t *testing.T) {
 	require.NoError(t, err)
 	defer svc.Projects.Topics.Delete(topicName).Do() //nolint:errcheck
 
-	// The create reply is already the stored resource, so the fields the caller
-	// supplied come back on it as well as on the later read.
+	// The create reply is the stored resource, so it carries the caller's fields.
 	assert.Equal(t, topicName, topic.Name)
 	assert.Equal(t, "86400s", topic.MessageRetentionDuration)
 
@@ -49,7 +45,6 @@ func TestPubSub_TopicSubscriptionFidelity(t *testing.T) {
 	require.NotNil(t, gotTopic.MessageStoragePolicy)
 	assert.Equal(t, []string{"us-central1"}, gotTopic.MessageStoragePolicy.AllowedPersistenceRegions)
 
-	// Subscription with dead-letter + retry policy.
 	subName := base + "/subscriptions/fidelity-sub"
 	_, err = svc.Projects.Subscriptions.Create(subName, &pubsub.Subscription{
 		Name:  subName,
@@ -71,10 +66,9 @@ func TestPubSub_TopicSubscriptionFidelity(t *testing.T) {
 	assert.Equal(t, "10s", gotSub.RetryPolicy.MinimumBackoff)
 	assert.Equal(t, "600s", gotSub.RetryPolicy.MaximumBackoff)
 
-	// PATCH the retry policy via updateMask. The mask names one field, so it is
-	// the only one the update may touch — the dead-letter policy the create set
-	// has to survive, or every terraform plan after an unrelated retry-policy
-	// change would show a spurious dead_letter_policy removal.
+	// The mask names only the retry policy, so the dead-letter policy must
+	// survive, or every terraform plan after a retry-policy change would show a
+	// spurious dead_letter_policy removal.
 	_, err = svc.Projects.Subscriptions.Patch(subName, &pubsub.UpdateSubscriptionRequest{
 		Subscription: &pubsub.Subscription{RetryPolicy: &pubsub.RetryPolicy{MinimumBackoff: "30s", MaximumBackoff: "300s"}},
 		UpdateMask:   "retryPolicy",

@@ -64,16 +64,11 @@ func cloudRunTaskTimeout(taskTmpl *TaskTemplate) time.Duration {
 	return 600 * time.Second
 }
 
-// runCloudRunJob starts one execution of a Cloud Run job: it materializes the
-// Execution and its TaskCount Tasks and runs every task as its own container
-// group, at most the execution's parallelism at once, each retried up to the
-// template's maxRetries. It returns the Execution as it stands once its first
-// tasks have been scheduled, which is what both API versions' run methods
-// report.
-//
-// The Execution and Task records it writes are the ones every reader sees:
-// the v2 collection reads them directly and the v1 Knative surface projects
-// them, so there is exactly one execution lifecycle behind both spellings.
+// runCloudRunJob starts one execution of a Cloud Run job: it records the
+// Execution and its TaskCount Tasks and runs each task as its own container
+// group, at most parallelism at once, retried up to maxRetries. It returns the
+// Execution once its first tasks are scheduled, as both API versions' run
+// methods report.
 func runCloudRunJob(project, location, jobID string, job Job, overrides *Overrides, execID string) Execution {
 	name := fmt.Sprintf("projects/%s/locations/%s/jobs/%s", project, location, jobID)
 	now := nowTimestamp()
@@ -474,11 +469,9 @@ func cancelCloudRunExecution(project, location, jobID, execID string) (Execution
 		running = true
 		now := nowTimestamp()
 		e.CompletionTime = now
-		// A cancelled execution did not complete successfully: its terminal
-		// condition is the failed one, carrying the reason that says why. A
-		// client polling the cancel — `gcloud run jobs executions cancel`
-		// does exactly this — reads a succeeded terminal condition as "the
-		// execution finished before the cancel landed".
+		// A cancelled execution's terminal condition is the failed one with its
+		// reason: `gcloud run jobs executions cancel` reads a succeeded condition as
+		// "finished before the cancel landed".
 		e.Conditions = []Condition{
 			{Type: "Ready", State: "CONDITION_FAILED", LastTransitionTime: now, Reason: "Cancelled"},
 			{Type: "Completed", State: "CONDITION_FAILED", LastTransitionTime: now, Reason: "Cancelled"},

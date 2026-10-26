@@ -7,13 +7,10 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// Object IAM — objects.getIamPolicy / setIamPolicy / testIamPermissions, on
-// the same shared policy store the bucket and managed-folder policies use.
-//
-// The routes take a single-segment {object} so they beat the `{object...}`
-// catch-all serving objects.get, which otherwise swallows `/o/{object}/iam`
-// and answers `object "doc.txt/iam" not found` — a handler's structured 404,
-// indistinguishable from a served read of an absent object.
+// Object IAM (objects.getIamPolicy, setIamPolicy, testIamPermissions) on the
+// policy store bucket and managed-folder policies share. The routes take a
+// single-segment {object} so they beat the `{object...}` catch-all serving
+// objects.get.
 
 func gcsObjectPolicyKey(bucket, object string) string {
 	return "object/" + bucket + "\x00" + object
@@ -99,9 +96,6 @@ var (
 	}
 )
 
-// gcsBucketPolicies are the policies that govern a bucket and what it holds:
-// its project's, its own, and, while uniform bucket-level access is off, its
-// ACL read as the legacy role Cloud Storage maps each ACL role to.
 // gcsIAMResource is a Cloud Storage resource as a binding's condition sees it,
 // in the bucket's project for the tags it inherits.
 func gcsIAMResource(bucket, name, kind string) gcpIAMResource {
@@ -109,6 +103,9 @@ func gcsIAMResource(bucket, name, kind string) gcpIAMResource {
 	return gcpIAMResource{Name: name, Type: kind, Service: "storage.googleapis.com", project: owner.Project}
 }
 
+// gcsBucketPolicies are the policies that govern a bucket and what it holds:
+// its project's, its own, and, while uniform bucket-level access is off, its
+// ACL read as the legacy role Cloud Storage maps each ACL role to.
 func gcsBucketPolicies(name string) []IAMPolicy {
 	bucket, _ := gcsBuckets.Get(name)
 	own, ok := gcpResourcePolicies.Get("bucket/" + name)

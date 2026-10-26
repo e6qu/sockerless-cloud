@@ -11,7 +11,6 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/listq"
 )
 
-// gcsCustomContext is one user-defined object context as the store keeps it.
 type gcsCustomContext struct {
 	Value      string `json:"value"`
 	CreateTime string `json:"createTime,omitempty"`

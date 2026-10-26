@@ -15,9 +15,8 @@ import (
 	storageapi "google.golang.org/api/storage/v1"
 )
 
-// These round-trips exercise the storage v1 control-plane routes the
-// simulator mounts beyond bucket/object CRUD. Each route is named here so
-// the SDK calls below are traceable to the wire path they drive:
+// The storage v1 control-plane routes beyond bucket and object CRUD that the
+// SDK calls below drive:
 //
 //	GET /storage/v1/b/{bucket}/acl
 //	GET /storage/v1/b/{bucket}/acl/{entity}
@@ -71,11 +70,8 @@ import (
 //	POST /storage/v1/b/{bucket}/anywhereCaches/{anywhereCacheId}/disable
 //	POST /storage/v1/b/{bucket}/o
 //
-// storageService returns the low-level google.golang.org/api/storage/v1
-// service pointed at the simulator's JSON API endpoint. The ACL, default
-// object ACL, notification, HMAC-key, folder, managed-folder and IAM
-// surfaces are reached through this raw service (the high-level
-// cloud.google.com/go/storage client does not expose all of them).
+// storageService is the low-level google.golang.org/api/storage/v1 client: the
+// high-level cloud.google.com/go/storage client does not expose all of these.
 func storageService(t *testing.T) *storageapi.Service {
 	t.Helper()
 	svc, err := storageapi.NewService(ctx,
@@ -152,9 +148,8 @@ func TestGCS_DefaultObjectACL_RoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "READER", got.Role)
 
-	// A bucket created without a default object ACL of its own carries the
-	// predefined projectPrivate one, so the inserted entry is the fourth
-	// rather than the only one.
+	// A bucket created without its own default object ACL carries the predefined
+	// projectPrivate one, so the inserted entry is the fourth.
 	list, err := svc.DefaultObjectAccessControls.List(bucketDefaclBucket).Do()
 	require.NoError(t, err)
 	assert.Equal(t, "storage#objectAccessControls", list.Kind)
@@ -173,7 +168,6 @@ func TestGCS_DefaultObjectACL_RoundTrip(t *testing.T) {
 	assert.Len(t, list.Items, 3, "deleting the inserted entry leaves projectPrivate behind")
 }
 
-// defaultACLEntities names the entities in an access-control listing.
 func defaultACLEntities(items []*storageapi.ObjectAccessControl) []string {
 	entities := make([]string, 0, len(items))
 	for _, item := range items {
@@ -185,9 +179,8 @@ func defaultACLEntities(items []*storageapi.ObjectAccessControl) []string {
 func TestGCS_Notifications_RoundTrip(t *testing.T) {
 	t.Parallel()
 	svc := storageService(t)
-	// A project of its own: the test asserts what Cloud Storage's service
-	// agent may not do, and other tests grant the agent of test-project
-	// publishing rights on the whole project.
+	// Other tests grant test-project's Cloud Storage service agent publishing on
+	// the whole project, so this test uses a project of its own.
 	project := uniquename.New("notif-project")
 	number := requireProject(t, project)
 	bucket := uniquename.New("notif-bucket")
@@ -280,7 +273,6 @@ func TestGCS_HmacKeys_RoundTrip(t *testing.T) {
 
 	require.NoError(t, svc.Projects.HmacKeys.Delete("test-project", accessID).Do())
 
-	// After delete the key is DELETED and excluded from the default list.
 	list, err = svc.Projects.HmacKeys.List("test-project").Do()
 	require.NoError(t, err)
 	assert.Empty(t, list.Items)
@@ -334,9 +326,8 @@ func TestGCS_Folders_RoundTrip(t *testing.T) {
 	assert.Equal(t, "storage#folders", list.Kind)
 	require.Len(t, list.Items, 1)
 
-	// Rename returns a long-running operation. Read the outcome the way a
-	// client does — by polling the operation the rename named until the
-	// collection reports it complete.
+	// Rename returns an operation; poll it until the collection reports it
+	// complete.
 	op, err := svc.Folders.Rename(bucketFoldersBucket, "a/", "b/").Do()
 	require.NoError(t, err)
 	require.NotEmpty(t, op.Name)
@@ -376,7 +367,6 @@ func TestGCS_ManagedFolders_RoundTrip(t *testing.T) {
 	assert.Equal(t, "storage#managedFolders", list.Kind)
 	require.Len(t, list.Items, 1)
 
-	// Managed-folder IAM round-trip.
 	setPolicy := &storageapi.Policy{
 		Bindings: []*storageapi.PolicyBindings{{
 			Role:    "roles/storage.objectViewer",
@@ -427,10 +417,9 @@ func TestGCS_BucketIAM_TestPermissions(t *testing.T) {
 		perms.Permissions)
 }
 
-// buckets.lockRetentionPolicy and buckets.restore each answer with the bucket
-// the request named: the resource that comes back is the stored bucket, carrying
-// the retention policy the caller put on it, and a bucket the service does not
-// hold is NOT_FOUND from both rather than an invented resource.
+// TestGCS_BucketLockRetentionPolicy: buckets.lockRetentionPolicy and
+// buckets.restore answer with the stored bucket, carrying its retention
+// policy, and NOT_FOUND for a bucket the service does not hold.
 func TestGCS_BucketLockRetentionPolicy(t *testing.T) {
 	t.Parallel()
 	bucketLockBucket := uniquename.New("lock-bucket")
@@ -479,8 +468,7 @@ func TestGCS_AnywhereCaches_RoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "storage#operation", op.Kind)
 	require.NotEmpty(t, op.Name)
-	// Read the insert's outcome off the operations collection the way a client
-	// does, rather than trusting the field on the create response.
+	// Read the insert's outcome off the operations collection, as a client does.
 	insertID := op.Name[strings.LastIndex(op.Name, "/")+1:]
 	settled := awaitLRO(t, op.Name,
 		func() (*storageapi.GoogleLongrunningOperation, error) {
@@ -514,10 +502,9 @@ func TestGCS_AnywhereCaches_RoundTrip(t *testing.T) {
 	assert.Equal(t, "disabled", disabled.State)
 }
 
-// The bucket's operations collection reports the long-running work the bucket's
-// own methods started, and nothing else: an operation identifier no method
-// minted is NOT_FOUND, from get, from cancel and from advanceRelocateBucket
-// alike.
+// TestGCS_BucketOperations_ReportRecordedWork: the bucket's operations
+// collection reports the work its methods started, and an identifier no method
+// minted is NOT_FOUND from get, cancel and advanceRelocateBucket alike.
 func TestGCS_BucketOperations_ReportRecordedWork(t *testing.T) {
 	t.Parallel()
 	bucketOpsBucket := uniquename.New("ops-bucket")
@@ -565,8 +552,7 @@ func TestGCS_BucketOperations_ReportRecordedWork(t *testing.T) {
 	require.Len(t, listed.Operations, 1)
 	assert.Equal(t, started.Name, listed.Operations[0].Name)
 
-	// The AIP-160 term the collection filters on — the one
-	// `gcloud storage operations list --server-filter` documents.
+	// The AIP-160 term `gcloud storage operations list --server-filter` documents.
 	done, err := svc.Operations.List(bucketOpsBucket).Filter("done = true").Do()
 	require.NoError(t, err)
 	require.Len(t, done.Operations, 1)
@@ -574,12 +560,9 @@ func TestGCS_BucketOperations_ReportRecordedWork(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, running.Operations)
 
-	// Cancel and advance are best effort against a recorded operation; both
-	// resolve the name rather than accepting anything. A client learns what
-	// became of the operation by reading it back, and what it reads is the
-	// record the relocation wrote: the work was already complete when its name
-	// reached the client, so neither verb erases the record nor moves it out of
-	// the completed set.
+	// Cancel and advance are best effort and resolve the name first. The work was
+	// complete before its name reached the client, so neither erases the record or
+	// moves it out of the completed set.
 	require.NoError(t, svc.Operations.Cancel(bucketOpsBucket, id).Do())
 	afterCancel, err := svc.Operations.Get(bucketOpsBucket, id).Do()
 	require.NoError(t, err, "the cancelled operation is still a record the collection answers about")
@@ -703,8 +686,8 @@ func TestGCS_ObjectInsertMetadataOnly(t *testing.T) {
 	svc := storageService(t)
 	mustCreateBucket(t, svc, bucketObjInsertBucket)
 
-	// objects.insert with no media body creates a zero-length object from
-	// the supplied resource fields (POST /storage/v1/b/{bucket}/o).
+	// objects.insert with no media body creates a zero-length object from the
+	// resource fields.
 	obj, err := svc.Objects.Insert(bucketObjInsertBucket, &storageapi.Object{
 		Name:        "empty.txt",
 		ContentType: "text/plain",

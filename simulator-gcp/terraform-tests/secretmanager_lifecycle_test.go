@@ -39,7 +39,7 @@ func terraformCmdInDir(dir string, args ...string) *exec.Cmd {
 	} else {
 		cmd.Dir = filepath.Join(filepath.Dir(mustAbs("main.tf")), dir)
 	}
-	// Own process group so runTimed can reap the terraform process tree.
+	// Give terraform its own process group so runTimed can reap its tree.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Env = append(append(os.Environ(),
 		"TF_VAR_endpoint="+tfEndpoint,

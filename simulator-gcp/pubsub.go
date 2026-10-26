@@ -12,30 +12,9 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// Cloud Pub/Sub v1 — REST surface scoped to topic + subscription
-// CRUD plus publish / pull / acknowledge / modifyAckDeadline. The
-// real API exposes ~30 ops; sim implements the load-bearing slice
-// for fan-out / fan-in integration tests. No LRO — every op
-// returns synchronously.
-//
-// Wire paths (per discovery doc, https://pubsub.googleapis.com/$discovery/rest):
-//
-//	PUT    /v1/projects/{p}/topics/{t}                            CreateTopic
-//	GET    /v1/projects/{p}/topics/{t}                            GetTopic
-//	GET    /v1/projects/{p}/topics                                ListTopics
-//	DELETE /v1/projects/{p}/topics/{t}                            DeleteTopic
-//	POST   /v1/projects/{p}/topics/{t}:publish                    Publish
-//	PUT    /v1/projects/{p}/subscriptions/{s}                     CreateSubscription
-//	GET    /v1/projects/{p}/subscriptions/{s}                     GetSubscription
-//	GET    /v1/projects/{p}/subscriptions                         ListSubscriptions
-//	DELETE /v1/projects/{p}/subscriptions/{s}                     DeleteSubscription
-//	POST   /v1/projects/{p}/subscriptions/{s}:pull                Pull
-//	POST   /v1/projects/{p}/subscriptions/{s}:acknowledge         Acknowledge
-//	POST   /v1/projects/{p}/subscriptions/{s}:modifyAckDeadline   ModifyAckDeadline
-//
-// The `:verb` suffix dispatch uses the same pattern as
-// `simulator-gcp/secretmanager.go`: register one POST route with
-// a wildcard, then strip-and-switch inside the handler.
+// Cloud Pub/Sub v1 over REST: topics, subscriptions, snapshots and schemas,
+// with publish, pull, acknowledge and the other subscription verbs. Each
+// `:verb` route registers one wildcard and dispatches on the suffix.
 
 type PSTopic struct {
 	Name                     string                  `json:"name"` // projects/{p}/topics/{t}
@@ -43,8 +22,7 @@ type PSTopic struct {
 	KmsKeyName               string                  `json:"kmsKeyName,omitempty"`
 	MessageRetentionDuration string                  `json:"messageRetentionDuration,omitempty"`
 	MessageStoragePolicy     *PSMessageStoragePolicy `json:"messageStoragePolicy,omitempty"`
-	// SchemaSettings is a nested writable object the sim persists
-	// verbatim so create→get round-trips byte-exact.
+	// SchemaSettings is stored verbatim.
 	SchemaSettings json.RawMessage `json:"schemaSettings,omitempty"`
 }
 
@@ -118,14 +96,12 @@ func registerPubSub(srv *sim.Server) {
 	psSnapshotBacklogs = sim.MakeStore[[]PSMessage](srv.DB(), "pubsub_snapshot_backlogs")
 	psSchemaRevisions = sim.MakeStore[PSSchema](srv.DB(), "pubsub_schema_revisions")
 
-	// Topics.
 	srv.HandleFunc("PUT /v1/projects/{project}/topics/{topic}", handlePSCreateTopic)
 	srv.HandleFunc("GET /v1/projects/{project}/topics/{topic}", handlePSGetTopic)
 	srv.HandleFunc("GET /v1/projects/{project}/topics", handlePSListTopics)
 	srv.HandleFunc("DELETE /v1/projects/{project}/topics/{topic}", handlePSDeleteTopic)
 	srv.HandleFunc("POST /v1/projects/{project}/topics/{topicVerb}", handlePSTopicVerb)
 
-	// Subscriptions.
 	srv.HandleFunc("PUT /v1/projects/{project}/subscriptions/{sub}", handlePSCreateSubscription)
 	srv.HandleFunc("PATCH /v1/projects/{project}/subscriptions/{sub}", handlePSPatchSubscription)
 	srv.HandleFunc("GET /v1/projects/{project}/subscriptions/{sub}", handlePSGetSubscription)
@@ -133,24 +109,16 @@ func registerPubSub(srv *sim.Server) {
 	srv.HandleFunc("DELETE /v1/projects/{project}/subscriptions/{sub}", handlePSDeleteSubscription)
 	srv.HandleFunc("POST /v1/projects/{project}/subscriptions/{subVerb}", handlePSSubscriptionVerb)
 
-	// Topic PATCH is wired alongside Subscription PATCH per the
-	// `projects.topics.patch` REST verb. Less commonly hit (the only
-	// mutable field today is `labels`) but the SDK + terraform provider
-	// both emit it on update.
+	// projects.topics.patch changes labels; the SDK and the Terraform provider
+	// both send it on update.
 	srv.HandleFunc("PATCH /v1/projects/{project}/topics/{topic}", handlePSPatchTopic)
 
-	// Topic sub-collections — the names of the snapshots and
-	// subscriptions that reference a topic. Derived from the existing
-	// snapshot and subscription stores. Registered before the
-	// `{topic}` GET so the more specific path wins.
+	// A topic's snapshots and subscriptions derive from those stores; register
+	// them before the `{topic}` GET.
 	srv.HandleFunc("GET /v1/projects/{project}/topics/{topic}/snapshots", handlePSListTopicSnapshots)
 	srv.HandleFunc("GET /v1/projects/{project}/topics/{topic}/subscriptions", handlePSListTopicSubscriptions)
 
-	// Snapshots — per-subscription point-in-time markers used for
-	// Seek operations. The sim doesn't replay messages from the
-	// snapshot point, but the CRUD round-trips so terraform-provider-google's
-	// google_pubsub_subscription with snapshot tracking + SDK code
-	// that creates snapshots between deploys both work.
+	// Snapshots capture a subscription's backlog for Seek to replay.
 	srv.HandleFunc("PUT /v1/projects/{project}/snapshots/{snap}", handlePSCreateSnapshot)
 	srv.HandleFunc("PATCH /v1/projects/{project}/snapshots/{snap}", handlePSPatchSnapshot)
 	srv.HandleFunc("GET /v1/projects/{project}/snapshots/{snap}", handlePSGetSnapshot)
@@ -158,11 +126,9 @@ func registerPubSub(srv *sim.Server) {
 	srv.HandleFunc("DELETE /v1/projects/{project}/snapshots/{snap}", handlePSDeleteSnapshot)
 	srv.HandleFunc("POST /v1/projects/{project}/snapshots/{snapVerb}", handlePSSnapshotVerb)
 
-	// Schemas — a first-class resource (Protocol Buffer / Avro schema
-	// definitions) with its own revision history. CRUD plus the
-	// revision verbs (commit / rollback / listRevisions / deleteRevision),
-	// the two collection-level validation verbs (validate / validateMessage),
-	// and the AIP-141 IAM cluster.
+	// Schemas carry their own revision history: CRUD, commit, rollback,
+	// listRevisions, deleteRevision, validate, validateMessage and the AIP-141 IAM
+	// verbs.
 	srv.HandleFunc("POST /v1/projects/{project}/schemas", handlePSCreateSchema)
 	srv.HandleFunc("POST /v1/projects/{project}/schemas:validate", handlePSValidateSchema)
 	srv.HandleFunc("POST /v1/projects/{project}/schemas:validateMessage", handlePSValidateMessage)
@@ -172,10 +138,8 @@ func registerPubSub(srv *sim.Server) {
 	srv.HandleFunc("DELETE /v1/projects/{project}/schemas/{schemaVerb}", handlePSDeleteSchemaOrRevision)
 }
 
-// PSSnapshot is the per-snapshot wire shape. ExpireTime is set
-// inline to (creation + 7d) because real Pub/Sub holds snapshots
-// for at most 7 days; the field is load-bearing on real consumers'
-// Seek logic.
+// PSSnapshot's ExpireTime is creation plus 7 days, the longest Pub/Sub keeps a
+// snapshot.
 type PSSnapshot struct {
 	Name       string            `json:"name"`
 	Topic      string            `json:"topic"`
@@ -242,9 +206,8 @@ func handlePSCreateSnapshot(w http.ResponseWriter, r *http.Request) {
 		ExpireTime: expire,
 		Labels:     req.Labels,
 	}
-	// Capture the subscription's outstanding backlog so a later Seek to this
-	// snapshot replays exactly these messages — the same semantics as the
-	// gRPC CreateSnapshot and real Pub/Sub.
+	// Capture the subscription's backlog so a later Seek to this snapshot replays
+	// exactly these messages, as the gRPC CreateSnapshot does.
 	if backlog := psBacklog(req.Subscription); len(backlog) > 0 {
 		psSnapshotBacklogs.Put(psSnapshotKey(project, snap), backlog)
 	}
@@ -296,9 +259,8 @@ func handlePSDeleteSnapshot(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
-// handlePSListTopicSnapshots lists the names of the snapshots whose
-// source topic is this topic. Per the Discovery contract the response
-// carries snapshot *names* (strings), not full resources.
+// handlePSListTopicSnapshots lists the names of the snapshots of this topic;
+// the Discovery response carries names, not resources.
 func handlePSListTopicSnapshots(w http.ResponseWriter, r *http.Request) {
 	tName := psTopicName(sim.PathParam(r, "project"), sim.PathParam(r, "topic"))
 	if _, ok := psTopics.Get(tName); !ok {
@@ -314,8 +276,8 @@ func handlePSListTopicSnapshots(w http.ResponseWriter, r *http.Request) {
 	psWriteNames(w, r, "snapshots", names)
 }
 
-// handlePSListTopicSubscriptions lists the names of the subscriptions
-// attached to this topic. Response carries subscription *names*.
+// handlePSListTopicSubscriptions lists the names of this topic's
+// subscriptions.
 func handlePSListTopicSubscriptions(w http.ResponseWriter, r *http.Request) {
 	tName := psTopicName(sim.PathParam(r, "project"), sim.PathParam(r, "topic"))
 	if _, ok := psTopics.Get(tName); !ok {
@@ -367,7 +329,6 @@ func handlePSPatchSnapshot(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, existing)
 }
 
-// handlePSSnapshotVerb routes the snapshot IAM verb cluster.
 func handlePSSnapshotVerb(w http.ResponseWriter, r *http.Request) {
 	sv := sim.PathParam(r, "snapVerb")
 	parts := strings.SplitN(sv, ":", 2)
@@ -421,8 +382,7 @@ func handlePSCreateTopic(w http.ResponseWriter, r *http.Request) {
 }
 
 func handlePSGetTopic(w http.ResponseWriter, r *http.Request) {
-	// projects.topics.getIamPolicy is a GET colon-verb that fans into the
-	// same `{topic}` segment; dispatch it here before the resource read.
+	// getIamPolicy is a GET colon-verb on the `{topic}` segment.
 	if id, verb, ok := strings.Cut(sim.PathParam(r, "topic"), ":"); ok {
 		if verb == "getIamPolicy" {
 			handleResourceIAM(w, r, gcpResourceIAMStore(),
@@ -467,9 +427,8 @@ func handlePSTopicVerb(w http.ResponseWriter, r *http.Request) {
 	case "publish":
 		handlePSPublish(w, r, sim.PathParam(r, "project"), topic)
 	case "getIamPolicy", "setIamPolicy", "testIamPermissions":
-		// Canonical AIP-141 three-verb cluster. Resource ID matches
-		// the full topic name so policies set against the topic
-		// round-trip via :getIamPolicy.
+		// The policy is keyed by the full topic name, so :getIamPolicy reads what
+		// :setIamPolicy wrote.
 		topicName := psTopicName(sim.PathParam(r, "project"), topic)
 		handleResourceIAM(w, r, gcpResourceIAMStore(), topicName, verb)
 	default:
@@ -525,9 +484,7 @@ func handlePSCreateSubscription(w http.ResponseWriter, r *http.Request) {
 	if req.AckDeadlineSeconds == 0 {
 		req.AckDeadlineSeconds = 10
 	}
-	// Default messageRetentionDuration to real-GCP's 7-day default
-	// when omitted. Other optional fields stay zero-valued (omitempty
-	// JSON tag elides them on response).
+	// messageRetentionDuration defaults to Pub/Sub's 7 days.
 	if req.MessageRetentionDuration == "" {
 		req.MessageRetentionDuration = "604800s"
 	}
@@ -550,8 +507,8 @@ func handlePSCreateSubscription(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	psSubscriptions.Put(s.Name, s)
-	// Seed the delivery queue so concurrent publishes append atomically via
-	// Update (which is a no-op when the key is absent).
+	// Seed the delivery queue: Update, which publishes append through, is a no-op
+	// for an absent key.
 	if _, ok := psQueues.Get(s.Name); !ok {
 		psQueues.Put(s.Name, psQueue{Subscription: s.Name})
 	}
@@ -577,11 +534,9 @@ func handlePSGetSubscription(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, s)
 }
 
-// handlePSPatchSubscription is `projects.subscriptions.patch` —
-// the canonical update verb. Real GCP wraps the resource in a
-// `{"subscription": {...}, "updateMask": "ackDeadlineSeconds,..."}`
-// envelope where updateMask is a comma-separated list of field
-// paths to update. Fields not in the mask retain prior values.
+// handlePSPatchSubscription serves projects.subscriptions.patch, whose body is
+// `{"subscription": {...}, "updateMask": "ackDeadlineSeconds,..."}`; fields
+// outside the mask keep their values.
 func handlePSPatchSubscription(w http.ResponseWriter, r *http.Request) {
 	name := psSubName(sim.PathParam(r, "project"), sim.PathParam(r, "sub"))
 	existing, ok := psSubscriptions.Get(name)
@@ -597,10 +552,7 @@ func handlePSPatchSubscription(w http.ResponseWriter, r *http.Request) {
 		gcpError(w, http.StatusBadRequest, "INVALID_ARGUMENT", err.Error())
 		return
 	}
-	// Apply each mask path. Unknown paths return 400 InvalidArgument
-	// to match real GCP — a silent skip would hide caller bugs (a
-	// typo in updateMask would persist as a no-op the caller assumed
-	// applied).
+	// Pub/Sub answers an unknown mask path with 400 INVALID_ARGUMENT.
 	for _, path := range splitMask(req.UpdateMask) {
 		switch path {
 		case "ackDeadlineSeconds":
@@ -641,9 +593,8 @@ func handlePSPatchSubscription(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, existing)
 }
 
-// handlePSPatchTopic is `projects.topics.patch`. Labels is the only
-// mutable field today on real Pub/Sub; the sim accepts the same mask
-// shape and applies labels accordingly.
+// handlePSPatchTopic serves projects.topics.patch; labels is the mutable
+// field.
 func handlePSPatchTopic(w http.ResponseWriter, r *http.Request) {
 	name := psTopicName(sim.PathParam(r, "project"), sim.PathParam(r, "topic"))
 	existing, ok := psTopics.Get(name)
@@ -679,7 +630,6 @@ func handlePSPatchTopic(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, existing)
 }
 
-// splitMask parses a comma-separated updateMask into trimmed paths.
 func splitMask(mask string) []string {
 	if mask == "" {
 		return nil
@@ -740,10 +690,9 @@ func handlePSSubscriptionVerb(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handlePSModifyPushConfig replaces the subscription's PushConfig.
-// An empty PushConfig converts a push subscription to a pull one; a
-// populated one sets/changes the push endpoint. Messages continue to
-// accumulate regardless, so the delivery queue is untouched.
+// handlePSModifyPushConfig replaces the PushConfig: an empty one makes the
+// subscription pull, a populated one sets the push endpoint. The queue is
+// untouched.
 func handlePSModifyPushConfig(w http.ResponseWriter, r *http.Request, subName string) {
 	if _, ok := psSubscriptions.Get(subName); !ok {
 		gcpError(w, http.StatusNotFound, "NOT_FOUND", "Subscription not found: "+subName)
@@ -763,11 +712,9 @@ func handlePSModifyPushConfig(w http.ResponseWriter, r *http.Request, subName st
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
-// handlePSDetach detaches a subscription from its topic. Real Pub/Sub
-// drops the retained messages and makes subsequent Pull requests fail
-// with FAILED_PRECONDITION; the sim marks the subscription detached by
-// clearing its topic association and dropping the delivery queue. The
-// DetachSubscription response is reserved-for-future-use (empty).
+// handlePSDetach detaches a subscription: Pub/Sub drops its retained messages
+// and fails later Pulls with FAILED_PRECONDITION, so clear the topic and drop
+// the queue. DetachSubscriptionResponse is empty.
 func handlePSDetach(w http.ResponseWriter, r *http.Request, subName string) {
 	if _, ok := psSubscriptions.Get(subName); !ok {
 		gcpError(w, http.StatusNotFound, "NOT_FOUND", "Subscription not found: "+subName)
@@ -881,9 +828,8 @@ func handlePSModifyAck(w http.ResponseWriter, r *http.Request, subName string) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
-// PSSchema is the wire shape of a Pub/Sub schema resource. Type is one
-// of TYPE_UNSPECIFIED / PROTOCOL_BUFFER / AVRO; RevisionId + RevisionCreateTime
-// are output-only fields the sim populates on every committed revision.
+// PSSchema is a Pub/Sub schema; Type is TYPE_UNSPECIFIED, PROTOCOL_BUFFER or
+// AVRO, and RevisionId and RevisionCreateTime are output-only.
 type PSSchema struct {
 	Name               string `json:"name"` // projects/{p}/schemas/{s}
 	Type               string `json:"type,omitempty"`
@@ -892,19 +838,16 @@ type PSSchema struct {
 	RevisionCreateTime string `json:"revisionCreateTime,omitempty"`
 }
 
-// psSchemaRevisions stores every committed revision of every schema,
-// keyed by "project/schema/revisionId". The latest revision of a schema
-// is the one with the most recent RevisionCreateTime. This mirrors real
-// Pub/Sub's revision model: Create yields revision 1, Commit appends a
-// new revision, Rollback commits a copy of an older revision as the new
-// head, and DeleteRevision removes one (never the last) revision.
+// psSchemaRevisions stores every revision of every schema, keyed by
+// "project/schema/revisionId"; the head is the newest RevisionCreateTime. As
+// in Pub/Sub, create yields the first revision, commit appends one, rollback
+// commits a copy of an older one, and deleteRevision removes any but the last.
 var psSchemaRevisions sim.Store[PSSchema]
 
 func psSchemaName(project, schema string) string {
 	return "projects/" + project + "/schemas/" + schema
 }
 
-// psSchemaShortName extracts the bare schema id from a full resource name.
 func psSchemaShortName(name string) string {
 	if i := strings.LastIndex(name, "/"); i >= 0 {
 		return name[i+1:]
@@ -934,7 +877,6 @@ func psSchemaRevisionsFor(name string) []PSSchema {
 	return revs
 }
 
-// psSchemaHead returns the latest revision of the named schema.
 func psSchemaHead(name string) (PSSchema, bool) {
 	revs := psSchemaRevisionsFor(name)
 	if len(revs) == 0 {
@@ -943,8 +885,8 @@ func psSchemaHead(name string) (PSSchema, bool) {
 	return revs[0], true
 }
 
-// psNewRevisionID derives a short hex revision id (real Pub/Sub uses an
-// 8-hex-char id, e.g. "c7cfa2a8").
+// psNewRevisionID mints an 8-hex-character revision ID, as Pub/Sub's are
+// ("c7cfa2a8").
 func psNewRevisionID() string {
 	return sim.RandomHex(8)
 }
@@ -1203,10 +1145,8 @@ func handlePSDeleteSchemaOrRevision(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, head)
 }
 
-// handlePSValidateSchema validates a candidate schema definition. The
-// real API returns an empty ValidateSchemaResponse on success; the sim
-// requires a non-empty definition + a recognized type, matching the
-// real service's INVALID_ARGUMENT on a malformed schema.
+// handlePSValidateSchema answers an empty ValidateSchemaResponse for a
+// non-empty definition of a recognized type, INVALID_ARGUMENT otherwise.
 func handlePSValidateSchema(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Schema PSSchema `json:"schema"`
@@ -1270,7 +1210,7 @@ func handlePSValidateMessage(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
-// gcpError mirrors the canonical Google API error envelope.
+// gcpError writes Google's error envelope.
 func gcpError(w http.ResponseWriter, status int, code, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)

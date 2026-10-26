@@ -13,13 +13,11 @@ import (
 	run "google.golang.org/api/run/v1"
 )
 
-// Cloud Run v1 (Knative-style) child-resource SDK tests. Creating a
-// Service auto-materializes a Configuration, a Route, and the first
-// Revision (mirroring Cloud Run's server-side Knative reconciliation);
-// these tests drive the canonical google.golang.org/api/run/v1 client
-// against both the /apis/serving.knative.dev/... namespaces surface and
-// the /v1/projects/{p}/locations/{loc}/... regional mirror so the
-// simulator's path shapes stay pinned to the Discovery document's.
+// Creating a Cloud Run v1 Service materializes a Configuration, a Route and the
+// first Revision, as Cloud Run's Knative reconciliation does. The run/v1 client
+// drives both the /apis/serving.knative.dev/... namespaces surface and the
+// /v1/projects/{p}/locations/{loc}/... regional one, pinning the path shapes to
+// the Discovery document.
 
 func newRunV1(t *testing.T) *run.APIService {
 	t.Helper()
@@ -51,7 +49,6 @@ func TestCloudRunV1_KnativeChildResources_RoundTrip(t *testing.T) {
 		_, _ = svc.Namespaces.Services.Delete("namespaces/" + namespace + "/services/svc-children").Do()
 	})
 
-	// Configuration: get + list.
 	cfg, err := svc.Namespaces.Configurations.Get("namespaces/" + namespace + "/configurations/svc-children").Do()
 	require.NoError(t, err)
 	assert.Equal(t, "svc-children", cfg.Metadata.Name)
@@ -63,7 +60,6 @@ func TestCloudRunV1_KnativeChildResources_RoundTrip(t *testing.T) {
 	require.Len(t, cfgList.Items, 1)
 	assert.Equal(t, "svc-children", cfgList.Items[0].Metadata.Name)
 
-	// Revision: get + list.
 	rev, err := svc.Namespaces.Revisions.Get("namespaces/" + namespace + "/revisions/" + revName).Do()
 	require.NoError(t, err)
 	assert.Equal(t, revName, rev.Metadata.Name)
@@ -76,7 +72,6 @@ func TestCloudRunV1_KnativeChildResources_RoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, revList.Items, 1)
 
-	// Route: get + list.
 	rt, err := svc.Namespaces.Routes.Get("namespaces/" + namespace + "/routes/svc-children").Do()
 	require.NoError(t, err)
 	assert.Equal(t, "svc-children", rt.Metadata.Name)
@@ -101,7 +96,6 @@ func TestCloudRunV1_KnativeChildResources_RoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, revList2.Items, 2, "second deploy materializes a second revision")
 
-	// Delete the older revision.
 	_, err = svc.Namespaces.Revisions.Delete("namespaces/" + namespace + "/revisions/" + revName).Do()
 	require.NoError(t, err)
 	_, err = svc.Namespaces.Revisions.Get("namespaces/" + namespace + "/revisions/" + revName).Do()
@@ -141,29 +135,23 @@ func TestCloudRunV1_DomainMappings_RoundTrip(t *testing.T) {
 	require.Error(t, err, "deleted domain mapping must be gone")
 }
 
-// TestCloudRunV1_AuthorizedDomains_List drives the two parents the
-// authorizeddomains list method is published under. The simulator holds no
-// authorized domains, so what the test pins is the shape of the answer a
-// client decodes and the parents it is addressable from: an exhausted list of
-// no domains, serialized as an empty JSON array rather than a null a ranging
-// client would have to guard against.
+// TestCloudRunV1_AuthorizedDomains_List: the simulator holds no authorized
+// domains, so the test pins the answer's shape on both published parents: an
+// exhausted list serialized as an empty JSON array, not null.
 func TestCloudRunV1_AuthorizedDomains_List(t *testing.T) {
 	t.Parallel()
 	svc := newRunV1(t)
-	// Namespaces surface.
 	resp, err := svc.Namespaces.Authorizeddomains.List("namespaces/test-project-ad").Do()
 	require.NoError(t, err)
 	require.NotNil(t, resp.Domains)
 	assert.Empty(t, resp.NextPageToken, "an exhausted list carries no page token")
-	// projects surface (Projects.Authorizeddomains.List).
 	presp, err := svc.Projects.Authorizeddomains.List("projects/test-project-ad").Do()
 	require.NoError(t, err)
 	require.NotNil(t, presp.Domains)
 	assert.Empty(t, presp.NextPageToken, "an exhausted list carries no page token")
 
-	// Every published path answers with a JSON array under "domains". The SDK
-	// decodes a null into the same empty slice, so only the wire body can tell
-	// the two apart.
+	// The SDK decodes null into the same empty slice, so only the wire body tells
+	// them apart.
 	for _, path := range []string{
 		"/apis/domains.cloudrun.com/v1/namespaces/test-project-ad/authorizeddomains",
 		"/v1/projects/test-project-ad/authorizeddomains",
@@ -195,9 +183,6 @@ func TestCloudRunV1_AuthorizedDomains_List(t *testing.T) {
 		"authorizeddomains is a method on a parent, not on the service root")
 }
 
-// TestCloudRunV1_RegionalMirror_RoundTrip drives the
-// /v1/projects/{p}/locations/{loc}/... regional Service surface and its
-// auto-created children, asserting the regional path shape round-trips.
 func TestCloudRunV1_RegionalMirror_RoundTrip(t *testing.T) {
 	t.Parallel()
 	svc := newRunV1(t)

@@ -12,20 +12,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// A simulator must not outlive the test process that started it.
-//
-// Every harness here stops the simulator from its own cleanup, which covers
-// each ordinary ending and none of the ending that matters: a `go test` killed
-// outright never reaches cleanup, and the simulator it started keeps running.
-// Its container reaper waits on the simulator, so the pair survives together —
-// simulators aged two to twelve days were found this way, across all three
-// clouds, holding ports and memory.
+// A simulator must not outlive the test process that started it. Every harness
+// stops its simulator from a cleanup, which a `go test` killed outright never
+// reaches, and the simulator's container reaper waits on it, so the pair would
+// survive together holding ports and memory.
 //
 // TestMain sets SOCKERLESS_PARENT_PID to this process, and every simulator
-// started here inherits it through os.Environ(). This drives the whole chain
-// against a stand-in parent, because the real one cannot be killed to prove
-// the point: a simulator is started watching a process that is not this test,
-// that process is killed, and the simulator has to go with it.
+// started here inherits it. The real parent cannot be killed to prove the
+// point, so the test starts a simulator watching a stand-in, kills the
+// stand-in, and requires the simulator to exit.
 func TestSimulatorExitsWithItsParent(t *testing.T) {
 	t.Parallel()
 	standIn := exec.Command("sleep", "120")
@@ -43,8 +38,8 @@ func TestSimulatorExitsWithItsParent(t *testing.T) {
 	go func() { exited <- sim.Wait() }()
 	defer func() { _ = sim.Process.Kill() }()
 
-	// It stays up while its parent does; a watch that fired on every input
-	// would pass the rest of this test without ever looking at the pid.
+	// A watch that fired on any input would pass the rest of this test without
+	// looking at the pid, so the simulator must stay up while its parent lives.
 	select {
 	case err := <-exited:
 		t.Fatalf("the simulator exited while its parent was alive: %v", err)

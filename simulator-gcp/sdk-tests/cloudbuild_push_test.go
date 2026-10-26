@@ -17,14 +17,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestCloudBuild_FaithfulBuildPush exercises the Cloud Build slice exactly as
-// the cloudrun / cloudrun-functions backends do for the reverse-agent overlay:
-// a `docker build -t <ref>` step followed by a `docker push <ref>` step. Faithful
-// to real Cloud Build, the sim pushes the built image to its registry and drops
-// the local copy, so the workload pulls it from the registry over /v2/ — not a
-// local-daemon shortcut. We point the ref at a throwaway registry the build host
-// can reach (a stand-in for the AR /v2/ a workload would pull from) and assert
-// the image landed there and is gone from the local daemon.
+// TestCloudBuild_FaithfulBuildPush runs a `docker build -t <ref>` step and a
+// `docker push <ref>` step. Like real Cloud Build, the simulator pushes the image
+// and drops the local copy, so the image must be in the registry and gone from
+// the daemon. The ref names a throwaway registry the build host reaches.
 func TestCloudBuild_FaithfulBuildPush(t *testing.T) {
 	t.Parallel()
 	if _, err := exec.LookPath("docker"); err != nil {
@@ -36,8 +32,7 @@ func TestCloudBuild_FaithfulBuildPush(t *testing.T) {
 	cleanupTrust, err := registrytrust.ConfigureLoopbackHTTPRegistry(context.Background(), "127.0.0.1:"+regPort)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, cleanupTrust()) })
-	// Pre-pull the build's base image so the sim's `docker build` uses the
-	// local cache instead of racing a throttle-prone public-mirror pull.
+	// Pre-pull the base image so the build does not race a throttled mirror pull.
 	pullImageWithRetry(t, "mirror.gcr.io/library/alpine:3.20")
 
 	imageName := fmt.Sprintf("127.0.0.1:%s/sockerless-overlay/cloudrun:test-%d", regPort, time.Now().UnixNano())
@@ -61,20 +56,18 @@ func TestCloudBuild_FaithfulBuildPush(t *testing.T) {
 		"images":[%q],
 		"timeout":"120s"
 	}`, bucket, objectName, imageName, imageName, imageName)
-	// The build's own timeout bounds it: a wedged container runtime or a
-	// stalled registry ends the build TIMEOUT, which fails the wait below.
+	// The build's own timeout bounds it: a wedged runtime or stalled registry ends
+	// the build TIMEOUT.
 	built, err := waitBuild(t, readStartedBuild(t, httpPOST(t, buildURL, body)))
 	require.NoError(t, err, "build+push should succeed")
 	require.Equal(t, cloudbuildpb.Build_SUCCESS, built.GetStatus())
 
-	// Faithful build→push: the image must live in the registry (pullable via
-	// /v2/), NOT on the build host's local daemon.
 	t.Cleanup(func() { _, _ = dockerCLIWithTimeout(60*time.Second, "image", "rm", "-f", imageName) })
 	tagOnly := imageName[strings.LastIndex(imageName, ":")+1:]
 	manifestURL := fmt.Sprintf("http://127.0.0.1:%s/v2/sockerless-overlay/cloudrun/manifests/%s", regPort, tagOnly)
 	mreq, _ := http.NewRequest(http.MethodGet, manifestURL, nil)
 	// A BuildKit build pushes an OCI image index (the image and its provenance
-	// attestation), so the read accepts the index types a pull accepts.
+	// attestation).
 	mreq.Header.Set("Accept", "application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, "+
 		"application/vnd.docker.distribution.manifest.v2+json, application/vnd.oci.image.manifest.v1+json")
 	mresp, err := http.DefaultClient.Do(mreq)
@@ -86,10 +79,8 @@ func TestCloudBuild_FaithfulBuildPush(t *testing.T) {
 		"built overlay image %s must NOT remain on the local daemon after push", imageName)
 }
 
-// pullImageWithRetry pulls an image with bounded exponential backoff so a
-// transient public-mirror throttle doesn't flake docker-dependent setup. Each
-// attempt carries its own deadline (dockerCLIWithTimeout) so a wedged container
-// runtime fails fast instead of hanging the whole suite.
+// pullImageWithRetry retries with bounded exponential backoff so a public
+// mirror's throttle does not fail setup.
 func pullImageWithRetry(t *testing.T, image string) {
 	t.Helper()
 	if err := baseimage.Ensure(image); err != nil {
@@ -97,10 +88,7 @@ func pullImageWithRetry(t *testing.T, image string) {
 	}
 }
 
-// startThrowawayRegistry runs a real registry:2 on 127.0.0.1:<port> for the
-// duration of the test — a reachable stand-in for the Artifact Registry `/v2/`
-// endpoint the simulated Cloud Build pushes to. Every Docker call carries a
-// deadline so a wedged runtime fails fast.
+// startThrowawayRegistry runs registry:2 on 127.0.0.1:<port> for the test.
 func startThrowawayRegistry(t *testing.T, port string) {
 	t.Helper()
 	const regImage = "mirror.gcr.io/library/registry:2"
@@ -142,11 +130,9 @@ func startThrowawayRegistry(t *testing.T, port string) {
 	t.Fatalf("throwaway registry on :%s did not become ready", port)
 }
 
-// dockerCLIWithTimeout runs `docker <args...>` with a hard deadline. A wedged
-// container runtime (Podman-on-macOS gvproxy 500 state, stalled daemon) makes
-// an unbounded `docker` call hang forever; bounding every call keeps a broken
-// runtime from monopolising the suite — the test fails in <deadline instead of
-// at the go-test -timeout.
+// dockerCLIWithTimeout bounds each `docker` call: a wedged runtime (Podman on
+// macOS in its gvproxy 500 state, a stalled daemon) otherwise hangs until the
+// `go test -timeout`.
 func dockerCLIWithTimeout(deadline time.Duration, args ...string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), deadline)
 	defer cancel()

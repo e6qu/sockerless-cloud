@@ -42,8 +42,6 @@ func bqReadAll(t *testing.T, table *bigquery.Table) [][]bigquery.Value {
 	}
 }
 
-// bqWaitJob waits for a job jobs.insert answered through the client's own
-// waiter.
 func bqWaitJob(t *testing.T, project, jobID, location string) {
 	t.Helper()
 	job, err := bqClient(t, project).JobFromIDLocation(ctx, jobID, location)
@@ -52,8 +50,6 @@ func bqWaitJob(t *testing.T, project, jobID, location string) {
 	require.NoError(t, err)
 }
 
-// bqRunJob waits for a load, copy or extract job through the client's own
-// waiter and returns its final status.
 func bqRunJob(t *testing.T, run func() (*bigquery.Job, error)) *bigquery.JobStatus {
 	t.Helper()
 	job, err := run()

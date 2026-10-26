@@ -18,8 +18,6 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 )
 
-// createRunJobTasks creates a Cloud Run job whose executions run taskCount
-// tasks, parallelism at once, and deletes it when the test ends.
 func createRunJobTasks(t *testing.T, client *run.JobsClient, jobID string, taskCount, parallelism int32, template *runpb.TaskTemplate) string {
 	t.Helper()
 	op, err := client.CreateJob(ctx, &runpb.CreateJobRequest{
@@ -38,7 +36,6 @@ func createRunJobTasks(t *testing.T, client *run.JobsClient, jobID string, taskC
 	return job.Name
 }
 
-// listRunTasks returns an execution's tasks by index.
 func listRunTasks(t *testing.T, execution string) []*runpb.Task {
 	t.Helper()
 	it := newTasksClient(t).ListTasks(ctx, &runpb.ListTasksRequest{Parent: execution})

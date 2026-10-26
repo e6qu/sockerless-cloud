@@ -57,9 +57,7 @@ func TestSpannerBackupScheduleSkipsOccurrencesPastTheWindow(t *testing.T) {
 }
 
 // TestSpannerBackupScheduleTakesRealBackup drives the scheduler at a chosen
-// instant and checks what it produced: a backup whose captured bytes restore
-// the rows the database held. A schedule that only recorded metadata would
-// restore an empty database and fail here.
+// instant and checks the backup's captured bytes restore the database's rows.
 func TestSpannerBackupScheduleTakesRealBackup(t *testing.T) {
 	t.Setenv("SIM_RUNTIME", "process")
 	srv, err := buildSimulator(sim.Config{Provider: "gcp", ListenAddr: ":0", LogLevel: "error"})

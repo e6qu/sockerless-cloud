@@ -17,8 +17,8 @@ The extractor reads the route out of a single string literal, so a registration 
 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
-| `GET /compute/v1/projects/{project}/zones/{zone}/{rest...}` | ✓ `simulator-gcp/compute_reservation_hosts.go:112::route` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `POST /compute/v1/projects/{project}/zones/{zone}/{rest...}` | ✓ `simulator-gcp/compute_reservation_hosts.go:113::route` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `GET /compute/v1/projects/{project}/zones/{zone}/{rest...}` | ✓ `simulator-gcp/compute_reservation_hosts.go:85::route` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `POST /compute/v1/projects/{project}/zones/{zone}/{rest...}` | ✓ `simulator-gcp/compute_reservation_hosts.go:86::route` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
 
 ## Coverage status
 

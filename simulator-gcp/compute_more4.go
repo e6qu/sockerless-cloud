@@ -8,19 +8,10 @@ import (
 )
 
 // Compute Engine collections whose whole documented surface is the standard
-// resource lifecycle.
-//
-// Each is a user-created resource: the project's own cross-site networks,
-// rollout plans, interconnect attachments, regional health services and
-// VM extension policies. Nothing about them needs a handler of its own — they
-// insert, read, list, patch and delete against a store, and report the
-// scope-appropriate Operation, which is exactly what computeMetaResource
-// registers. They were unserved only because they had never been listed.
-//
-// Deliberately absent: the catalogs Google publishes rather than the caller
-// creating them — interconnect locations and remote locations, license codes,
-// preview features, reliability risks. An empty list is not what those return,
-// and filling one in means inventing Google's own facility and licence data.
+// lifecycle: cross-site networks, rollout plans, interconnect attachments,
+// regional health services, VM extension policies and the rest below. Each
+// inserts, reads, lists, patches and deletes against a store through
+// computeMetaResource.
 func registerComputeMore4(srv *sim.Server) {
 	mk := func(table string) sim.Store[map[string]any] {
 		return sim.MakeStore[map[string]any](srv.DB(), table)
@@ -40,9 +31,8 @@ func registerComputeMore4(srv *sim.Server) {
 		// the wire groups inside it, and the attachments that land it.
 		{collection: "crossSiteNetworks", kind: "compute#crossSiteNetwork", scope: cScopeGlobal,
 			store: gcpComputeCrossSiteNetworks, patch: true},
-		// The wire groups inside a cross-site network are nested under it,
-		// which this registrar does not express, so they have a handler of
-		// their own that names the parent.
+		// computeMetaResource cannot express the wire groups nested inside a
+		// cross-site network, so they have their own handler.
 		{collection: "interconnectAttachments", kind: "compute#interconnectAttachment", scope: cScopeRegion,
 			store: mk("compute_interconnect_attachments"), patch: true, setLabels: true, aggregated: true},
 
@@ -57,17 +47,14 @@ func registerComputeMore4(srv *sim.Server) {
 		{collection: "healthCheckServices", kind: "compute#healthCheckService", scope: cScopeRegion,
 			store: mk("compute_health_check_services"), patch: true, aggregated: true, testIamOnly: true},
 
-		// The edge security service a backend service points its
-		// securityPolicy at. It has no list method in the document, only the
-		// aggregated one, so skipList keeps the simulator to what Google
-		// declares.
+		// The edge security service a backend service's securityPolicy points at. The
+		// document declares only its aggregated list, so skipList drops the scoped one.
 		{collection: "networkEdgeSecurityServices", kind: "compute#networkEdgeSecurityService", scope: cScopeRegion,
 			store: mk("compute_network_edge_security_services"), patch: true, aggregated: true, skipList: true},
 
-		// VM extension policies, per zone and for the whole project. The global
-		// collection retires a policy through POST .../{name}/delete rather
-		// than DELETE, so its delete is named separately below.
-		// VmExtensionPolicy declares no zone member, so the zonal collection
+		// VM extension policies, per zone and project-wide. The global collection
+		// retires a policy through POST .../{name}/delete rather than DELETE, mounted
+		// below. VmExtensionPolicy declares no zone member, so the zonal collection
 		// takes no scope stamp.
 		{collection: "vmExtensionPolicies", kind: "compute#vmExtensionPolicy", scope: cScopeZone,
 			store: mk("compute_zone_vm_extension_policies"), patch: true, scopeless: true},
@@ -98,17 +85,12 @@ func registerComputeMore4(srv *sim.Server) {
 		{collection: "compositeHealthChecks", kind: "compute#compositeHealthCheck", scope: cScopeRegion,
 			store: gcpComputeCompositeHealthChecks, patch: true, aggregated: true, testIamOnly: true},
 
-		// Interconnects and the groups that bundle them. The physical link
-		// diagnostics are hardware telemetry this simulator has no basis for
-		// and stay unserved; the MACsec configuration is the caller's own and
-		// is served beside them.
+		// Interconnects and their groups; getDiagnostics and getMacsecConfig are
+		// served beside them.
 		{collection: "interconnects", kind: "compute#interconnect", scope: cScopeGlobal,
 			store: gcpComputeInterconnects, patch: true, setLabels: true},
-		// A group's operational status is what its members add up to against
-		// what the group was configured for. The members a group has are the
-		// ones its own resource names, so the status is derived from the group
-		// rather than kept beside it, and a group naming none is degraded
-		// rather than healthy — which is what the topology actually is.
+		// A group's operational status derives from the members its resource names
+		// against what it was configured for; a group naming none is degraded.
 		{collection: "interconnectGroups", kind: "compute#InterconnectGroup", scope: cScopeGlobal,
 			store: gcpComputeInterconnectGroups, patch: true, iam: true,
 			statusReads: []computeStatusRead{{
@@ -138,9 +120,6 @@ func registerComputeMore4(srv *sim.Server) {
 		res.register(srv)
 	}
 
-	// The global VM extension policy is retired through a POST rather than a
-	// DELETE, which is the one place this collection departs from the standard
-	// lifecycle.
 	srv.HandleFunc("POST /compute/v1/projects/{project}/global/vmExtensionPolicies/{name}/delete",
 		func(w http.ResponseWriter, r *http.Request) {
 			project, name := sim.PathParam(r, "project"), sim.PathParam(r, "name")
@@ -152,12 +131,9 @@ func registerComputeMore4(srv *sim.Server) {
 		})
 }
 
-// computeGroupStatus reports what an interconnect group adds up to. A group
-// with no members cannot carry traffic, so it is degraded rather than fully
-// available — reporting otherwise would tell a client its topology is
-// redundant when it is empty.
-// The declared values are the bare states — FULLY_UP, DEGRADED, FULLY_DOWN —
-// not the GROUP_STATUS_-prefixed spellings, which no client can map.
+// computeGroupStatus reports an interconnect group with no members as
+// DEGRADED, since it cannot carry traffic. The declared values are the bare
+// FULLY_UP, DEGRADED and FULLY_DOWN, not GROUP_STATUS_-prefixed spellings.
 func computeGroupStatus(group map[string]any) string {
 	if members, _ := group["interconnects"].(map[string]any); len(members) > 0 {
 		return "FULLY_UP"

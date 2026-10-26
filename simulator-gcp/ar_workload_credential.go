@@ -63,8 +63,6 @@ func imageOnGoogleRegistry(image string) bool {
 	return strings.HasSuffix(hostname, "-docker.pkg.dev") || slices.Contains(containerRegistryHosts, hostname)
 }
 
-// resourceProject returns the project a `projects/{project}/…` resource name
-// belongs to.
 func resourceProject(name string) string {
 	rest, ok := strings.CutPrefix(name, "projects/")
 	if !ok {

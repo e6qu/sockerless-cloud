@@ -11,10 +11,7 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/blobstore"
 )
 
-// registerGCSObjects mounts the object resource of the JSON API, its rewrite,
-// copy and compose methods, the XML API object read and the media download.
 func registerGCSObjects(srv *sim.Server, buckets sim.Store[Bucket], objects sim.PrefixStore[GCSObject]) {
-	// List objects
 	srv.HandleFunc("GET /storage/v1/b/{bucket}/o", func(w http.ResponseWriter, r *http.Request) {
 		bucketName := sim.PathParam(r, "bucket")
 		prefix := r.URL.Query().Get("prefix")
@@ -30,9 +27,8 @@ func registerGCSObjects(srv *sim.Server, buckets sim.Store[Bucket], objects sim.
 			return
 		}
 
-		// softDeleted=true lists the retired generations instead of the live
-		// objects — the listing a client reads to find what restore can bring
-		// back. The two selections are exclusive, as they are in the service.
+		// softDeleted=true lists the retired generations restore can bring back,
+		// instead of the live objects.
 		if gcpQueryBool(r, "softDeleted") {
 			retired := gcsSoftDeletedListing(bucketName, prefix)
 			items := make([]map[string]any, 0, len(retired))
@@ -96,9 +92,7 @@ func registerGCSObjects(srv *sim.Server, buckets sim.Store[Bucket], objects sim.
 		sim.WriteJSON(w, http.StatusOK, resp)
 	})
 
-	// Get object metadata or media. The JSON API uses the same object
-	// resource path for both; alt=media switches the response from the
-	// metadata resource to the stored object bytes.
+	// The JSON API serves metadata and, with alt=media, the bytes on one path.
 	srv.HandleFunc("GET /storage/v1/b/{bucket}/o/{object...}", func(w http.ResponseWriter, r *http.Request) {
 		bucketName := sim.PathParam(r, "bucket")
 		objectName := sim.PathParam(r, "object")
@@ -182,7 +176,6 @@ func registerGCSObjects(srv *sim.Server, buckets sim.Store[Bucket], objects sim.
 
 	srv.HandleFunc("PUT /storage/v1/b/{bucket}/o/{object...}", patchObject)
 
-	// Delete object
 	srv.HandleFunc("DELETE /storage/v1/b/{bucket}/o/{object...}", func(w http.ResponseWriter, r *http.Request) {
 		bucketName := sim.PathParam(r, "bucket")
 		objectName := sim.PathParam(r, "object")
@@ -215,17 +208,13 @@ func registerGCSObjects(srv *sim.Server, buckets sim.Store[Bucket], objects sim.
 		w.WriteHeader(http.StatusNoContent)
 	})
 
-	// Objects.compose — concatenate source objects into a destination
-	// object. Real GCS reads up to 32 source objects in order and
-	// emits a single composed object; the Go SDK's high-level write
-	// path uses this for compositing, and any S3-multipart-equivalent
-	// against GCS uses it as the joining primitive.
+	// objects.compose concatenates up to 32 source objects, in order, into the
+	// destination.
 	srv.HandleFunc("POST /storage/v1/b/{bucket}/o/{destObject...}", func(w http.ResponseWriter, r *http.Request) {
 		if handled := handleGCSObjectCopyRequest(w, r, buckets, objects); handled {
 			return
 		}
-		// Only dispatch :compose paths — other POSTs at this prefix
-		// should fall through to the upload handler family.
+		// Past copyTo and rewriteTo, only a /compose suffix is served here.
 		destObject := sim.PathParam(r, "destObject")
 		if !strings.HasSuffix(destObject, "/compose") {
 			http.NotFound(w, r)
@@ -244,10 +233,7 @@ func registerGCSObjects(srv *sim.Server, buckets sim.Store[Bucket], objects sim.
 			} `json:"sourceObjects"`
 			Destination *gcsObjectResource `json:"destination"`
 		}
-		// Compose request body is a fixed-shape JSON document
-		// (sourceObjects + destination); the GCS Go SDK does not
-		// content-encode control-plane JSON bodies. No
-		// openStreamingBody wrap needed.
+		// Clients send the compose body unencoded, so it needs no openStreamingBody.
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 				"failed to parse compose request: %v", err)
@@ -316,22 +302,12 @@ func registerGCSObjects(srv *sim.Server, buckets sim.Store[Bucket], objects sim.
 		sim.WriteJSON(w, http.StatusOK, gcsObjectMetadata(r, composedObj))
 	})
 
-	// XML API style object access (used by cloud.google.com/go/storage for reads).
-	// Registered without method prefix to avoid conflict with "/v2/" (both match all methods,
-	// resolved by path specificity — more specific literal paths always win).
-	//
-	// The first path segment is the BUCKET name. Reject (404) when
-	// the store has no matching bucket: this catch-all
-	// `/{bucket}/{object...}` route would otherwise shadow unrelated
-	// top-level paths (e.g. AIP-151 `/v1/...` operations) and answer
-	// them with a GCS-shaped 404 that looks like a real GCS not-found
-	// to clients.
-	//
-	// Because the pattern matches every URI, the credential gate that fronts
-	// the published API methods does not cover it — a request this route does
-	// not serve must not read as an authentication failure. The bearer is
-	// verified here instead, once the bucket has resolved: a path that names no
-	// bucket is not found, and a real bucket requires the token.
+	// The XML API object read (cloud.google.com/go/storage reads through it),
+	// mounted without a method so the literal "/v2/" routes outrank it. It answers
+	// 404 for a first segment that names no bucket, so it does not shadow
+	// unrelated top-level paths with a Cloud Storage-shaped 404. The credential
+	// gate does not cover a pattern that matches every URI, so it verifies the
+	// bearer itself once the bucket resolves.
 	srv.HandleFunc("/{bucket}/{object...}", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
 			http.NotFound(w, r)
@@ -368,7 +344,6 @@ func registerGCSObjects(srv *sim.Server, buckets sim.Store[Bucket], objects sim.
 		serveGCSObjectMedia(w, r, obj)
 	})
 
-	// Download object data (JSON API)
 	srv.HandleFunc("GET /download/storage/v1/b/{bucket}/o/{object...}", func(w http.ResponseWriter, r *http.Request) {
 		bucketName := sim.PathParam(r, "bucket")
 		objectName := sim.PathParam(r, "object")

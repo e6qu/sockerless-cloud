@@ -14,12 +14,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The media methods past one chunk, which the Go client sends through the
-// resumable upload protocol: it begins the session on the /upload path and
-// POSTs each chunk to the session URI the Location header names.
+// Past one chunk, the Go client sends media through the resumable upload
+// protocol: it begins the session on the /upload path and POSTs each chunk to
+// the session URI the Location header names.
 //
-//	POST /upload/v1/projects/{project}/locations/{location}/repositories/{repo}/files:upload
-//	POST /upload/v1/projects/{project}/locations/{location}/repositories/{repo}/genericArtifacts:create
+//   POST /upload/v1/projects/{project}/locations/{location}/repositories/{repo}/files:upload
+//   POST /upload/v1/projects/{project}/locations/{location}/repositories/{repo}/genericArtifacts:create
 
 // arChunkedMedia is larger than three minimum-size chunks, so ChunkSize
 // splits it into four.

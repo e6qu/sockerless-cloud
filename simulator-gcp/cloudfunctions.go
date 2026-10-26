@@ -12,9 +12,6 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/revisions"
 )
 
-// Cloud Functions v2 types
-
-// Function represents a Cloud Functions v2 function.
 type Function struct {
 	Name          string                          `json:"name"`
 	Description   string                          `json:"description,omitempty"`
@@ -26,22 +23,18 @@ type Function struct {
 	Labels        map[string]string               `json:"labels,omitempty"`
 	Environment   protoEnum[functionsEnvironment] `json:"environment,omitempty"`
 	URL           string                          `json:"url,omitempty"`
-	// UpgradeInfo carries the 1st-Gen→2nd-Gen migration state. It is
-	// populated only for functions an upgrade-lifecycle verb has touched;
-	// the upgrade colon-verbs transition upgradeInfo.upgradeState.
+	// UpgradeInfo carries the 1st gen → 2nd gen migration state of a function an
+	// upgrade colon-verb has touched.
 	UpgradeInfo *UpgradeInfo `json:"upgradeInfo,omitempty"`
 }
 
-// UpgradeInfo describes a function's 1st Gen → 2nd Gen migration state.
-// Mirrors google.cloud.functions.v2.UpgradeInfo: the upgrade colon-verbs
-// drive upgradeState through the documented transitions.
+// UpgradeInfo mirrors google.cloud.functions.v2.UpgradeInfo.
 type UpgradeInfo struct {
 	UpgradeState  string         `json:"upgradeState,omitempty"`
 	ServiceConfig *ServiceConfig `json:"serviceConfig,omitempty"`
 	BuildConfig   *BuildConfig   `json:"buildConfig,omitempty"`
 }
 
-// BuildConfig holds the build configuration for a function.
 type BuildConfig struct {
 	Runtime          string `json:"runtime,omitempty"`
 	EntryPoint       string `json:"entryPoint,omitempty"`
@@ -49,13 +42,12 @@ type BuildConfig struct {
 	DockerRepository string `json:"dockerRepository,omitempty"`
 }
 
-// ServiceConfig holds the service configuration for a function.
 type ServiceConfig struct {
 	Uri              string `json:"uri,omitempty"`
-	Service          string `json:"service,omitempty"` // Underlying Cloud Run service name (Gen2)
+	Service          string `json:"service,omitempty"` // Cloud Run service that serves the function
 	TimeoutSeconds   int    `json:"timeoutSeconds,omitempty"`
 	AvailableMemory  string `json:"availableMemory,omitempty"`
-	AvailableCpu     string `json:"availableCpu,omitempty"` // CPU limit (e.g. "1", "0.5", "2"). Real Cloud Functions Gen2 default: 1.
+	AvailableCpu     string `json:"availableCpu,omitempty"` // CPU limit ("1", "0.5", "2"); Cloud Run functions defaults to 1.
 	MaxInstanceCount int    `json:"maxInstanceCount,omitempty"`
 	MinInstanceCount int    `json:"minInstanceCount,omitempty"`
 	// VpcConnector names a Serverless VPC Access connector as
@@ -63,32 +55,28 @@ type ServiceConfig struct {
 	// PRIVATE_RANGES_ONLY or ALL_TRAFFIC.
 	VpcConnector               string                                 `json:"vpcConnector,omitempty"`
 	VpcConnectorEgressSettings protoEnum[functionsVPCConnectorEgress] `json:"vpcConnectorEgressSettings,omitempty"`
-	// AllTrafficOnLatestRevision + IngressSettings carry provider defaults
-	// (true / ALLOW_ALL); the read-back must echo them or terraform-provider-
-	// google plans an in-place service_config update on every refresh.
+	// AllTrafficOnLatestRevision and IngressSettings carry provider defaults
+	// (true, ALLOW_ALL); the read must echo them or terraform-provider-google
+	// plans a service_config update on every refresh.
 	AllTrafficOnLatestRevision *bool                       `json:"allTrafficOnLatestRevision,omitempty"`
 	IngressSettings            protoEnum[functionsIngress] `json:"ingressSettings,omitempty"`
 	EnvironmentVariables       map[string]string           `json:"environmentVariables,omitempty"`
 }
 
-// storedServiceConfig is the persisted/request-side ServiceConfig. It embeds
-// the wire shape so the persisted row matches what the wire Function carries;
-// `wire()` returns the embedded ServiceConfig verbatim.
+// storedServiceConfig embeds the wire ServiceConfig, so the persisted row has
+// the wire shape and wire() returns it verbatim.
 type storedServiceConfig struct {
 	ServiceConfig
 }
 
-// storedFunction is the persisted row backing a function. Its
-// serviceConfig field shadows the embedded wire Function's so request
-// decoding and sim.Store persistence keep the same nested row shape that
-// `wire()` recovers the wire Function from.
+// storedFunction is the persisted function. Its serviceConfig shadows the
+// embedded wire Function's; wire() recovers the wire Function from it.
 type storedFunction struct {
 	Function
 	ServiceConfig *storedServiceConfig `json:"serviceConfig,omitempty"`
 }
 
-// wire is the Function resource emitted on the wire: the stored
-// function with its serviceConfig narrowed to the schema's member set.
+// wire narrows the stored serviceConfig to the schema's member set.
 func (f storedFunction) wire() Function {
 	fn := f.Function
 	if f.ServiceConfig != nil {
@@ -98,10 +86,9 @@ func (f storedFunction) wire() Function {
 	return fn
 }
 
-// functionCPUResources returns the ResourceRequirements that should be
-// stamped onto the underlying Cloud Run service's container so the
-// regional quota check sees the real CPU load. ServiceConfig.AvailableCpu
-// is the explicit field; default is "1" (Cloud Functions Gen2 minimum).
+// functionCPUResources returns the resources to stamp on the Cloud Run
+// service's container so the regional quota check sees the function's CPU:
+// ServiceConfig.AvailableCpu, or "1", the Cloud Run functions minimum.
 func functionCPUResources(fn storedFunction) *ResourceRequirements {
 	cpu := "1"
 	if fn.ServiceConfig != nil && fn.ServiceConfig.AvailableCpu != "" {
@@ -153,7 +140,6 @@ func registerCloudFunctionsFrontEnd(srv *sim.Server) {
 
 var cloudFunctionsByURL sim.GenerationIndex[storedFunction]
 
-// cloudFunctionByURL returns the function whose url is functionURL.
 func cloudFunctionByURL(functionURL string) (storedFunction, bool) {
 	if cloudFunctions == nil {
 		return storedFunction{}, false
@@ -171,7 +157,6 @@ func registerCloudFunctions(srv *sim.Server) {
 	cloudFunctions = functions
 	registerCloudFunctionsFrontEnd(srv)
 
-	// Create function
 	srv.HandleFunc("POST /v2/projects/{project}/locations/{location}/functions", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		location := sim.PathParam(r, "location")
@@ -248,15 +233,13 @@ func registerCloudFunctions(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, lro)
 	})
 
-	// GenerateUploadUrl: POST .../functions:generateUploadUrl. The verb
-	// rides on the collection segment (no function ID), so capture
-	// `functions:generateUploadUrl` in a single wildcard and split on the
-	// colon. terraform's google_cloudfunctions2_function calls this before
-	// CreateFunction to obtain the source-upload target.
+	// generateUploadUrl rides the collection segment, so one wildcard captures
+	// `functions:generateUploadUrl`. google_cloudfunctions2_function calls it
+	// before CreateFunction to get the source-upload target.
 	srv.HandleFunc("POST /v2/projects/{project}/locations/{location}/{functionsVerb}", func(w http.ResponseWriter, r *http.Request) {
 		collection, verb, found := strings.Cut(sim.PathParam(r, "functionsVerb"), ":")
-		// Cloud Run v2 shares this /v2 locations path, so its verbs are
-		// offered the fan-in before the Cloud Functions one.
+		// Cloud Run v2 shares this /v2 locations path, so its verbs get the fan-in
+		// first.
 		if found && cloudRunLocationVerbHandled(w, r, collection, verb) {
 			return
 		}
@@ -280,9 +263,8 @@ func registerCloudFunctions(srv *sim.Server) {
 		})
 	})
 
-	// Get function. The `{function}` wildcard also captures the GET-side
-	// AIP-141 IAM verb `{id}:getIamPolicy` (Go's mux can't spell `{id}:verb`),
-	// dispatched by splitting on the colon.
+	// {function} also captures `{id}:getIamPolicy`, which ServeMux cannot spell as
+	// its own pattern; split on the colon.
 	srv.HandleFunc("GET /v2/projects/{project}/locations/{location}/functions/{function}", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		location := sim.PathParam(r, "location")
@@ -305,10 +287,8 @@ func registerCloudFunctions(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, fn.wire())
 	})
 
-	// Update function: PATCH .../functions/{function}?updateMask=...
-	// terraform's google_cloudfunctions2_function PATCHes on every in-place
-	// change. Merge the updateMask fields onto the stored function and
-	// return an LRO (the client polls GetOperation, which resolves done).
+	// google_cloudfunctions2_function PATCHes every in-place change: merge the
+	// updateMask fields and answer an operation.
 	srv.HandleFunc("PATCH /v2/projects/{project}/locations/{location}/functions/{function}", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		location := sim.PathParam(r, "location")
@@ -330,8 +310,8 @@ func registerCloudFunctions(srv *sim.Server) {
 		fn.Name = name
 		fn.UpdateTime = nowTimestamp()
 		if svc, ok := cloudFunctionService(fn); ok && serviceConfigChanged {
-			// applyFunctionServiceConfig edits the template in place, so its
-			// signature is taken before.
+			// applyFunctionServiceConfig edits the template in place, so take its
+			// signature first.
 			before, beforeErr := revisions.Signature(svc.Template)
 			applyFunctionServiceConfig(&svc, fn)
 			after, afterErr := revisions.Signature(svc.Template)
@@ -348,7 +328,6 @@ func registerCloudFunctions(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, lro)
 	})
 
-	// List functions
 	srv.HandleFunc("GET /v2/projects/{project}/locations/{location}/functions", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		location := sim.PathParam(r, "location")
@@ -378,7 +357,6 @@ func registerCloudFunctions(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, resp)
 	})
 
-	// Delete function
 	srv.HandleFunc("DELETE /v2/projects/{project}/locations/{location}/functions/{function}", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		location := sim.PathParam(r, "location")
@@ -400,11 +378,9 @@ func registerCloudFunctions(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, lro)
 	})
 
-	// Function-scoped POST colon-verbs: the AIP-141 IAM verbs
-	// (setIamPolicy / testIamPermissions), generateDownloadUrl, detachFunction,
-	// and the seven 1st-Gen→2nd-Gen upgrade-lifecycle verbs. Go's mux can't
-	// spell `{id}:verb`, so a single `{functionAction}` wildcard captures
-	// `<functionId>:<verb>` and fans in on the verb.
+	// ServeMux cannot spell `{id}:verb`, so `{functionAction}` captures
+	// `<functionId>:<verb>` for the IAM verbs, generateDownloadUrl,
+	// detachFunction and the seven upgrade-lifecycle verbs.
 	srv.HandleFunc("POST /v2/projects/{project}/locations/{location}/functions/{functionAction}", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		location := sim.PathParam(r, "location")
@@ -421,7 +397,6 @@ func registerCloudFunctions(srv *sim.Server) {
 			return
 		}
 
-		// The remaining verbs operate on an existing function.
 		fn, ok := functions.Get(name)
 		if !ok {
 			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "function %q not found", name)
@@ -460,9 +435,8 @@ func registerCloudFunctions(srv *sim.Server) {
 			functions.Put(name, fn)
 			sim.WriteJSON(w, http.StatusOK, functionsLRO(r, project, location, name, fn.wire(), cloudFunctionTypeURL))
 		case "commitFunctionUpgrade", "commitFunctionUpgradeAsGen2":
-			// Commit finalizes the migration: the function is now a 2nd Gen
-			// function and upgradeInfo is cleared. A successful upgrade is
-			// indicated by the LRO completing with the Function in the response.
+			// Commit makes the function 2nd gen and clears upgradeInfo; the operation
+			// completes with the Function as its response.
 			fn.Environment = "GEN_2"
 			fn.UpgradeInfo = nil
 			fn.UpdateTime = nowTimestamp()
@@ -480,7 +454,6 @@ func registerCloudFunctions(srv *sim.Server) {
 		}
 	})
 
-	// List locations (Locations.ListLocations).
 	srv.HandleFunc("GET /v2/projects/{project}/locations", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		locations := make([]map[string]any, 0, len(cloudFunctionRegions))
@@ -503,20 +476,17 @@ func registerCloudFunctions(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, resp)
 	})
 
-	// List runtimes (ListRuntimes) — the function runtimes available in a
-	// location. A faithful representative slice of the real Cloud Functions
-	// Gen2 runtime catalog.
+	// ListRuntimes answers a representative slice of the Cloud Run functions
+	// runtime catalog.
 	srv.HandleFunc("GET /v2/projects/{project}/locations/{location}/runtimes", func(w http.ResponseWriter, r *http.Request) {
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"runtimes": cloudFunctionRuntimes()})
 	})
 }
 
-// cloudFunctionTypeURL is the protobuf type URL for the Function resource,
-// stamped into LRO responses.
 const cloudFunctionTypeURL = "type.googleapis.com/google.cloud.functions.v2.Function"
 
-// cloudFunctionRegions is a representative slice of the regions in which
-// Cloud Functions Gen2 is available, used to back ListLocations.
+// cloudFunctionRegions backs ListLocations with a representative slice of the
+// regions Cloud Run functions serves.
 var cloudFunctionRegions = []string{
 	"us-central1", "us-east1", "us-west1",
 	"europe-west1", "europe-west2",
@@ -578,14 +548,10 @@ func applyFunctionServiceConfig(svc *ServiceV2, fn storedFunction) {
 	svc.Template.Timeout = fmt.Sprintf("%ds", timeout)
 }
 
-// cloudFunctionName builds the fully-qualified Cloud Functions v2 resource
-// name from its coordinates.
 func cloudFunctionName(project, location, functionID string) string {
 	return fmt.Sprintf("projects/%s/locations/%s/functions/%s", project, location, functionID)
 }
 
-// applyUpgradeState stamps the function's upgradeInfo.upgradeState, allocating
-// the UpgradeInfo sub-object on first use.
 func applyUpgradeState(fn *storedFunction, state string) {
 	if fn.UpgradeInfo == nil {
 		fn.UpgradeInfo = &UpgradeInfo{}
@@ -593,8 +559,6 @@ func applyUpgradeState(fn *storedFunction, state string) {
 	fn.UpgradeInfo.UpgradeState = state
 }
 
-// cloudFunctionRuntimes returns a representative slice of the real Cloud
-// Functions Gen2 runtime catalog for ListRuntimes.
 func cloudFunctionRuntimes() []map[string]any {
 	type rt struct {
 		name, displayName string
@@ -625,10 +589,8 @@ func cloudFunctionRuntimes() []map[string]any {
 }
 
 // applyFunctionPatch merges the updateMask fields of a PATCH body onto the
-// stored function. The mask carries dot-notation paths (description, labels,
-// buildConfig.*, serviceConfig.*); for the nested config objects a named
-// path replaces the whole sub-object when present, which matches how the
-// provider sends grouped service_config / build_config updates.
+// stored function. A mask path into buildConfig or serviceConfig replaces the
+// whole sub-object, which is how the provider sends grouped updates.
 func applyFunctionPatch(fn, patch *storedFunction, mask string) (serviceConfigChanged bool) {
 	fields := strings.Split(mask, ",")
 	if mask == "" {

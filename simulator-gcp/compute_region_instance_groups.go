@@ -9,11 +9,9 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// A regional instance group is not created: it is the group a regional
-// instance group manager keeps, so Compute Engine declares only get, list,
-// listInstances and setNamedPorts for it. Deriving it from the manager is what
-// keeps the two from disagreeing — a resize is visible through the group
-// without anything having to copy it there.
+// A regional instance group is the group a regional instance group manager
+// keeps, so Compute Engine declares only get, list, listInstances and
+// setNamedPorts for it, and the simulator derives it from the manager.
 func registerComputeRegionInstanceGroups(srv *sim.Server, managers sim.Store[map[string]any]) {
 	const base = "/compute/v1/projects/{project}/regions/{region}/instanceGroups"
 	namedPorts := sim.MakeStore[map[string]any](srv.DB(), "compute_region_instance_group_named_ports")
@@ -67,8 +65,8 @@ func registerComputeRegionInstanceGroups(srv *sim.Server, managers sim.Store[map
 	})
 
 	srv.HandleFunc("GET "+base, func(w http.ResponseWriter, r *http.Request) {
-		// The managers store stamps the absolute self-link, so the prefix a
-		// list narrows by has to be spelled the same way.
+		// The managers store stamps the absolute self link, so spell the list prefix
+		// the same way.
 		prefix := computeSelfLink(fmt.Sprintf("projects/%s/regions/%s/instanceGroupManagers/",
 			sim.PathParam(r, "project"), sim.PathParam(r, "region")))
 		var items []any
@@ -143,8 +141,8 @@ func registerComputeRegionInstanceGroups(srv *sim.Server, managers sim.Store[map
 			return
 		}
 		link := groupLink(r, name)
-		// The fingerprint is optimistic concurrency: a client that read the
-		// group before someone else wrote it is told so rather than winning.
+		// A client that read the group before another write is refused by the
+		// fingerprint.
 		if held, ok := namedPorts.Get(link); ok {
 			current, _ := held["fingerprint"].(string)
 			if req.Fingerprint != "" && req.Fingerprint != current {

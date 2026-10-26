@@ -8,16 +8,9 @@ import (
 	"google.golang.org/api/googleapi"
 )
 
-// TestCompute_InterconnectLocationsAreTheVendoredCatalog covers
-// interconnectLocations.list and .get, which used to decline as a catalogue
-// only Google can publish. It is published, and it is vendored here from
-// Google's own documentation the way the Azure slice vendors Application
-// Gateway's managed WAF rule sets.
-//
-// The test holds the catalogue to being a real one — a facility a caller can
-// look up by name, carrying what the source states about it — and to leaving
-// absent what the source does not state, rather than filling those fields with
-// something a client could not tell from a reading.
+// TestCompute_InterconnectLocationsAreTheVendoredCatalog: interconnectLocations
+// is vendored from Google's documentation. A facility reads back by name with
+// what the source states, and what the source does not state stays empty.
 func TestCompute_InterconnectLocationsAreTheVendoredCatalog(t *testing.T) {
 	t.Parallel()
 	svc := computeService(t)

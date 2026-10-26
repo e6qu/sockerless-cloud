@@ -20,14 +20,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestTerraformServiceAccountKey provisions the credential an operator hands a
-// non-interactive Google client — `gcloud auth activate-service-account`, a
-// backend reading GOOGLE_APPLICATION_CREDENTIALS — through the provider's own
-// google_service_account_key resource, and then proves the provisioned key is
-// real: it signs a JWT-bearer assertion the simulator's token endpoint verifies
-// against the public half IAM registered, and the resulting token authenticates
-// a data-plane read. A key that merely round-tripped through terraform state
-// would pass a shape assertion and fail this one.
+// TestTerraformServiceAccountKey creates a google_service_account_key and
+// proves the key is real: it signs a JWT-bearer assertion the token endpoint
+// verifies against the public half IAM registered, and the token that comes
+// back authenticates a read.
 func TestTerraformServiceAccountKey(t *testing.T) {
 	fixtureDir := filepath.Join("fixtures", "service-account-key")
 	cleanTerraformFixture(t, fixtureDir)
@@ -75,18 +71,14 @@ func TestTerraformServiceAccountKey(t *testing.T) {
 	assertKeyFileAuthenticates(t, keyFile)
 }
 
-// assertKeyFileAuthenticates drives the credential file through the flow a
-// Google client runs with it: sign a JWT-bearer assertion with its private key,
-// exchange it at the token endpoint, and read the data plane with the token
-// that comes back. The token endpoint verifies the assertion against the public
-// half CreateServiceAccountKey registered, so this passes only for a genuinely
-// issued key.
+// assertKeyFileAuthenticates runs the flow a Google client runs with a
+// credential file: sign a JWT-bearer assertion with its private key, exchange
+// it at the token endpoint, and read with the token.
 func assertKeyFileAuthenticates(t *testing.T, keyFile map[string]string) {
 	t.Helper()
 
-	// The token endpoint coordinate: the credential file names real Google's,
-	// as an IAM-issued file does, and a client pointed at the simulator swaps
-	// that one coordinate.
+	// The credential file names Google's token endpoint; a client pointed at the
+	// simulator swaps that one coordinate.
 	tokenURL := baseURL + "/token"
 	assertion := signJWTBearerAssertion(t, keyFile, tokenURL)
 
@@ -107,10 +99,8 @@ func assertKeyFileAuthenticates(t *testing.T, keyFile map[string]string) {
 	require.NoError(t, json.Unmarshal(body, &token))
 	require.NotEmpty(t, token.AccessToken)
 
-	// Addressed at baseURL, the simulator's own endpoint, exactly as the token
-	// exchange above is. tfEndpoint is the TLS gateway terraform is pointed at;
-	// these assertions talk to the simulator directly and so do not need the
-	// gateway's certificate authority.
+	// Address the simulator directly, as the token exchange does: tfEndpoint is
+	// the TLS gateway terraform talks to.
 	req, err := http.NewRequest(http.MethodGet, baseURL+"/v1/projects/test-project/serviceAccounts", nil)
 	require.NoError(t, err)
 	req.Header.Set("Authorization", "Bearer "+token.AccessToken)

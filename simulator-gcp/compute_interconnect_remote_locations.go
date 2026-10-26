@@ -9,22 +9,13 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// interconnectRemoteLocations.list and .get — the third-party facilities Cloud
-// Interconnect peers with for Cross-Cloud Interconnect.
-//
-// Vendored from Google's own documentation by
-// scripts/fetch-gcp-interconnect-remote-locations.sh, which reads the four
-// "Choose your locations" pages — Amazon Web Services, Microsoft Azure, Oracle
-// Cloud Infrastructure and Alibaba Cloud — through a rowspan-aware grid so a
-// metropolitan area written once lands on every entry it covers. A row-counting
-// parser gets the enumeration right and the associations wrong, which no count
-// check reveals.
-//
-// Every field served is stated by those pages: the remote location's name, the
-// facility provider's own id for it, the metropolitan area, and the colocation
-// facilities it may connect to. The continent, the street address, the facility
-// provider, the remote service, the LAG sizes and the LACP support are not
-// stated there and are absent rather than inferred.
+// interconnectRemoteLocations.list and .get serve the third-party facilities
+// Cross-Cloud Interconnect peers with, vendored by
+// scripts/fetch-gcp-interconnect-remote-locations.sh from Google's four
+// "Choose your locations" pages through a rowspan-aware grid, so a
+// metropolitan area written once lands on every entry it spans. Only the
+// fields those pages state are served: name, the provider's facility ID,
+// metropolitan area and permitted colocation facilities.
 
 //go:embed compute_interconnect_remote_locations_vendored.json
 var interconnectRemoteLocationsJSON []byte

@@ -21,16 +21,12 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 )
 
-// These drive the Cloud Logging gRPC methods that sit beside WriteLogEntries
-// and ListLogEntries — DeleteLog, ListLogs, ListMonitoredResourceDescriptors
-// and the TailLogEntries stream — through the generated
-// cloud.google.com/go/logging/apiv2 client and, where it has one, the
-// high-level logadmin wrapper.
+// The Cloud Logging gRPC methods beside WriteLogEntries and ListLogEntries
+// (DeleteLog, ListLogs, ListMonitoredResourceDescriptors and TailLogEntries),
+// through cloud.google.com/go/logging/apiv2 and, where it has one, logadmin.
 
-// newLoggingV2Client builds the generated logging v2 gRPC client against the
-// simulator's gRPC port. The Cloud Logging SDK has no *_EMULATOR_HOST
-// coordinate, so the connection is supplied directly, the same way the
-// logadmin and KMS gRPC tests do it.
+// newLoggingV2Client supplies the connection directly: the Cloud Logging SDK
+// reads no *_EMULATOR_HOST coordinate.
 func newLoggingV2Client(t *testing.T) *vkit.Client {
 	t.Helper()
 	conn, err := grpc.NewClient(grpcAddr, simGRPCDialOptions(simTokenSource())...)
@@ -43,8 +39,6 @@ func newLoggingV2Client(t *testing.T) *vkit.Client {
 	return client
 }
 
-// loggingWriteTextEntry writes one text-payload entry to a log and returns
-// after the write has been accepted, so a subsequent read sees it.
 func loggingWriteTextEntry(t *testing.T, c *vkit.Client, logName, text string) {
 	t.Helper()
 	_, err := c.WriteLogEntries(ctx, &loggingpb.WriteLogEntriesRequest{
@@ -57,7 +51,6 @@ func loggingWriteTextEntry(t *testing.T, c *vkit.Client, logName, text string) {
 	require.NoError(t, err)
 }
 
-// loggingListLogNames collects the log names ListLogs reports for a parent.
 func loggingListLogNames(t *testing.T, c *vkit.Client, parent string) []string {
 	t.Helper()
 	it := c.ListLogs(ctx, &loggingpb.ListLogsRequest{Parent: parent})
@@ -96,7 +89,7 @@ func TestCloudLogging_GRPC_ListLogsAndDeleteLog(t *testing.T) {
 	require.Equal(t, "doomed entry", entry.GetTextPayload())
 
 	// DeleteLog removes the log's entries, so the log stops being listed, and
-	// writes its own Admin Activity audit entry, so the audit log is.
+	// writes an Admin Activity audit entry, so the audit log starts.
 	require.NoError(t, c.DeleteLog(ctx, &loggingpb.DeleteLogRequest{LogName: doomed}))
 	audit := parent + "/logs/cloudaudit.googleapis.com%2Factivity"
 	require.Equal(t, []string{audit, kept}, loggingListLogNames(t, c, parent))
@@ -107,13 +100,12 @@ func TestCloudLogging_GRPC_ListLogsAndDeleteLog(t *testing.T) {
 	}).Next()
 	require.ErrorIs(t, err, iterator.Done, "a deleted log holds no entries")
 
-	// The log reappears when it receives a new entry, exactly as Cloud Logging
-	// documents.
+	// The log reappears when it receives a new entry, as Cloud Logging documents.
 	loggingWriteTextEntry(t, c, doomed, "written again")
 	require.Equal(t, []string{audit, doomed, kept}, loggingListLogNames(t, c, parent))
 
-	// Deleting a log that holds nothing is not an error; a log resource that
-	// holds no entries does not exist to be missed.
+	// Deleting a log that holds nothing is no error: a log with no entries does
+	// not exist to be missed.
 	require.NoError(t, c.DeleteLog(ctx, &loggingpb.DeleteLogRequest{LogName: parent + "/logs/never-written"}))
 
 	requireGRPCCode(t, c.DeleteLog(ctx, &loggingpb.DeleteLogRequest{}), codes.InvalidArgument)
@@ -128,8 +120,7 @@ func TestCloudLogging_GRPC_ListLogsPaginates(t *testing.T) {
 		loggingWriteTextEntry(t, c, name, "entry")
 	}
 
-	// PageSize 1 makes the client walk three pages, so each page token has to
-	// be one it can come back with.
+	// PageSize 1 makes the client walk three pages with the listing's tokens.
 	it := c.ListLogs(ctx, &loggingpb.ListLogsRequest{Parent: parent, PageSize: 1})
 	var got []string
 	for {
@@ -182,8 +173,7 @@ func TestCloudLogging_GRPC_ListMonitoredResourceDescriptors(t *testing.T) {
 	}
 	require.Equal(t, map[string]bool{"global": true, "gce_instance": true, "cloud_run_revision": true}, adminTypes)
 
-	// The REST door serves the same descriptors, because both doors read one
-	// list.
+	// REST serves the same descriptors from the same list.
 	resp, err := http.Get(baseURL + "/v2/monitoredResourceDescriptors")
 	require.NoError(t, err)
 	defer resp.Body.Close()
@@ -207,10 +197,9 @@ func TestCloudLogging_GRPC_ListMonitoredResourceDescriptors(t *testing.T) {
 	}
 }
 
-// TestCloudLogging_GRPC_TailLogEntries holds the tail to real writes: it
-// streams entries as they are ingested, so what the log held before the stream
-// opened never arrives, the entries written afterwards do, and a write the
-// filter excludes does not.
+// TestCloudLogging_GRPC_TailLogEntries: the tail streams entries as they are
+// ingested, so what the log held before it opened never arrives, later writes
+// do, and a write the filter excludes does not.
 func TestCloudLogging_GRPC_TailLogEntries(t *testing.T) {
 	t.Parallel()
 	c := newLoggingV2Client(t)
@@ -228,8 +217,8 @@ func TestCloudLogging_GRPC_TailLogEntries(t *testing.T) {
 	require.NoError(t, stream.Send(&loggingpb.TailLogEntriesRequest{
 		ResourceNames: []string{parent},
 		Filter:        `logName="` + logName + `"`,
-		// A short window keeps the flush cadence tight; the default is the
-		// two seconds Cloud Logging documents.
+		// A short window keeps the flush cadence tight; Cloud Logging documents a
+		// two-second default.
 		BufferWindow: durationpb.New(50 * time.Millisecond),
 	}))
 
@@ -267,9 +256,8 @@ func TestCloudLogging_GRPC_TailLogEntries(t *testing.T) {
 		}
 	}
 
-	// Nothing reports when the service has opened the tail, so write probes on
-	// a cadence until one arrives; the entries written before it opened never
-	// do.
+	// Nothing reports when the service has opened the tail, so write probes on a
+	// cadence until one arrives.
 	cadence := time.NewTicker(100 * time.Millisecond)
 	defer cadence.Stop()
 probing:
@@ -296,8 +284,6 @@ probing:
 	cancel()
 }
 
-// TestCloudLogging_GRPC_TailLogEntriesRejectsAnOutOfRangeBufferWindow holds the
-// tail to the 0-60000ms buffer window the API documents.
 func TestCloudLogging_GRPC_TailLogEntriesRejectsAnOutOfRangeBufferWindow(t *testing.T) {
 	t.Parallel()
 	c := newLoggingV2Client(t)

@@ -8,10 +8,9 @@ import (
 	"google.golang.org/api/googleapi"
 )
 
-// TestCompute_InterconnectRemoteLocationsAreTheVendoredCatalog covers
-// interconnectRemoteLocations.list and .get — the third-party facilities Cloud
-// Interconnect peers with for Cross-Cloud Interconnect, vendored from the four
-// provider pages Google publishes them on.
+// TestCompute_InterconnectRemoteLocationsAreTheVendoredCatalog: the
+// third-party facilities Cross-Cloud Interconnect peers with, vendored from the
+// four provider pages Google publishes.
 func TestCompute_InterconnectRemoteLocationsAreTheVendoredCatalog(t *testing.T) {
 	t.Parallel()
 	svc := computeService(t)

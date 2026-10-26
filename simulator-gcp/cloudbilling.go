@@ -10,27 +10,12 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// Cloud Billing v1 — the billing-account collection, the project links, and
-// the service catalog.
-//
-// A billing account is real control-plane state: created (as an account
-// under a parent or as a subaccount of a master), listed, patched, moved
-// between organizations, and linked to projects through
-// projects.updateBillingInfo — the write terraform-provider-google issues
-// when a google_project carries billing_account, whose read
-// (projects.getBillingInfo) the provider already exercised against this
-// simulator. IAM on an account rides the same per-resource policy store
-// every other AIP-141 resource uses.
-//
-// The service catalog is this installation's own: services.list names the
-// services this simulator hosts, under stable identifiers in the format the
-// API uses. skus.list is served and empty — a SKU carries published pricing,
-// and this installation has no price sheet; an empty catalog is that truth,
-// the same way the internet-registry imports of an association never enabled
-// are empty. Fabricating Google's public prices here would be inventing
-// data the deployment does not have.
+// A Cloud Billing account is real control-plane state: created under a parent
+// or as a subaccount, listed, patched, moved between organizations, and linked
+// to projects through projects.updateBillingInfo. services.list names the
+// services this simulator hosts; skus.list is empty because a SKU carries
+// published pricing, which this deployment does not have.
 
-// BillingAccount mirrors the v1 wire shape.
 type BillingAccount struct {
 	Name                 string `json:"name"`
 	Open                 bool   `json:"open"`
@@ -51,9 +36,8 @@ var (
 	billingProjectLinks sim.Store[BillingProjectLink]
 )
 
-// billingHostedServices is the catalog of services this simulator hosts,
-// in the display names Google Cloud uses. The identifiers are stable across
-// restarts because clients key on them.
+// billingHostedServices is the catalog of services this simulator hosts, under
+// Google Cloud's display names. Clients key on the IDs, so they never change.
 var billingHostedServices = []struct{ ID, DisplayName string }{
 	{"1D2E-7A4C-93F0", "Artifact Registry"},
 	{"29E7-DA93-4A50", "BigQuery"},
@@ -77,11 +61,10 @@ var billingHostedServices = []struct{ ID, DisplayName string }{
 	{"4CD3-68FA-B951", "Cloud Firestore"},
 }
 
-// billingDefaultAccountID is the deployment's own billing account,
-// materialized at startup the way crmEnsureDefaultOrganization materializes
-// the organization: Google provisions billing accounts out of band (the API
-// creates only subaccounts), so a deployment arrives with one, under a
-// stable identifier bootstrap configuration can name.
+// billingDefaultAccountID is the deployment's own billing account, created at
+// startup as crmEnsureDefaultOrganization creates the organization: Google
+// provisions billing accounts out of band, and the API creates only
+// subaccounts.
 const billingDefaultAccountID = "0A0A0A-B1B1B1-C2C2C2"
 
 func billingEnsureDefaultAccount() {
@@ -106,10 +89,9 @@ func registerCloudBilling(srv *sim.Server, resourcePolicies sim.Store[IAMPolicy]
 	srv.HandleFunc("POST /v1/billingAccounts", func(w http.ResponseWriter, r *http.Request) {
 		handleBillingCreateAccount(w, r, "")
 	})
-	// The single-segment child carries the colon verbs too: a GET may be the
-	// account read or :getIamPolicy, a POST is :move or an IAM write —
-	// delegated to the same per-resource policy store the generic dispatcher
-	// uses, since these literal routes shadow it.
+	// The single-segment child carries the colon verbs too: GET is the read or
+	// :getIamPolicy, POST is :move or an IAM write. These literal routes shadow
+	// the generic IAM dispatcher, so they delegate to its policy store.
 	srv.HandleFunc("GET /v1/billingAccounts/{accountAction}", func(w http.ResponseWriter, r *http.Request) {
 		name, verb, _ := strings.Cut(sim.PathParam(r, "accountAction"), ":")
 		account, ok := billingAccounts.Get(name)
@@ -165,10 +147,9 @@ func registerCloudBilling(srv *sim.Server, resourcePolicies sim.Store[IAMPolicy]
 	})
 	srv.HandleFunc("GET /v1/billingAccounts/{account}/projects", handleBillingListAccountProjects)
 
-	// The organization-scoped spellings address the same collection with the
-	// parent taken from the URL. The move spelling here is a GET, exactly as
-	// the Discovery document declares it: the destination is the
-	// organization in the path.
+	// The organization-scoped spellings take the parent from the URL. The move
+	// spelling is a GET, as the Discovery document declares it, with the
+	// destination organization in the path.
 	srv.HandleFunc("GET /v1/organizations/{organization}/billingAccounts", func(w http.ResponseWriter, r *http.Request) {
 		org := "organizations/" + sim.PathParam(r, "organization")
 		var out []BillingAccount
@@ -196,34 +177,23 @@ func registerCloudBilling(srv *sim.Server, resourcePolicies sim.Store[IAMPolicy]
 		billingMoveAccount(w, account, "organizations/"+sim.PathParam(r, "organization"))
 	})
 
-	// projects.updateBillingInfo — the link write. The read half lives in
-	// cloudresourcemanager.go beside the project it reads.
+	// projects.getBillingInfo lives in cloudresourcemanager.go beside the project
+	// it reads.
 	srv.HandleFunc("PUT /v1/projects/{project}/billingInfo", handleBillingUpdateProjectInfo)
 
-	// The installation's service catalog.
 	srv.HandleFunc("GET /v1/services", handleBillingListServices)
 	srv.HandleFunc("GET /v1/services/{service}/skus", handleBillingListSkus)
 
 	registerCloudBillingTaskAPI(srv)
 }
 
-// registerCloudBillingTaskAPI declares Cloud Billing's conversational agent
-// task surface — tasks, their push notification configs, message send and
-// stream, and the on-file payment card — as unserved. It is Google's own
-// agent protocol layered onto billing, not billing-account control plane: a
-// task's state is that agent's own tracking of work it is doing, a message
-// send or stream hands the call to the LLM-backed agent behind it, and the
-// payment card is a real financial instrument on file with Google. None of
-// that is state this simulator holds or could honestly invent, the same
-// reasoning that already declares a licence code or a console screenshot
-// unserved elsewhere in this deployment.
-//
-// The Discovery document spells four of the task operations twice: once as
-// the flat "tasks/{tasksId}"-shaped paths registered above the wildcards
-// below, and once as generic AIP-127 resource names ({+name}, {+parent})
-// that this deployment's own task IDs also satisfy. The wildcard routes
-// below answer that second spelling; Go's ServeMux prefers the more
-// specific literal routes when both could match the same request.
+// registerCloudBillingTaskAPI declares Cloud Billing's agent task surface
+// (tasks, push notification configs, message send and stream, the on-file
+// payment card) unserved: an LLM-backed agent and a real payment instrument
+// hold that state, and the simulator has neither. The Discovery document
+// spells four task operations twice, as flat "tasks/{tasksId}" paths and as
+// AIP-127 resource names; the wildcard routes answer the second, and ServeMux
+// prefers the literal routes when both match.
 func registerCloudBillingTaskAPI(srv *sim.Server) {
 	unimplemented := func(what, why string) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
@@ -234,11 +204,8 @@ func registerCloudBillingTaskAPI(srv *sim.Server) {
 	const cardWhy = "the payment card is a real financial instrument on file with Google, and no card was ever issued to this project"
 	const messageWhy = "sending or streaming a message hands it to Cloud Billing's own LLM-backed agent, which this simulator does not run"
 
-	// {tasksAction} carries an optional ":subscribe" colon verb in the same
-	// segment: Go's ServeMux requires a wildcard to be the whole segment, so
-	// "{tasksId}:subscribe" (id and verb as separate pattern pieces) is not a
-	// legal pattern — the same reason billingAccounts above uses
-	// {accountAction} rather than a bare {account} for its colon verbs.
+	// A ServeMux wildcard must be a whole segment, so {tasksAction} carries the
+	// optional ":subscribe" verb.
 	srv.HandleFunc("GET /v1/tasks/{tasksAction}", func(w http.ResponseWriter, r *http.Request) {
 		_, verb, hasVerb := strings.Cut(sim.PathParam(r, "tasksAction"), ":")
 		if hasVerb && verb != "subscribe" {
@@ -267,14 +234,9 @@ func registerCloudBillingTaskAPI(srv *sim.Server) {
 	srv.HandleFunc("POST /v1/message:send", unimplemented("message.send", messageWhy))
 	srv.HandleFunc("POST /v1/message:stream", unimplemented("message.stream", messageWhy))
 
-	// The mux pattern itself, not just the handler body, has to stay scoped
-	// to the tasks collection: the data-plane auth middleware
-	// (bearerAuthMiddleware in token_signing.go) decides whether a request
-	// needs a credential by asking Go's own mux whether any pattern matches
-	// it at all, before this handler ever runs. A bare "/v1/{name...}" would
-	// match every GET under /v1/, including paths no method publishes, and
-	// the middleware would demand a token for them instead of leaving them
-	// to fail closed with 404.
+	// Keep the pattern scoped to /v1/tasks: bearerAuthMiddleware asks the mux
+	// whether any pattern matches before demanding a token, and a bare
+	// "/v1/{name...}" would make it demand one for paths that should 404.
 	srv.HandleFunc("GET /v1/tasks/{rest...}", func(w http.ResponseWriter, r *http.Request) {
 		name, verb, _ := strings.Cut("tasks/"+sim.PathParam(r, "rest"), ":")
 		switch verb {
@@ -296,12 +258,9 @@ func registerCloudBillingTaskAPI(srv *sim.Server) {
 	// cloudBillingUnimplementedTaskWrite for the two cases here.
 }
 
-// cloudBillingUnimplementedTaskWrite answers the resource-name-form writes
-// (POST /v1/{+parent} for tasks.pushNotificationConfigs.create, POST
-// /v1/{+name}:cancel for tasks.cancel) that the AIP-141 IAM catch-all
-// dispatcher in iam.go falls through to once resource carries no recognized
-// IAM colon verb. It reports false for anything else, matching that
-// dispatcher's existing "not a recognized verb" contract.
+// cloudBillingUnimplementedTaskWrite answers the resource-name-form task
+// writes (tasks.pushNotificationConfigs.create, tasks.cancel) that the IAM
+// dispatcher in iam.go falls through to; it reports false for anything else.
 func cloudBillingUnimplementedTaskWrite(w http.ResponseWriter, r *http.Request, resource string) bool {
 	name, verb, hasVerb := strings.Cut(resource, ":")
 	if !strings.HasPrefix(name, "tasks/") {
@@ -341,8 +300,8 @@ func handleBillingCreateAccount(w http.ResponseWriter, r *http.Request, master s
 	handleBillingCreateAccountUnderParent(w, r, master, "")
 }
 
-// handleBillingCreateAccountUnderParent creates an account whose parent the
-// route already names — the organization-scoped create spelling.
+// handleBillingCreateAccountUnderParent serves the organization-scoped create,
+// whose route names the parent.
 func handleBillingCreateAccountUnderParent(w http.ResponseWriter, r *http.Request, master, parent string) {
 	var req BillingAccount
 	if err := sim.ReadJSON(r, &req); err != nil {
@@ -523,8 +482,7 @@ func handleBillingUpdateProjectInfo(w http.ResponseWriter, r *http.Request) {
 }
 
 // billingProjectInfo renders a project's ProjectBillingInfo from the link
-// store — the one truth both getBillingInfo and updateBillingInfo answer
-// from.
+// store both getBillingInfo and updateBillingInfo answer from.
 func billingProjectInfo(projectID string) map[string]any {
 	info := map[string]any{
 		"name":               "projects/" + projectID + "/billingInfo",
@@ -559,8 +517,7 @@ func handleBillingListSkus(w http.ResponseWriter, r *http.Request) {
 	id := sim.PathParam(r, "service")
 	for _, service := range billingHostedServices {
 		if service.ID == id {
-			// This installation publishes no price sheet, so the service's
-			// SKU list is empty — that is its truth, not a placeholder.
+			// This deployment publishes no price sheet, so the SKU list is empty.
 			sim.WriteJSON(w, http.StatusOK, map[string]any{"skus": []any{}})
 			return
 		}

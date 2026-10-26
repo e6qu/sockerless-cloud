@@ -12,11 +12,9 @@ import (
 	secretmanager "google.golang.org/api/secretmanager/v1"
 )
 
-// TestCloudBuild_TriggerWebhookStartsTheBuild covers the webhook a trigger
-// exposes: the caller presents the secret the trigger declares, and the
-// trigger's build starts. The response carries no members, so the build itself
-// is the only evidence the delivery did anything — which is why the listing
-// below is the assertion rather than the status code.
+// TestCloudBuild_TriggerWebhookStartsTheBuild: the caller presents the
+// trigger's secret and the trigger's build starts. The response carries no
+// members, so assert on the build listing.
 func TestCloudBuild_TriggerWebhookStartsTheBuild(t *testing.T) {
 	t.Parallel()
 	svc := cloudbuildService(t)
@@ -70,8 +68,7 @@ func TestCloudBuild_SharedWebhookStartsTheTriggersWatchingTheRepository(t *testi
 	const project = "cb-shared-webhook"
 	parent := "projects/" + project + "/locations/us-central1"
 
-	// A source host has to be configured for its key to be one Cloud Build
-	// knows, so this is the host whose deliveries the receiver accepts.
+	// Cloud Build accepts only keys of a configured source host.
 	_, err := svc.Projects.Locations.GithubEnterpriseConfigs.Create(parent,
 		&cloudbuild.GitHubEnterpriseConfig{
 			HostUrl:    "https://github.example.com",
@@ -131,11 +128,9 @@ func TestCloudBuild_SharedWebhookStartsTheTriggersWatchingTheRepository(t *testi
 	require.Equal(t, http.StatusBadRequest,
 		postWebhook(t, "/v1/webhook?webhookKey=host-webhook-key", `{"ref":"refs/heads/main"}`))
 
-	// The other two receivers are the same delivery on the path their host was
-	// given: "POST /v1/githubDotComWebhook:receive" for a github.com app, and
-	// "POST /v1/locations/{location}/regionalWebhook" for a regional host. Each
-	// starts the trigger the same way, which is what makes them the same
-	// receiver rather than three that happen to answer alike.
+	// The other two receivers take the same delivery on their host's path:
+	// "POST /v1/githubDotComWebhook:receive" for a github.com app and
+	// "POST /v1/locations/{location}/regionalWebhook" for a regional host.
 	require.Equal(t, http.StatusOK,
 		postWebhook(t, "/v1/githubDotComWebhook:receive?webhookKey=host-webhook-key", delivery))
 	assert.Len(t, buildsForTrigger(t, svc, project, watching.Id), 2,
@@ -155,9 +150,8 @@ func TestCloudBuild_SharedWebhookStartsTheTriggersWatchingTheRepository(t *testi
 		"a refused delivery starts nothing on any receiver")
 }
 
-// postWebhook posts a delivery to one of the shared receivers and returns the
-// status. The receivers take an opaque HttpBody, so the generated client would
-// wrap the delivery rather than send it — a source host posts its own event.
+// postWebhook posts the source host's own event: the receivers take an opaque
+// HttpBody, which the generated client would wrap.
 func postWebhook(t *testing.T, path, body string) int {
 	t.Helper()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+path, strings.NewReader(body))
@@ -169,7 +163,6 @@ func postWebhook(t *testing.T, path, body string) int {
 	return resp.StatusCode
 }
 
-// buildsForTrigger lists the project's builds that a trigger started.
 func buildsForTrigger(t *testing.T, svc *cloudbuild.Service, project, triggerID string) []*cloudbuild.Build {
 	t.Helper()
 	listed, err := svc.Projects.Builds.List(project).Do()

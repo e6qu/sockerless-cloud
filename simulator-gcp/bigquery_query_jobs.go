@@ -38,7 +38,6 @@ func bqFormatOptionsOf(timestampOutputFormat string, useInt64 bool) (bqFormatOpt
 	return bqFormatOptions{}, apiRefuse(http.StatusBadRequest, "INVALID_ARGUMENT", "Invalid value for formatOptions.timestampOutputFormat: %s", timestampOutputFormat)
 }
 
-// bqFormatOptionsFromQuery reads the formatOptions.* query parameters.
 func bqFormatOptionsFromQuery(q url.Values) (bqFormatOptions, error) {
 	useInt64 := false
 	if s := q.Get("formatOptions.useInt64Timestamp"); s != "" {
@@ -117,7 +116,6 @@ func bqAnonymousTable(jobID string) string {
 	return "anon" + hex.EncodeToString(sum[:])[:40]
 }
 
-// bqHiddenDataset reports whether a dataset is hidden from the list.
 func bqHiddenDataset(dataset string) bool { return strings.HasPrefix(dataset, "_") }
 
 // bqAnonymousExpiration is how long a temporary result table lives.
@@ -456,7 +454,6 @@ func bqJobError(w http.ResponseWriter, job storedBQJob) bool {
 	return true
 }
 
-// bqDecodeDryRun reads configuration.dryRun.
 func bqDecodeDryRun(configuration map[string]any) (bool, error) {
 	raw, ok := configuration["dryRun"]
 	if !ok || raw == nil {

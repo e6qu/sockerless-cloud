@@ -8,8 +8,8 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/cron"
 )
 
-// spannerLegacyScheduleRun is the row an earlier simulator persisted in
-// spanner_backup_schedule_runs: when a schedule last produced a backup.
+// spannerLegacyScheduleRun is a row of the older spanner_backup_schedule_runs
+// table: when a schedule last produced a backup.
 type spannerLegacyScheduleRun struct {
 	Schedule string `json:"schedule"`
 	LastRun  string `json:"lastRun"`

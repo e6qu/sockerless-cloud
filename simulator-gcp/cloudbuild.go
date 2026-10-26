@@ -22,13 +22,6 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/workload"
 )
 
-// Cloud Build v1 slice: a client submits a build, the simulator fetches the
-// source, runs each step and reports the build's progress and result the way
-// Cloud Build does.
-//
-// Real API: https://cloud.google.com/build/docs/api/reference/rest
-
-// Build represents a Cloud Build build resource.
 type Build struct {
 	ID        string `json:"id"`
 	Name      string `json:"name,omitempty"`
@@ -37,10 +30,8 @@ type Build struct {
 	// projects/{project}/serviceAccounts/{email}; empty means the project's
 	// Cloud Build service account.
 	ServiceAccount string `json:"serviceAccount,omitempty"`
-	// A trigger carries a build template, which has not run and has no status;
-	// omitting it is what the absence means. A build that has run always has
-	// one, so nothing that ran loses it — and "" is a value the enum does not
-	// declare.
+	// A trigger's build template has not run and has no status, so omit it; ""
+	// is not a value the enum declares.
 	Status           string            `json:"status,omitempty"`
 	StatusDetail     string            `json:"statusDetail,omitempty"`
 	Source           *BuildSource      `json:"source,omitempty"`
@@ -96,10 +87,8 @@ type BuildStep struct {
 	Dir        string   `json:"dir,omitempty"`
 	Entrypoint string   `json:"entrypoint,omitempty"`
 	ID         string   `json:"id,omitempty"`
-	// Status and Timing are what the build reports about the step as it runs.
-	// Cloud Build fills both in, and they are the only way a client can tell
-	// which step a running build is on — the build's own status says WORKING
-	// from before the source is fetched until the last step finishes.
+	// Status and Timing are the only way a client can tell which step a running
+	// build is on: the build's own status stays WORKING throughout.
 	Status string       `json:"status,omitempty"`
 	Timing *BuildTiming `json:"timing,omitempty"`
 }
@@ -121,7 +110,7 @@ type SecretManagerSecret struct {
 	Env         string `json:"env"`
 }
 
-// Operation is the LRO wrapper Cloud Build returns from CreateBuild.
+// CloudBuildOperation is the operation Cloud Build returns from CreateBuild.
 type CloudBuildOperation struct {
 	Name     string         `json:"name"`
 	Metadata map[string]any `json:"metadata,omitempty"`
@@ -157,8 +146,8 @@ type BuildTrigger struct {
 	Build                 *Build            `json:"build,omitempty"`
 }
 
-// WorkerPool mirrors the Cloud Build v1 WorkerPool resource. Output-only
-// fields (name, uid, state, *Time, etag) are populated by the simulator.
+// WorkerPool mirrors the Cloud Build v1 WorkerPool resource; the simulator
+// sets the output-only name, uid, state, *Time and etag.
 type WorkerPool struct {
 	Name                string            `json:"name,omitempty"`
 	DisplayName         string            `json:"displayName,omitempty"`
@@ -205,13 +194,10 @@ var cbBuilds sim.Store[Build]
 // cloudBuildStepLabel names the build a step container runs for.
 const cloudBuildStepLabel = "sockerless-sim-build"
 
-// cbRunning holds the cancel function of the context a build's steps execute
-// under, keyed by build ID, for as long as those steps are running and until
-// the build's record has settled from them. Cancelling a build is not a status
-// flag: the entry is what lets CancelBuild and the build operation's cancel
-// reach the `docker` process a step is running and terminate it, which is what
-// "cancels a build in progress" means. Its presence also holds the build's
-// operation open, so the operation completes on the settled record.
+// cbRunning holds the cancel function of the context a build's steps run
+// under, keyed by build ID, until the build's record settles. CancelBuild and
+// the operation's cancel use it to terminate the running `docker` process, and
+// its presence holds the build's operation open until the record settles.
 var cbRunning sync.Map
 
 var cbTriggers sim.Store[BuildTrigger]
@@ -226,7 +212,6 @@ func registerCloudBuild(srv *sim.Server) {
 	cbGHEConfigs = sim.MakeStore[GitHubEnterpriseConfig](srv.DB(), "cloudbuild_ghe_configs")
 	cbBitbucketConfigs = sim.MakeStore[BitbucketServerConfig](srv.DB(), "cloudbuild_bitbucket_configs")
 
-	// CreateBuild: POST /v1/projects/{project}/builds
 	registerCloudBuildRegional(srv)
 
 	srv.HandleFunc("POST /v1/projects/{project}/builds", func(w http.ResponseWriter, r *http.Request) {
@@ -256,10 +241,8 @@ func registerCloudBuild(srv *sim.Server) {
 	srv.HandleFunc("PATCH /v1/projects/{project}/triggers/{trigger}", handleUpdateBuildTrigger)
 	srv.HandleFunc("DELETE /v1/projects/{project}/triggers/{trigger}", handleDeleteBuildTrigger)
 
-	// ListBuilds: GET /v1/projects/{project}/builds
 	srv.HandleFunc("GET /v1/projects/{project}/builds", handleListBuilds)
 
-	// GetBuild: GET /v1/projects/{project}/builds/{id}
 	srv.HandleFunc("GET /v1/projects/{project}/builds/{id}", func(w http.ResponseWriter, r *http.Request) {
 		id := sim.PathParam(r, "id")
 		build, ok := cbBuilds.Get(id)
@@ -270,11 +253,9 @@ func registerCloudBuild(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, build)
 	})
 
-	// CancelBuild. The document declares it twice — on the legacy global
-	// resource path projects/{project}/builds/{id}:cancel and on the regional
-	// path projects/{project}/locations/{location}/builds/{id}:cancel — and
-	// both name the same build. Go ServeMux doesn't allow `{id}:cancel`, so
-	// each mount takes a single wildcard and parses the colon suffix.
+	// The document declares CancelBuild on both the global and the regional path,
+	// naming the same build. ServeMux cannot match `{id}:cancel`, so each mount
+	// takes one wildcard and parses the colon suffix.
 	cancelBuild := func(w http.ResponseWriter, r *http.Request) {
 		idAction := sim.PathParam(r, "idAction")
 		id, action, found := strings.Cut(idAction, ":")
@@ -295,8 +276,7 @@ func registerCloudBuild(srv *sim.Server) {
 	srv.HandleFunc("POST /v1/projects/{project}/builds/{idAction}", cancelBuild)
 	srv.HandleFunc("POST /v1/projects/{project}/locations/{location}/builds/{idAction}", cancelBuild)
 
-	// GetOperation for cloudbuild LROs:
-	// GET /v1/{name=operations/**}  — Go SDK uses this path.
+	// The Go SDK polls build operations at GET /v1/{name=operations/**}.
 	srv.HandleFunc("GET /v1/operations/build/{project}/{id}", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		id := sim.PathParam(r, "id")
@@ -308,12 +288,10 @@ func registerCloudBuild(srv *sim.Server) {
 		cbWriteBuildOperation(w, project, build)
 	})
 
-	// Global GetOperation: GET /v1/operations/{operation}. The cloudbuild
-	// LRO names the simulator mints are `operations/build/{project}/{id}`;
-	// the {+name} template captures the whole tail as a single param.
+	// The {+name} template captures the whole operation name tail.
 	srv.HandleFunc("GET /v1/operations/{operation...}", handleCloudBuildGetOperation)
 
-	// Regional builds (read-only mirror of the global build endpoints).
+	// Regional builds read the same records as the global endpoints.
 	srv.HandleFunc("GET /v1/projects/{project}/locations/{location}/builds", handleListBuilds)
 	srv.HandleFunc("GET /v1/projects/{project}/locations/{location}/builds/{id}", func(w http.ResponseWriter, r *http.Request) {
 		id := sim.PathParam(r, "id")
@@ -325,7 +303,6 @@ func registerCloudBuild(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, build)
 	})
 
-	// getDefaultServiceAccount: GET /v1/projects/{p}/locations/{loc}/defaultServiceAccount.
 	srv.HandleFunc("GET /v1/projects/{project}/locations/{location}/defaultServiceAccount", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		location := sim.PathParam(r, "location")
@@ -340,14 +317,12 @@ func registerCloudBuild(srv *sim.Server) {
 		})
 	})
 
-	// Worker pools (regional).
 	srv.HandleFunc("POST /v1/projects/{project}/locations/{location}/workerPools", handleCreateWorkerPool)
 	srv.HandleFunc("GET /v1/projects/{project}/locations/{location}/workerPools", handleListWorkerPools)
 	srv.HandleFunc("GET /v1/projects/{project}/locations/{location}/workerPools/{pool}", handleGetWorkerPool)
 	srv.HandleFunc("PATCH /v1/projects/{project}/locations/{location}/workerPools/{pool}", handlePatchWorkerPool)
 	srv.HandleFunc("DELETE /v1/projects/{project}/locations/{location}/workerPools/{pool}", handleDeleteWorkerPool)
 
-	// GitHub Enterprise configs — global and regional.
 	srv.HandleFunc("POST /v1/projects/{project}/githubEnterpriseConfigs", handleCreateGHEConfig)
 	srv.HandleFunc("GET /v1/projects/{project}/githubEnterpriseConfigs", handleListGHEConfigs)
 	srv.HandleFunc("GET /v1/projects/{project}/githubEnterpriseConfigs/{config}", handleGetGHEConfig)
@@ -359,7 +334,6 @@ func registerCloudBuild(srv *sim.Server) {
 	srv.HandleFunc("PATCH /v1/projects/{project}/locations/{location}/githubEnterpriseConfigs/{config}", handlePatchGHEConfig)
 	srv.HandleFunc("DELETE /v1/projects/{project}/locations/{location}/githubEnterpriseConfigs/{config}", handleDeleteGHEConfig)
 
-	// Bitbucket Server configs (regional) + repos list.
 	srv.HandleFunc("POST /v1/projects/{project}/locations/{location}/bitbucketServerConfigs", handleCreateBitbucketConfig)
 	srv.HandleFunc("GET /v1/projects/{project}/locations/{location}/bitbucketServerConfigs", handleListBitbucketConfigs)
 	srv.HandleFunc("GET /v1/projects/{project}/locations/{location}/bitbucketServerConfigs/{config}", handleGetBitbucketConfig)
@@ -745,9 +719,8 @@ func normalizeBuildTrigger(project, location string, trigger BuildTrigger) Build
 	if trigger.Name == "" {
 		trigger.Name = trigger.ID
 	}
-	// BuildTrigger has no location member; the trigger's location is
-	// derived from the request URL per call (buildTriggerLocation) and
-	// is encoded in resourceName.
+	// BuildTrigger has no location member; resourceName carries the location the
+	// request URL names.
 	trigger.ResourceName = buildTriggerKey(project, location, trigger.ID)
 	if trigger.CreateTime == "" {
 		trigger.CreateTime = nowTimestamp()
@@ -807,10 +780,8 @@ func handleUpdateBuildTrigger(w http.ResponseWriter, r *http.Request) {
 		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid trigger body: %v", err)
 		return
 	}
-	// Honor updateMask (a documented triggers.patch query param): real Cloud Build
-	// merges only the masked top-level fields into the existing trigger;
-	// terraform-provider-google always sends one, so without this a masked PATCH
-	// dropped every unlisted field and the next plan showed drift.
+	// Cloud Build merges only the masked top-level fields of triggers.patch, and
+	// terraform-provider-google always sends updateMask.
 	if mask := r.URL.Query().Get("updateMask"); mask != "" {
 		if prior, ok := cbTriggers.Get(key); ok {
 			fields := strings.Split(mask, ",")
@@ -887,12 +858,9 @@ func handleDeleteBuildTrigger(w http.ResponseWriter, r *http.Request) {
 }
 
 // executeCancellableBuild runs a build's steps under a context registered in
-// cbRunning against the build ID, so CancelBuild — arriving on another
-// connection while the steps run — terminates the running `docker` process
-// instead of only relabelling the record. The build's own verdict is
-// subordinate to a cancellation: a step killed mid-flight reports a failure,
-// and reporting that failure would erase the cancel the client asked for, so
-// the record the cancel wrote wins.
+// cbRunning, so CancelBuild from another connection terminates the running
+// `docker` process. A cancel's verdict wins over the failure the killed step
+// reports.
 func executeCancellableBuild(ctx context.Context, b Build) Build {
 	timeout := cloudBuildDefaultTimeout
 	if b.Timeout != "" {
@@ -941,15 +909,11 @@ func executeCancellableBuild(ctx context.Context, b Build) Build {
 		result.FinishTime = time.Now().UTC().Format(time.RFC3339)
 	}
 
-	// Settle the record in one update so a cancel landing between reading the
-	// stored build and writing the result cannot be lost: a build the cancel
-	// already settled keeps the cancel's verdict, and the step's own failure —
-	// which is what a terminated step reports — never overwrites it.
+	// Settle the record in one update so a cancel landing between the read and
+	// the write keeps its verdict over the terminated step's failure.
 	cbBuilds.Update(b.ID, func(stored *Build) {
-		// The step statuses and timings were recorded on the stored build as
-		// its steps ran. result is the copy taken before any of them did, so
-		// the run's own step state is carried over rather than written out —
-		// a cancelled build reported a step that had never started otherwise.
+		// Keep the step statuses and timings recorded on the stored build as the
+		// steps ran; result predates them.
 		steps := stored.Steps
 		cancelled := stored.Status == "CANCELLED"
 		if cancelled {
@@ -960,12 +924,9 @@ func executeCancellableBuild(ctx context.Context, b Build) Build {
 		*stored = result
 		stored.Steps = steps
 		if cancelled {
-			// A step the cancel terminated reports CANCELLED — not the
-			// failure its killed process returned, and not the WORKING it was
-			// interrupted in. The failure is an artifact of the kill for the
-			// same reason the build's own is: a step that had really failed
-			// would have settled the build before a cancel could land, and
-			// CancelBuild only moves a build that has not settled.
+			// A step the cancel terminated reports CANCELLED, not its killed process's
+			// failure or the WORKING it was interrupted in: a step that really failed
+			// would have settled the build before the cancel landed.
 			stamp := time.Now().UTC().Format(time.RFC3339)
 			for _, step := range stored.Steps {
 				if step == nil {
@@ -987,10 +948,9 @@ func executeCancellableBuild(ctx context.Context, b Build) Build {
 	return result
 }
 
-// cancelCloudBuild implements CancelBuild: it moves a build that has not
-// settled to CANCELLED and terminates the steps it is running. Cancelling a
-// build that has already finished leaves its recorded verdict alone, which is
-// what "cancels a build in progress" leaves for a build that is not.
+// cancelCloudBuild implements CancelBuild: it moves an unsettled build to
+// CANCELLED and terminates its running steps, and leaves a finished build's
+// verdict alone.
 func cancelCloudBuild(id string) (Build, bool) {
 	cbBuilds.Update(id, func(b *Build) {
 		if b.Status == "QUEUED" || b.Status == "WORKING" {
@@ -1012,11 +972,10 @@ func cancelCloudBuild(id string) (Build, bool) {
 	return build, true
 }
 
-// handleCloudBuildCancelOperation answers cloudbuild.operations.cancel for a
-// build operation (operations/build/{project}/{id}). Cloud Build's build
-// operations are a projection of the build record, so cancelling the operation
-// is cancelling the build: the steps stop and the record settles CANCELLED.
-// google.longrunning CancelOperation answers google.protobuf.Empty.
+// handleCloudBuildCancelOperation serves cloudbuild.operations.cancel for a
+// build operation (operations/build/{project}/{id}): a build operation projects
+// the build record, so cancelling it cancels the build. It answers
+// google.protobuf.Empty.
 func handleCloudBuildCancelOperation(w http.ResponseWriter, id string) {
 	if _, ok := cancelCloudBuild(id); !ok {
 		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "operation for build %s not found", id)
@@ -1025,11 +984,9 @@ func handleCloudBuildCancelOperation(w http.ResponseWriter, id string) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
-// cloudBuildOperationError is the error a settled build's operation carries.
-// A cancelled build reports google.rpc.Code.CANCELLED, which is the code
-// AIP-151 says a successfully cancelled operation ends up with; a build that
-// ran out of time reports DEADLINE_EXCEEDED, and any other unsuccessful build
-// reports INTERNAL with the build's own status detail.
+// cloudBuildOperationError is the error a settled build's operation carries:
+// CANCELLED for a cancelled build, as AIP-151 specifies, DEADLINE_EXCEEDED for
+// a timeout, and INTERNAL with the build's status detail otherwise.
 func cloudBuildOperationError(b Build) *BuildError {
 	switch b.Status {
 	case "CANCELLED":
@@ -1040,17 +997,15 @@ func cloudBuildOperationError(b Build) *BuildError {
 	return &BuildError{Code: 13, Message: b.StatusDetail}
 }
 
-// executeBuild runs the build steps against the source context and
-// returns the final build record with status + finishTime populated.
-// Matches the real Cloud Build behavior: downloads source from GCS,
-// extracts it, executes each step, expands secretEnv via AvailableSecrets →
-// Secret Manager.
+// executeBuild downloads the build's source from Cloud Storage, extracts it,
+// resolves secretEnv through Secret Manager and runs each step, returning the
+// final record with status and finishTime set.
 func executeBuild(ctx context.Context, b Build) Build {
 	b.StartTime = time.Now().UTC().Format(time.RFC3339)
 	b.Status = "WORKING"
-	// Real Cloud Build moves a build QUEUED → WORKING before its first step
-	// runs, and that transition is what tells a client the build is live and
-	// cancellable. Record it, but never over a cancel that already landed.
+	// Cloud Build moves a build QUEUED → WORKING before its first step runs,
+	// which tells a client the build is live and cancellable. Never overwrite a
+	// cancel that already landed.
 	cbBuilds.Update(b.ID, func(stored *Build) {
 		if stored.Status == "QUEUED" {
 			stored.Status = "WORKING"
@@ -1069,14 +1024,12 @@ func executeBuild(ctx context.Context, b Build) Build {
 		return fail("source.storageSource is required")
 	}
 
-	// Fetch the tarball from sim GCS (gcs.go on-disk + sim.Store metadata).
 	data, err := GCSObjectBytes(b.Source.StorageSource.Bucket, b.Source.StorageSource.Object)
 	if err != nil {
 		return fail(fmt.Sprintf("fetch source object %s in bucket %s: %v",
 			b.Source.StorageSource.Object, b.Source.StorageSource.Bucket, err))
 	}
 
-	// Extract to a temp dir.
 	workDir, err := os.MkdirTemp("", "sim-cloudbuild-*")
 	if err != nil {
 		return fail(fmt.Sprintf("tempdir: %v", err))
@@ -1093,7 +1046,6 @@ func executeBuild(ctx context.Context, b Build) Build {
 	defer os.RemoveAll(dockerConfigDir)
 	dockerEnv := sim.DockerConfigEnv(dockerConfigDir)
 
-	// Resolve Secret Manager references for secretEnv expansion.
 	secretValues := map[string]string{}
 	if b.AvailableSecrets != nil {
 		for _, sm := range b.AvailableSecrets.SecretManager {
@@ -1105,10 +1057,8 @@ func executeBuild(ctx context.Context, b Build) Build {
 		}
 	}
 
-	// A step's status and timing are recorded on the stored build as it runs,
-	// because the build's own status is WORKING from before the source is
-	// fetched until the last step finishes — the step is where a client sees
-	// which part of the build is actually executing.
+	// Record each step's status and timing on the stored build as it runs: the
+	// build's own status stays WORKING throughout.
 	markStep := func(i int, status string, started, finished bool) {
 		stamp := time.Now().UTC().Format(time.RFC3339)
 		cbBuilds.Update(b.ID, func(stored *Build) {
@@ -1148,19 +1098,10 @@ func executeBuild(ctx context.Context, b Build) Build {
 	return b
 }
 
-// runDockerStep executes one `gcr.io/cloud-builders/docker` step.
-// Args are the docker sub-command args (e.g. ["build","-t","img","."]).
-// secretValues map env-var-name → resolved secret payload; these are
-// added to the subprocess env when the step's secretEnv references them.
-//
-// `docker push` semantics: real Cloud Build pushes the built image to the
-// target registry (Artifact Registry / Container Registry / etc.) and the
-// cloud's compute later pulls it from there over the standard /v2/ API. The
-// sim is faithful to that: the build step's `docker build -t <URL>` tagged the
-// image with the target ref, and a `push` step does a real `docker push <URL>`
-// then drops the local copy, so the workload pulls from the registry — not a
-// local-daemon shortcut. The ref's host routes to the registry's /v2/ (the
-// configured AR endpoint / the harness's published sim registry).
+// runDockerStep runs one `gcr.io/cloud-builders/docker` step; secretValues maps
+// a secretEnv name to its payload. A `push` step does a real `docker push` to
+// the registry the target names and drops the local copy, so a workload pulls
+// the image from the registry as on Google Cloud.
 func runDockerStep(ctx context.Context, _ Build, workDir string, step *BuildStep, secretValues map[string]string, dockerEnv []string) error {
 	if _, err := exec.LookPath("docker"); err != nil {
 		return fmt.Errorf("docker CLI not available: %w", err)
@@ -1171,9 +1112,8 @@ func runDockerStep(ctx context.Context, _ Build, workDir string, step *BuildStep
 		if out, err := push.CombinedOutput(); err != nil {
 			return fmt.Errorf("docker push %s failed: %w: %s", target, err, strings.TrimSpace(string(out)))
 		}
-		// Drop the local copy so the run pulls from the registry, not the
-		// build host's daemon. Best-effort — a failure here doesn't fail the
-		// build (the push already succeeded).
+		// Drop the local copy so the run pulls from the registry. The push already
+		// succeeded, so a failure here only logs.
 		if out, err := workload.DockerCommand(ctx, nil, "rmi", "-f", target).CombinedOutput(); err != nil {
 			fmt.Fprintf(os.Stderr, "cloudbuild: could not remove local build output %s after push: %v: %s\n",
 				target, err, strings.TrimSpace(string(out)))

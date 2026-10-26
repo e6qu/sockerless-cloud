@@ -24,38 +24,13 @@ import (
 	exprpb "google.golang.org/genproto/googleapis/type/expr"
 )
 
-// Secret Manager v1 gRPC service. The high-level
-// cloud.google.com/go/secretmanager.Client is gRPC-only — it has no REST
-// transport — so mounting google.cloud.secretmanager.v1.SecretManagerService
-// on the shared gRPC server is what makes that client work against the
-// simulator. The REST slice (secretmanager.go) owns the stores this gRPC
-// slice shares (smSecrets / smSecretVersions / smSecretPayloads /
-// smVersionSeq) and the core helpers for adding versions
-// (smAddVersionPayload), transitioning version state (smSetVersionState),
-// and resolving the "latest" alias (resolveLatestVersionIDForSecret /
-// accessSecretPayloadResolvedForSecret). Every RPC here does real work
-// against those stores; no synthetic responses.
-//
-// Payload redaction matches real Secret Manager: GetSecretVersion and
-// ListSecretVersions return metadata only, AccessSecretVersion returns the
-// stored payload bytes (and only for ENABLED versions). Proto Secret /
-// SecretVersion / Replication / Payload shapes differ from the REST JSON the
-// stores hold, so this file owns faithful two-way converters (state enums,
-// replication policy, version aliases, expiration oneof, IAM conditions).
-//
-// Name normalization: the gRPC client always sends full resource paths in
-// every request field (projects/{p}/secrets/{s}/...). The shared stores are
-// keyed by those full paths, so names are used verbatim — the helper
-// smNormalizeName only strips an accidental leading "projects/" doubling,
-// never invents prefixes.
+// google.cloud.secretmanager.v1.SecretManagerService on the shared gRPC
+// server, for the gRPC-only cloud.google.com/go/secretmanager client. It uses
+// the REST slice's stores and helpers (smAddVersionPayload, smSetVersionState,
+// the "latest" resolution), so GetSecretVersion and ListSecretVersions carry
+// metadata only and AccessSecretVersion returns the payload of an ENABLED
+// version. Names are full resource paths, used verbatim.
 
-// secretManagerGRPC implements the SecretManagerService gRPC service on the
-// shared REST stores. Every admin and data-plane RPC performs real work:
-// CreateSecret writes a real Secret, AddSecretVersion stores the real payload
-// bytes (and validates the optional CRC32C the client supplied), and
-// AccessSecretVersion returns those exact bytes (or a FAILED_PRECONDITION for
-// DISABLED/DESTROYED versions). The IAM triple persists per-secret policies
-// in the shared resource-IAM store the REST slice uses.
 type secretManagerGRPC struct {
 	smpb.UnimplementedSecretManagerServiceServer
 }
@@ -64,12 +39,7 @@ func registerSecretManagerGRPC(gs *grpc.Server) {
 	smpb.RegisterSecretManagerServiceServer(gs, &secretManagerGRPC{})
 }
 
-// name helpers
-
-// smNormalizeName strips a redundant leading "projects/" that callers
-// sometimes prepend to a name that is already a full path, avoiding the
-// projects/projects/... doubling. A name that is not doubled is returned
-// unchanged.
+// smNormalizeName strips a doubled leading "projects/" from a full path.
 func smNormalizeName(name string) string {
 	if strings.HasPrefix(name, "projects/projects/") {
 		return strings.TrimPrefix(name, "projects/")
@@ -84,12 +54,10 @@ func smSecretParent(parent string) string {
 	return strings.TrimSuffix(parent, "/") + "/secrets"
 }
 
-// smVersionPrefix is the {secret}/versions/ prefix for listing child versions.
 func smVersionPrefix(secretName string) string {
 	return secretName + "/versions/"
 }
 
-// smVersionNumber extracts the trailing integer from a version resource name.
 func smVersionNumber(name string) (int, bool) {
 	i := strings.LastIndex(name, "/")
 	if i < 0 {
@@ -99,8 +67,8 @@ func smVersionNumber(name string) (int, bool) {
 	return n, err == nil
 }
 
-// smPageOffset decodes a base64-encoded numeric page token into a slice
-// offset. An empty or invalid token means "start at the beginning".
+// smPageOffset decodes a base64 numeric page token; empty or invalid starts
+// at the beginning.
 func smPageOffset(token string) int {
 	if token == "" {
 		return 0
@@ -129,9 +97,6 @@ func smPageBounds(start, pageSize, total int) (int, string) {
 	return end, base64.StdEncoding.EncodeToString([]byte(strconv.Itoa(end)))
 }
 
-// proto <-> REST-store converters
-
-// smStateToProto maps the REST slice's state string to the proto enum.
 func smStateToProto(s string) smpb.SecretVersion_State {
 	switch s {
 	case "ENABLED":
@@ -145,8 +110,7 @@ func smStateToProto(s string) smpb.SecretVersion_State {
 	}
 }
 
-// smParseRFC3339 parses the REST slice's RFC3339 timestamp strings into a
-// proto Timestamp. Returns nil for an empty string (proto field is optional).
+// smParseRFC3339 returns nil for an empty string; the proto field is optional.
 func smParseRFC3339(s string) *timestamppb.Timestamp {
 	if s == "" {
 		return nil
@@ -158,10 +122,8 @@ func smParseRFC3339(s string) *timestamppb.Timestamp {
 	return timestamppb.New(t)
 }
 
-// smReplicationToProto converts the REST slice's replication map (the JSON
-// shape real GCP persists) into the proto Replication. Unknown / missing
-// replication maps to nil (real GCP returns a fully-populated Replication on
-// read; the sim faithfully echoes what the client supplied).
+// smReplicationToProto converts the stored replication map, which echoes what
+// the client supplied; a missing one is nil.
 func smReplicationToProto(rep map[string]any) *smpb.Replication {
 	if len(rep) == 0 {
 		return nil
@@ -191,9 +153,8 @@ func smReplicationToProto(rep map[string]any) *smpb.Replication {
 	return out
 }
 
-// smReplicationFromProto converts a proto Replication into the REST JSON map
-// shape the stores persist. A nil proto yields a default automatic map
-// (CreateSecret's default when no replication is supplied).
+// smReplicationFromProto converts a proto Replication to the stored map; nil
+// is automatic replication, CreateSecret's default.
 func smReplicationFromProto(rep *smpb.Replication) map[string]any {
 	if rep == nil {
 		return map[string]any{"automatic": map[string]any{}}
@@ -215,8 +176,6 @@ func smReplicationFromProto(rep *smpb.Replication) map[string]any {
 	}
 }
 
-// smTopicsToProto converts the REST slice's topics JSON (raw message) into the
-// proto Topic slice.
 func smTopicsToProto(raw json.RawMessage) []*smpb.Topic {
 	if len(raw) == 0 {
 		return nil
@@ -234,8 +193,6 @@ func smTopicsToProto(raw json.RawMessage) []*smpb.Topic {
 	return out
 }
 
-// smTopicsFromProto converts a proto Topic slice into the REST JSON raw
-// message the stores persist.
 func smTopicsFromProto(topics []*smpb.Topic) json.RawMessage {
 	if len(topics) == 0 {
 		return nil
@@ -254,8 +211,6 @@ func smTopicsFromProto(topics []*smpb.Topic) json.RawMessage {
 	return b
 }
 
-// smRotationToProto converts the REST slice's rotation JSON into the proto
-// Rotation (next_rotation_time + rotation_period).
 func smRotationToProto(raw json.RawMessage) *smpb.Rotation {
 	if len(raw) == 0 {
 		return nil
@@ -279,8 +234,6 @@ func smRotationToProto(raw json.RawMessage) *smpb.Rotation {
 	return out
 }
 
-// smRotationFromProto converts a proto Rotation into the REST JSON raw
-// message the stores persist.
 func smRotationFromProto(r *smpb.Rotation) json.RawMessage {
 	if r == nil {
 		return nil
@@ -302,9 +255,8 @@ func smRotationFromProto(r *smpb.Rotation) json.RawMessage {
 	return b
 }
 
-// smSecretToProto converts the REST-store Secret to the proto Secret. The
-// oneof expiration field (expire_time vs ttl) is populated from whichever the
-// REST store carries.
+// smSecretToProto fills the expiration oneof (expire_time or ttl) from
+// whichever the store carries.
 func smSecretToProto(s Secret) *smpb.Secret {
 	out := &smpb.Secret{
 		Name:           s.Name,
@@ -327,9 +279,8 @@ func smSecretToProto(s Secret) *smpb.Secret {
 	return out
 }
 
-// smSecretFromProto applies the proto Secret's mutable fields onto a
-// REST-store Secret (used by CreateSecret / UpdateSecret). Name is set by the
-// caller; CreateTime / Etag are populated separately.
+// smSecretFromProto applies a proto Secret's mutable fields; the caller sets
+// Name, CreateTime and Etag.
 func smSecretFromProto(name string, s *smpb.Secret) Secret {
 	out := Secret{
 		Name:        name,
@@ -353,8 +304,8 @@ func smSecretFromProto(name string, s *smpb.Secret) Secret {
 	return out
 }
 
-// smVersionAliasesToProto converts the REST slice's alias→string map into the
-// proto alias→int64 map (proto stores the version number).
+// smVersionAliasesToProto converts alias→version strings to the proto's
+// alias→int64.
 func smVersionAliasesToProto(in map[string]string) map[string]int64 {
 	if len(in) == 0 {
 		return nil
@@ -368,8 +319,6 @@ func smVersionAliasesToProto(in map[string]string) map[string]int64 {
 	return out
 }
 
-// smVersionAliasesFromProto converts the proto alias→int64 map into the REST
-// slice's alias→string map.
 func smVersionAliasesFromProto(in map[string]int64) map[string]string {
 	if len(in) == 0 {
 		return nil
@@ -381,10 +330,8 @@ func smVersionAliasesFromProto(in map[string]int64) map[string]string {
 	return out
 }
 
-// smVersionToProto converts the REST-store SecretVersion (metadata only) to
-// the proto SecretVersion. Payload bytes are never attached here — faithful to
-// real Secret Manager, the payload appears only in AccessSecretVersion
-// responses.
+// smVersionToProto never attaches the payload, which only AccessSecretVersion
+// returns.
 func smVersionToProto(v SecretVersion) *smpb.SecretVersion {
 	out := &smpb.SecretVersion{
 		Name:                           v.Name,
@@ -398,8 +345,6 @@ func smVersionToProto(v SecretVersion) *smpb.SecretVersion {
 	return out
 }
 
-// admin RPCs
-
 func (s *secretManagerGRPC) ListSecrets(ctx context.Context, req *smpb.ListSecretsRequest) (*smpb.ListSecretsResponse, error) {
 	parent := smNormalizeName(req.GetParent())
 	prefix := smSecretParent(parent) + "/"
@@ -409,7 +354,7 @@ func (s *secretManagerGRPC) ListSecrets(ctx context.Context, req *smpb.ListSecre
 			all = append(all, smSecretToProto(sc))
 		}
 	}
-	// Real GCP sorts newest-first by CreateTime.
+	// Secret Manager lists newest first by CreateTime.
 	sort.Slice(all, func(i, j int) bool {
 		ti := all[i].GetCreateTime().AsTime()
 		tj := all[j].GetCreateTime().AsTime()
@@ -473,9 +418,8 @@ func (s *secretManagerGRPC) UpdateSecret(ctx context.Context, req *smpb.UpdateSe
 		case "annotations":
 			sc.Annotations = protoSecret.GetAnnotations()
 		case "replication":
-			// Real GCP rejects replication updates after creation; the
-			// REST slice persists it verbatim. Honour the proto input
-			// only when the caller explicitly masks it.
+			// Secret Manager rejects replication changes after creation; apply one only
+			// when the mask names it.
 			sc.Replication = smReplicationFromProto(protoSecret.GetReplication())
 		case "topics":
 			sc.Topics = smTopicsFromProto(protoSecret.GetTopics())
@@ -529,7 +473,7 @@ func (s *secretManagerGRPC) ListSecretVersions(ctx context.Context, req *smpb.Li
 			all = append(all, smVersionToProto(v))
 		}
 	}
-	// Real GCP sorts versions newest-first.
+	// Secret Manager lists versions newest first.
 	sort.Slice(all, func(i, j int) bool {
 		na, _ := smVersionNumber(all[i].GetName())
 		nb, _ := smVersionNumber(all[j].GetName())
@@ -559,8 +503,6 @@ func (s *secretManagerGRPC) GetSecretVersion(ctx context.Context, req *smpb.GetS
 	}
 	return smVersionToProto(v), nil
 }
-
-// data-plane RPCs — real payload storage
 
 func (s *secretManagerGRPC) AddSecretVersion(ctx context.Context, req *smpb.AddSecretVersionRequest) (*smpb.SecretVersion, error) {
 	parent := smNormalizeName(req.GetParent())
@@ -668,8 +610,8 @@ func (s *secretManagerGRPC) DestroySecretVersion(ctx context.Context, req *smpb.
 	return smTransitionVersion(smNormalizeName(req.GetName()), "destroy")
 }
 
-// smTransitionVersion resolves (possibly "latest") the version name, then
-// applies the named state transition via the shared smSetVersionState helper.
+// smTransitionVersion resolves a version name, "latest" included, and applies
+// the state transition.
 func smTransitionVersion(name, action string) (*smpb.SecretVersion, error) {
 	versionName, err := smResolveVersionName(name)
 	if err != nil {
@@ -689,9 +631,8 @@ func smTransitionVersion(name, action string) (*smpb.SecretVersion, error) {
 	return smVersionToProto(updated), nil
 }
 
-// smResolveVersionName expands the "latest" alias to the concrete highest
-// version number for the secret. Returns NotFound when the secret has no
-// versions yet.
+// smResolveVersionName expands "latest" to the highest version number;
+// NotFound when the secret has none.
 func smResolveVersionName(name string) (string, error) {
 	idx := strings.LastIndex(name, "/versions/")
 	if idx < 0 {
@@ -708,8 +649,6 @@ func smResolveVersionName(name string) (string, error) {
 	}
 	return fmt.Sprintf("%s/versions/%s", secretName, resolved), nil
 }
-
-// IAM RPCs
 
 func (s *secretManagerGRPC) SetIamPolicy(ctx context.Context, req *iampb.SetIamPolicyRequest) (*iampb.Policy, error) {
 	resource := smNormalizeName(req.GetResource())
@@ -755,8 +694,7 @@ func (s *secretManagerGRPC) GetIamPolicy(ctx context.Context, req *iampb.GetIamP
 
 func (s *secretManagerGRPC) TestIamPermissions(ctx context.Context, req *iampb.TestIamPermissionsRequest) (*iampb.TestIamPermissionsResponse, error) {
 	resource := smNormalizeName(req.GetResource())
-	// Real GCP: TestIamPermissions on a missing secret returns an empty
-	// permission set, NOT a NOT_FOUND error.
+	// TestIamPermissions on a missing secret answers an empty set, not NOT_FOUND.
 	if _, ok := smSecrets.Get(resource); !ok {
 		return &iampb.TestIamPermissionsResponse{}, nil
 	}

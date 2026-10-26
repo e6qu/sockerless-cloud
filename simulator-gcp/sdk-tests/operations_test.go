@@ -14,14 +14,9 @@ import (
 	serviceusage "google.golang.org/api/serviceusage/v1"
 )
 
-// awaitLRO polls a long-running operation to completion and returns the record
-// the operations collection finally reported. The operation a Google Cloud
-// method answers with is a handle, and the outcome belongs to the collection,
-// not to the create response: a client polls until the record reports done and
-// reads the result off that. Asserting through the poll keeps the assertion
-// about the outcome instead of about how many round trips the service needed to
-// reach it, and it fails loudly if the name the method handed out does not
-// resolve.
+// awaitLRO polls the operations collection until the record reports done and
+// returns it: the operation a method answers with is a handle, and the outcome
+// belongs to the collection.
 func awaitLRO[T any](t *testing.T, name string, get func() (T, error), isDone func(T) bool) T {
 	t.Helper()
 	deadline := time.Now().Add(60 * time.Second)
@@ -38,10 +33,9 @@ func awaitLRO[T any](t *testing.T, name string, get func() (T, error), isDone fu
 	}
 }
 
-// TestGCP_Operations_List drives Service Usage's operations.list, the one
-// method that answers GET /v1/operations: it lists the operations Service Usage
-// started and no other service's, each other service's operations staying in
-// that service's own collection.
+// TestGCP_Operations_List: Service Usage's operations.list answers
+// GET /v1/operations with the operations Service Usage started and no other
+// service's.
 func TestGCP_Operations_List(t *testing.T) {
 	t.Parallel()
 	svc := serviceUsageService(t)
@@ -96,8 +90,7 @@ func TestGCP_Operations_List(t *testing.T) {
 	}
 }
 
-// TestGCP_Operations_ListPagesAndFiltersDone pages Service Usage's
-// operations.list with pageSize and nextPageToken. Other tests enable services
+// TestGCP_Operations_ListPagesAndFiltersDone: other tests enable services
 // while the pages are read, and each operation still lists exactly once.
 func TestGCP_Operations_ListPagesAndFiltersDone(t *testing.T) {
 	t.Parallel()
@@ -125,8 +118,6 @@ func TestGCP_Operations_ListPagesAndFiltersDone(t *testing.T) {
 	}
 }
 
-// serviceUsageOperations reads every page of a Service Usage operations.list
-// call, keyed by operation name.
 func serviceUsageOperations(t *testing.T, call *serviceusage.OperationsListCall) map[string]*serviceusage.Operation {
 	t.Helper()
 	listed := map[string]*serviceusage.Operation{}
@@ -139,8 +130,6 @@ func serviceUsageOperations(t *testing.T, call *serviceusage.OperationsListCall)
 	return listed
 }
 
-// gcpCreateJobOperation creates a Cloud Run job in the given region and returns
-// the name of the long-running operation the create answered with.
 func gcpCreateJobOperation(t *testing.T, location, jobID string) string {
 	t.Helper()
 	body := `{"template":{"template":{"containers":[{"image":"mirror.gcr.io/library/alpine:latest"}]}}}`
@@ -163,11 +152,9 @@ func gcpCreateJobOperation(t *testing.T, location, jobID string) string {
 	return op.Name
 }
 
-// TestGCP_UnknownV1PathNotGCSShape locks the routing invariant: the
-// GCS XML-API catch-all only matches paths whose first segment is a
-// registered bucket. An unknown `/v1/xyz` is a route miss — a 404 — and
-// must NOT come back as "object xyz not found in bucket v1", which would
-// tell a client the path resolved to a bucket that does not exist.
+// TestGCP_UnknownV1PathNotGCSShape: the Cloud Storage XML API route matches
+// only paths whose first segment is a registered bucket, so an unknown
+// `/v1/xyz` is a 404 route miss, not "object xyz not found in bucket v1".
 func TestGCP_UnknownV1PathNotGCSShape(t *testing.T) {
 	t.Parallel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+"/v1/this-does-not-exist", nil)

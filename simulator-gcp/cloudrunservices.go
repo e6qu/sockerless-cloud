@@ -42,10 +42,9 @@ func (e launchStageString) MarshalJSON() ([]byte, error) {
 	return json.Marshal(string(e))
 }
 
-// ingressString is the ingress-traffic enum. Like the VPC egress one beside
-// it, a client may send the proto numeric form, and the name is what a read
-// has to answer with: keeping the digits put a value in the field that the
-// enum does not declare, and no generated client can map "2".
+// ingressString is the ingress-traffic enum. A client may send its proto
+// number, and a read answers the declared name, since no generated client maps
+// "2".
 type ingressString string
 
 func (e *ingressString) UnmarshalJSON(data []byte) error {
@@ -120,21 +119,8 @@ func (e vpcEgressString) MarshalJSON() ([]byte, error) {
 	return json.Marshal(string(e))
 }
 
-// Cloud Run v2 services slice. The cloudrun backend uses
-// cloud.google.com/go/run/apiv2 (REST client) which talks to the v2
-// REST surface — `/v2/projects/{project}/locations/{location}/services`
-// — not the v1 Knative paths handled in cloudrun.go. When
-// Config.UseService=true the backend hits these endpoints; without
-// them every Service call 404s.
-//
-// Real API: https://cloud.google.com/run/docs/reference/rest/v2/projects.locations.services
-
-// ServiceV2 is the v2 Cloud Run Service (proto-JSON shape, not the v1
-// Knative shape in CRService). Field set is the subset the cloudrun
-// backend reads via runpb.Service: name, labels, annotations,
-// createTime, template (with containers + env), terminalCondition,
-// latestReadyRevision. Generation is encoded as a JSON string per
-// proto-JSON int64 rules.
+// ServiceV2 is the Cloud Run v2 Service in proto-JSON shape, as opposed to the
+// v1 Knative CRService; Generation is an int64 and so a JSON string.
 type ServiceV2 struct {
 	Name                  string                `json:"name"`
 	UID                   string                `json:"uid,omitempty"`
@@ -198,8 +184,7 @@ type MultiRegionSettings struct {
 	MultiRegionID string   `json:"multiRegionId,omitempty"`
 }
 
-// RevisionTemplate is the v2 Cloud Run revision template. Mirrors the
-// runpb.RevisionTemplate fields the backend's buildServiceSpec sets.
+// RevisionTemplate mirrors google.cloud.run.v2.RevisionTemplate.
 type RevisionTemplate struct {
 	Labels                        map[string]string                           `json:"labels,omitempty"`
 	Annotations                   map[string]string                           `json:"annotations,omitempty"`
@@ -229,10 +214,8 @@ type RevisionScaling struct {
 	MaxInstanceCount int32 `json:"maxInstanceCount,omitempty"`
 }
 
-// VpcAccess wires a service revision to a Serverless VPC Access
-// connector so peer containers can reach the service over its
-// internal-ingress IP. The backend sets this when Config.VPCConnector
-// is non-empty.
+// VpcAccess mirrors google.cloud.run.v2.VpcAccess: a Serverless VPC Access
+// connector or direct VPC egress network interfaces.
 type VpcAccess struct {
 	Connector         string             `json:"connector,omitempty"`
 	Egress            vpcEgressString    `json:"egress,omitempty"`
@@ -265,10 +248,8 @@ type TrafficTargetStatus struct {
 	URI      string                `json:"uri,omitempty"`
 }
 
-// RevisionV2 mirrors the subset of google.cloud.run.v2.Revision the sim
-// materializes per service deploy. Cloud Run creates an immutable Revision
-// for every Service generation; the sim records one so the
-// services.revisions get/list endpoints return faithful data.
+// RevisionV2 mirrors google.cloud.run.v2.Revision. Cloud Run creates an
+// immutable Revision per template change, and the simulator stores each one.
 type RevisionV2 struct {
 	Name        string            `json:"name"`
 	UID         string            `json:"uid,omitempty"`
@@ -682,20 +663,13 @@ func serviceContainersSignature(containers []Container, volumes []Volume) string
 	return strings.Join(parts, "\x01") + "\x02" + volumesSignature(volumes)
 }
 
-// crv2Services is the package-scope handle the cloudfunctions slice
-// uses to auto-create the backing Cloud Run service when a Cloud
-// Functions Gen2 function is created. Real GCP wires the two services
-// together server-side; the sim mirrors that linkage so backends that
-// expect `function.ServiceConfig.Service` to resolve to a real
-// `runpb.Service` (e.g. the gcf overlay-and-swap path) work end-to-end.
+// crv2Services lets the Cloud Functions slice create the Cloud Run service
+// that serves a function, as Cloud Run functions does server-side.
 var crv2Services sim.Store[ServiceV2]
 
-// seedServiceV2Defaults stamps the immutable identity + initial-rollout
-// fields onto a freshly-created service. Real Cloud Run does this
-// server-side (UID, generation 1, Ready condition, default URI, first
-// revision); the sim mirrors it for both REST CreateService and the
-// cloudfunctions auto-wire path so a single source of truth controls
-// the shape of "just-created" services.
+// seedServiceV2Defaults stamps the server-set fields of a new service (UID,
+// generation 1, Ready condition, URI, first revision), for both CreateService
+// and the Cloud Functions path.
 func seedServiceV2Defaults(svc ServiceV2, project, location, serviceID string) ServiceV2 {
 	now := nowTimestamp()
 	svc.Name = fmt.Sprintf("projects/%s/locations/%s/services/%s", project, location, serviceID)
@@ -723,9 +697,8 @@ func seedServiceV2Defaults(svc ServiceV2, project, location, serviceID string) S
 	return svc
 }
 
-// reconcileServiceRevision materializes the immutable Revision a Service
-// deploy produces. revName is the bare revision id (e.g. "svc-00001-abc");
-// the stored record is keyed by its full resource name.
+// reconcileServiceRevision stores the immutable Revision a deploy produces
+// under its full resource name; revName is the bare ID ("svc-00001-abc").
 func reconcileServiceRevision(store sim.Store[RevisionV2], serviceName, revName string, svc ServiceV2) {
 	now := nowTimestamp()
 	full := serviceName + "/revisions/" + revName
@@ -740,8 +713,8 @@ func reconcileServiceRevision(store sim.Store[RevisionV2], serviceName, revName 
 		Conditions: []Condition{
 			{Type: "Ready", State: "CONDITION_SUCCEEDED", LastTransitionTime: now},
 		},
-		// A revision is immutable, but a fresh deploy replaces the record under
-		// the same name, so the fingerprint is minted with it.
+		// A fresh deploy replaces the record under the same name, so mint the etag
+		// with it.
 		Etag: sim.NewUUID(),
 	}
 	if svc.Template != nil {
@@ -765,11 +738,9 @@ func reconcileServiceRevision(store sim.Store[RevisionV2], serviceName, revName 
 // deploys, whichever surface wrote it.
 func createCloudRunService(w http.ResponseWriter, svc ServiceV2, project, location, serviceID string) (ServiceV2, bool) {
 	name := fmt.Sprintf("projects/%s/locations/%s/services/%s", project, location, serviceID)
-	// Cloud Run regional CPU quota check. When SIM_GCP_CPU_QUOTA_PER_REGION
-	// is set, each fresh revision deploy debits its CPU load against the
-	// per-(project, region) sliding-window budget. Reproduces /
-	// deterministically — the live cloud rejects with this same
-	// error when the regional cpu_allocation quota is exhausted.
+	// Debit the revision's CPU against the per-project, per-region sliding-window
+	// budget SIM_GCP_CPU_QUOTA_PER_REGION sets; an exhausted budget fails the
+	// deploy with Cloud Run's quota error.
 	if !regionalCPUQuotaInstance.tryDebit(project, location, serviceCPULoad(svc)) {
 		regionalCPUQuotaErrorJSON(w, name)
 		return ServiceV2{}, false
@@ -799,10 +770,7 @@ func updateCloudRunService(w http.ResponseWriter, existing, update ServiceV2) (S
 		return ServiceV2{}, false
 	}
 
-	// A new revision's CPU load is charged against the regional
-	// sliding-window quota — a quota-exhausted UpdateService is the
-	// failure mode behind the Cloud Run functions overlay-and-swap path,
-	// which replaces the build output with the runtime overlay image.
+	// A new revision's CPU load debits the regional budget too.
 	if templateChanged && !regionalCPUQuotaInstance.tryDebit(project, location, serviceCPULoad(update)) {
 		regionalCPUQuotaErrorJSON(w, existing.Name)
 		return ServiceV2{}, false
@@ -889,7 +857,6 @@ func registerCloudRunServicesV2(srv *sim.Server) {
 		crOperations = sim.MakeStore[Operation](srv.DB(), "operations")
 	}
 
-	// CreateService: POST /v2/projects/{project}/locations/{location}/services?serviceId=<id>
 	srv.HandleFunc("POST /v2/projects/{project}/locations/{location}/services", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		location := sim.PathParam(r, "location")
@@ -923,10 +890,7 @@ func registerCloudRunServicesV2(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, lro)
 	})
 
-	// GetService: GET /v2/projects/{project}/locations/{location}/services/{service}
-	// The {service} wildcard also captures the GET-side IAM verb
-	// `{service}:getIamPolicy` (Go's mux can't spell `{id}:verb`); split
-	// on the colon and dispatch to the shared IAM handler.
+	// {service} also captures the GET verb `{service}:getIamPolicy`.
 	srv.HandleFunc("GET /v2/projects/{project}/locations/{location}/services/{service}", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		location := sim.PathParam(r, "location")
@@ -953,7 +917,6 @@ func registerCloudRunServicesV2(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, svc)
 	})
 
-	// ListServices: GET /v2/projects/{project}/locations/{location}/services
 	srv.HandleFunc("GET /v2/projects/{project}/locations/{location}/services", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		location := sim.PathParam(r, "location")
@@ -961,7 +924,6 @@ func registerCloudRunServicesV2(srv *sim.Server) {
 		gcpWritePage(w, r, services, prefix, "services", func(s ServiceV2) string { return s.Name })
 	})
 
-	// DeleteService: DELETE /v2/projects/{project}/locations/{location}/services/{service}
 	srv.HandleFunc("DELETE /v2/projects/{project}/locations/{location}/services/{service}", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		location := sim.PathParam(r, "location")
@@ -980,12 +942,6 @@ func registerCloudRunServicesV2(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, lro)
 	})
 
-	// UpdateService is not invoked by sockerless today (the backend
-	// recreates services rather than patching them). Implement it
-	// anyway so terraform's `google_cloud_run_v2_service` resource
-	// round-trips against the sim — every cloud-API call sockerless
-	// or its declarative-driver counterparts touch must be implemented
-	// at fidelity.
 	srv.HandleFunc("PATCH /v2/projects/{project}/locations/{location}/services/{service}", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		location := sim.PathParam(r, "location")
@@ -1003,21 +959,16 @@ func registerCloudRunServicesV2(srv *sim.Server) {
 			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
-		// The etag is read off the request as sent, before any mask merge
-		// rewrites the body, so a mask that does not name it cannot smuggle
-		// the condition away.
+		// Read the etag as sent, before the mask merge rewrites the body, so a mask
+		// that omits it cannot drop the condition.
 		if !cloudRunEtagOK(w, "service", existing.Name, existing.Etag, update.Etag) {
 			return
 		}
 
-		// Honor updateMask: real Cloud Run v2 merges only the masked
-		// fields into the existing service. A top-level mask like
-		// "template" replaces the whole template; a sub-path mask like
-		// "template.containers" replaces only that leaf, preserving the
-		// rest of the template. A mask naming an unknown or output-only
-		// field is rejected with 400 INVALID_ARGUMENT.
-		// terraform-provider-google always sends a mask; an absent mask
-		// replaces all mutable fields.
+		// Cloud Run v2 merges only the masked fields: "template" replaces the whole
+		// template, "template.containers" only that leaf, and an unknown or
+		// output-only path is 400 INVALID_ARGUMENT. Without a mask, every mutable
+		// field is replaced.
 		if mask := r.URL.Query().Get("updateMask"); mask != "" {
 			merged, err := applyServiceUpdateMask(existing, update, mask)
 			if err != nil {
@@ -1085,13 +1036,11 @@ func registerCloudRunServicesV2(srv *sim.Server) {
 		}
 	})
 
-	// The colon-verb fan-in on the projects/{project}/locations/{location}
-	// operation collection. That URI is one collection for every service the
-	// simulator serves under it — Cloud Run, API Gateway, Artifact Registry,
-	// Cloud Build's regional operations, Eventarc, Memorystore for Redis and
-	// Cloud Logging's project scope all address their operations there — so
-	// this one handler dispatches both custom methods those documents declare
-	// on it: google.longrunning WaitOperation and CancelOperation.
+	// projects/{project}/locations/{location}/operations is one collection for
+	// every service the simulator serves under it (Cloud Run, API Gateway,
+	// Artifact Registry, Cloud Build's regional operations, Eventarc, Memorystore
+	// for Redis, Cloud Logging), so this one handler serves the WaitOperation and
+	// CancelOperation their documents declare on it.
 	operationVerb := func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		location := sim.PathParam(r, "location")
@@ -1128,9 +1077,8 @@ func registerCloudRunServicesV2(srv *sim.Server) {
 		}
 	}
 	srv.HandleFunc("POST /v2/projects/{project}/locations/{location}/operations/{opAction}", operationVerb)
-	// The Cloud Run Admin v1 API publishes the same google.longrunning
-	// WaitOperation and CancelOperation over the operation records both API
-	// versions share. One collection, two spellings.
+	// The Cloud Run Admin v1 API publishes the same WaitOperation and
+	// CancelOperation over the shared operation records.
 	srv.HandleFunc("POST /v1/projects/{project}/locations/{location}/operations/{opAction}", operationVerb)
 
 	registerCloudRunFrontEnd(srv)

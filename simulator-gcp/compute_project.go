@@ -9,21 +9,10 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// The Compute Engine project resource and the verbs that write it.
-//
-// A project is not created through Compute Engine: it is the Cloud Resource
-// Manager project the caller addresses, by ID or number, and a read answers
-// with the defaults Compute applies until something is set. The verbs beside it each write one
-// part of it: the common instance metadata every VM inherits, where usage
-// reports are delivered, the network tier new resources default to, and the
-// Cloud Armor tier the project is on.
-//
-// Shared VPC lives here too. A host project lends its network to service
-// projects, so the association is a property of the projects rather than of any
-// resource in them: enabling a host records it, attaching a service project
-// records the pair, and the reads report both directions.
-// gcpComputeProjects holds each project's Compute Engine resource, its
-// commonInstanceMetadata among it.
+// The Compute Engine project resource is the Cloud Resource Manager project
+// the caller addresses by ID or number; a read answers Compute's defaults
+// until a verb sets something. Shared VPC lives here too: the host and service
+// association is a property of the projects.
 var gcpComputeProjects sim.Store[map[string]any]
 
 func registerComputeProject(srv *sim.Server) {
@@ -88,9 +77,8 @@ func registerComputeProject(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, held)
 	}))
 
-	// Each verb reads one member from its request body and writes it onto the
-	// project, which is what the read beside it then reports. Mounted at
-	// literal paths so the surface tables can see them.
+	// Each verb writes one request member onto the project. Mount at literal paths
+	// so the surface tables see them.
 	setMember := func(verb, member, into string) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
 			var body map[string]any
@@ -113,9 +101,8 @@ func registerComputeProject(srv *sim.Server) {
 	srv.HandleFunc("POST /compute/v1/projects/{project}/setCloudArmorTier",
 		inProject(setMember("setCloudArmorTier", "cloudArmorTier", "cloudArmorTier")))
 
-	// The metadata every instance in the project inherits. It carries a
-	// fingerprint for optimistic concurrency, the way an instance's own
-	// metadata does.
+	// The metadata every instance inherits, guarded by a fingerprint as an
+	// instance's own metadata is.
 	srv.HandleFunc("POST /compute/v1/projects/{project}/setCommonInstanceMetadata", inProject(func(w http.ResponseWriter, r *http.Request) {
 		var metadata map[string]any
 		if err := sim.ReadJSON(r, &metadata); err != nil {
@@ -128,8 +115,7 @@ func registerComputeProject(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, operation(r, "setCommonInstanceMetadata"))
 	}))
 
-	// Where Compute Engine delivers the project's usage reports. An empty
-	// body turns reporting off, which is how the API expresses it.
+	// An empty body turns usage reporting off.
 	srv.HandleFunc("POST /compute/v1/projects/{project}/setUsageExportBucket", inProject(func(w http.ResponseWriter, r *http.Request) {
 		var location map[string]any
 		if err := sim.ReadJSON(r, &location); err != nil {
@@ -145,8 +131,6 @@ func registerComputeProject(srv *sim.Server) {
 		})
 		sim.WriteJSON(w, http.StatusOK, operation(r, "setUsageExportBucket"))
 	}))
-
-	// ── Shared VPC ──────────────────────────────────────────────────────
 
 	// A project's own host status, and the host it is attached to.
 	xpnStatus := func(project string) (isHost bool, host string) {
@@ -175,8 +159,8 @@ func registerComputeProject(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, operation(r, "disableXpnHost"))
 	}))
 
-	// getXpnHost answers with the host project a service project is attached
-	// to — the whole Project resource, as the method's response declares.
+	// getXpnHost answers the whole Project the service project is attached to, as
+	// the method's response declares.
 	srv.HandleFunc("GET /compute/v1/projects/{project}/getXpnHost", inProject(func(w http.ResponseWriter, r *http.Request) {
 		_, host := xpnStatus(sim.PathParam(r, "project"))
 		if host == "" {
@@ -262,8 +246,7 @@ func registerComputeProject(srv *sim.Server) {
 		})
 	}))
 
-	// The hosts an organization has. Every project recorded as a host is one,
-	// which is the same set enableXpnHost writes.
+	// An organization's hosts are every project enableXpnHost recorded.
 	srv.HandleFunc("POST /compute/v1/projects/{project}/listXpnHosts", inProject(func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			Organization string `json:"organization"`
@@ -290,12 +273,8 @@ func registerComputeProject(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"kind": "compute#xpnHostList", "items": hosts})
 	}))
 
-	// ── Moving a resource between zones ─────────────────────────────────
-
-	// moveDisk and moveInstance re-home a resource onto another zone. The
-	// resource keeps its name and its contents; only the zone in its key
-	// changes, which is what makes the move visible to a read in the new zone
-	// and a not-found in the old one.
+	// moveDisk and moveInstance re-home a resource onto another zone under a new
+	// key, keeping its name and contents, so a read finds it only in the new zone.
 	srv.HandleFunc("POST /compute/v1/projects/{project}/moveDisk", func(w http.ResponseWriter, r *http.Request) {
 		computeMoveZonalResource(w, r, "disks", "targetDisk", gcpComputeZoneDisks)
 	})
@@ -321,9 +300,8 @@ func computeXpnResourceIDs(entry map[string]any) []string {
 	return ids
 }
 
-// computeMoveZonalResource re-homes one zonal resource onto the zone the
-// request names. The resource is the same resource afterwards — same name,
-// same contents — so it moves under a new key rather than being recreated.
+// computeMoveZonalResource re-homes a zonal resource onto the requested zone
+// under a new key; it is the same resource, not a recreation.
 func computeMoveZonalResource[T any](w http.ResponseWriter, r *http.Request, collection, member string, store sim.Store[T]) {
 	project := sim.PathParam(r, "project")
 	var req map[string]any

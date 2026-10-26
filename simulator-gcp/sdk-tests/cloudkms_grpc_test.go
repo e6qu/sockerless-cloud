@@ -22,18 +22,12 @@ import (
 	"google.golang.org/protobuf/types/known/wrapperspb"
 )
 
-// grpcKmsCRC32CTable is the CRC32C table used to compute integrity checksums
-// the KMS gRPC API echoes back (verifiedPlaintextCrc32C, signatureCrc32C, ...).
 var grpcKmsCRC32CTable = crc32.MakeTable(crc32.Castagnoli)
 
-// kmsCRC32C computes the CRC32C checksum the KMS API uses for its integrity
-// fields.
 func kmsCRC32C(b []byte) int64 { return int64(crc32.Checksum(b, grpcKmsCRC32CTable)) }
 
-// newKMSGRPCClient builds the high-level cloud.google.com/go/kms.KeyManagementClient
-// over gRPC (its only transport), pointed at the simulator's gRPC port. The KMS
-// SDK has no *_EMULATOR_HOST coordinate, so the connection is supplied directly
-// via option.WithGRPCConn — the same pattern the logging gRPC test uses.
+// newKMSGRPCClient passes the connection through option.WithGRPCConn: the
+// Cloud KMS client speaks only gRPC and reads no *_EMULATOR_HOST coordinate.
 func newKMSGRPCClient(t *testing.T) *kms.KeyManagementClient {
 	t.Helper()
 	conn, err := grpc.NewClient(grpcAddr, simGRPCDialOptions(simTokenSource())...)
@@ -46,8 +40,6 @@ func newKMSGRPCClient(t *testing.T) *kms.KeyManagementClient {
 	return cli
 }
 
-// kmsKeyRingForTest provisions a unique KeyRing under a project/location and
-// returns its full name.
 func kmsKeyRingForTest(t *testing.T, c *kms.KeyManagementClient, ringID string) string {
 	t.Helper()
 	parent := "projects/kms-grpc-project/locations/global"
@@ -61,9 +53,8 @@ func kmsKeyRingForTest(t *testing.T, c *kms.KeyManagementClient, ringID string) 
 	return kr.GetName()
 }
 
-// kmsListAllCryptoKeyVersions exhausts the iterator the high-level client
-// exposes for ListCryptoKeyVersions, so the assertion does not depend on a
-// single-page response.
+// kmsListAllCryptoKeyVersions exhausts the iterator so the assertion does not
+// depend on a single-page response.
 func kmsListAllCryptoKeyVersions(t *testing.T, c *kms.KeyManagementClient, parent string) []*kmspb.CryptoKeyVersion {
 	t.Helper()
 	it := c.ListCryptoKeyVersions(ctx, &kmspb.ListCryptoKeyVersionsRequest{Parent: parent})
@@ -79,11 +70,8 @@ func kmsListAllCryptoKeyVersions(t *testing.T, c *kms.KeyManagementClient, paren
 	return out
 }
 
-// kmsFirstVersionName returns the full name of the first (lowest-numbered)
-// CryptoKeyVersion under a CryptoKey. Asymmetric-sign / asymmetric-decrypt /
-// MAC keys have no primary version (only ENCRYPT_DECRYPT keys do), so the test
-// must address a specific version by name — CreateCryptoKey auto-provisions
-// version 1, which is what this resolves.
+// kmsFirstVersionName names version 1, which CreateCryptoKey provisions:
+// asymmetric and MAC keys have no primary version to address.
 func kmsFirstVersionName(t *testing.T, c *kms.KeyManagementClient, keyName string) string {
 	t.Helper()
 	versions := kmsListAllCryptoKeyVersions(t, c, keyName)
@@ -96,13 +84,11 @@ func TestCloudKMS_GRPC_KeyRingCryptoKeyCRUD(t *testing.T) {
 	c := newKMSGRPCClient(t)
 	ringName := kmsKeyRingForTest(t, c, "grpc-ring-crud")
 
-	// GetKeyRing returns what CreateKeyRing stored.
 	kr, err := c.GetKeyRing(ctx, &kmspb.GetKeyRingRequest{Name: ringName})
 	require.NoError(t, err)
 	require.Equal(t, ringName, kr.GetName())
 	require.NotNil(t, kr.GetCreateTime())
 
-	// Re-create the same ring → AlreadyExists.
 	_, err = c.CreateKeyRing(ctx, &kmspb.CreateKeyRingRequest{
 		Parent:    "projects/kms-grpc-project/locations/global",
 		KeyRingId: "grpc-ring-crud",
@@ -110,7 +96,6 @@ func TestCloudKMS_GRPC_KeyRingCryptoKeyCRUD(t *testing.T) {
 	})
 	requireGRPCCode(t, err, codes.AlreadyExists)
 
-	// CreateCryptoKey (symmetric, auto primary version).
 	keyName := ringName + "/cryptoKeys/sym"
 	ck, err := c.CreateCryptoKey(ctx, &kmspb.CreateCryptoKeyRequest{
 		Parent:      ringName,
@@ -127,13 +112,11 @@ func TestCloudKMS_GRPC_KeyRingCryptoKeyCRUD(t *testing.T) {
 	require.NotNil(t, ck.GetPrimary(), "ENCRYPT_DECRYPT key must get an initial primary version")
 	require.Equal(t, kmspb.CryptoKeyVersion_ENABLED, ck.GetPrimary().GetState())
 
-	// GetCryptoKey returns the same key, with the primary.
 	got, err := c.GetCryptoKey(ctx, &kmspb.GetCryptoKeyRequest{Name: keyName})
 	require.NoError(t, err)
 	require.Equal(t, keyName, got.GetName())
 	require.NotNil(t, got.GetPrimary())
 
-	// ListCryptoKeys (via the high-level iterator) includes the key.
 	keyIt := c.ListCryptoKeys(ctx, &kmspb.ListCryptoKeysRequest{Parent: ringName})
 	found := false
 	for {
@@ -148,7 +131,6 @@ func TestCloudKMS_GRPC_KeyRingCryptoKeyCRUD(t *testing.T) {
 	}
 	require.True(t, found, "ListCryptoKeys must include the created key")
 
-	// ListKeyRings includes the ring.
 	ringIt := c.ListKeyRings(ctx, &kmspb.ListKeyRingsRequest{Parent: "projects/kms-grpc-project/locations/global"})
 	ringFound := false
 	for {
@@ -163,7 +145,6 @@ func TestCloudKMS_GRPC_KeyRingCryptoKeyCRUD(t *testing.T) {
 	}
 	require.True(t, ringFound, "ListKeyRings must include the created ring")
 
-	// GetKeyRing on a missing ring → NotFound.
 	_, err = c.GetKeyRing(ctx, &kmspb.GetKeyRingRequest{Name: "projects/kms-grpc-project/locations/global/keyRings/never"})
 	requireGRPCCode(t, err, codes.NotFound)
 }
@@ -199,7 +180,6 @@ func TestCloudKMS_GRPC_SymmetricEncryptDecrypt(t *testing.T) {
 	require.Equal(t, kmsCRC32C(enc.GetCiphertext()), enc.GetCiphertextCrc32C().GetValue())
 	require.Equal(t, ck.GetPrimary().GetName(), enc.GetName())
 
-	// Decrypt recovers the original plaintext.
 	dec, err := c.Decrypt(ctx, &kmspb.DecryptRequest{
 		Name:                        keyName,
 		Ciphertext:                  enc.GetCiphertext(),
@@ -239,7 +219,6 @@ func TestCloudKMS_GRPC_AsymmetricSignAndVerify(t *testing.T) {
 	versionName := kmsFirstVersionName(t, c, keyName)
 	require.Equal(t, kmspb.CryptoKey_ASYMMETRIC_SIGN, ck.GetPurpose())
 
-	// Sign a digest.
 	msg := []byte("message to sign")
 	digest := sha256.Sum256(msg)
 	signResp, err := c.AsymmetricSign(ctx, &kmspb.AsymmetricSignRequest{
@@ -253,7 +232,6 @@ func TestCloudKMS_GRPC_AsymmetricSignAndVerify(t *testing.T) {
 	require.NotEmpty(t, signResp.GetSignature())
 	require.Equal(t, kmsCRC32C(signResp.GetSignature()), signResp.GetSignatureCrc32C().GetValue())
 
-	// Fetch the real public key and verify the signature with crypto/rsa.
 	pkResp, err := c.GetPublicKey(ctx, &kmspb.GetPublicKeyRequest{Name: versionName})
 	require.NoError(t, err)
 	require.NotEmpty(t, pkResp.GetPem())
@@ -290,7 +268,6 @@ func TestCloudKMS_GRPC_AsymmetricDecrypt(t *testing.T) {
 	versionName := kmsFirstVersionName(t, c, keyName)
 	require.Equal(t, kmspb.CryptoKey_ASYMMETRIC_DECRYPT, ck.GetPurpose())
 
-	// Fetch the public key and encrypt a message with it (OAEP/SHA-256).
 	pkResp, err := c.GetPublicKey(ctx, &kmspb.GetPublicKeyRequest{Name: versionName})
 	require.NoError(t, err)
 	rsaPub := parseKMSPEMPublicKey(t, pkResp.GetPem()).(*rsa.PublicKey)
@@ -299,7 +276,6 @@ func TestCloudKMS_GRPC_AsymmetricDecrypt(t *testing.T) {
 	ciphertext, err := rsa.EncryptOAEP(sha256.New(), rand.Reader, rsaPub, plaintext, nil)
 	require.NoError(t, err)
 
-	// The sim decrypts with the real private key.
 	dec, err := c.AsymmetricDecrypt(ctx, &kmspb.AsymmetricDecryptRequest{
 		Name:             versionName,
 		Ciphertext:       ciphertext,
@@ -394,7 +370,6 @@ func TestCloudKMS_GRPC_RawEncryptDecrypt(t *testing.T) {
 	require.NotEmpty(t, enc.GetCiphertext())
 	require.Equal(t, int32(16), enc.GetTagLength(), "AES-GCM tag is 16 bytes")
 
-	// RawDecrypt reverses it.
 	dec, err := c.RawDecrypt(ctx, &kmspb.RawDecryptRequest{
 		Name:                        versionName,
 		Ciphertext:                  enc.GetCiphertext(),
@@ -454,7 +429,6 @@ func TestCloudKMS_GRPC_CreateCryptoKeyVersionAndDestroyRestore(t *testing.T) {
 	ringName := kmsKeyRingForTest(t, c, "grpc-ckv-lifecycle")
 	keyName := ringName + "/cryptoKeys/sym"
 
-	// Skip the initial version so CreateCryptoKeyVersion provisions the first.
 	_, err := c.CreateCryptoKey(ctx, &kmspb.CreateCryptoKeyRequest{
 		Parent:                     ringName,
 		CryptoKeyId:                "sym",
@@ -468,7 +442,6 @@ func TestCloudKMS_GRPC_CreateCryptoKeyVersionAndDestroyRestore(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// CreateCryptoKeyVersion mints version 1.
 	v1, err := c.CreateCryptoKeyVersion(ctx, &kmspb.CreateCryptoKeyVersionRequest{
 		Parent: keyName,
 		CryptoKeyVersion: &kmspb.CryptoKeyVersion{
@@ -479,16 +452,13 @@ func TestCloudKMS_GRPC_CreateCryptoKeyVersionAndDestroyRestore(t *testing.T) {
 	require.Equal(t, keyName+"/cryptoKeyVersions/1", v1.GetName())
 	require.Equal(t, kmspb.CryptoKeyVersion_ENABLED, v1.GetState())
 
-	// GetCryptoKeyVersion returns the same version.
 	got, err := c.GetCryptoKeyVersion(ctx, &kmspb.GetCryptoKeyVersionRequest{Name: v1.GetName()})
 	require.NoError(t, err)
 	require.Equal(t, v1.GetName(), got.GetName())
 
-	// ListCryptoKeyVersions includes it.
 	listed := kmsListAllCryptoKeyVersions(t, c, keyName)
 	require.Len(t, listed, 1)
 
-	// Destroy → DESTROY_SCHEDULED.
 	destroyed, err := c.DestroyCryptoKeyVersion(ctx, &kmspb.DestroyCryptoKeyVersionRequest{Name: v1.GetName()})
 	require.NoError(t, err)
 	require.Equal(t, kmspb.CryptoKeyVersion_DESTROY_SCHEDULED, destroyed.GetState())
@@ -498,7 +468,6 @@ func TestCloudKMS_GRPC_CreateCryptoKeyVersionAndDestroyRestore(t *testing.T) {
 	_, err = c.DestroyCryptoKeyVersion(ctx, &kmspb.DestroyCryptoKeyVersionRequest{Name: v1.GetName()})
 	requireGRPCCode(t, err, codes.FailedPrecondition)
 
-	// Restore → DISABLED.
 	restored, err := c.RestoreCryptoKeyVersion(ctx, &kmspb.RestoreCryptoKeyVersionRequest{Name: v1.GetName()})
 	require.NoError(t, err)
 	require.Equal(t, kmspb.CryptoKeyVersion_DISABLED, restored.GetState())
@@ -577,9 +546,6 @@ func TestCloudKMS_GRPC_UpdateCryptoKeyLabels(t *testing.T) {
 	require.Equal(t, "sim", updated.GetLabels()["team"])
 }
 
-// helpers
-
-// requireGRPCCode asserts the error is a gRPC error with the expected code.
 func requireGRPCCode(t *testing.T, err error, want codes.Code) {
 	t.Helper()
 	require.Error(t, err)
@@ -588,8 +554,6 @@ func requireGRPCCode(t *testing.T, err error, want codes.Code) {
 	require.Equal(t, want, st.Code())
 }
 
-// parseKMSPEMPublicKey parses a PKIX PEM-encoded public key (the form KMS
-// returns from GetPublicKey).
 func parseKMSPEMPublicKey(t *testing.T, pemStr string) any {
 	t.Helper()
 	block, _ := pem.Decode([]byte(pemStr))

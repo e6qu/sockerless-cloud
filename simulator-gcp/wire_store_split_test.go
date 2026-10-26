@@ -7,16 +7,11 @@ import (
 	"testing"
 )
 
-// These tests pin the wire/store split for resources whose persisted
-// rows carry data their Discovery schemas don't define (sockerless
-// wiring, membership served by a sibling method, materialized query
-// results). Two invariants per resource:
-//
-//  1. The wire shape never carries the store-only member.
-//  2. A persisted row (the exact JSON sim.Store has always written,
-//     including rows written before the wire/store split) unmarshals
-//     with the store-only member intact, so SIM_* persistence restores
-//     it across a simulator restart.
+// These tests pin the wire/store split for resources whose stored rows carry
+// data their Discovery schemas do not define (membership a sibling method
+// serves, materialized results): the wire shape never carries the store-only
+// member, and a stored row, including one written before the split, decodes
+// with it intact, so persistence restores it across a restart.
 
 func assertNoJSONKeys(t *testing.T, v any, keys ...string) {
 	t.Helper()
@@ -79,9 +74,8 @@ func assertTypeHasNoJSONKeys(t *testing.T, typ reflect.Type, keys ...string) {
 }
 
 func TestStoredFunctionRoundTrip(t *testing.T) {
-	// Decode the request shape a client sends — also the exact row shape
-	// sim.Store persists — and confirm wire() recovers it verbatim with
-	// no sim-only fields ever appearing on the wire.
+	// Decode the request shape a client sends, which is also the stored row, and
+	// check wire() recovers it with no store-only member on the wire.
 	row := `{
 		"name": "projects/p/locations/l/functions/f",
 		"state": "ACTIVE",
@@ -100,11 +94,9 @@ func TestStoredFunctionRoundTrip(t *testing.T) {
 		t.Fatalf("decode lost serviceConfig members: %+v", fn.ServiceConfig)
 	}
 
-	// wire() narrows the stored serviceConfig to the schema's member set, and
-	// the stored type shadows the wire Function's serviceConfig field — so a
-	// wire() that forgot to copy the shadowed member would emit a Function with
-	// no serviceConfig at all. Compare the emitted member set exactly: a lost
-	// serviceConfig, a dropped member and an invented one all fail.
+	// wire() narrows the stored serviceConfig, which shadows the wire Function's,
+	// so compare the emitted member set exactly: a lost serviceConfig, a dropped
+	// member and an invented one all fail.
 	wireJSON, err := json.Marshal(fn.wire())
 	if err != nil {
 		t.Fatalf("marshal wire function: %v", err)

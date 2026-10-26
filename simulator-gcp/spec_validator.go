@@ -19,15 +19,11 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// Runtime wire-shape validation against the vendored Discovery documents
-// (specs/cloud-api/gcp/). Armed when SOCKERLESS_SPEC_VALIDATE (report
-// file) is set; SOCKERLESS_SPEC_DIR must then point at the vendored spec
-// directory. Every JSON success response whose method+path matches a
-// Discovery REST method is validated member-by-member against the
-// method's response schema: members the schema doesn't define and JSON
-// type mismatches are violations. Exchanges that match no Discovery
-// method are skipped — the static conformance gate
-// (spec_conformance_test.go) owns route-shape fidelity.
+// Runtime wire-shape validation against the vendored Discovery documents,
+// armed by SOCKERLESS_SPEC_VALIDATE (the report file) with
+// SOCKERLESS_SPEC_DIR naming the specs. Every JSON success response matching a
+// Discovery method is checked member by member against the response schema;
+// spec_conformance_test.go owns route shape.
 
 // discoverySchema is one node of a Discovery document schema: either a
 // $ref to a named schema in the same document, or an inline constraint
@@ -49,13 +45,10 @@ type discoverySchema struct {
 	compileOnce sync.Once
 }
 
-// discoveryEnumIsExhaustive reports whether a field's declared enum lists every
-// value the service uses. Most do. Cloud Run's condition reasons do not, and
-// the evidence is the real client: gcloud's cancellation poller reads
-// condition["reason"] and compares it to the literal "Cancelled" — and
-// "Stopped" for a stop — neither of which the document lists. Judging that
-// field against the document would fail a response the client requires, so it
-// is left unjudged rather than judged wrongly.
+// discoveryEnumIsExhaustive reports whether a field's enum lists every value
+// the service uses. Cloud Run's condition reasons do not: gcloud's
+// cancellation poller compares reason to "Cancelled" and "Stopped", which the
+// document omits, so that field is not judged.
 func discoveryEnumIsExhaustive(fieldPath string) bool {
 	for _, incomplete := range []string{
 		".reason", ".executionReason", ".revisionReason",
@@ -67,17 +60,11 @@ func discoveryEnumIsExhaustive(fieldPath string) bool {
 	return true
 }
 
-// patternRE returns the compiled form of a schema's declared pattern, or nil
-// when it declares none or the expression cannot be compiled — the validator
-// refuses to judge what it cannot read.
-//
-// Discovery patterns are written unanchored but mean a whole value: every one
-// in the vendored corpus is a format for the entire field — a Compute resource
-// name, a forty-character fingerprint, an IPv4 address, a tagValues id — and
-// as a substring search an address pattern would admit any text that merely
-// contains an address. So the expression is anchored here. This is the one
-// place Discovery and Smithy differ: a Smithy pattern anchors itself when it
-// means to, and is matched as written.
+// patternRE returns the compiled, anchored form of a schema's pattern, or nil
+// when it declares none or cannot be compiled. Discovery patterns are written
+// unanchored but describe a whole value (a resource name, a fingerprint, an
+// address), so they are anchored here, unlike Smithy patterns, which anchor
+// themselves when they mean to.
 func (sch *discoverySchema) patternRE() *regexp.Regexp {
 	sch.compileOnce.Do(func() {
 		if sch.Pattern == "" {
@@ -109,10 +96,8 @@ type specSeg struct {
 	suffix  string
 }
 
-// specTemplate is one compiled URI spelling of a method (flatPath, path,
-// and media-download/upload variants are all real spellings). score
-// counts literal characters — when several templates match a request,
-// the most literal (most specific) one wins.
+// specTemplate is one URI spelling of a method (flatPath, path, media
+// variants); score counts literal characters, and the most literal match wins.
 type specTemplate struct {
 	segs []specSeg
 	// mediaDownload marks the alt=media /download service-path variant:
@@ -130,12 +115,9 @@ type discoverySpecMethod struct {
 	templates   []specTemplate
 }
 
-// discoverySpecMountPrefixes maps simulator-local mount prefixes to the
-// Discovery document they disambiguate (same surface as gcpMountPrefixes
-// in spec_conformance_test.go): the collapsed single-port simulator
-// serves Spanner under /spanner so its paths don't collide with Cloud
-// SQL's. Requests under a mount prefix match only that document's
-// methods (after stripping the prefix); other requests never match it.
+// discoverySpecMountPrefixes maps mount prefixes to the document they
+// disambiguate, as gcpMountPrefixes does: a request under a prefix matches
+// only that document's methods, after the prefix is stripped.
 var discoverySpecMountPrefixes = map[string]string{
 	"/spanner": "spanner-v1.discovery.json.gz",
 }
@@ -146,19 +128,11 @@ type discoveryIndex struct {
 	mounted        map[string][]*discoverySpecMethod
 }
 
-// applyDiscoverySupplement merges a document's supplement, if it has one, into
-// the schemas the validator checks against.
-//
-// A supplement declares members the API serves that its published Discovery
-// document does not, each with the evidence for it recorded beside it in the
-// file. Declaring them is what keeps them validated: the alternative — listing
-// each as an accepted violation — tolerates any value at all for the member,
-// including one the real API would never return.
-//
-// A supplement may only ADD. Supplementing a member the document already
-// declares is refused, because that would let a stale supplement quietly
-// override the published truth; when Google publishes a member, the supplement
-// entry has to go, and this is what makes it go loudly.
+// applyDiscoverySupplement merges a document's supplement into the schemas the
+// validator checks. A supplement declares members the API serves but its
+// document omits, with the evidence beside each, so they stay validated rather
+// than allowlisted. It may only add: supplementing a member the document
+// declares is refused, so a stale entry fails once Google publishes it.
 func applyDiscoverySupplement(dir string, doc *discoverySpecDoc) error {
 	path := filepath.Join(dir, strings.TrimSuffix(doc.file, ".discovery.json.gz")+".supplement.json")
 	body, err := os.ReadFile(path)
@@ -299,29 +273,11 @@ func loadDiscoveryIndex(dir string) (*discoveryIndex, error) {
 					score:         templateScore(segs),
 				})
 			}
-			// Both the expanded flatPath and the {+param} template path
-			// are real, equivalent spellings of the method URI. But a param
-			// segment with no literal prefix or suffix of its own consumes
-			// whatever request segment(s) land there unconstrained, no matter
-			// what they are -- and flatPath, being Discovery's own no-wildcard
-			// spelling of the identical operation, is always at least as
-			// discriminating wherever path carries one. cloudbilling's
-			// tasks.pushNotificationConfigs.create declares exactly a bare
-			// "v1/{+parent}" (the "pushNotificationConfigs" suffix lives only
-			// in the parent parameter's own regex pattern, which this indexer
-			// does not evaluate) and it matched POST /v1/token, an unrelated
-			// STS request. Firestore's documents.list declares
-			// "v1/{+parent}/{collectionId}" -- {collectionId} is a plain,
-			// non-greedy param, but still carries no prefix or suffix of its
-			// own -- and it matched operations.get requests once that
-			// method's own bare wildcard was excluded by an earlier, narrower
-			// version of this check that only looked at total literal-
-			// character score, which counts a shared literal prefix segment
-			// ({+parent}'s "v1") the same for every operation in the document
-			// and so does not by itself say anything discriminates. When
-			// flatPath already covers the method, an unconstrained-param path
-			// adds no coverage flatPath doesn't already provide, so it is
-			// dropped; keep it only when it is the method's sole spelling.
+			// The flatPath and {+param} path are equivalent spellings, but a param segment
+			// with no literal prefix or suffix consumes any request segment, so such a path
+			// can match unrelated requests (cloudbilling's bare "v1/{+parent}" matched
+			// POST /v1/token). flatPath is always at least as discriminating, so an
+			// unconstrained-param path is kept only when it is the method's sole spelling.
 			rels := []string{m.FlatPath, m.Path}
 			if m.Path != "" && m.FlatPath != "" && m.Path != m.FlatPath && hasUnconstrainedParam(splitSpecSegs(m.Path)) {
 				rels = []string{m.FlatPath}
@@ -420,7 +376,6 @@ func verifySchemaRefs(doc *discoverySpecDoc, sch *discoverySchema) error {
 	return nil
 }
 
-// splitSpecSegs compiles a joined method URI into per-segment matchers.
 func splitSpecSegs(p string) []specSeg {
 	p = strings.Trim(p, "/")
 	if p == "" {
@@ -446,12 +401,9 @@ func splitSpecSegs(p string) []specSeg {
 	return segs
 }
 
-// hasUnconstrainedParam reports whether segs contains a param segment (plain
-// or greedy) with no literal prefix or suffix of its own. Such a segment
-// consumes whatever request segment(s) land there regardless of their
-// content; a literal segment elsewhere in the same template does not offset
-// that. flatPath, Discovery's own no-wildcard spelling of the identical
-// operation, already covers every request such a template can match.
+// hasUnconstrainedParam reports whether segs holds a param segment with no
+// literal prefix or suffix, which consumes any request segment whatever other
+// literals the template has.
 func hasUnconstrainedParam(segs []specSeg) bool {
 	for _, s := range segs {
 		if s.isParam && s.prefix == "" && s.suffix == "" {
@@ -475,13 +427,11 @@ func templateScore(segs []specSeg) int {
 	return score
 }
 
-// matchSpecSegs reports whether the request path segments are one
-// spelling of the template. Greedy params consume one or more segments,
-// anchoring any literal suffix on the last consumed segment. A ":" in
-// the request marks a Discovery custom method (AIP-136 verb): only a
-// template that spells the verb literally may consume it — otherwise
-// ":listCollectionIds" requests would key to the sibling method whose
-// plain {param} sits in that position.
+// matchSpecSegs reports whether the request segments spell the template.
+// Greedy params consume one or more segments, anchoring a literal suffix on the
+// last. A ":" in the request marks an AIP-136 custom method that only a template
+// spelling the verb may consume, so ":listCollectionIds" never keys to a
+// sibling method's plain {param}.
 func matchSpecSegs(req []string, tmpl []specSeg) bool {
 	if len(tmpl) == 0 {
 		return len(req) == 0
@@ -537,14 +487,11 @@ type specMatch struct {
 	tmpl   *specTemplate
 }
 
-// match resolves a request to the most specific Discovery methods.
-// Several methods can tie: the collapsed single-port simulator serves
-// services that real GCP separates by hostname, and distinct services
-// describe identical URIs (eventarc and cloudbuild both own
-// "v1/projects/{p}/locations/{l}/triggers"). All equally-specific
-// candidates are returned; the response conforms when it satisfies any
-// of them. Paths under a simulator mount prefix match only the mounted
-// document, mirroring the simulator's routing.
+// match resolves a request to the most specific Discovery methods. Services
+// Google separates by host can describe one URI (Eventarc and Cloud Build both
+// own "v1/projects/{p}/locations/{l}/triggers"), so every equally specific
+// candidate is returned, and the response conforms when it satisfies any.
+// A path under a mount prefix matches only that document.
 func (idx *discoveryIndex) match(httpMethod, escapedPath string) []specMatch {
 	methods := idx.defaultMethods
 	for prefix, ms := range idx.mounted {
@@ -588,9 +535,9 @@ func (idx *discoveryIndex) match(httpMethod, escapedPath string) []specMatch {
 	return best
 }
 
-// armSpecValidator wires runtime shape validation onto the server when
-// SOCKERLESS_SPEC_VALIDATE is set. Hard failure when the spec dir is
-// missing: the operator asked for validation.
+// armSpecValidator wires runtime validation onto the server when
+// SOCKERLESS_SPEC_VALIDATE is set, failing hard when the spec directory is
+// missing.
 func armSpecValidator(srv *sim.Server) error {
 	if os.Getenv("SOCKERLESS_SPEC_VALIDATE") == "" {
 		return nil
@@ -611,11 +558,9 @@ func armSpecValidator(srv *sim.Server) error {
 		if ct != "" && !strings.Contains(ct, "json") {
 			return nil // non-JSON payload (media, OCI blobs, ...)
 		}
-		// The Docker/OCI distribution data plane is not a Discovery surface, and
-		// Cloud Logging v2's `GET v2/{+name}` template matches any /v2/ path, so
-		// an unskipped registry response would be validated against a
-		// LogExclusion. The same predicate the bearer middleware uses to exempt
-		// the registry decides it here, so the two cannot drift apart.
+		// The Docker/OCI data plane is no Discovery surface, and Cloud Logging's
+		// `GET v2/{+name}` matches any /v2/ path; skip registry paths with the
+		// predicate the bearer middleware uses.
 		if isOCIRegistryPath(req.URL.EscapedPath()) {
 			return nil
 		}
@@ -646,10 +591,8 @@ func armSpecValidator(srv *sim.Server) error {
 		} else if err := json.Unmarshal(respBody, &body); err != nil {
 			return []sim.SpecViolation{{Op: matches[0].method.op, Kind: "malformed-json", Field: "$", Detail: err.Error()}}
 		}
-		// The response conforms when it satisfies ANY equally-specific
-		// candidate; otherwise report the divergences of the closest one
-		// (fewest violations — the method the handler most plausibly
-		// implements).
+		// The response conforms when it satisfies any equally specific candidate;
+		// otherwise report the closest one's divergences.
 		var closest []sim.SpecViolation
 		for _, c := range matches {
 			if c.method.responseRef == "" {
@@ -659,11 +602,9 @@ func armSpecValidator(srv *sim.Server) error {
 			}
 			var out []sim.SpecViolation
 			if arr, ok := body.([]any); ok && isStreamingResponseOp(c.method.op) {
-				// Server-streaming REST method (Firestore runQuery / batchGet /
-				// runAggregationQuery): the wire body is a JSON array of stream
-				// elements — real GCP responds identically — while the Discovery
-				// schema describes a single element. Validate each element against
-				// the element schema rather than the whole array.
+				// A server-streaming REST method (Firestore runQuery, batchGet,
+				// runAggregationQuery) answers a JSON array whose elements the Discovery
+				// schema describes, so validate each element.
 				for i, el := range arr {
 					validateDiscoveryValue(c.method.doc, c.method.op, &discoverySchema{Ref: c.method.responseRef}, c.method.responseRef, fmt.Sprintf("$[%d]", i), el, &out)
 				}
@@ -712,11 +653,8 @@ func decodeStreamElements(respBody []byte) ([]any, error) {
 	return elements, nil
 }
 
-// isStreamingResponseOp reports whether op is a server-streaming REST method —
-// Firestore's queries and batchGet, Cloud Logging's entries.tail. These return
-// a JSON array of stream elements on the wire (matching real GCP); each element
-// conforms to the Discovery response schema, so the validator checks elements
-// individually rather than rejecting the array.
+// isStreamingResponseOp reports whether op is a server-streaming REST method:
+// Firestore's queries and batchGet, Cloud Logging's entries.tail.
 func isStreamingResponseOp(op string) bool {
 	return strings.HasSuffix(op, ":runQuery") ||
 		strings.HasSuffix(op, ":batchGet") ||
@@ -724,13 +662,11 @@ func isStreamingResponseOp(op string) bool {
 		strings.HasSuffix(op, "entries:tail")
 }
 
-// validateDiscoveryValue walks a decoded JSON value against a Discovery
-// schema, reporting members the schema doesn't define and JSON type
-// mismatches. owner names the nearest $ref-resolved schema for messages.
-// Rules: null is always acceptable (omitted member); "any" accepts every
-// value; int64/uint64-formatted fields are declared "type": "string" and
-// must be JSON strings; additionalProperties marks a map — values are
-// validated against it and keys are never unknown-field violations.
+// validateDiscoveryValue walks a decoded JSON value against a Discovery schema,
+// reporting undefined members and type mismatches. null is always acceptable,
+// "any" accepts everything, int64 and uint64 formats must be JSON strings, and
+// additionalProperties marks a map whose values are validated and whose keys
+// are never unknown.
 func validateDiscoveryValue(doc *discoverySpecDoc, op string, sch *discoverySchema, owner, path string, v any, out *[]sim.SpecViolation) {
 	if v == nil {
 		return
@@ -747,11 +683,9 @@ func validateDiscoveryValue(doc *discoverySpecDoc, op string, sch *discoverySche
 	}
 	switch sch.Type {
 	case "any":
-		// any JSON value
+		// Any JSON value.
 	case "object", "":
-		// A node with no type and no $ref constrains nothing beyond its
-		// declared properties (Discovery emits "object" everywhere, but
-		// stay permissive for typeless nodes).
+		// A typeless node constrains only its declared properties.
 		obj, ok := v.(map[string]any)
 		if !ok {
 			if sch.Type == "object" {
@@ -765,7 +699,7 @@ func validateDiscoveryValue(doc *discoverySpecDoc, op string, sch *discoverySche
 				continue
 			}
 			if sch.AdditionalProperties != nil {
-				// map schema: arbitrary keys, value-validated
+				// A map: arbitrary keys, validated values.
 				validateDiscoveryValue(doc, op, sch.AdditionalProperties, owner, path+"."+key, val, out)
 				continue
 			}
@@ -796,20 +730,14 @@ func validateDiscoveryValue(doc *discoverySpecDoc, op string, sch *discoverySche
 			mismatch(want)
 			return
 		}
-		// A declared pattern is part of the contract, and it is where the
-		// identity-bearing strings are pinned — a resource name, a fingerprint,
-		// an address. Checking the type alone accepts a value no client could
-		// send back.
+		// A declared pattern pins the identity-bearing strings: a type check alone
+		// accepts a value no client could send back.
 		if re := sch.patternRE(); re != nil && !re.MatchString(str) {
 			*out = append(*out, sim.SpecViolation{Op: op, Kind: "pattern-mismatch", Field: path,
 				Detail: fmt.Sprintf("spec (%s) requires %s, response has %q", owner, sch.Pattern, str)})
 		}
-		// An enum names every value the service uses for that field, and
-		// Discovery lists them all — including the *_UNSPECIFIED zero value.
-		// A response outside the set is a value the service does not have: a
-		// state invented to fill the field, or a spelling nobody defined. The
-		// type check cannot see it, because an invented value is still a
-		// string.
+		// Discovery lists every enum value the service uses, *_UNSPECIFIED included,
+		// so a value outside the set is invented; the type check cannot see it.
 		if len(sch.Enum) > 0 && discoveryEnumIsExhaustive(path) && !slices.Contains(sch.Enum, str) {
 			*out = append(*out, sim.SpecViolation{Op: op, Kind: "enum-mismatch", Field: path,
 				Detail: fmt.Sprintf("spec (%s) declares %s, response has %q",

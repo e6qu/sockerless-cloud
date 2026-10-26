@@ -14,10 +14,6 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// Cloud Run Jobs v2 uses REST API.
-// The cloud.google.com/go/run package uses gRPC by default,
-// so we use direct HTTP calls against the REST API.
-
 func TestCloudRun_CreateJob(t *testing.T) {
 	t.Parallel()
 	jobID := uniquename.New("test-job")
@@ -47,8 +43,8 @@ func TestCloudRun_CreateJob(t *testing.T) {
 	var result map[string]any
 	require.NoError(t, json.Unmarshal(data, &result), "body: %s", data)
 
-	// The response is a long-running operation that already completed, and it
-	// carries the created job as its embedded response.
+	// The response is an operation that already completed, carrying the created
+	// job as its response.
 	done, ok := result["done"].(bool)
 	require.True(t, ok, "the operation must report a boolean done: %s", data)
 	assert.True(t, done, "the create operation is complete")
@@ -59,9 +55,6 @@ func TestCloudRun_CreateJob(t *testing.T) {
 	assert.Equal(t, "projects/test-project/locations/us-central1/jobs/"+jobID, response["name"])
 }
 
-// createCloudRunJob creates a single-container Cloud Run job and requires the
-// create to succeed. The tests that exercise the other job methods need a job
-// to address; this is the job they address.
 func createCloudRunJob(t *testing.T, jobID string) {
 	t.Helper()
 	job := map[string]any{
@@ -110,8 +103,6 @@ func TestCloudRun_GetJob(t *testing.T) {
 
 func TestCloudRun_ListJobs(t *testing.T) {
 	t.Parallel()
-	// A list method is only worth anything if a job that exists reaches the
-	// caller, so the list must carry the job this test just created.
 	jobID := uniquename.New("list-job")
 	createCloudRunJob(t, jobID)
 
@@ -206,7 +197,6 @@ func TestCloudRun_RunJobLogsTheContainersOutput(t *testing.T) {
 		"the stdout log holds the container's line and nothing else")
 }
 
-// createAndRunJob creates a job and runs it, returning what the run started.
 func createAndRunJob(t *testing.T, jobID string) jobRun {
 	t.Helper()
 	job := map[string]any{
@@ -241,8 +231,7 @@ func createAndRunJob(t *testing.T, jobID string) jobRun {
 }
 
 // jobRun names what a RunJob call started: the operation, which completes when
-// the execution finishes, and the execution, which the operation's Execution
-// metadata names from the start.
+// the execution finishes, and the execution its metadata names from the start.
 type jobRun struct {
 	Operation string
 	Execution string
@@ -267,10 +256,9 @@ func readJobRun(t *testing.T, body io.Reader) jobRun {
 	return jobRun{Operation: lro.Name, Execution: lro.Metadata.Name}
 }
 
-// waitJobRun waits on the RunJob operation through the Cloud Run SDK, which
-// completes it when the execution finishes, and returns the settled execution
-// together with the operation's outcome: nil for an execution whose tasks all
-// succeeded, the operation's error otherwise.
+// waitJobRun waits on the RunJob operation through the Cloud Run SDK and
+// returns the settled execution with the operation's outcome: nil when every
+// task succeeded, the operation's error otherwise.
 func waitJobRun(t *testing.T, run jobRun) (map[string]any, error) {
 	t.Helper()
 	_, err := newJobsClient(t).RunJobOperation(run.Operation).Wait(ctx)
@@ -291,17 +279,14 @@ func getExecution(t *testing.T, execName string) map[string]any {
 	return result
 }
 
-// heldJob is a Cloud Run job execution whose container announced itself on
-// stdout and holds until the test releases it.
 type heldJob struct {
 	jobRun
 	release func()
 }
 
-// runHeldJob runs a job whose container prints marker and then holds until an
-// object named release appears in a Cloud Storage bucket the job mounts as a
-// volume. The test ends the hold by writing that object, so no fixed duration
-// decides how long the workload runs.
+// runHeldJob runs a job whose container prints marker and holds until an
+// object named release appears in a Cloud Storage bucket it mounts, so the
+// test, not a fixed duration, decides how long the workload runs.
 func runHeldJob(t *testing.T, jobID, marker string) heldJob {
 	t.Helper()
 	client := storageClient(t)
@@ -357,9 +342,8 @@ func TestCloudRun_ExecutionRunningState(t *testing.T) {
 	jobID := uniquename.New("status-running-job")
 	const marker = "status-running-marker"
 
-	// The container announces itself on stdout and holds until released, so
-	// the snapshot below is taken while a workload container is genuinely up
-	// rather than while the execution record merely claims one.
+	// The snapshot below is taken while a workload container is genuinely up, not
+	// while the record merely claims one.
 	run := runHeldJob(t, jobID, marker)
 	waitForJobLogMessage(t, jobID, marker)
 
@@ -369,8 +353,8 @@ func TestCloudRun_ExecutionRunningState(t *testing.T) {
 	assert.Equal(t, float64(0), exec["failedCount"])
 	assert.Empty(t, exec["completionTime"])
 
-	// The running task was a real container: once it exits, the execution
-	// settles from its exit status as one succeeded task.
+	// Once the container exits, the execution settles from its exit status as one
+	// succeeded task.
 	run.release()
 	done, err := waitJobRun(t, run.jobRun)
 	require.NoError(t, err)
@@ -397,10 +381,9 @@ func TestCloudRun_ExecutionCancelledState(t *testing.T) {
 	jobID := uniquename.New("status-cancel-job")
 	const marker = "status-cancel-marker"
 
-	// The container announces itself on stdout and then holds, never released,
-	// until it is cancelled. Cancelling a workload that had already exited would settle
-	// the execution from its exit status instead, leaving the cancelled count
-	// at zero and the assertions below unprovable.
+	// The container holds, never released, until cancelled: cancelling a workload
+	// that had already exited would settle the execution from its exit status and
+	// leave the cancelled count at zero.
 	run := runHeldJob(t, jobID, marker)
 	execName := run.Execution
 	waitForJobLogMessage(t, jobID, marker)
@@ -508,14 +491,12 @@ func TestCloudRun_ExecutionLogsRealOutput(t *testing.T) {
 	jobID := uniquename.New("exec-log-job")
 	_ = createAndRunJobWithCommand(t, jobID, []string{"echo", "real output from process"}, "5s")
 
-	// The process has to run and its stdout has to be ingested into Cloud
-	// Logging — both async in the sim — so wait for the line the process
-	// printed rather than sleeping. A failed log read fails the test here
-	// instead of looking like a line that has not arrived yet.
+	// The process must run and Cloud Logging must ingest its stdout, so wait for
+	// the line; a failed log read fails here rather than looking like a line still
+	// on its way.
 	waitForJobLogMessage(t, jobID, "real output from process")
 }
 
-// containsString reports whether want is an element of msgs.
 func containsString(msgs []string, want string) bool {
 	for _, m := range msgs {
 		if m == want {

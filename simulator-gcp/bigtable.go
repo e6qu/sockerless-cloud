@@ -46,11 +46,10 @@ type bigtableMemoryLayer struct {
 	Etag         string                `json:"etag"`
 }
 
-// bigtableResource stores the JSON body of resource families whose schema is
-// large and pass-through (app profiles, backups, authorized views, schema
-// bundles, logical/materialized views). The map preserves every field the
-// client sent so read-back is lossless; the sim sets server-managed fields
-// (name, etag, state) on top.
+// bigtableResource holds the JSON body of the large pass-through families (app
+// profiles, backups, authorized views, schema bundles, logical and
+// materialized views) as the client sent it; the simulator sets the
+// server-managed name, etag and state on top.
 type bigtableResource map[string]any
 
 var (
@@ -82,23 +81,18 @@ func registerBigtable(srv *sim.Server) {
 	bigtableLogicalView = sim.MakeStore[bigtableResource](srv.DB(), "bigtable_logical_views")
 	bigtableMatView = sim.MakeStore[bigtableResource](srv.DB(), "bigtable_materialized_views")
 
-	// Project-scoped operations list. (bigtableadmin's locations.list shares the
-	// identical GET /v2/projects/{project}/locations path already registered by
-	// Cloud Functions; the single shared route serves both services.)
+	// bigtableadmin's locations.list shares GET /v2/projects/{project}/locations
+	// with Cloud Functions, whose registration serves both.
 	srv.HandleFunc("GET /v2/operations/projects/{project}/operations", handleBigtableListOperations)
 
-	// Instances.
 	srv.HandleFunc("POST /v2/projects/{project}/instances", handleBigtableCreateInstance)
 	srv.HandleFunc("GET /v2/projects/{project}/instances", handleBigtableListInstances)
-	// {instance}:getIamPolicy / setIamPolicy / testIamPermissions ride the
-	// colon on the instance segment; the wildcard captures "name:verb".
 	srv.HandleFunc("POST /v2/projects/{project}/instances/{instanceAction}", handleBigtableInstanceAction)
 	srv.HandleFunc("GET /v2/projects/{project}/instances/{instance}", handleBigtableGetInstance)
 	srv.HandleFunc("PATCH /v2/projects/{project}/instances/{instance}", handleBigtablePartialUpdateInstance)
 	srv.HandleFunc("PUT /v2/projects/{project}/instances/{instance}", handleBigtableReplaceInstance)
 	srv.HandleFunc("DELETE /v2/projects/{project}/instances/{instance}", handleBigtableDeleteInstance)
 
-	// Clusters.
 	srv.HandleFunc("POST /v2/projects/{project}/instances/{instance}/clusters", handleBigtableCreateCluster)
 	srv.HandleFunc("GET /v2/projects/{project}/instances/{instance}/clusters", handleBigtableListClusters)
 	srv.HandleFunc("GET /v2/projects/{project}/instances/{instance}/clusters/{cluster}", handleBigtableGetCluster)
@@ -106,45 +100,37 @@ func registerBigtable(srv *sim.Server) {
 	srv.HandleFunc("PATCH /v2/projects/{project}/instances/{instance}/clusters/{cluster}", handleBigtablePartialUpdateCluster)
 	srv.HandleFunc("DELETE /v2/projects/{project}/instances/{instance}/clusters/{cluster}", handleBigtableDeleteCluster)
 
-	// Hot tablets + memory layers (cluster-scoped read surfaces).
 	srv.HandleFunc("GET /v2/projects/{project}/instances/{instance}/clusters/{cluster}/hotTablets", handleBigtableListHotTablets)
 	srv.HandleFunc("GET /v2/projects/{project}/instances/{instance}/clusters/{cluster}/memoryLayer", handleBigtableGetMemoryLayer)
 	srv.HandleFunc("PATCH /v2/projects/{project}/instances/{instance}/clusters/{cluster}/memoryLayer", handleBigtableUpdateMemoryLayer)
 	srv.HandleFunc("GET /v2/projects/{project}/instances/{instance}/clusters/{cluster}/memoryLayers", handleBigtableListMemoryLayers)
 
-	// Backups (cluster-scoped). The collection-level "backups:copy" rides the
-	// colon on the literal "backups" segment, so it is captured by the
-	// {backupsColl} wildcard (the literal "backups" POST above wins for create).
+	// "backups:copy" rides the colon on the literal "backups" segment, so
+	// {backupsColl} captures it; the literal POST wins for create.
 	srv.HandleFunc("POST /v2/projects/{project}/instances/{instance}/clusters/{cluster}/backups", handleBigtableCreateBackup)
 	srv.HandleFunc("GET /v2/projects/{project}/instances/{instance}/clusters/{cluster}/backups", handleBigtableListBackups)
 	srv.HandleFunc("POST /v2/projects/{project}/instances/{instance}/clusters/{cluster}/{backupsColl}", handleBigtableBackupCollectionAction)
-	// Backup IAM verbs ride the colon on the item segment.
 	srv.HandleFunc("POST /v2/projects/{project}/instances/{instance}/clusters/{cluster}/backups/{backupAction}", handleBigtableBackupItemAction)
 	srv.HandleFunc("GET /v2/projects/{project}/instances/{instance}/clusters/{cluster}/backups/{backup}", handleBigtableGetBackup)
 	srv.HandleFunc("PATCH /v2/projects/{project}/instances/{instance}/clusters/{cluster}/backups/{backup}", handleBigtablePatchBackup)
 	srv.HandleFunc("DELETE /v2/projects/{project}/instances/{instance}/clusters/{cluster}/backups/{backup}", handleBigtableDeleteBackup)
 
-	// App profiles.
 	srv.HandleFunc("POST /v2/projects/{project}/instances/{instance}/appProfiles", handleBigtableCreateAppProfile)
 	srv.HandleFunc("GET /v2/projects/{project}/instances/{instance}/appProfiles", handleBigtableListAppProfiles)
 	srv.HandleFunc("GET /v2/projects/{project}/instances/{instance}/appProfiles/{appProfile}", handleBigtableGetAppProfile)
 	srv.HandleFunc("PATCH /v2/projects/{project}/instances/{instance}/appProfiles/{appProfile}", handleBigtablePatchAppProfile)
 	srv.HandleFunc("DELETE /v2/projects/{project}/instances/{instance}/appProfiles/{appProfile}", handleBigtableDeleteAppProfile)
 
-	// Tables. The collection-level "tables:restore" rides the colon on the
-	// literal "tables" segment, captured by the {tablesColl} wildcard (the
-	// literal "tables" POST above wins for create).
+	// "tables:restore" rides the colon on the literal "tables" segment, so
+	// {tablesColl} captures it; the literal POST wins for create.
 	srv.HandleFunc("POST /v2/projects/{project}/instances/{instance}/tables", handleBigtableCreateTable)
 	srv.HandleFunc("GET /v2/projects/{project}/instances/{instance}/tables", handleBigtableListTables)
 	srv.HandleFunc("POST /v2/projects/{project}/instances/{instance}/{tablesColl}", handleBigtableTableCollectionAction)
-	// {table}:verb (modifyColumnFamilies / dropRowRange / generateConsistencyToken /
-	// checkConsistency / undelete / IAM) ride the colon on the table item segment.
 	srv.HandleFunc("POST /v2/projects/{project}/instances/{instance}/tables/{tableAction}", handleBigtableTableAction)
 	srv.HandleFunc("GET /v2/projects/{project}/instances/{instance}/tables/{table}", handleBigtableGetTable)
 	srv.HandleFunc("PATCH /v2/projects/{project}/instances/{instance}/tables/{table}", handleBigtablePatchTable)
 	srv.HandleFunc("DELETE /v2/projects/{project}/instances/{instance}/tables/{table}", handleBigtableDeleteTable)
 
-	// Authorized views (table-scoped).
 	srv.HandleFunc("POST /v2/projects/{project}/instances/{instance}/tables/{table}/authorizedViews", handleBigtableCreateAuthView)
 	srv.HandleFunc("GET /v2/projects/{project}/instances/{instance}/tables/{table}/authorizedViews", handleBigtableListAuthViews)
 	srv.HandleFunc("POST /v2/projects/{project}/instances/{instance}/tables/{table}/authorizedViews/{authViewAction}", handleBigtableAuthViewItemAction)
@@ -152,7 +138,6 @@ func registerBigtable(srv *sim.Server) {
 	srv.HandleFunc("PATCH /v2/projects/{project}/instances/{instance}/tables/{table}/authorizedViews/{authView}", handleBigtablePatchAuthView)
 	srv.HandleFunc("DELETE /v2/projects/{project}/instances/{instance}/tables/{table}/authorizedViews/{authView}", handleBigtableDeleteAuthView)
 
-	// Schema bundles (table-scoped).
 	srv.HandleFunc("POST /v2/projects/{project}/instances/{instance}/tables/{table}/schemaBundles", handleBigtableCreateSchemaBundle)
 	srv.HandleFunc("GET /v2/projects/{project}/instances/{instance}/tables/{table}/schemaBundles", handleBigtableListSchemaBundles)
 	srv.HandleFunc("POST /v2/projects/{project}/instances/{instance}/tables/{table}/schemaBundles/{schemaBundleAction}", handleBigtableSchemaBundleItemAction)
@@ -160,7 +145,6 @@ func registerBigtable(srv *sim.Server) {
 	srv.HandleFunc("PATCH /v2/projects/{project}/instances/{instance}/tables/{table}/schemaBundles/{schemaBundle}", handleBigtablePatchSchemaBundle)
 	srv.HandleFunc("DELETE /v2/projects/{project}/instances/{instance}/tables/{table}/schemaBundles/{schemaBundle}", handleBigtableDeleteSchemaBundle)
 
-	// Logical views (instance-scoped).
 	srv.HandleFunc("POST /v2/projects/{project}/instances/{instance}/logicalViews", handleBigtableCreateLogicalView)
 	srv.HandleFunc("GET /v2/projects/{project}/instances/{instance}/logicalViews", handleBigtableListLogicalViews)
 	srv.HandleFunc("POST /v2/projects/{project}/instances/{instance}/logicalViews/{logicalViewAction}", handleBigtableLogicalViewItemAction)
@@ -168,7 +152,6 @@ func registerBigtable(srv *sim.Server) {
 	srv.HandleFunc("PATCH /v2/projects/{project}/instances/{instance}/logicalViews/{logicalView}", handleBigtablePatchLogicalView)
 	srv.HandleFunc("DELETE /v2/projects/{project}/instances/{instance}/logicalViews/{logicalView}", handleBigtableDeleteLogicalView)
 
-	// Materialized views (instance-scoped).
 	srv.HandleFunc("POST /v2/projects/{project}/instances/{instance}/materializedViews", handleBigtableCreateMatView)
 	srv.HandleFunc("GET /v2/projects/{project}/instances/{instance}/materializedViews", handleBigtableListMatViews)
 	srv.HandleFunc("POST /v2/projects/{project}/instances/{instance}/materializedViews/{matViewAction}", handleBigtableMatViewItemAction)
@@ -189,20 +172,17 @@ func bigtableTableName(project, instance, table string) string {
 	return fmt.Sprintf("%s/tables/%s", bigtableInstanceName(project, instance), table)
 }
 
-// bigtableSplitColonVerb separates a "{id}:{verb}" path segment. When no colon
-// is present the whole segment is the id and verb is empty.
+// bigtableSplitColonVerb separates a "{id}:{verb}" path segment; without a
+// colon, verb is empty.
 func bigtableSplitColonVerb(seg string) (id, verb string) {
 	id, verb, _ = strings.Cut(seg, ":")
 	return id, verb
 }
 
-// newBigtableAdminLRO mints a Cloud Bigtable admin operation under the project,
-// in the "operations/" collection the bigtableadmin document declares. The gRPC
-// door mints the same shape (bigtableOperationName), because an operation
-// returned over one protocol has to be addressable over the other.
-//
-// metadata is the metadata message the method declares in its operation_info,
-// as bigtableAdminMetadata builds it.
+// newBigtableAdminLRO mints a Cloud Bigtable admin operation in the
+// "operations/" collection the bigtableadmin document declares, the same name
+// bigtableOperationName mints over gRPC, so either protocol can address it.
+// metadata is the message the method declares in its operation_info.
 func newBigtableAdminLRO(project string, resource any, typeName string, metadata map[string]any) Operation {
 	op := newLRO(project, "global", resource, typeName, gcpFixedOperationMetadata(metadata))
 	return renameGCPOperation(op, "operations/projects/"+project+"/operations")
@@ -237,7 +217,6 @@ func bigtableTimestamp(t time.Time) string {
 	return t.UTC().Truncate(time.Millisecond).Format("2006-01-02T15:04:05.000Z")
 }
 
-// bigtableRESTBackupInfo is the BackupInfo of a stored backup.
 func bigtableRESTBackupInfo(name string) map[string]any {
 	backup, _ := bigtableBackups.Get(name)
 	info := map[string]any{"backup": name}
@@ -269,10 +248,8 @@ func bigtableRESTClusterTableProgress(instance string) map[string]any {
 	return tables
 }
 
-// handleBigtableListOperations lists the operations under a project. It reads
-// the same store the gRPC Operations service reads, and scopes to the project
-// the caller named — listing every project's operations would report work the
-// caller cannot see.
+// handleBigtableListOperations reads the store the gRPC Operations service
+// reads, scoped to the caller's project.
 func handleBigtableListOperations(w http.ResponseWriter, r *http.Request) {
 	prefix := "operations/projects/" + sim.PathParam(r, "project") + "/operations/"
 	out := []Operation{}
@@ -343,7 +320,6 @@ func handleBigtableListInstances(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"instances": out})
 }
 
-// handleBigtableInstanceAction dispatches the instance-level IAM colon verbs.
 func handleBigtableInstanceAction(w http.ResponseWriter, r *http.Request) {
 	id, verb := bigtableSplitColonVerb(sim.PathParam(r, "instanceAction"))
 	if verb != "getIamPolicy" && verb != "setIamPolicy" && verb != "testIamPermissions" {
@@ -395,8 +371,8 @@ func handleBigtablePartialUpdateInstance(w http.ResponseWriter, r *http.Request)
 	sim.WriteJSON(w, http.StatusOK, op)
 }
 
-// handleBigtableReplaceInstance is the synchronous PUT update — it returns the
-// Instance directly (not an LRO), matching instances.update.
+// handleBigtableReplaceInstance serves instances.update, which answers the
+// Instance directly, not an operation.
 func handleBigtableReplaceInstance(w http.ResponseWriter, r *http.Request) {
 	name := bigtableInstanceName(sim.PathParam(r, "project"), sim.PathParam(r, "instance"))
 	if _, ok := bigtableInstances.Get(name); !ok {
@@ -602,7 +578,7 @@ func handleBigtableCreateBackup(w http.ResponseWriter, r *http.Request) {
 	body["startTime"] = bigtableTimestamp(requested)
 	body["endTime"] = nowTimestamp()
 	body["sizeBytes"] = strconv.FormatInt(btTableSizeBytes(sourceTable), 10)
-	// Backup has no etag field in the Discovery schema — do not set one.
+	// The Discovery Backup schema has no etag.
 	bigtableBackups.Put(name, body)
 	op := newBigtableAdminLRO(project, map[string]any(body), "type.googleapis.com/google.bigtable.admin.v2.Backup",
 		bigtableAdminMetadata("CreateBackupMetadata", map[string]any{
@@ -645,7 +621,7 @@ func handleBigtablePatchBackup(w http.ResponseWriter, r *http.Request) {
 	bigtableApplyUpdateMask(body, patch, r.URL.Query().Get("updateMask"))
 	body["name"] = name
 	bigtableBackups.Put(name, body)
-	// backups.patch returns the Backup directly (not an LRO).
+	// backups.patch answers the Backup directly, not an operation.
 	sim.WriteJSON(w, http.StatusOK, body)
 }
 
@@ -659,8 +635,7 @@ func handleBigtableDeleteBackup(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
-// handleBigtableBackupCollectionAction dispatches "backups:copy", which rides
-// the colon on the literal "backups" collection segment.
+// handleBigtableBackupCollectionAction serves "backups:copy".
 func handleBigtableBackupCollectionAction(w http.ResponseWriter, r *http.Request) {
 	requested := time.Now()
 	project, instance, cluster := sim.PathParam(r, "project"), sim.PathParam(r, "instance"), sim.PathParam(r, "cluster")
@@ -713,8 +688,6 @@ func handleBigtableBackupCollectionAction(w http.ResponseWriter, r *http.Request
 	sim.WriteJSON(w, http.StatusOK, op)
 }
 
-// handleBigtableBackupItemAction dispatches the IAM colon verbs that ride the
-// backups item segment: "{backup}:getIamPolicy|setIamPolicy|testIamPermissions".
 func handleBigtableBackupItemAction(w http.ResponseWriter, r *http.Request) {
 	project, instance, cluster := sim.PathParam(r, "project"), sim.PathParam(r, "instance"), sim.PathParam(r, "cluster")
 	id, verb := bigtableSplitColonVerb(sim.PathParam(r, "backupAction"))
@@ -748,7 +721,7 @@ func handleBigtableCreateAppProfile(w http.ResponseWriter, r *http.Request) {
 	body["name"] = name
 	body["etag"] = gcpPolicyETag()
 	bigtableAppProfiles.Put(name, body)
-	// appProfiles.create returns the AppProfile directly (not an LRO).
+	// appProfiles.create answers the AppProfile directly, not an operation.
 	sim.WriteJSON(w, http.StatusOK, body)
 }
 
@@ -843,8 +816,7 @@ func handleBigtableListTables(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"tables": out})
 }
 
-// handleBigtableTableCollectionAction dispatches "tables:restore", which rides
-// the colon on the literal "tables" collection segment.
+// handleBigtableTableCollectionAction serves "tables:restore".
 func handleBigtableTableCollectionAction(w http.ResponseWriter, r *http.Request) {
 	coll, verb := bigtableSplitColonVerb(sim.PathParam(r, "tablesColl"))
 	if coll != "tables" || verb != "restore" {
@@ -854,9 +826,6 @@ func handleBigtableTableCollectionAction(w http.ResponseWriter, r *http.Request)
 	handleBigtableRestoreTable(w, r, sim.PathParam(r, "project"), sim.PathParam(r, "instance"))
 }
 
-// handleBigtableTableAction dispatches the colon verbs riding the table item
-// segment (modifyColumnFamilies / dropRowRange / generateConsistencyToken /
-// checkConsistency / undelete / IAM).
 func handleBigtableTableAction(w http.ResponseWriter, r *http.Request) {
 	requested := time.Now()
 	project, instance := sim.PathParam(r, "project"), sim.PathParam(r, "instance")
@@ -894,9 +863,8 @@ func handleBigtableTableAction(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handleBigtableDropRowRange deletes the requested rows from the table's row
-// store — the same store ReadRows serves and the gRPC spelling of this method
-// deletes from, so a prefix dropped through either door is gone from both.
+// handleBigtableDropRowRange deletes from the row store ReadRows and the gRPC
+// DropRowRange share, so a prefix dropped through either is gone from both.
 func handleBigtableDropRowRange(w http.ResponseWriter, r *http.Request, name string) {
 	var req struct {
 		RowKeyPrefix           []byte `json:"rowKeyPrefix"`
@@ -1303,8 +1271,6 @@ func handleBigtableMatViewItemAction(w http.ResponseWriter, r *http.Request) {
 	handleResourceIAM(w, r, gcpResourceIAMStore(), bigtableMatViewName(r, id), verb)
 }
 
-// bigtableReadResourceBody decodes a pass-through resource body, writing an
-// INVALID_ARGUMENT error and returning nil on failure.
 func bigtableReadResourceBody(w http.ResponseWriter, r *http.Request) bigtableResource {
 	var body bigtableResource
 	if err := sim.ReadJSON(r, &body); err != nil {
@@ -1317,8 +1283,6 @@ func bigtableReadResourceBody(w http.ResponseWriter, r *http.Request) bigtableRe
 	return body
 }
 
-// bigtableFilterResources returns the stored resources whose name has the given
-// prefix, sorted by name.
 func bigtableFilterResources(store sim.Store[bigtableResource], prefix string) []bigtableResource {
 	out := store.Filter(func(res bigtableResource) bool {
 		name, _ := res["name"].(string)
@@ -1350,8 +1314,8 @@ func bigtableApplyUpdateMask(body, patch bigtableResource, mask string) {
 		if field == "" {
 			continue
 		}
-		// Only the top-level field name is honored; nested paths (a.b) map to
-		// their root field in this pass-through store.
+		// The store holds each top-level field whole, so a nested path (a.b) masks
+		// its root field.
 		root := field
 		if i := strings.IndexByte(field, '.'); i >= 0 {
 			root = field[:i]

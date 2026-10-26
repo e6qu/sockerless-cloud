@@ -16,7 +16,6 @@ func firestoreAdminService(t *testing.T) *firestore.Service {
 	return svc
 }
 
-// A change stream watches a database or one collection group for changes.
 func TestFirestore_ChangeStreams(t *testing.T) {
 	t.Parallel()
 	svc := firestoreAdminService(t)
@@ -42,8 +41,8 @@ func TestFirestore_ChangeStreams(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, listed.ChangeStreams, 1)
 
-	// A stream watches a database or a collection group, not both — there
-	// would be no single scope to read changes from.
+	// A stream watches a database or a collection group, not both: there would be
+	// no single scope to read changes from.
 	_, err = svc.Projects.Databases.ChangeStreams.Create(parent,
 		&firestore.GoogleFirestoreAdminV1ChangeStream{
 			DatabaseScope:        &firestore.GoogleFirestoreAdminV1DatabaseScope{},

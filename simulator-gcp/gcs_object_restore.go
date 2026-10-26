@@ -30,8 +30,7 @@ type gcsSoftDeleted struct {
 var gcsSoftDeletedObjects sim.Store[gcsSoftDeleted]
 
 // The generated Go client sends `softDeleted=true`; gcloud renders Python's
-// bool and sends `softDeleted=True`. Matching one spelling silently ignores
-// the other client.
+// bool and sends `softDeleted=True`.
 func gcpQueryBool(r *http.Request, name string) bool {
 	value, err := strconv.ParseBool(strings.TrimSpace(r.URL.Query().Get(name)))
 	return err == nil && value
@@ -110,12 +109,11 @@ func gcsObjectETag(md5 []byte, generation int64, now string) string {
 	return base64.StdEncoding.EncodeToString(append(tag, now...))
 }
 
-// gcsRestoreGeneration makes a soft-deleted generation's contents the live
-// object again. A restore writes the object anew, the way a copy does: the
-// live object gets a generation of its own, newer than every generation the
-// name has had, and starts at metageneration 1. It keeps the source's access
-// controls only under copySourceAcl and otherwise takes the bucket default. A
-// live object it replaces is retired as an overwrite retires it.
+// gcsRestoreGeneration writes a soft-deleted generation's contents back as the
+// live object, as a copy does: a new generation newer than any the name has
+// had, at metageneration 1, with the source's ACL under copySourceAcl and the
+// bucket default otherwise. A live object it replaces is retired as an
+// overwrite retires it.
 func gcsRestoreGeneration(objects sim.PrefixStore[GCSObject], bucket Bucket, entry gcsSoftDeleted, copySourceACL bool) GCSObject {
 	restored := entry.Object
 	restored.Body = entry.Body
@@ -297,8 +295,7 @@ func registerGCSObjectRestore(srv *sim.Server, buckets sim.Store[Bucket], object
 			GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "read source object: %v", err)
 			return
 		}
-		// The destination must not exist when the move lands, which is the
-		// precondition the write states rather than a look taken beforehand.
+		// The write states that the destination must not exist when the move lands.
 		absent := int64(0)
 		moved, err := persistGCSObject(objects, bucketName, destination, copied, digests, obj, gcsPreconditions{GenerationMatch: &absent}, gcsMirror)
 		if err != nil {
@@ -327,7 +324,7 @@ func gcsHierarchicalNamespace(bucket Bucket) bool {
 	return enabled
 }
 
-// An unspecified list restores every object in range.
+// gcsMatchesAnyGlob matches every name when globs is empty.
 func gcsMatchesAnyGlob(name string, globs []string) bool {
 	if len(globs) == 0 {
 		return true

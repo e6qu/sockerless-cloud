@@ -17,10 +17,10 @@ The extractor reads the route out of a single string literal, so a registration 
 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
-| `POST /compute/v1/projects/{project}/regions/{region}/instanceGroups/{instanceGroup}/setNamedPorts` | ✓ `simulator-gcp/compute_region_instance_groups.go:132::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `GET /compute/v1/projects/{project}/regions/{region}/instanceGroups/{instanceGroup}` | ✓ `simulator-gcp/compute_region_instance_groups.go:61::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `GET /compute/v1/projects/{project}/regions/{region}/instanceGroups` | ✓ `simulator-gcp/compute_region_instance_groups.go:69::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `POST /compute/v1/projects/{project}/regions/{region}/instanceGroups/{instanceGroup}/listInstances` | ✓ `simulator-gcp/compute_region_instance_groups.go:97::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `POST /compute/v1/projects/{project}/regions/{region}/instanceGroups/{instanceGroup}/setNamedPorts` | ✓ `simulator-gcp/compute_region_instance_groups.go:130::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `GET /compute/v1/projects/{project}/regions/{region}/instanceGroups/{instanceGroup}` | ✓ `simulator-gcp/compute_region_instance_groups.go:59::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `GET /compute/v1/projects/{project}/regions/{region}/instanceGroups` | ✓ `simulator-gcp/compute_region_instance_groups.go:67::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `POST /compute/v1/projects/{project}/regions/{region}/instanceGroups/{instanceGroup}/listInstances` | ✓ `simulator-gcp/compute_region_instance_groups.go:95::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
 
 ## Coverage status
 

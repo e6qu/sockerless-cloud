@@ -17,20 +17,20 @@ The extractor reads the route out of a single string literal, so a registration 
 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
-| `POST /compute/v1/projects/{project}/setDefaultNetworkTier` | ✓ `simulator-gcp/compute_project.go:111::inProject` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `POST /compute/v1/projects/{project}/setCloudArmorTier` | ✓ `simulator-gcp/compute_project.go:113::inProject` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `POST /compute/v1/projects/{project}/setCommonInstanceMetadata` | ✓ `simulator-gcp/compute_project.go:119::inProject` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `POST /compute/v1/projects/{project}/setUsageExportBucket` | ✓ `simulator-gcp/compute_project.go:133::inProject` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `POST /compute/v1/projects/{project}/enableXpnHost` | ✓ `simulator-gcp/compute_project.go:166::inProject` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `POST /compute/v1/projects/{project}/disableXpnHost` | ✓ `simulator-gcp/compute_project.go:170::inProject` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `GET /compute/v1/projects/{project}/getXpnHost` | ✓ `simulator-gcp/compute_project.go:180::inProject` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `POST /compute/v1/projects/{project}/enableXpnResource` | ✓ `simulator-gcp/compute_project.go:245::inProject` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `POST /compute/v1/projects/{project}/disableXpnResource` | ✓ `simulator-gcp/compute_project.go:248::inProject` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `GET /compute/v1/projects/{project}/getXpnResources` | ✓ `simulator-gcp/compute_project.go:252::inProject` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `POST /compute/v1/projects/{project}/listXpnHosts` | ✓ `simulator-gcp/compute_project.go:267::inProject` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `POST /compute/v1/projects/{project}/moveDisk` | ✓ `simulator-gcp/compute_project.go:299::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `POST /compute/v1/projects/{project}/moveInstance` | ✓ `simulator-gcp/compute_project.go:302::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `GET /compute/v1/projects/{project}` | ✓ `simulator-gcp/compute_project.go:86::inProject` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `POST /compute/v1/projects/{project}/setCloudArmorTier` | ✓ `simulator-gcp/compute_project.go:101::inProject` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `POST /compute/v1/projects/{project}/setCommonInstanceMetadata` | ✓ `simulator-gcp/compute_project.go:106::inProject` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `POST /compute/v1/projects/{project}/setUsageExportBucket` | ✓ `simulator-gcp/compute_project.go:119::inProject` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `POST /compute/v1/projects/{project}/enableXpnHost` | ✓ `simulator-gcp/compute_project.go:150::inProject` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `POST /compute/v1/projects/{project}/disableXpnHost` | ✓ `simulator-gcp/compute_project.go:154::inProject` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `GET /compute/v1/projects/{project}/getXpnHost` | ✓ `simulator-gcp/compute_project.go:164::inProject` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `POST /compute/v1/projects/{project}/enableXpnResource` | ✓ `simulator-gcp/compute_project.go:229::inProject` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `POST /compute/v1/projects/{project}/disableXpnResource` | ✓ `simulator-gcp/compute_project.go:232::inProject` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `GET /compute/v1/projects/{project}/getXpnResources` | ✓ `simulator-gcp/compute_project.go:236::inProject` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `POST /compute/v1/projects/{project}/listXpnHosts` | ✓ `simulator-gcp/compute_project.go:250::inProject` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `POST /compute/v1/projects/{project}/moveDisk` | ✓ `simulator-gcp/compute_project.go:278::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `POST /compute/v1/projects/{project}/moveInstance` | ✓ `simulator-gcp/compute_project.go:281::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `GET /compute/v1/projects/{project}` | ✓ `simulator-gcp/compute_project.go:75::inProject` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `POST /compute/v1/projects/{project}/setDefaultNetworkTier` | ✓ `simulator-gcp/compute_project.go:99::inProject` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
 
 ## Coverage status
 

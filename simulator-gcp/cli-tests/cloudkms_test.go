@@ -9,11 +9,9 @@ import (
 )
 
 // TestKMSCLILifecycleAndCrypto drives `gcloud kms` against the simulator.
-// The encrypt/decrypt round-trip is the important part: gcloud computes and
-// verifies the Cloud KMS CRC32C integrity fields and rejects responses that
-// lack them ("The request sent to the server was corrupted in-transit"), so a
-// clean round-trip proves the sim emits ciphertextCrc32c / plaintextCrc32c /
-// verifiedPlaintextCrc32c correctly.
+// gcloud verifies the Cloud KMS CRC32C integrity fields and rejects a response
+// that lacks them, so a clean encrypt/decrypt round trip proves the simulator
+// returns ciphertextCrc32c, plaintextCrc32c and verifiedPlaintextCrc32c.
 func TestKMSCLILifecycleAndCrypto(t *testing.T) {
 	t.Parallel()
 	const location = "global"

@@ -14,10 +14,9 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// newFSGRPCClient builds the high-level cloud.google.com/go/firestore client
-// over gRPC (its only transport), pointed at the simulator's Firestore gRPC
-// data plane by endpoint with the bootstrap credential. FIRESTORE_EMULATOR_HOST
-// would make the client send no credential.
+// newFSGRPCClient dials the simulator's Firestore gRPC endpoint with the
+// bootstrap credential: FIRESTORE_EMULATOR_HOST would make the client send
+// none.
 func newFSGRPCClient(t *testing.T, project string) *firestore.Client {
 	t.Helper()
 	c, err := firestore.NewClient(ctx, project, simGRPCClientOptions()...)
@@ -28,8 +27,6 @@ func newFSGRPCClient(t *testing.T, project string) *firestore.Client {
 	return c
 }
 
-// TestFirestore_GRPC_CreateGetRoundTrip exercises CreateDocument + GetDocument
-// over gRPC with nested maps, arrays, integers, timestamps, strings, and bytes.
 func TestFirestore_GRPC_CreateGetRoundTrip(t *testing.T) {
 	t.Parallel()
 	c := newFSGRPCClient(t, "fs-grpc-proj")
@@ -89,8 +86,6 @@ func TestFirestore_GRPC_CreateGetRoundTrip(t *testing.T) {
 	}
 }
 
-// TestFirestore_GRPC_UpdateMerge asserts UpdateDocument with a field mask
-// (merge) preserves unmasked fields.
 func TestFirestore_GRPC_UpdateMerge(t *testing.T) {
 	t.Parallel()
 	c := newFSGRPCClient(t, "fs-grpc-proj")
@@ -137,8 +132,6 @@ func TestFirestore_GRPC_UpdateMerge(t *testing.T) {
 	}
 }
 
-// TestFirestore_GRPC_DeletePrecondition asserts DeleteDocument honors a
-// precondition and succeeds when none is set.
 func TestFirestore_GRPC_DeletePrecondition(t *testing.T) {
 	t.Parallel()
 	c := newFSGRPCClient(t, "fs-grpc-proj")
@@ -154,10 +147,8 @@ func TestFirestore_GRPC_DeletePrecondition(t *testing.T) {
 		t.Fatalf("Delete absent with Exists precondition code = %v, want NotFound", status.Code(err))
 	}
 
-	// A LastUpdateTime precondition that doesn't match the stored doc must fail
-	// with FailedPrecondition. Over gRPC the status travels verbatim, so
-	// FailedPrecondition is the only correct code here — Aborted is the mapping
-	// the gax REST transport applies to an HTTP 409, and this client is gRPC.
+	// gRPC carries the status verbatim, so FailedPrecondition is the only correct
+	// code; Aborted is the gax REST transport's mapping of HTTP 409.
 	_, err := doc.Delete(ctx, firestore.LastUpdateTime(time.Now().Add(time.Hour)))
 	if status.Code(err) != codes.FailedPrecondition {
 		t.Fatalf("Delete with mismatched updateTime code = %v, want FailedPrecondition (%v)", status.Code(err), err)
@@ -168,7 +159,6 @@ func TestFirestore_GRPC_DeletePrecondition(t *testing.T) {
 		t.Fatalf("Get after a refused delete: %v", err)
 	}
 
-	// Unconditional delete succeeds.
 	if _, err := doc.Delete(ctx); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
@@ -177,8 +167,6 @@ func TestFirestore_GRPC_DeletePrecondition(t *testing.T) {
 	}
 }
 
-// TestFirestore_GRPC_RunQuery exercises RunQuery (where, order, limit, cursor)
-// over gRPC via the high-level client's Query.
 func TestFirestore_GRPC_RunQuery(t *testing.T) {
 	t.Parallel()
 	c := newFSGRPCClient(t, "fs-grpc-proj")
@@ -219,8 +207,6 @@ func collectField(t *testing.T, iter *firestore.DocumentIterator, field string) 
 	return out
 }
 
-// TestFirestore_GRPC_Transaction drives BeginTransaction/Commit (and Rollback)
-// via the high-level client's RunTransaction read-modify-write.
 func TestFirestore_GRPC_Transaction(t *testing.T) {
 	t.Parallel()
 	c := newFSGRPCClient(t, "fs-grpc-proj")
@@ -267,8 +253,6 @@ func TestFirestore_GRPC_Transaction(t *testing.T) {
 	}
 }
 
-// TestFirestore_GRPC_BatchGetDocuments exercises the BatchGetDocuments server
-// stream via GetAll, mixing existing and missing documents.
 func TestFirestore_GRPC_BatchGetDocuments(t *testing.T) {
 	t.Parallel()
 	c := newFSGRPCClient(t, "fs-grpc-proj")
@@ -292,8 +276,6 @@ func TestFirestore_GRPC_BatchGetDocuments(t *testing.T) {
 	}
 }
 
-// TestFirestore_GRPC_BatchWrite exercises BatchWrite (non-atomic batch) via the
-// high-level client's WriteBatch.
 func TestFirestore_GRPC_BatchWrite(t *testing.T) {
 	t.Parallel()
 	c := newFSGRPCClient(t, "fs-grpc-proj")
@@ -315,7 +297,6 @@ func TestFirestore_GRPC_BatchWrite(t *testing.T) {
 	}
 }
 
-// TestFirestore_GRPC_ListDocuments exercises ListDocuments over gRPC.
 func TestFirestore_GRPC_ListDocuments(t *testing.T) {
 	t.Parallel()
 	c := newFSGRPCClient(t, "fs-grpc-proj")
@@ -355,7 +336,6 @@ func collectDocIDs(t *testing.T, iter *firestore.DocumentIterator) []string {
 	return out
 }
 
-// TestFirestore_GRPC_Aggregation exercises RunAggregationQuery (COUNT) over gRPC.
 func TestFirestore_GRPC_Aggregation(t *testing.T) {
 	t.Parallel()
 	c := newFSGRPCClient(t, "fs-grpc-proj")
@@ -370,15 +350,13 @@ func TestFirestore_GRPC_Aggregation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("aggregation: %v", err)
 	}
-	// The high-level client surfaces aggregation values as the raw proto Value
-	// (AggregationResult is map[string]interface{} holding *firestorepb.Value).
+	// The client surfaces aggregation values as the raw proto Value.
 	cv := res["count"].(*firestorepb.Value)
 	if got := cv.GetIntegerValue(); got != 3 {
 		t.Errorf("count = %d, want 3", got)
 	}
 }
 
-// TestFirestore_GRPC_ListCollectionIds exercises ListCollectionIds over gRPC.
 func TestFirestore_GRPC_ListCollectionIds(t *testing.T) {
 	t.Parallel()
 	c := newFSGRPCClient(t, "fs-grpc-proj")

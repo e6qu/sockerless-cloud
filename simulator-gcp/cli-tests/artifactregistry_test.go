@@ -34,15 +34,8 @@ func TestArtifactRegistryDockerHubRemoteRepositoryCLIAndOCI(t *testing.T) {
 	require.Equal(t, "REMOTE_REPOSITORY", created.Mode)
 	require.Equal(t, "DOCKER_HUB", created.RemoteRepositoryConfig.DockerRepository.PublicRepository)
 
-	// The Artifact Registry data plane authenticates every request, so the
-	// manifest read carries the same simulator-minted OAuth 2.0 access token
-	// the gcloud CLI is configured with — the credential `gcloud auth
-	// configure-docker` puts in a container client's credential store,
-	// presented here as the Bearer that Google's own Docker Registry API
-	// documentation uses.
-	// The remote repository hydrates from the local Docker daemon, so the
-	// reference this pull names is the harness's own workload image — repository
-	// and tag both — rather than a tag some other suite happens to have built.
+	// The remote repository hydrates from the local Docker daemon, so the pull
+	// names the harness's own workload image.
 	localRepo, localTag, _ := strings.Cut(evalImageName, ":")
 	imageName := project + "/docker-hub/" + localRepo
 	resp, err := httpDo(http.MethodGet, baseURL+"/v2/"+imageName+"/manifests/"+localTag, "")

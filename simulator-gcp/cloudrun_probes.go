@@ -231,8 +231,6 @@ func probeTCP(ctx context.Context, addr string) error {
 	}
 }
 
-// awaitExit waits for the first of the instance's containers to stop and
-// returns its exit code, or -1 when the backend reports none.
 // exited reports the exit code of a container of the instance that has
 // already exited, without waiting for one.
 func (inst *cloudRunServiceInstance) exited() (int64, bool) {
@@ -253,6 +251,8 @@ func (inst *cloudRunServiceInstance) exited() (int64, bool) {
 	return 0, false
 }
 
+// awaitExit waits for the first of the instance's containers to stop and
+// returns its exit code, or -1 when the backend reports none.
 func (inst *cloudRunServiceInstance) awaitExit(ctx context.Context) int64 {
 	inst.mu.Lock()
 	handles := append([]placement.Handle(nil), inst.handles...)

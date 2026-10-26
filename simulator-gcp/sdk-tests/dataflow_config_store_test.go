@@ -17,8 +17,7 @@ func dataflowService(t *testing.T) *dataflow.Service {
 }
 
 // A config store setting is a named value set at a project, folder or
-// organization. They inherit down the hierarchy, and resolve is where a caller
-// asks which one actually applies.
+// organization; resolve answers which one applies.
 func TestDataflow_ConfigStoreSettingsAreResolvedWhereTheyAreSet(t *testing.T) {
 	t.Parallel()
 	svc := dataflowService(t)
@@ -53,9 +52,8 @@ func TestDataflow_ConfigStoreSettingsAreResolvedWhereTheyAreSet(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, listed.ConfigStoreSettings, 1, "a parent lists only its own settings")
 
-	// resolve answers for the resource it is asked about. Each level has its
-	// own setting, and each resolves to its own — the request names one
-	// resource, and what is above it is not something this API carries.
+	// resolve answers for the resource the request names; what is above it is
+	// not something this API carries.
 	for _, want := range []struct{ parent, value string }{
 		{projectParent, "30"}, {folderParent, "20"}, {orgParent, "10"},
 	} {

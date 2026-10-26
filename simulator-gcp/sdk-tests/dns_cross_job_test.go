@@ -19,12 +19,10 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 )
 
-// TestDNS_CrossJobResolution exercises cross-job DNS on Google Cloud: two
-// Cloud Run jobs with direct VPC egress onto one subnetwork, and a private
-// Cloud DNS zone visible to that VPC network. One job's task holds an
-// address of the subnetwork; the zone's A record names it; the other job
-// resolves the record through the resolver the subnetwork hands its
-// workloads, which sees the zones visible to the network.
+// TestDNS_CrossJobResolution runs two Cloud Run jobs with direct VPC egress
+// onto one subnetwork, with a private Cloud DNS zone visible to the network.
+// The zone's A record names one job's task address, and the other job resolves
+// it through the resolver the subnetwork hands its workloads.
 func TestDNS_CrossJobResolution(t *testing.T) {
 	t.Parallel()
 	if _, err := exec.LookPath("docker"); err != nil {
@@ -94,9 +92,8 @@ func TestDNS_CrossJobResolution(t *testing.T) {
 			Name: "projects/" + project + "/locations/" + region + "/jobs/" + name,
 		})
 		require.NoError(t, err)
-		// The workload keeps running while the test wires DNS around it, so
-		// the execution comes from the operation's Execution metadata rather
-		// than from the operation's completion.
+		// The workload keeps running while the test wires DNS around it, so take the
+		// execution from the operation's metadata rather than its completion.
 		exec, err := runOp.Metadata()
 		require.NoError(t, err)
 		require.NotNil(t, exec)
@@ -115,8 +112,7 @@ func TestDNS_CrossJobResolution(t *testing.T) {
 	alphaExec := createJob("alpha", []string{"resolve", "beta.xjob.local", "30", "gcp-cross-job-dns-ok", "10"})
 	betaExec := createJob("beta", []string{"sleep", "60"})
 
-	// The tasks' containers hold addresses of the subnetwork, which the test
-	// reads off the engine: Cloud Run reports no address for a task.
+	// Cloud Run reports no address for a task, so read it off the engine.
 	alphaContainer := jobContainerName(alphaExec)
 	betaContainer := jobContainerName(betaExec)
 	require.Eventually(t, func() bool {
@@ -154,9 +150,8 @@ func TestDNS_CrossJobResolution(t *testing.T) {
 	assert.Contains(t, string(logs), "gcp-cross-job-dns-ok")
 }
 
-// jobContainerName is the engine name of the main container of an
-// execution's first task's first attempt, as startCloudRunJobContainers names
-// it.
+// jobContainerName is the engine name of the main container of an execution's
+// first task's first attempt, as startCloudRunJobContainers names it.
 func jobContainerName(executionName string) string {
 	last := executionName
 	if idx := strings.LastIndex(executionName, "/"); idx >= 0 {
@@ -168,8 +163,6 @@ func jobContainerName(executionName string) string {
 	return "sockerless-sim-gcp-job-" + last + "-0-0"
 }
 
-// containerIP returns the container's IPv4 address on the one engine
-// network it is attached to.
 func containerIP(t *testing.T, name string) string {
 	t.Helper()
 	out, err := exec.Command("docker", "inspect", name).Output()

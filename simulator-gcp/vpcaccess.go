@@ -49,7 +49,6 @@ func registerVPCAccess(srv *sim.Server) {
 	connectors := sim.MakeStore[VPCAccessConnector](srv.DB(), "vpc_connectors")
 	gcpVPCConnectors = connectors
 
-	// Create connector
 	srv.HandleFunc("POST /v1/projects/{project}/locations/{location}/connectors", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		location := sim.PathParam(r, "location")
@@ -60,9 +59,8 @@ func registerVPCAccess(srv *sim.Server) {
 			return
 		}
 
-		// Real Cloud VPC Access requires a connector to be defined either by a
-		// network + IP CIDR range, or by an existing subnet. A request with
-		// neither is rejected with INVALID_ARGUMENT.
+		// Serverless VPC Access defines a connector by a network and IP CIDR range or
+		// by an existing subnet; neither is INVALID_ARGUMENT.
 		hasNetwork := req.Network != "" && req.IpCidrRange != ""
 		hasSubnet := req.Subnet != nil && req.Subnet.Name != ""
 		if !hasNetwork && !hasSubnet {
@@ -101,7 +99,7 @@ func registerVPCAccess(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, op)
 	})
 
-	// Update connector (machineType / instance / throughput scaling).
+	// Update changes the scaling: machineType, instances and throughput.
 	srv.HandleFunc("PATCH /v1/projects/{project}/locations/{location}/connectors/{name}", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		location := sim.PathParam(r, "location")
@@ -120,9 +118,8 @@ func registerVPCAccess(srv *sim.Server) {
 			return
 		}
 
-		// Only the mutable scaling fields are honored on update; the
-		// name, network, ipCidrRange and subnet are immutable on a real
-		// connector and are preserved from the stored resource.
+		// Name, network, ipCidrRange and subnet are immutable; only the scaling
+		// fields change.
 		if req.MachineType != "" {
 			existing.MachineType = req.MachineType
 		}
@@ -145,7 +142,6 @@ func registerVPCAccess(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, op)
 	})
 
-	// Get connector
 	srv.HandleFunc("GET /v1/projects/{project}/locations/{location}/connectors/{name}", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		location := sim.PathParam(r, "location")
@@ -160,7 +156,6 @@ func registerVPCAccess(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, conn)
 	})
 
-	// Delete connector
 	srv.HandleFunc("DELETE /v1/projects/{project}/locations/{location}/connectors/{name}", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		location := sim.PathParam(r, "location")
@@ -176,7 +171,6 @@ func registerVPCAccess(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, op)
 	})
 
-	// List connectors
 	srv.HandleFunc("GET /v1/projects/{project}/locations/{location}/connectors", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		location := sim.PathParam(r, "location")

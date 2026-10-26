@@ -17,9 +17,8 @@ import (
 	"google.golang.org/grpc/codes"
 )
 
-// newPSGRPCClient builds the high-level cloud.google.com/go/pubsub client over
-// gRPC (its only transport), pointed at the simulator's Pub/Sub gRPC data plane
-// by endpoint rather than through the process-wide PUBSUB_EMULATOR_HOST.
+// newPSGRPCClient points the client at the simulator by endpoint rather than
+// through the process-wide PUBSUB_EMULATOR_HOST.
 func newPSGRPCClient(t *testing.T, project string) *pubsub.Client {
 	t.Helper()
 	ensureProject(t, project)
@@ -31,9 +30,9 @@ func newPSGRPCClient(t *testing.T, project string) *pubsub.Client {
 	return c
 }
 
-// psRawClient dials the simulator directly and returns raw Publisher/Subscriber
-// gRPC clients. This is how the precise Pull / Acknowledge / ModifyAckDeadline
-// contract is exercised without the high-level client's automatic modack flow.
+// psRawClient returns the raw Publisher and Subscriber clients, which drive the
+// exact Pull, Acknowledge and ModifyAckDeadline contract without the
+// high-level client's automatic modack.
 func psRawClient(t *testing.T) (pubsubpb.PublisherClient, pubsubpb.SubscriberClient) {
 	t.Helper()
 	conn, err := grpc.NewClient(grpcAddr, simGRPCDialOptions(simTokenSource())...)
@@ -44,16 +43,12 @@ func psRawClient(t *testing.T) (pubsubpb.PublisherClient, pubsubpb.SubscriberCli
 	return pubsubpb.NewPublisherClient(conn), pubsubpb.NewSubscriberClient(conn)
 }
 
-// psRawSubscriber returns just the raw Subscriber client for tests that only
-// exercise the data-plane read side.
 func psRawSubscriber(t *testing.T) pubsubpb.SubscriberClient {
 	t.Helper()
 	_, sc := psRawClient(t)
 	return sc
 }
 
-// TestPubSub_GRPC_TopicAndSubscriptionCRUD exercises the full topic + subscription
-// CRUD round-trip over gRPC via the high-level client.
 func TestPubSub_GRPC_TopicAndSubscriptionCRUD(t *testing.T) {
 	t.Parallel()
 	c := newPSGRPCClient(t, "ps-grpc-proj")
@@ -73,14 +68,12 @@ func TestPubSub_GRPC_TopicAndSubscriptionCRUD(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, exists, "topic should exist after create")
 
-	// Get with config carries the stored labels back.
 	cfg, err := topic.Config(ctx)
 	require.NoError(t, err, "topic.Config (GetTopic)")
 	require.Equal(t, topicID, topic.ID(), "topic.ID must match")
 	require.Equal(t, "test", cfg.Labels["env"], "GetTopic must round-trip labels")
 
-	// ListTopics includes the new topic. Only iterator.Done ends the walk; any
-	// other error is a failed RPC, not the end of the collection.
+	// Only iterator.Done ends the walk; any other error is a failed RPC.
 	it := c.Topics(ctx)
 	var names []string
 	for {
@@ -93,7 +86,6 @@ func TestPubSub_GRPC_TopicAndSubscriptionCRUD(t *testing.T) {
 	}
 	require.Contains(t, names, topicID, "ListTopics must include created topic")
 
-	// CreateSubscription + Get + List + Delete.
 	sub := c.Subscription("crud-sub")
 	_, err = c.CreateSubscription(ctx, "crud-sub", pubsub.SubscriptionConfig{Topic: topic})
 	require.NoError(t, err, "CreateSubscription")
@@ -104,7 +96,7 @@ func TestPubSub_GRPC_TopicAndSubscriptionCRUD(t *testing.T) {
 	subCfg, err := sub.Config(ctx)
 	require.NoError(t, err, "subscription.Config (GetSubscription)")
 	require.Equal(t, "crud-sub", sub.ID())
-	// The default 10s ack deadline + 7d retention are applied by the sim.
+	// Pub/Sub applies the default 10s ack deadline and 7d retention.
 	require.Equal(t, 10*time.Second, subCfg.AckDeadline, "default ack deadline must be honoured")
 	require.NotZero(t, subCfg.RetentionDuration, "default message retention must be populated")
 
@@ -124,9 +116,6 @@ func TestPubSub_GRPC_TopicAndSubscriptionCRUD(t *testing.T) {
 	require.NoError(t, topic.Delete(ctx), "DeleteTopic")
 }
 
-// TestPubSub_GRPC_PublishPull exercises the data-plane write then read: publish a
-// batch with data + attributes, raw Pull the messages back, assert fidelity, then
-// Acknowledge and confirm the queue is drained.
 func TestPubSub_GRPC_PublishPull(t *testing.T) {
 	t.Parallel()
 	c := newPSGRPCClient(t, "ps-grpc-proj")
@@ -160,11 +149,9 @@ func TestPubSub_GRPC_PublishPull(t *testing.T) {
 	require.NoError(t, err, "Publish")
 	require.Len(t, pres.GetMessageIds(), len(want), "Publish must assign one id per message")
 
-	// Pull returns all published messages (loop until the batch is drained).
 	got := psPullAll(t, sc, subName, len(want), 10*time.Second)
 	require.Len(t, got, len(want), "must receive every published message")
 
-	// Assert data + attributes survive the proto ↔ REST-store round-trip.
 	gotData := map[string]string{}
 	gotAttrs := map[string]map[string]string{}
 	var gotIds []string
@@ -179,7 +166,6 @@ func TestPubSub_GRPC_PublishPull(t *testing.T) {
 	}
 	require.ElementsMatch(t, pres.GetMessageIds(), gotIds, "assigned message ids must be returned")
 
-	// Acknowledge the pulled messages.
 	var ackIDs []string
 	for _, rm := range got {
 		ackIDs = append(ackIDs, rm.GetAckId())
@@ -192,9 +178,8 @@ func TestPubSub_GRPC_PublishPull(t *testing.T) {
 	require.Empty(t, redrain, "acked messages must not be redelivered")
 }
 
-// TestPubSub_GRPC_AckDeadlineRedelivery proves at-least-once delivery: a pulled
-// message that is NOT acknowledged is returned to the queue by the ack-deadline
-// sweeper and redelivered on the next pull.
+// TestPubSub_GRPC_AckDeadlineRedelivery: a pulled message left unacknowledged
+// returns to the queue when its ack deadline expires and is redelivered.
 func TestPubSub_GRPC_AckDeadlineRedelivery(t *testing.T) {
 	t.Parallel()
 	c := newPSGRPCClient(t, "ps-grpc-proj")
@@ -216,27 +201,24 @@ func TestPubSub_GRPC_AckDeadlineRedelivery(t *testing.T) {
 	_, err = topic.Publish(ctx, &pubsub.Message{Data: []byte("will-redeliver")}).Get(ctx)
 	require.NoError(t, err, "Publish")
 
-	// Pull the message and deliberately do NOT ack it.
 	first := psPullN(t, sc, subName, 1)
 	require.Len(t, first, 1, "first pull must return the published message")
 	require.Equal(t, "will-redeliver", string(first[0].GetMessage().GetData()))
 
-	// A StreamingPull holds open until the service redelivers the message once
-	// its 10-second deadline runs out.
+	// A StreamingPull holds open until the service redelivers the message after its
+	// 10-second deadline.
 	got := psStreamUntil(t, psOpenStreamingPull(t, sc, subName), "will-redeliver")
 	require.Len(t, got, 1, "the stream delivers only the redelivered message")
 	redelivered := got[0]
 	require.NotEqual(t, first[0].GetAckId(), redelivered.GetAckId(), "redelivery must carry a fresh ackId")
 }
 
-// TestPubSub_GRPC_ModifyAckDeadline proves that ModifyAckDeadline moves the
-// deadline it names in both directions. One message has its deadline cut to a
-// second and then extended; a sentinel pulled after it has its deadline cut to
-// a second and left there, so the sentinel's deadline expires no earlier than
-// the first message's short one. When a StreamingPull redelivers the sentinel,
-// the first message's short deadline has provably passed too, and the stream
-// must not have redelivered it: the extension held it. Dropping its deadline to
-// zero then returns it on the same stream at once.
+// TestPubSub_GRPC_ModifyAckDeadline: one message's deadline is cut to a second
+// and then extended; a sentinel pulled after it is cut to a second and left, so
+// it expires no earlier than the first message's short deadline. When the
+// stream redelivers the sentinel, the first message's short deadline has
+// passed, and the extension must have held it. A zero deadline then returns it
+// on the same stream at once.
 func TestPubSub_GRPC_ModifyAckDeadline(t *testing.T) {
 	t.Parallel()
 	c := newPSGRPCClient(t, "ps-grpc-proj")
@@ -293,8 +275,7 @@ func TestPubSub_GRPC_ModifyAckDeadline(t *testing.T) {
 	require.NotEqual(t, extended.GetAckId(), last.GetAckId(), "redelivery carries a fresh ackId")
 }
 
-// psOpenStreamingPull opens a raw StreamingPull on sub. The stream closes when
-// the test ends or its minute is up, whichever comes first.
+// psOpenStreamingPull's stream closes when the test ends or its minute is up.
 func psOpenStreamingPull(t *testing.T, sc pubsubpb.SubscriberClient, sub string) pubsubpb.Subscriber_StreamingPullClient {
 	t.Helper()
 	streamCtx, cancel := context.WithTimeout(ctx, time.Minute)
@@ -307,9 +288,8 @@ func psOpenStreamingPull(t *testing.T, sc pubsubpb.SubscriberClient, sub string)
 	return stream
 }
 
-// psStreamUntil receives from stream until a message carrying data arrives,
-// and returns every message received up to and including that batch, the
-// match last. Recv blocks until the service delivers; the stream's context
+// psStreamUntil returns every message received up to and including the batch
+// carrying data. Recv blocks until the service delivers; the stream's context
 // bounds the wait.
 func psStreamUntil(t *testing.T, stream pubsubpb.Subscriber_StreamingPullClient, data string) []*pubsubpb.ReceivedMessage {
 	t.Helper()
@@ -331,9 +311,6 @@ func psStreamUntil(t *testing.T, stream pubsubpb.Subscriber_StreamingPullClient,
 	}
 }
 
-// TestPubSub_GRPC_StreamingPull drives the high-level client's Receive path
-// (StreamingPull) and asserts it receives the published messages, then acks them
-// via the handler so they are not redelivered.
 func TestPubSub_GRPC_StreamingPull(t *testing.T) {
 	t.Parallel()
 	c := newPSGRPCClient(t, "ps-grpc-proj")
@@ -385,9 +362,6 @@ func TestPubSub_GRPC_StreamingPull(t *testing.T) {
 	require.NoError(t, <-receiveDone)
 }
 
-// TestPubSub_GRPC_SeekSnapshot publishes a batch, snapshots the backlog, pulls +
-// acks everything, then seeks to the snapshot and confirms all messages are
-// replayed.
 func TestPubSub_GRPC_SeekSnapshot(t *testing.T) {
 	t.Parallel()
 	c := newPSGRPCClient(t, "ps-grpc-proj")
@@ -411,7 +385,6 @@ func TestPubSub_GRPC_SeekSnapshot(t *testing.T) {
 		require.NoError(t, err, "Publish %s", p)
 	}
 
-	// Snapshot the full backlog before any are acked.
 	snapName := "projects/ps-grpc-proj/snapshots/sk-snap"
 	_, err = sc.CreateSnapshot(ctx, &pubsubpb.CreateSnapshotRequest{
 		Name: snapName, Subscription: subName,
@@ -419,14 +392,12 @@ func TestPubSub_GRPC_SeekSnapshot(t *testing.T) {
 	require.NoError(t, err, "CreateSnapshot")
 	defer sc.DeleteSnapshot(ctx, &pubsubpb.DeleteSnapshotRequest{Snapshot: snapName})
 
-	// Pull + ack everything so the queue is drained.
 	for _, rm := range psPullAll(t, sc, subName, len(want), 10*time.Second) {
 		_, err := sc.Acknowledge(ctx, &pubsubpb.AcknowledgeRequest{Subscription: subName, AckIds: []string{rm.GetAckId()}})
 		require.NoError(t, err, "Acknowledge before seek")
 	}
 	require.Empty(t, psPullN(t, sc, subName, 10), "queue must be empty after acking all")
 
-	// Seek to the snapshot and confirm the backlog is replayed.
 	_, err = sc.Seek(ctx, &pubsubpb.SeekRequest{
 		Subscription: subName,
 		Target:       &pubsubpb.SeekRequest_Snapshot{Snapshot: snapName},
@@ -444,10 +415,9 @@ func TestPubSub_GRPC_SeekSnapshot(t *testing.T) {
 	}
 }
 
-// TestPubSub_GRPC_Schema exercises SchemaService CRUD + ValidateSchema.
 func TestPubSub_GRPC_Schema(t *testing.T) {
 	t.Parallel()
-	newPSGRPCClient(t, "ps-grpc-proj") // ensures the emulator env is set + project wiring
+	newPSGRPCClient(t, "ps-grpc-proj")
 	conn, err := grpc.NewClient(grpcAddr, simGRPCDialOptions(simTokenSource())...)
 	require.NoError(t, err)
 	t.Cleanup(func() { conn.Close() })
@@ -488,7 +458,6 @@ func TestPubSub_GRPC_Schema(t *testing.T) {
 	require.NoError(t, err, "DeleteSchema")
 }
 
-// psPullN performs a single unary Pull and returns at most max received messages.
 func psPullN(t *testing.T, sc pubsubpb.SubscriberClient, sub string, max int) []*pubsubpb.ReceivedMessage {
 	t.Helper()
 	resp, err := sc.Pull(ctx, &pubsubpb.PullRequest{Subscription: sub, MaxMessages: int32(max), ReturnImmediately: true})
@@ -496,11 +465,10 @@ func psPullN(t *testing.T, sc pubsubpb.SubscriberClient, sub string, max int) []
 	return resp.GetReceivedMessages()
 }
 
-// psPullAll receives count messages from sub over a StreamingPull whose flow
-// control admits exactly count outstanding messages, so the service delivers
-// them as they become available and no more. The stream closes before it
-// returns; the messages stay leased for the stream's deadline, to be acked or
-// nacked by ackId. A timeout that expires first fails the test.
+// psPullAll receives count messages over a StreamingPull whose flow control
+// admits exactly count outstanding, so the service delivers them as they become
+// available and no more. The messages stay leased for the stream's deadline,
+// to be acked or nacked by ackId.
 func psPullAll(t *testing.T, sc pubsubpb.SubscriberClient, sub string, count int, timeout time.Duration) []*pubsubpb.ReceivedMessage {
 	t.Helper()
 	streamCtx, cancel := context.WithTimeout(ctx, timeout)
@@ -521,9 +489,8 @@ func psPullAll(t *testing.T, sc pubsubpb.SubscriberClient, sub string, count int
 	return out
 }
 
-// TestPubSubGRPC_ListRefusesAMalformedPage holds a listing to Google's paging
-// contract: a page token the service did not issue, or a negative page size,
-// is an INVALID_ARGUMENT, not a silent restart from the first page.
+// TestPubSubGRPC_ListRefusesAMalformedPage: a page token the service did not
+// issue, or a negative page size, is INVALID_ARGUMENT, not a silent restart.
 func TestPubSubGRPC_ListRefusesAMalformedPage(t *testing.T) {
 	t.Parallel()
 	pub, _ := psRawClient(t)

@@ -21,17 +21,14 @@ import (
 	"google.golang.org/protobuf/types/known/wrapperspb"
 )
 
-// These exercise the Cloud KMS gRPC surface beyond the key lifecycle and the
-// crypto operations: the ImportJob family and the two imports that consume it,
-// the trusted-key-wrapped export/import pair, the deletes (which answer with a
-// long-running operation), the RetiredResource reads, and the Decapsulate
-// refusal. Every call goes through the generated
-// cloud.google.com/go/kms.KeyManagementClient, which speaks gRPC only.
+// The Cloud KMS gRPC surface beyond the key lifecycle and crypto: the ImportJob
+// family and its two imports, the trusted-key-wrapped export and import pair,
+// the deletes (which answer with an operation), the RetiredResource reads and
+// the Decapsulate refusal. cloud.google.com/go/kms speaks gRPC only.
 
-// kmsWrapForImportJob wraps raw key material for an ImportJob whose import
-// method is one of the direct RSA_OAEP_*_SHA256 methods: the material is
-// RSA-OAEP encrypted under the job's wrapping public key, and that ciphertext
-// is the whole wrapped blob.
+// kmsWrapForImportJob RSA-OAEP encrypts the material under the job's wrapping
+// public key, the whole wrapped blob for the direct RSA_OAEP_*_SHA256 import
+// methods.
 func kmsWrapForImportJob(t *testing.T, jobPublicKeyPEM string, material []byte) []byte {
 	t.Helper()
 	pub, ok := parseKMSPEMPublicKey(t, jobPublicKeyPEM).(*rsa.PublicKey)
@@ -41,8 +38,6 @@ func kmsWrapForImportJob(t *testing.T, jobPublicKeyPEM string, material []byte) 
 	return wrapped
 }
 
-// kmsRandomBytes returns n bytes of real randomness for use as key material a
-// test imports and then proves the service kept byte-for-byte.
 func kmsRandomBytes(t *testing.T, n int) []byte {
 	t.Helper()
 	b := make([]byte, n)
@@ -51,7 +46,6 @@ func kmsRandomBytes(t *testing.T, n int) []byte {
 	return b
 }
 
-// kmsMacSign signs data with a CryptoKeyVersion's HMAC key and returns the MAC.
 func kmsMacSign(t *testing.T, c *kms.KeyManagementClient, versionName string, data []byte) []byte {
 	t.Helper()
 	resp, err := c.MacSign(ctx, &kmspb.MacSignRequest{
@@ -92,14 +86,13 @@ func TestCloudKMS_GRPC_ImportJobLifecycle(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, 3072, pub.N.BitLen())
 
-	// GetImportJob returns the job CreateImportJob stored.
 	got, err := c.GetImportJob(ctx, &kmspb.GetImportJobRequest{Name: job.GetName()})
 	require.NoError(t, err)
 	require.Equal(t, job.GetName(), got.GetName())
 	require.Equal(t, job.GetPublicKey().GetPem(), got.GetPublicKey().GetPem())
 	require.Equal(t, kmspb.ImportJob_ACTIVE, got.GetState())
 
-	// A second job in the same ring, so the listing has to select and order.
+	// A second job in the same ring, so the listing must select and order.
 	second, err := c.CreateImportJob(ctx, &kmspb.CreateImportJobRequest{
 		Parent:      ringName,
 		ImportJobId: "job-2",
@@ -108,8 +101,7 @@ func TestCloudKMS_GRPC_ImportJobLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, kmspb.ProtectionLevel_SOFTWARE, second.GetProtectionLevel(), "an unset protection level defaults to SOFTWARE")
 
-	// PageSize 1 makes the client walk two pages, so the listing's page token
-	// has to be one the client can come back with.
+	// PageSize 1 makes the client walk two pages with the listing's token.
 	it := c.ListImportJobs(ctx, &kmspb.ListImportJobsRequest{Parent: ringName, PageSize: 1})
 	var listed []string
 	for {
@@ -147,10 +139,9 @@ func TestCloudKMS_GRPC_ImportJobLifecycle(t *testing.T) {
 	requireGRPCCode(t, err, codes.NotFound)
 }
 
-// TestCloudKMS_GRPC_ImportCryptoKeyVersionKeepsTheCallersMaterial proves the
-// import is a real unwrap and not a fresh key: the same 32 bytes are imported
-// into two independent CryptoKeys, and both versions produce the HMAC the test
-// computes locally from those bytes.
+// TestCloudKMS_GRPC_ImportCryptoKeyVersionKeepsTheCallersMaterial imports the
+// same 32 bytes into two CryptoKeys; both versions must produce the HMAC
+// computed locally from those bytes, which a fresh key cannot.
 func TestCloudKMS_GRPC_ImportCryptoKeyVersionKeepsTheCallersMaterial(t *testing.T) {
 	t.Parallel()
 	c := newKMSGRPCClient(t)
@@ -250,11 +241,10 @@ func TestCloudKMS_GRPC_ImportCryptoKeyVersionKeepsTheCallersMaterial(t *testing.
 	requireGRPCCode(t, err, codes.NotFound)
 }
 
-// TestCloudKMS_GRPC_TrustedKeyWrappedExportImport round-trips key material
-// through the trusted-wrapping pair: a version marked for trusted wrapping is
-// exported under an HSM-trusted AES_256_KWP key, the wrapped blob is imported
-// into another CryptoKey, and the imported version MACs identically to the
-// source — which it only can if the export/import moved the exact material.
+// TestCloudKMS_GRPC_TrustedKeyWrappedExportImport exports an exportable version
+// under an HSM-trusted AES_256_KWP key and imports the blob into another
+// CryptoKey; the imported version MACs identically only if the exact material
+// moved.
 func TestCloudKMS_GRPC_TrustedKeyWrappedExportImport(t *testing.T) {
 	t.Parallel()
 	c := newKMSGRPCClient(t)
@@ -357,14 +347,10 @@ func TestCloudKMS_GRPC_TrustedKeyWrappedExportImport(t *testing.T) {
 	requireGRPCCode(t, err, codes.InvalidArgument)
 }
 
-// TestCloudKMS_GRPC_DeleteCryptoKeyAndVersion drives the two deletes, which the
-// service answers with a long-running operation, and the preconditions Cloud
-// KMS puts in front of them: a version is deletable only once it has reached
-// DESTROYED, and a CryptoKey only once it has no versions left.
-//
-// The key sets destroyScheduledDuration to a second so the destroy it
-// schedules completes inside the test. That is the same field an operator sets
-// to shorten the wait in the real service, not a simulator affordance.
+// TestCloudKMS_GRPC_DeleteCryptoKeyAndVersion: both deletes answer with an
+// operation, a version is deletable only once DESTROYED, and a CryptoKey only
+// once it has no versions. A one-second destroyScheduledDuration, the field an
+// operator sets in the real service, lets the destroy complete in the test.
 func TestCloudKMS_GRPC_DeleteCryptoKeyAndVersion(t *testing.T) {
 	t.Parallel()
 	c := newKMSGRPCClient(t)
@@ -410,8 +396,7 @@ func TestCloudKMS_GRPC_DeleteCryptoKeyAndVersion(t *testing.T) {
 	_, err = c.GetCryptoKeyVersion(ctx, &kmspb.GetCryptoKeyVersionRequest{Name: first})
 	require.NoError(t, err, "deleting one version leaves its siblings alone")
 
-	// The key still has version 1, so its delete is refused rather than
-	// cascading — losing the surviving version's material silently.
+	// Version 1 survives, so the key delete is refused rather than cascading.
 	_, err = c.DeleteCryptoKey(ctx, &kmspb.DeleteCryptoKeyRequest{Name: key.GetName()})
 	requireGRPCCode(t, err, codes.FailedPrecondition)
 
@@ -430,8 +415,8 @@ func TestCloudKMS_GRPC_DeleteCryptoKeyAndVersion(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, keyMeta, "DeleteCryptoKey's operation must carry DeleteCryptoKeyMetadata")
 
-	// The server mounts one google.longrunning.Operations service, so an
-	// operation name Cloud KMS hands a client has to resolve there.
+	// The server mounts one google.longrunning.Operations service, where every
+	// operation name Cloud KMS hands out must resolve.
 	conn, err := grpc.NewClient(grpcAddr, simGRPCDialOptions(simTokenSource())...)
 	require.NoError(t, err)
 	defer conn.Close()
@@ -459,8 +444,8 @@ func TestCloudKMS_GRPC_DeleteCryptoKeyAndVersion(t *testing.T) {
 	requireGRPCCode(t, err, codes.NotFound)
 }
 
-// kmsAwaitVersionState polls a version until it reaches want, which is how a
-// client observes a scheduled destroy completing.
+// kmsAwaitVersionState polls the version's state: Cloud KMS offers no wait on
+// a scheduled destroy.
 func kmsAwaitVersionState(t *testing.T, c *kms.KeyManagementClient, name string, want kmspb.CryptoKeyVersion_CryptoKeyVersionState) *kmspb.CryptoKeyVersion {
 	t.Helper()
 	deadline := time.Now().Add(30 * time.Second)
@@ -477,9 +462,9 @@ func kmsAwaitVersionState(t *testing.T, c *kms.KeyManagementClient, name string,
 	}
 }
 
-// TestCloudKMS_GRPC_RetiredResources reads the RetiredResource records. A
-// deletion in this simulator records none, so the reads report an empty
-// location and a missing record — the same answer the REST reads give.
+// TestCloudKMS_GRPC_RetiredResources: the simulator records no RetiredResource
+// on deletion, so the reads report an empty location and a missing record, as
+// the REST reads do.
 func TestCloudKMS_GRPC_RetiredResources(t *testing.T) {
 	t.Parallel()
 	c := newKMSGRPCClient(t)
@@ -499,9 +484,9 @@ func TestCloudKMS_GRPC_RetiredResources(t *testing.T) {
 	requireGRPCCode(t, err, codes.NotFound)
 }
 
-// TestCloudKMS_GRPC_DecapsulateIsRefusedWithItsReason holds Decapsulate to the
-// refusal it serves: post-quantum key encapsulation is not available, and the
-// method says so instead of returning invented shared-secret bytes.
+// TestCloudKMS_GRPC_DecapsulateIsRefusedWithItsReason: the simulator offers no
+// post-quantum key encapsulation and refuses Decapsulate rather than invent a
+// shared secret.
 func TestCloudKMS_GRPC_DecapsulateIsRefusedWithItsReason(t *testing.T) {
 	t.Parallel()
 	c := newKMSGRPCClient(t)

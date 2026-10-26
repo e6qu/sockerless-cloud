@@ -12,10 +12,8 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// Cloud Memorystore for Redis v1. Real API:
-// https://redis.googleapis.com/$discovery/rest?version=v1
-// Each instance and cluster runs a real Redis engine; see
-// memorystore_redis_engine.go.
+// Memorystore for Redis v1. Each instance and cluster runs a real Redis engine;
+// see memorystore_redis_engine.go.
 
 type MSRedisInstance struct {
 	Name              string            `json:"name"` // projects/{p}/locations/{loc}/instances/{id}
@@ -35,8 +33,8 @@ type MSRedisInstance struct {
 	AuthorizedNetwork string            `json:"authorizedNetwork,omitempty"`
 	AuthEnabled       bool              `json:"authEnabled,omitempty"`
 	RedisConfigs      map[string]string `json:"redisConfigs,omitempty"`
-	// connectMode + transitEncryptionMode have provider defaults; the read-back
-	// must echo them or terraform-provider-google plans a replacement.
+	// connectMode and transitEncryptionMode carry provider defaults; the read must
+	// echo them or terraform-provider-google plans a replacement.
 	ConnectMode           string `json:"connectMode,omitempty"`
 	TransitEncryptionMode string `json:"transitEncryptionMode,omitempty"`
 	// MaintenanceSchedule is output-only: the service reports the upcoming
@@ -70,9 +68,8 @@ func registerMemorystoreRedis(srv *sim.Server) {
 
 	registerMemorystoreRedisClusters(srv)
 
-	// A persistent control-plane restart rebinds every endpoint and re-adopts
-	// the engine containers the earlier process left running. The API-only
-	// tier runs no engines.
+	// A persistent restart rebinds every endpoint and adopts the engine containers
+	// the earlier process left running; the API-only tier runs no engines.
 	if msRedisRunsEngines() {
 		if err := msRedisRecoverPlanes(); err != nil {
 			log.Fatalf("recover Memorystore for Redis data planes: %v", err)
@@ -84,9 +81,8 @@ func registerMemorystoreRedis(srv *sim.Server) {
 // users and backups. A mutating method does its work inside the request and
 // returns the finished operation.
 
-// MSRedisCluster mirrors google.cloud.redis.cluster.v1.Cluster — only the fields the
-// Discovery schema declares (the runtime spec-validator rejects any member
-// not defined by the Cluster schema).
+// MSRedisCluster mirrors google.cloud.redis.cluster.v1.Cluster with only the
+// fields the Discovery schema declares, which the spec validator holds it to.
 type MSRedisCluster struct {
 	Name                      string                           `json:"name"`
 	CreateTime                string                           `json:"createTime,omitempty"`
@@ -277,19 +273,16 @@ func registerMemorystoreRedisClusters(srv *sim.Server) {
 
 	base := "/v1/projects/{project}/locations/{location}"
 
-	// Clusters.
 	srv.HandleFunc("POST "+base+"/clusters", handleMSRedisClusterCreate)
 	srv.HandleFunc("GET "+base+"/clusters", handleMSRedisClusterList)
 	srv.HandleFunc("GET "+base+"/clusters/{id}", handleMSRedisClusterGet)
 	srv.HandleFunc("PATCH "+base+"/clusters/{id}", handleMSRedisClusterPatch)
 	srv.HandleFunc("DELETE "+base+"/clusters/{id}", handleMSRedisClusterDelete)
-	// Cluster colon-verbs (:backup, :rescheduleClusterMaintenance,
-	// :addTokenAuthUser) fan in on a single wildcard, same as the
-	// instance surface — Go's mux can't spell `{id}:verb`.
+	// The cluster colon-verbs (:backup, :rescheduleClusterMaintenance,
+	// :addTokenAuthUser) fan in on one wildcard, as the instance ones do.
 	srv.HandleFunc("POST "+base+"/clusters/{idAction}", handleMSRedisClusterAction)
 	srv.HandleFunc("GET "+base+"/clusters/{id}/certificateAuthority", handleMSRedisClusterGetCA)
 
-	// Token-auth users + auth tokens (nested under a cluster).
 	srv.HandleFunc("GET "+base+"/clusters/{id}/tokenAuthUsers", handleMSRedisTokenAuthUserList)
 	srv.HandleFunc("GET "+base+"/clusters/{id}/tokenAuthUsers/{tid}", handleMSRedisTokenAuthUserGet)
 	srv.HandleFunc("DELETE "+base+"/clusters/{id}/tokenAuthUsers/{tid}", handleMSRedisTokenAuthUserDelete)
@@ -298,7 +291,6 @@ func registerMemorystoreRedisClusters(srv *sim.Server) {
 	srv.HandleFunc("GET "+base+"/clusters/{id}/tokenAuthUsers/{tid}/authTokens/{atid}", handleMSRedisAuthTokenGet)
 	srv.HandleFunc("DELETE "+base+"/clusters/{id}/tokenAuthUsers/{tid}/authTokens/{atid}", handleMSRedisAuthTokenDelete)
 
-	// Backup collections + backups.
 	srv.HandleFunc("GET "+base+"/backupCollections", handleMSRedisBackupCollectionList)
 	srv.HandleFunc("GET "+base+"/backupCollections/{bc}", handleMSRedisBackupCollectionGet)
 	srv.HandleFunc("GET "+base+"/backupCollections/{bc}/backups", handleMSRedisBackupList)
@@ -306,7 +298,6 @@ func registerMemorystoreRedisClusters(srv *sim.Server) {
 	srv.HandleFunc("DELETE "+base+"/backupCollections/{bc}/backups/{bid}", handleMSRedisBackupDelete)
 	srv.HandleFunc("POST "+base+"/backupCollections/{bc}/backups/{bidAction}", handleMSRedisBackupAction)
 
-	// ACL policies.
 	srv.HandleFunc("POST "+base+"/aclPolicies", handleMSRedisAclPolicyCreate)
 	srv.HandleFunc("GET "+base+"/aclPolicies", handleMSRedisAclPolicyList)
 	srv.HandleFunc("GET "+base+"/aclPolicies/{id}", handleMSRedisAclPolicyGet)
@@ -315,7 +306,6 @@ func registerMemorystoreRedisClusters(srv *sim.Server) {
 	srv.HandleFunc("GET "+base+"/aclPolicies/{id}/revisions", handleMSRedisAclPolicyRevisionList)
 	srv.HandleFunc("GET "+base+"/aclPolicies/{id}/revisions/{revision}", handleMSRedisAclPolicyRevisionGet)
 
-	// Shared regional certificate authority.
 	srv.HandleFunc("GET "+base+"/sharedRegionalCertificateAuthority", handleMSRedisSharedRegionalCA)
 }
 
@@ -695,8 +685,7 @@ func handleMSRedisClusterAction(w http.ResponseWriter, r *http.Request) {
 	case "backup":
 		handleMSRedisClusterBackup(w, r, project, location, id, cluster)
 	case "rescheduleClusterMaintenance":
-		// No maintenance window is simulated; the reschedule settles
-		// synchronously and the cluster stays ACTIVE.
+		// The reschedule settles inside the request, and the cluster stays ACTIVE.
 		op := redisClusterLRO(r, project, location, name, cluster, msRedisClusterType)
 		sim.WriteJSON(w, http.StatusOK, op)
 	case "addTokenAuthUser":
@@ -720,9 +709,8 @@ func handleMSRedisClusterBackup(w http.ResponseWriter, r *http.Request, project,
 		GCPErrorf(w, http.StatusBadRequest, "FAILED_PRECONDITION", "%v", err)
 		return
 	}
-	// A manual backup materializes a BackupCollection for the cluster
-	// (named after the cluster) and a Backup within it — the same shape
-	// the BackupCollections/Backups read APIs enumerate.
+	// A manual backup creates the cluster's BackupCollection, named after the
+	// cluster, and a Backup in it, as the backup read APIs enumerate them.
 	bcName := fmt.Sprintf("projects/%s/locations/%s/backupCollections/%s", project, location, clusterID)
 	if _, ok := msRedisBackupColls.Get(bcName); !ok {
 		msRedisBackupColls.Put(bcName, MSRedisBackupCollection{
@@ -867,8 +855,7 @@ func handleMSRedisTokenAuthUserList(w http.ResponseWriter, r *http.Request) {
 		sim.PathParam(r, "project"), sim.PathParam(r, "location"), sim.PathParam(r, "id"))
 	out := []MSRedisTokenAuthUser{}
 	for _, u := range msRedisTokenAuthUsers.List() {
-		// Exclude nested authToken-derived rows by requiring exactly the
-		// tokenAuthUser depth (no further path segments).
+		// Only rows at exactly the tokenAuthUser depth, not their auth tokens.
 		if strings.HasPrefix(u.Name, prefix) && !strings.Contains(strings.TrimPrefix(u.Name, prefix), "/") {
 			out = append(out, u)
 		}
@@ -1130,8 +1117,8 @@ func handleMSRedisAclPolicyCreate(w http.ResponseWriter, r *http.Request) {
 		Name:  name,
 		Rules: req.Rules,
 		State: "ACTIVE",
-		// version is a drift-resolution counter (int64 serialized as a
-		// string on the wire); a freshly created policy starts at 1.
+		// version is a drift-resolution counter, an int64 and so a string; a new
+		// policy starts at 1.
 		Version:    defaultStr(req.Version, "1"),
 		Etag:       sim.NewUUID(),
 		CreateTime: time.Now().UTC().Format(time.RFC3339),
@@ -1139,7 +1126,7 @@ func handleMSRedisAclPolicyCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	msRedisAclPolicies.Put(name, policy)
 	msRedisPutAclRevision(policy, "1")
-	// aclPolicies.create returns the AclPolicy resource directly (not an LRO).
+	// aclPolicies.create answers the AclPolicy directly, not an operation.
 	sim.WriteJSON(w, http.StatusOK, msRedisAclPolicyView(policy))
 }
 

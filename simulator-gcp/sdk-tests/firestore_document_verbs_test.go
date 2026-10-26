@@ -10,10 +10,10 @@ import (
 )
 
 // The custom methods on a document parent, plus documents:write and the
-// databases clone/restore pair:
+// databases clone and restore pair:
 //
-//	POST /v1/projects/{project}/databases/{database}/documents:write
-//	POST /v1/projects/{project}/{databasesVerb}
+//   POST /v1/projects/{project}/databases/{database}/documents:write
+//   POST /v1/projects/{project}/{databasesVerb}
 
 func firestoreVerbService(t *testing.T) *firestore.Service {
 	t.Helper()
@@ -22,7 +22,6 @@ func firestoreVerbService(t *testing.T) *firestore.Service {
 	return svc
 }
 
-// seedFirestoreDocument writes one document and returns the database parent.
 func seedFirestoreDocument(t *testing.T, svc *firestore.Service, parent, name string, fields map[string]firestore.Value) {
 	t.Helper()
 	_, err := svc.Projects.Databases.Documents.Commit(parent, &firestore.CommitRequest{
@@ -168,8 +167,7 @@ func TestFirestore_PartitionQuery(t *testing.T) {
 	require.Len(t, response.Partitions, 2)
 	assert.NotEmpty(t, response.Partitions[0].Values[0].ReferenceValue)
 
-	// Fewer documents than partitions yields no cursor at all, which is a
-	// complete answer rather than an empty one.
+	// Fewer documents than partitions yields no cursor, a complete answer.
 	sparse := "projects/fs-partition-sparse/databases/(default)"
 	seedFirestoreDocument(t, svc, sparse, "events/only", map[string]firestore.Value{"k": strValue("only")})
 	response, err = svc.Projects.Databases.Documents.PartitionQuery(sparse+"/documents",

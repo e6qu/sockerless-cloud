@@ -14,20 +14,14 @@ import (
 	run "google.golang.org/api/run/v1"
 )
 
-// Cloud Run Admin v1 (Knative) Jobs-family SDK tests, driven by the canonical
-// google.golang.org/api/run/v1 client.
-//
-// A Cloud Run job, its executions and its tasks are one resource each,
-// addressable through two API versions. These tests create the resource
-// through one version and read it back through the other, which is the whole
-// point of the projection: there is no separate v1 store to diverge.
+// A Cloud Run job, its executions and its tasks are each one resource with two
+// API-version spellings; these tests create through one and read through the
+// other, since no separate v1 store exists.
 
-// cloudRunV1Namespace is the Knative namespace the jobs surface addresses —
-// the project, at the simulator's single origin.
+// cloudRunV1Namespace is the project, which the Knative jobs surface addresses
+// as its namespace.
 const cloudRunV1Namespace = "test-project"
 
-// createCloudRunV2JobLRO creates a Cloud Run job over the v2 collection and
-// returns the long-running operation name the create returned.
 func createCloudRunV2JobLRO(t *testing.T, jobID string) string {
 	t.Helper()
 	body := `{"template":{"template":{"containers":[{"image":"mirror.gcr.io/library/alpine:latest"}]}}}`
@@ -96,7 +90,6 @@ func TestCloudRunV1_ExecutionAndTaskProjection(t *testing.T) {
 	require.Len(t, list.Items, 1)
 	assert.Equal(t, execID, list.Items[0].Metadata.Name)
 
-	// A selector naming a different job matches nothing — the filter is real.
 	empty, err := svc.Namespaces.Executions.List("namespaces/" + cloudRunV1Namespace).
 		LabelSelector("run.googleapis.com/job=some-other-job").Do()
 	require.NoError(t, err)
@@ -124,8 +117,8 @@ func TestCloudRunV1_ExecutionAndTaskProjection(t *testing.T) {
 	assert.Equal(t, simWorkloadImage, got.Spec.Containers[0].Image)
 }
 
-// TestCloudRunV1_ExecutionAndTaskNotFound pins the answer for names that were
-// never created: NOT_FOUND from a handler that looked, not a mux miss.
+// TestCloudRunV1_ExecutionAndTaskNotFound: a name never created answers
+// NOT_FOUND from the handler, not from a route miss.
 func TestCloudRunV1_ExecutionAndTaskNotFound(t *testing.T) {
 	t.Parallel()
 	svc := newRunV1(t)
@@ -141,7 +134,6 @@ func TestCloudRunV1_ExecutionAndTaskNotFound(t *testing.T) {
 	assert.Contains(t, err.Error(), "never-created")
 }
 
-// TestCloudRunV1_ExecutionsListPaging drives the Knative limit/continue cursor.
 func TestCloudRunV1_ExecutionsListPaging(t *testing.T) {
 	t.Parallel()
 	svc := newRunV1(t)
@@ -171,9 +163,8 @@ func TestCloudRunV1_ExecutionsListPaging(t *testing.T) {
 	assert.NotEqual(t, page.Items[0].Metadata.Name, rest.Items[0].Metadata.Name)
 }
 
-// TestCloudRunV1_OperationsWait drives run.projects.locations.operations.wait
-// against the operation record the v2 CreateJob returned. One operation store,
-// two API-version spellings of the poll.
+// TestCloudRunV1_OperationsWait waits through run.projects.locations.operations.wait
+// on the operation the v2 CreateJob returned.
 func TestCloudRunV1_OperationsWait(t *testing.T) {
 	t.Parallel()
 	svc := newRunV1(t)
@@ -190,9 +181,8 @@ func TestCloudRunV1_OperationsWait(t *testing.T) {
 	require.Error(t, err, "waiting on an operation that does not exist is NOT_FOUND")
 }
 
-// TestCloudRunV1_JobsGetIamPolicy drives run.projects.locations.jobs.getIamPolicy
-// — the global-path IAM read `gcloud run jobs get-iam-policy` calls — and shows
-// that it reads the policy the v2 collection writes.
+// TestCloudRunV1_JobsGetIamPolicy: the global-path IAM read `gcloud run jobs
+// get-iam-policy` calls reads the policy the v2 collection writes.
 func TestCloudRunV1_JobsGetIamPolicy(t *testing.T) {
 	t.Parallel()
 	svc := newRunV1(t)

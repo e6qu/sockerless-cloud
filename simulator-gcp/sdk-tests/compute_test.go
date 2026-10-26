@@ -23,11 +23,9 @@ func computeService(t *testing.T) *compute.Service {
 	return svc
 }
 
-// createInstanceSubnetwork creates a network of the test's own with one
-// subnetwork in it, and returns the subnetwork's path. Every instance test
-// brings its own range: two live networks over one range do not coexist on
-// one engine, and the auto-mode default network's ranges are the same in
-// every project.
+// createInstanceSubnetwork gives each instance test its own range: two live
+// networks over one range cannot coexist on one engine, and the auto-mode
+// default network has the same ranges in every project.
 func createInstanceSubnetwork(t *testing.T, svc *compute.Service, project, region, name, cidr string) string {
 	t.Helper()
 	_, err := svc.Networks.Insert(project, &compute.Network{Name: name, AutoCreateSubnetworks: false}).Context(ctx).Do()
@@ -62,7 +60,6 @@ func TestCompute_CreateSubnetwork(t *testing.T) {
 	t.Parallel()
 	svc := computeService(t)
 
-	// Create network first
 	network := &compute.Network{
 		Name:                  "subnet-test-net",
 		AutoCreateSubnetworks: false,
@@ -100,8 +97,6 @@ func TestCompute_ListNetworks(t *testing.T) {
 	assertComputeListHasName(t, resp.Items, func(n *compute.Network) string { return n.Name }, "list-net")
 }
 
-// computeTestNetwork provisions a VPC network the calling test owns and returns
-// the reference a resource attaches to it with, deleting it when the test ends.
 func computeTestNetwork(t *testing.T, svc *compute.Service, project, name string) string {
 	t.Helper()
 	_, err := svc.Networks.Insert(project, &compute.Network{Name: name, AutoCreateSubnetworks: false}).Context(ctx).Do()
@@ -182,12 +177,8 @@ func TestCompute_RegionalAddressAndManualRouterNAT(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestCompute_Firewall_CreateGetListDelete pins the firewall rule
-// surface that runner setup flows hit. Real GCP rejects unknown
-// directions / negative priorities; the sim defaults to INGRESS +
-// priority=1000 like real GCP. The rule is created against a VPC network
-// this test provisions, so it never rides on a network another test left
-// behind.
+// TestCompute_Firewall_CreateGetListDelete: Compute Engine defaults a rule to
+// INGRESS at priority 1000. The rule targets a network this test provisions.
 func TestCompute_Firewall_CreateGetListDelete(t *testing.T) {
 	t.Parallel()
 	svc := computeService(t)
@@ -260,12 +251,9 @@ func TestCompute_Firewall_DefaultsToIngressPriority1000(t *testing.T) {
 	assert.Equal(t, int64(1000), got.Priority, "default priority must match real GCP")
 }
 
-// TestCompute_Disks_CRUD covers the GCP `pd-ephemeral` storage-driver
-// prereq: zonal Compute Disks insert / get / list /
-// resize / setLabels / delete + aggregated list across zones. Real
-// GCP returns zonal operations for every mutation; a disk write completes
-// inside its request, so its operation is DONE when the client receives it
-// and the SDK's polling loop finishes in one round.
+// TestCompute_Disks_CRUD: every disk mutation answers with a zonal operation;
+// a disk write completes inside its request, so the operation is DONE when the
+// client receives it.
 func TestCompute_Disks_CRUD(t *testing.T) {
 	t.Parallel()
 	svc := computeService(t)
@@ -314,9 +302,8 @@ func TestCompute_Disks_CRUD(t *testing.T) {
 	require.Error(t, err, "get after delete must fail")
 }
 
-// TestCompute_Disks_AggregatedList covers the cross-zone aggregated
-// surface terraform's `data "google_compute_disks"` uses. Real GCP
-// groups by `zones/<zone>` keys; sim mirrors that shape.
+// TestCompute_Disks_AggregatedList: the aggregated list terraform's
+// `data "google_compute_disks"` reads groups disks under `zones/<zone>` keys.
 func TestCompute_Disks_AggregatedList(t *testing.T) {
 	t.Parallel()
 	svc := computeService(t)
@@ -359,10 +346,6 @@ func TestCompute_Disks_Get_NotFound(t *testing.T) {
 	requireGoogleErrCode(t, err, http.StatusNotFound)
 }
 
-// TestCompute_GlobalHTTPLoadBalancerChain exercises the public Compute
-// Engine global HTTP load-balancing API surface used by SDKs and
-// Terraform: Insert/Get/List/Delete for HealthChecks, BackendServices,
-// UrlMaps, TargetHttpProxies, and GlobalForwardingRules.
 func TestCompute_GlobalHTTPLoadBalancerChain(t *testing.T) {
 	t.Parallel()
 	svc := computeService(t)
@@ -487,8 +470,8 @@ func TestCompute_InstanceGroups_Lifecycle(t *testing.T) {
 	require.Len(t, members.Items, 1)
 	assert.Equal(t, member, members.Items[0].Instance)
 
-	// Membership rides listInstances; the InstanceGroup resource itself
-	// summarizes it via the output-only size member.
+	// Membership is read through listInstances; the InstanceGroup summarizes it in
+	// the output-only size member.
 	got, err = svc.InstanceGroups.Get(project, zone, group.Name).Context(ctx).Do()
 	require.NoError(t, err)
 	assert.EqualValues(t, 1, got.Size)
@@ -547,10 +530,9 @@ func TestCompute_Instances_Lifecycle(t *testing.T) {
 		Tags:   &compute.Tags{Items: []string{"runner"}},
 	}
 
-	// Compute Engine answers instances.insert with a zone operation that is
-	// still RUNNING and boots the machine behind it; the client polls
-	// zoneOperations for the verdict. That poll is the whole reason the boot is
-	// not bounded by this one call's request timeout.
+	// Compute Engine answers instances.insert with a RUNNING zone operation and
+	// boots the machine behind it, so the boot is not bounded by this request's
+	// timeout; the client polls zoneOperations for the verdict.
 	op, err := svc.Instances.Insert(project, zone, inst).Context(ctx).Do()
 	require.NoError(t, err)
 	assert.Equal(t, "RUNNING", op.Status,
@@ -624,19 +606,16 @@ func TestCompute_InstanceTemplateCRUD(t *testing.T) {
 		},
 	}
 
-	// Insert (create) instance template — returns an Operation.
 	op, err := svc.InstanceTemplates.Insert(project, tmpl).Context(ctx).Do()
 	require.NoError(t, err)
 	assert.Equal(t, "DONE", op.Status)
 
-	// Get instance template.
 	got, err := svc.InstanceTemplates.Get(project, "sdk-instance-tmpl").Context(ctx).Do()
 	require.NoError(t, err)
 	assert.Equal(t, "sdk-instance-tmpl", got.Name)
 	assert.Equal(t, "compute#instanceTemplate", got.Kind)
 	require.NotNil(t, got.Properties)
 
-	// List instance templates — must contain created template.
 	list, err := svc.InstanceTemplates.List(project).Context(ctx).Do()
 	require.NoError(t, err)
 	found := false
@@ -647,11 +626,9 @@ func TestCompute_InstanceTemplateCRUD(t *testing.T) {
 	}
 	assert.True(t, found, "created template must appear in list")
 
-	// Delete instance template.
 	_, err = svc.InstanceTemplates.Delete(project, "sdk-instance-tmpl").Context(ctx).Do()
 	require.NoError(t, err)
 
-	// Get after delete must fail.
 	_, err = svc.InstanceTemplates.Get(project, "sdk-instance-tmpl").Context(ctx).Do()
 	require.Error(t, err, "get after delete must fail")
 }
@@ -689,15 +666,13 @@ func TestCompute_ListNetworks_Pagination(t *testing.T) {
 	}
 }
 
-// TestCompute_ListSubnetworks exercises compute.subnetworks.list — the
-// regional list method, distinct from subnetworks.aggregatedList:
+// TestCompute_ListSubnetworks drives the regional list, distinct from
+// subnetworks.aggregatedList:
 //
 //	GET /compute/v1/projects/{project}/regions/{region}/subnetworks
 //
-// It answers a SubnetworkList (`kind` plus `items`) rather than the
-// scope-keyed map the aggregated form returns, and it is the read behind
-// `gcloud compute networks subnets list --region` and the console's VPC
-// network detail page.
+// It answers a SubnetworkList (`kind` plus `items`), the read behind `gcloud
+// compute networks subnets list --region`.
 func TestCompute_ListSubnetworks(t *testing.T) {
 	t.Parallel()
 	svc := computeService(t)
@@ -733,12 +708,11 @@ func TestCompute_ListSubnetworks(t *testing.T) {
 
 }
 
-// TestCompute_ListSubnetworks_EmptyRegion proves the same regional list route
+// TestCompute_ListSubnetworks_EmptyRegion: the regional route
 //
 //	GET /compute/v1/projects/{project}/regions/{region}/subnetworks
 //
-// answers a well-formed, empty SubnetworkList for a region that holds no
-// subnets rather than a 404.
+// answers an empty SubnetworkList, not 404, for a region with no subnets.
 func TestCompute_ListSubnetworks_EmptyRegion(t *testing.T) {
 	t.Parallel()
 	svc := computeService(t)
@@ -748,11 +722,10 @@ func TestCompute_ListSubnetworks_EmptyRegion(t *testing.T) {
 	assert.Empty(t, resp.Items)
 }
 
-// awaitZoneOperation polls a zone operation to DONE the way a Compute Engine
-// client does, through zoneOperations.wait — which Compute Engine documents as
-// waiting "for the specified Operation resource to return as DONE or for the
-// request to approach the 2 minute deadline", so a boot longer than one wait
-// takes another wait rather than failing.
+// awaitZoneOperation calls zoneOperations.wait, which Compute Engine documents
+// as waiting "for the specified Operation resource to return as DONE or for
+// the request to approach the 2 minute deadline", so a longer boot takes
+// another wait.
 func awaitZoneOperation(t *testing.T, svc *compute.Service, project, zone, name string) *compute.Operation {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Minute)
@@ -767,13 +740,11 @@ func awaitZoneOperation(t *testing.T, svc *compute.Service, project, zone, name 
 	}
 }
 
-// TestCompute_InsertReturnsARunningOperation is the asynchronous contract on
-// its own: instances.insert answers immediately with a RUNNING zone operation
-// naming the instance it is bringing up, the instance is already visible in a
-// pre-RUNNING state while the boot proceeds, and only the operation reaching
-// DONE means the machine is up. A simulator that booted inside the request
-// could not show the instance in PROVISIONING or STAGING at all, because the
-// response would not exist until the boot had finished.
+// TestCompute_InsertReturnsARunningOperation: instances.insert answers at once
+// with a RUNNING zone operation naming the instance, the instance is visible in
+// a pre-RUNNING state during the boot, and only the operation reaching DONE
+// means the machine is up. A simulator that booted inside the request could
+// show no PROVISIONING or STAGING state.
 func TestCompute_InsertReturnsARunningOperation(t *testing.T) {
 	t.Parallel()
 	svc := computeService(t)
@@ -821,23 +792,17 @@ func TestCompute_InsertReturnsARunningOperation(t *testing.T) {
 	assert.NotEmpty(t, op.InsertTime)
 	assert.NotEmpty(t, op.StartTime)
 	assert.Empty(t, op.EndTime)
-	// The insert answers as soon as the instance is recorded; booting a machine
-	// takes orders of magnitude longer than that, so a response that waited for
-	// the boot could not come back inside this budget.
+	// The insert answers once the instance is recorded; a response that waited for
+	// the boot could not return inside this budget.
 	assert.Less(t, insertTook, 2*time.Second,
 		"the insert must return before the boot finishes, not after it")
 
-	// The instance exists while its operation is still running, in a state that
-	// precedes RUNNING. Sampling from the moment the insert answered until the
-	// operation settles is how a client watches a boot; a simulator that booted
-	// inside the insert request would have no pre-RUNNING state left to show by
-	// the time it answered, so nothing would ever be sampled in one.
+	// Sample from the insert's answer until the operation settles, as a client
+	// watches a boot.
 	deadline := time.Now().Add(5 * time.Minute)
 	sawPreRunning := false
 	var lastInstanceStatus string
 	for {
-		// A GET of the operation reports the same operation, not a fabricated
-		// verdict.
 		polled, err := svc.ZoneOperations.Get(project, zone, op.Name).Context(ctx).Do()
 		require.NoError(t, err)
 		require.Equal(t, op.Name, polled.Name)
@@ -861,7 +826,6 @@ func TestCompute_InsertReturnsARunningOperation(t *testing.T) {
 		"the instance was never observed before RUNNING while its insert operation ran; last status %s",
 		lastInstanceStatus)
 
-	// The operation eventually settles DONE.
 	done := awaitZoneOperation(t, svc, project, zone, op.Name)
 	require.Nil(t, done.Error, "the insert operation failed: %+v", done.Error)
 	assert.Equal(t, int64(100), done.Progress)
@@ -871,9 +835,8 @@ func TestCompute_InsertReturnsARunningOperation(t *testing.T) {
 	assert.Equal(t, "RUNNING", up.Status)
 }
 
-// TestCompute_ZoneOperationGetIsNotFoundForAnUnknownName is the negative
-// control for the operation registry: a name the simulator never handed out is
-// not answered with an invented DONE.
+// TestCompute_ZoneOperationGetIsNotFoundForAnUnknownName: a name never handed
+// out is not answered with an invented DONE.
 func TestCompute_ZoneOperationGetIsNotFoundForAnUnknownName(t *testing.T) {
 	t.Parallel()
 	svc := computeService(t)

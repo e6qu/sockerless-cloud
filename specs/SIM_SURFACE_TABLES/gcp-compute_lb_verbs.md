@@ -17,9 +17,9 @@ The extractor reads the route out of a single string literal, so a registration 
 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
-| `POST /compute/v1/projects/{project}/global/urlMaps/{urlMap}/validate` | ○ `simulator-gcp/compute_lb_verbs.go:108::validate` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `POST /compute/v1/projects/{project}/regions/{region}/urlMaps/{urlMap}/validate` | ○ `simulator-gcp/compute_lb_verbs.go:109::validate` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `POST /compute/v1/projects/{project}/global/urlMaps/{urlMap}/invalidateCache` | ✓ `simulator-gcp/compute_lb_verbs.go:111::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `POST /compute/v1/projects/{project}/global/urlMaps/{urlMap}/validate` | ○ `simulator-gcp/compute_lb_verbs.go:106::validate` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `POST /compute/v1/projects/{project}/regions/{region}/urlMaps/{urlMap}/validate` | ○ `simulator-gcp/compute_lb_verbs.go:107::validate` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `POST /compute/v1/projects/{project}/global/urlMaps/{urlMap}/invalidateCache` | ✓ `simulator-gcp/compute_lb_verbs.go:109::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
 
 ## Coverage status
 

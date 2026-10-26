@@ -91,9 +91,7 @@ func TestSpannerCLI_BackupRestoreCrossPlane(t *testing.T) {
 	}
 
 	runCLI(t, gcloudCLI("spanner", "backups", "delete", "cli-bk", "--instance="+instance, "--quiet"))
-	// Matching whole resource names rather than the raw listing text keeps the
-	// check independent of line endings, and keeps "cli-bk" from matching the
-	// surviving "cli-bk-copy".
+	// Match whole resource names so "cli-bk" does not match "cli-bk-copy".
 	backupNames := spannerListNames(t, "spanner", "backups", "list", "--instance="+instance)
 	if slices.Contains(backupNames, spannerBackupName(instance, "cli-bk")) {
 		t.Fatalf("the deleted backup is still listed: %v", backupNames)
@@ -103,17 +101,13 @@ func TestSpannerCLI_BackupRestoreCrossPlane(t *testing.T) {
 	}
 }
 
-// spannerBackupName is the resource name of a backup in an instance of the
-// suite's project.
 func spannerBackupName(instance, backup string) string {
 	return fmt.Sprintf("projects/%s/instances/%s/backups/%s", project, instance, backup)
 }
 
-// spannerListNames runs a `gcloud spanner ... list` and returns the resource
-// names it reported. The listing is read as JSON rather than
-// `--format=value(name)`: gcloud renders a Spanner list's name column as the
-// bare resource id, which cannot distinguish one instance's backup from
-// another's, while the JSON carries the fully-qualified name the API returned.
+// spannerListNames reads the listing as JSON: gcloud renders a Spanner list's
+// name column as the bare id, which cannot tell one instance's backup from
+// another's.
 func spannerListNames(t *testing.T, args ...string) []string {
 	t.Helper()
 	var listed []struct {
@@ -127,9 +121,6 @@ func spannerListNames(t *testing.T, args ...string) []string {
 	return names
 }
 
-// TestSpannerCLI_AdminSurface drives the remaining administrative groups —
-// backup schedules, instance partitions, database roles and operations — through
-// gcloud.
 func TestSpannerCLI_AdminSurface(t *testing.T) {
 	t.Parallel()
 	const (
@@ -159,9 +150,8 @@ func TestSpannerCLI_AdminSurface(t *testing.T) {
 		"--instance="+instance, "--database="+database),
 		scheduleName, "spanner backup-schedules list missing cli-nightly")
 
-	// The described schedule carries the crontab and retention window the
-	// create was given — a schedule that stored neither would list just as
-	// happily.
+	// A schedule that stored neither the crontab nor the retention window would
+	// list just as well.
 	var schedule struct {
 		Name string `json:"name"`
 		Spec struct {
@@ -175,8 +165,6 @@ func TestSpannerCLI_AdminSurface(t *testing.T) {
 		"--instance="+instance, "--database="+database, "--format=json")), &schedule)
 	require.Equal(t, scheduleName, schedule.Name)
 	require.Equal(t, "0 2 * * *", schedule.Spec.CronSpec.Text)
-	// gcloud renders --retention-duration=2d as the protobuf Duration the API
-	// declares.
 	require.Equal(t, "172800s", schedule.RetentionDuration)
 
 	runCLI(t, gcloudCLI("spanner", "backup-schedules", "delete", "cli-nightly",
@@ -197,8 +185,6 @@ func TestSpannerCLI_AdminSurface(t *testing.T) {
 		"--instance="+instance),
 		partitionName, "spanner instance-partitions list missing cli-shard")
 
-	// The described partition carries the configuration, node count and
-	// description the create asked for.
 	var partition struct {
 		Name        string `json:"name"`
 		Config      string `json:"config"`
@@ -233,11 +219,8 @@ func TestSpannerCLI_AdminSurface(t *testing.T) {
 		t.Fatalf("spanner databases roles list did not report the DDL-defined roles: %s", roles)
 	}
 
-	// The instance's own operation collection holds the operations recorded
-	// against this instance and nothing else: the simulator records every
-	// service's long-running operations in one store, so a listing that did
-	// not scope to the instance would also carry operations from the other
-	// tests in this suite.
+	// The simulator keeps every service's operations in one store, so a listing
+	// not scoped to the instance would carry other tests' operations.
 	operations := spannerListNames(t, "spanner", "operations", "list", "--instance="+instance)
 	require.NotEmpty(t, operations, "spanner operations list reported no instance operations")
 	prefix := fmt.Sprintf("projects/%s/instances/%s/operations/", project, instance)

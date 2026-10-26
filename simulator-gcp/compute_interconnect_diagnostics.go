@@ -6,21 +6,11 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// interconnects.getDiagnostics.
-//
-// The operation reports what an interconnect bundle is doing, and most of what
-// it can report is on the interconnect's own record rather than on the wire:
-// whether the bundle is up, whether its links are aggregated, the circuit and
-// demarcation identifiers Google assigned each link, and whether MACsec is
-// operating and under which key name. Those come from the resource, and the
-// MACsec half is derived by the same function getMacsecConfig answers with, so
-// the two cannot come to disagree.
-//
-// What is genuinely off the equipment is left out, and the schema requires none
-// of it: the optical power transmitted and received on each link, the LACP
-// state the two ends negotiated, and the ARP caches learned from the peer. A
-// simulator has no optics to measure and no peer to learn from, and a number
-// invented for either would be indistinguishable from a reading.
+// interconnects.getDiagnostics reports from the interconnect's own record:
+// whether the bundle is up and aggregated, the circuit and demarcation IDs of
+// each link, and MACsec status, derived by the function getMacsecConfig
+// answers with. Readings off the equipment (optical power, LACP state, ARP
+// caches) are left out; the schema requires none of them.
 func registerComputeInterconnectDiagnostics(srv *sim.Server) {
 	srv.HandleFunc("GET /compute/v1/projects/{project}/global/interconnects/{interconnect}/getDiagnostics",
 		func(w http.ResponseWriter, r *http.Request) {
@@ -37,8 +27,6 @@ func registerComputeInterconnectDiagnostics(srv *sim.Server) {
 		})
 }
 
-// computeInterconnectDiagnostics builds the report from the interconnect's
-// record.
 func computeInterconnectDiagnostics(key string, interconnect map[string]any) map[string]any {
 	up := interconnect["operationalStatus"] == "OS_ACTIVE"
 

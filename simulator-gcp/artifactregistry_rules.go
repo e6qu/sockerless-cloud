@@ -6,7 +6,6 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// registerARRulesAndAttachments mounts a repository's rules and attachments.
 func registerARRulesAndAttachments(srv *sim.Server, repos sim.Store[Repository], attachments sim.Store[ARAttachment], rules sim.Store[ARRule]) {
 	srv.HandleFunc("GET /v1/projects/{project}/locations/{location}/repositories/{repo}/rules", func(w http.ResponseWriter, r *http.Request) {
 		repo, ok := arRepoExists(repos, w, r)

@@ -9,16 +9,11 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// securityPolicies.listPreconfiguredExpressionSets — Cloud Armor's catalogue of
-// preconfigured WAF signatures.
-//
-// Vendored from Google's own documentation by
-// scripts/fetch-gcp-cloud-armor-expression-sets.sh: 70 expression sets, every
-// signature with the sensitivity level the page gives it. The signatures live
-// in per-version tables and the sets in a status table, joined by the
-// identifier, which names both the CRS release and the category; the generator
-// checks that every set the status tables declare comes out of that derivation
-// and fails if one does not.
+// securityPolicies.listPreconfiguredExpressionSets serves Cloud Armor's
+// preconfigured WAF signatures, vendored by
+// scripts/fetch-gcp-cloud-armor-expression-sets.sh: 70 expression sets, each
+// signature with its sensitivity level. The generator fails unless every set
+// the status tables declare derives from the per-version signature tables.
 
 //go:embed compute_waf_expression_sets_vendored.json
 var wafExpressionSetsJSON []byte

@@ -11,11 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Wire-level coverage of the v2 Cloud Run Services routes — the v2 REST
-// surface used by run.NewServicesRESTClient. The v1 Knative service
-// surface (`/apis/serving.knative.dev/v1/namespaces/{ns}/services`) is
-// covered by the sdk-tests.
-
 func servicesBaseURL() string {
 	return fmt.Sprintf("%s/v2/projects/%s/locations/%s/services", baseURL, project, location)
 }
@@ -24,10 +19,9 @@ func runServiceURL(name string) string {
 	return fmt.Sprintf("%s/v2/projects/%s/locations/%s/services/%s", baseURL, project, location, name)
 }
 
-// TestCloudRunV2Services_Wire_RejectsUnknownUpdateMask pins the real Cloud
-// Run v2 contract at the wire level: a PATCH whose updateMask names an
-// unknown field fails with 400 INVALID_ARGUMENT instead of silently
-// no-opping, while a valid masked patch merges only the masked field.
+// TestCloudRunV2Services_Wire_RejectsUnknownUpdateMask: Cloud Run v2 answers a
+// PATCH whose updateMask names an unknown field with 400 INVALID_ARGUMENT and
+// applies nothing, while a valid masked patch merges only the masked field.
 func TestCloudRunV2Services_Wire_RejectsUnknownUpdateMask(t *testing.T) {
 	t.Parallel()
 	createBody := `{"labels":{"stage":"one"},"template":{"containers":[{"image":"gcr.io/test-project/mask"}]}}`
@@ -47,7 +41,6 @@ func TestCloudRunV2Services_Wire_RejectsUnknownUpdateMask(t *testing.T) {
 	require.NoError(t, json.Unmarshal(body, &errResp))
 	assert.Equal(t, "INVALID_ARGUMENT", errResp.Error.Status)
 
-	// The rejected patch must not have applied anything.
 	getOut := httpDoJSON(t, "GET", runServiceURL("cli-svc-badmask"), "")
 	var got struct {
 		Labels map[string]string `json:"labels"`
@@ -56,10 +49,9 @@ func TestCloudRunV2Services_Wire_RejectsUnknownUpdateMask(t *testing.T) {
 	assert.Equal(t, "one", got.Labels["stage"], "a rejected mask must leave the service untouched")
 }
 
-// TestCloudRunV2Services_Wire_CreateGetDelete drives the v2 Services routes at
-// the wire level. `gcloud run services` resolves the regional Cloud Run host,
-// which no endpoint coordinate points at a loopback simulator, so the requests
-// go on the wire directly — the same convention the worker-pool tests follow.
+// TestCloudRunV2Services_Wire_CreateGetDelete drives the v2 Services routes on
+// the wire: `gcloud run services` resolves the regional Cloud Run host, which
+// no endpoint coordinate points at a loopback simulator.
 func TestCloudRunV2Services_Wire_CreateGetDelete(t *testing.T) {
 	t.Parallel()
 	createBody := `{

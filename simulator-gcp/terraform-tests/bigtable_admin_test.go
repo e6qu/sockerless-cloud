@@ -116,10 +116,8 @@ output "table_column_families" {
 	out, err = runTimed(t, "terraform apply bigtable", terraformCmdInDir(dir, "apply", "-auto-approve"))
 	require.NoError(t, err, "%s", out)
 
-	// What the provider read back out of the admin API after the create. An
-	// apply that only checks its own exit status passes against a simulator
-	// that accepted the instance and lost its labels, its cluster shape or the
-	// table's column family.
+	// An apply that checks only its exit status passes against a simulator that
+	// lost the labels, the cluster shape or the column family.
 	outputs := readOutputsInDir(t, dir)
 	require.Equal(t, "projects/test-project/instances/tf-bt-focused", outputs.must(t, "instance_id"))
 	require.Equal(t, "terraform", outputs.must(t, "instance_label_env"),

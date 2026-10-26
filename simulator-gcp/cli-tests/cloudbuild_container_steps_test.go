@@ -50,8 +50,8 @@ func TestCloudBuildCLI_SubmitRunsContainerStepsOverAZipSource(t *testing.T) {
 		"--config="+config, "--async", "--format=json")), &submitted)
 	require.NotEmpty(t, submitted.ID)
 
-	// Cloud Build offers the CLI no wait on a build, so its status is read
-	// until it is terminal.
+	// Cloud Build offers the CLI no wait on a build, so read its status until it is
+	// terminal.
 	var status string
 	require.Eventually(t, func() bool {
 		status = buildStatusJSON(t, submitted.ID)

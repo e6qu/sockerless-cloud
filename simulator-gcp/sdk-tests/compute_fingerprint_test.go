@@ -10,11 +10,9 @@ import (
 	"google.golang.org/api/googleapi"
 )
 
-// TestCompute_Disks_SetLabelsFingerprintValidation asserts the sim enforces
-// optimistic concurrency on setLabels (BUG-1843): a real per-resource
-// fingerprint is returned (not a constant), a stale labelFingerprint is
-// rejected with 412 (conditionNotMet), and the fingerprint rotates on every
-// successful write so the previously-current value becomes stale.
+// TestCompute_Disks_SetLabelsFingerprintValidation: setLabels returns a
+// per-resource fingerprint, refuses a stale labelFingerprint with 412
+// conditionNotMet, and rotates the fingerprint on every successful write.
 func TestCompute_Disks_SetLabelsFingerprintValidation(t *testing.T) {
 	t.Parallel()
 	svc := computeService(t)
@@ -29,14 +27,12 @@ func TestCompute_Disks_SetLabelsFingerprintValidation(t *testing.T) {
 	require.NotEmpty(t, got.LabelFingerprint, "a real per-resource fingerprint is returned")
 	assert.NotEqual(t, "c29ja2VybGVzcw==", got.LabelFingerprint, "must not be the old constant fingerprint")
 
-	// Stale fingerprint -> 412.
 	_, err = svc.Disks.SetLabels(project, zone, name, &compute.ZoneSetLabelsRequest{
 		Labels:           map[string]string{"a": "1"},
 		LabelFingerprint: "stale-fingerprint",
 	}).Context(ctx).Do()
 	requireGoogleAPICode(t, err, 412)
 
-	// Current fingerprint -> success, and the fingerprint rotates.
 	_, err = svc.Disks.SetLabels(project, zone, name, &compute.ZoneSetLabelsRequest{
 		Labels:           map[string]string{"a": "1"},
 		LabelFingerprint: got.LabelFingerprint,
@@ -46,7 +42,6 @@ func TestCompute_Disks_SetLabelsFingerprintValidation(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEqual(t, got.LabelFingerprint, after.LabelFingerprint, "fingerprint rotates on a successful write")
 
-	// The previously-current fingerprint is now stale -> 412.
 	_, err = svc.Disks.SetLabels(project, zone, name, &compute.ZoneSetLabelsRequest{
 		Labels:           map[string]string{"a": "2"},
 		LabelFingerprint: got.LabelFingerprint,

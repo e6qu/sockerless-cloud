@@ -15,9 +15,8 @@ import (
 
 var testProjects sync.Map
 
-// ensureProject creates project id through Cloud Resource Manager under the
-// test organization, once for the run, so a service that resolves its
-// resources' projects finds it.
+// ensureProject creates the project once per run under the test organization,
+// so a service resolving its resources' projects finds it.
 func ensureProject(t *testing.T, id string) {
 	t.Helper()
 	once, _ := testProjects.LoadOrStore(id, &sync.Once{})

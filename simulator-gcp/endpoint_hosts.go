@@ -6,26 +6,17 @@ import (
 	"strings"
 )
 
-// Host-based service resolution for path shapes two Google Cloud services
-// share.
-//
-// Real Google Cloud gives every service its own hostname, so two services may
-// publish the identical URI path without ambiguity:
-// `run.googleapis.com/v1/projects/{p}/locations/{l}/instances/{id}:getIamPolicy`
-// is the Cloud Run Admin v1 instances IAM alias, while
-// `redis.googleapis.com/v1/projects/{p}/locations/{l}/instances/{id}` is a
-// Memorystore for Redis instance. The simulator serves every service from one
-// origin, so the owner is resolved here instead: by the `Host` header a client
-// resolving a real Google host sends, and — when one origin's address is the
-// configured coordinate for every service — by the AIP-136 custom method the
-// request URI already carries.
+// Google Cloud gives every service its own host, so two services may publish
+// the same URI path: `run.googleapis.com/v1/projects/{p}/locations/{l}/
+// instances/{id}:getIamPolicy` is Cloud Run Admin v1, and
+// `redis.googleapis.com/v1/projects/{p}/locations/{l}/instances/{id}` is
+// Memorystore for Redis. The simulator serves both from one origin, so it
+// resolves the owner by the `Host` header and, at a bare coordinate, by the
+// AIP-136 custom method in the URI.
 
-// gcpServiceFromHost returns the Google Cloud service label a request's `Host`
-// header names: "run" for `run.googleapis.com`, "redis" for
-// `redis.googleapis.com`. The regional (`us-central1-run.googleapis.com`) and
-// mutual-TLS (`run.mtls.googleapis.com`) spellings of a Google API endpoint
-// resolve to the same service. A Host outside the Google API domain — a bare
-// address:port coordinate — names no service and yields "".
+// gcpServiceFromHost returns the service label the `Host` header names ("run"
+// for `run.googleapis.com`), including the regional and mutual-TLS spellings,
+// or "" for a bare address:port.
 func gcpServiceFromHost(r *http.Request) string {
 	host := r.Host
 	if h, _, err := net.SplitHostPort(host); err == nil {
@@ -55,12 +46,8 @@ const (
 )
 
 // cloudRunAdminV1InstanceIAMVerbs are the AIP-136 custom methods the Cloud Run
-// Admin v1 instances collection serves, per HTTP method:
-// run.projects.locations.instances.getIamPolicy is a GET, setIamPolicy and
-// testIamPermissions are POSTs. Memorystore for Redis publishes none of them,
-// and its own instance verbs (export, failover, import, upgrade,
-// rescheduleMaintenance) appear on neither list — so the custom method in the
-// URI identifies the owning service on its own.
+// Admin v1 instances collection serves, per HTTP method. Memorystore for Redis
+// publishes none of them, so the verb alone identifies the owner.
 var cloudRunAdminV1InstanceIAMVerbs = map[string]map[string]bool{
 	http.MethodGet:  {"getIamPolicy": true},
 	http.MethodPost: {"setIamPolicy": true, "testIamPermissions": true},
@@ -68,12 +55,8 @@ var cloudRunAdminV1InstanceIAMVerbs = map[string]map[string]bool{
 
 // gcpV1InstancesIsCloudRun reports whether a request to the shared
 // `/v1/projects/{p}/locations/{l}/instances/…` prefix addresses Cloud Run
-// Admin v1 rather than Memorystore for Redis. verb is the AIP-136 custom
-// method the request URI carries after the resource id, "" when it carries
-// none. A client that resolved a real Google host names its service in the
-// `Host` header and that answer is authoritative — a bare
-// `GET run.googleapis.com/v1/.../instances/{id}` is a Cloud Run request for a
-// method Cloud Run does not publish, never a Redis lookup.
+// Admin v1 rather than Memorystore for Redis. A Google host in `Host` is
+// authoritative; otherwise verb, the URI's custom method, decides.
 func gcpV1InstancesIsCloudRun(r *http.Request, verb string) bool {
 	switch gcpServiceFromHost(r) {
 	case gcpServiceCloudRun:

@@ -2,13 +2,10 @@ package main
 
 import "testing"
 
-// FuzzGCPParseFilterExpr fuzzes the GCP list `filter` (AIP-160) parser+evaluator.
-//
-// Two properties beyond "does not panic". The parser yields either a node or
-// an error, never neither, so a handler never evaluates a nil node. And
-// parsing and evaluating are pure: the same filter over the same resource
-// always answers the same way, so a list cannot include a resource on one page
-// and drop it on the next.
+// FuzzGCPParseFilterExpr fuzzes the AIP-160 list `filter` parser and evaluator.
+// Beyond not panicking, the parser yields a node or an error, never neither,
+// and evaluation is pure, so a list never includes a resource on one page and
+// drops it on the next.
 func FuzzGCPParseFilterExpr(f *testing.F) {
 	seeds := []string{
 		"",

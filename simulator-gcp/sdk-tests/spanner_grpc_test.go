@@ -20,12 +20,9 @@ import (
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
-// TestSpanner_GRPC exercises the Spanner gRPC data plane against the simulator
-// using the high-level cloud.google.com/go/spanner client — the gRPC-only
-// surface that previously could not target the simulator at all. Provisioning
-// (instance / database / DDL) goes through the REST admin SDK; every read and
-// write below rides the gRPC data plane at the simulator's endpoint with the
-// bootstrap credential.
+// TestSpanner_GRPC drives the Spanner gRPC data plane through
+// cloud.google.com/go/spanner with the bootstrap credential; provisioning goes
+// through the REST admin SDK.
 func TestSpanner_GRPC(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -42,9 +39,6 @@ func TestSpanner_GRPC(t *testing.T) {
 		"CREATE TABLE Albums (SingerId INT64 NOT NULL, AlbumId INT64 NOT NULL, Title STRING(100)) PRIMARY KEY (SingerId, AlbumId)",
 	})
 
-	// Point the high-level client at the simulator's gRPC port — the same env
-	// var the real Spanner emulator uses.
-
 	client, err := spanner.NewClientWithConfig(ctx, database, spannerClientConfig, simGRPCClientOptions()...)
 	require.NoError(t, err)
 	defer client.Close()
@@ -54,29 +48,26 @@ func TestSpanner_GRPC(t *testing.T) {
 		FirstName string
 	}
 
-	// INSERT via Apply → real INSERT mutation committed through a single-use
-	// read-write transaction.
+	// Apply commits an INSERT mutation through a single-use read-write
+	// transaction.
 	_, err = client.Apply(ctx, []*spanner.Mutation{
 		spanner.Insert("Singers", []string{"SingerId", "FirstName"}, []interface{}{int64(1), "Alice"}),
 	})
 	require.NoError(t, err)
 
-	// Read the row back via a single-use read-only StreamingRead and assert the
-	// values the SQLite engine persisted — not a synthetic result set.
+	// Read the row back through a single-use StreamingRead.
 	got := spannerReadAll[singer](t, client.Single().Read(ctx, "Singers", spanner.AllKeys(), []string{"SingerId", "FirstName"}))
 	require.Len(t, got, 1)
 	assert.Equal(t, int64(1), got[0].SingerId)
 	assert.Equal(t, "Alice", got[0].FirstName)
 
-	// Query via ExecuteStreamingSql — the row typed back through Go structs.
 	got2 := spannerReadAll[singer](t, client.Single().Query(ctx, spanner.Statement{
 		SQL: "SELECT SingerId, FirstName FROM Singers",
 	}))
 	require.Len(t, got2, 1)
 	assert.Equal(t, "Alice", got2[0].FirstName)
 
-	// A second INSERT + SELECT confirms multiple rows survive in the backing
-	// store and come back in key order.
+	// A second row comes back in key order.
 	_, err = client.Apply(ctx, []*spanner.Mutation{
 		spanner.Insert("Singers", []string{"SingerId", "FirstName"}, []interface{}{int64(2), "Bob"}),
 	})
@@ -86,8 +77,6 @@ func TestSpanner_GRPC(t *testing.T) {
 	assert.Equal(t, int64(1), got[0].SingerId)
 	assert.Equal(t, int64(2), got[1].SingerId)
 
-	// UPDATE mutation + SELECT confirms the change persisted to the real
-	// backing engine.
 	_, err = client.Apply(ctx, []*spanner.Mutation{
 		spanner.Update("Singers", []string{"SingerId", "FirstName"}, []interface{}{int64(1), "Alicia"}),
 	})
@@ -96,7 +85,6 @@ func TestSpanner_GRPC(t *testing.T) {
 	require.Len(t, got, 1)
 	assert.Equal(t, "Alicia", got[0].FirstName)
 
-	// DELETE mutation + SELECT confirms the row is gone from the real store.
 	_, err = client.Apply(ctx, []*spanner.Mutation{
 		spanner.Delete("Singers", spanner.Key{int64(2)}),
 	})
@@ -105,8 +93,8 @@ func TestSpanner_GRPC(t *testing.T) {
 	require.Len(t, got, 1)
 	assert.Equal(t, int64(1), got[0].SingerId)
 
-	// ReadWriteTransaction: BeginTransaction → read → buffered write → Commit,
-	// all on one session and one begun transaction id.
+	// BeginTransaction, read, buffered write and Commit, on one session and one
+	// transaction id.
 	_, err = client.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 		row, rerr := txn.ReadRow(ctx, "Singers", spanner.Key{int64(1)}, []string{"FirstName"})
 		require.NoError(t, rerr)
@@ -135,8 +123,8 @@ func TestSpanner_GRPC(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Composite primary-key ranges use Cloud Spanner's lexicographic ordering,
-	// including prefix endpoints and multiple disjoint ranges.
+	// Composite primary-key ranges use Spanner's lexicographic order, prefix
+	// endpoints and disjoint ranges included.
 	compositeRange := spanner.KeyRange{
 		Start: spanner.Key{int64(1), int64(2)},
 		End:   spanner.Key{int64(3), int64(1)},
@@ -166,11 +154,9 @@ func TestSpanner_GRPC(t *testing.T) {
 	require.Len(t, albums, 2)
 	assert.Equal(t, []string{"C", "D"}, []string{albums[0].Title, albums[1].Title})
 
-	// Concurrent reads exercise the session-pool path (BatchCreateSessions) —
-	// each goroutine borrows its own session and runs a StreamingRead. Every
-	// goroutine has to come back with the one row Singers holds at this point:
-	// a pool that handed out sessions bound to an empty or wrong database would
-	// otherwise finish cleanly on zero rows.
+	// Concurrent reads take sessions from the pool (BatchCreateSessions). Each must
+	// return the one row Singers holds: a pool handing out sessions bound to an
+	// empty or wrong database would finish cleanly on zero rows.
 	const n = 8
 	type concurrentRead struct {
 		rows int
@@ -360,8 +346,6 @@ func spannerInsertMutation(table string, columns []string, values ...string) *sp
 	}
 }
 
-// spannerReadAll drains a RowIterator into a slice of T using row.ToStruct,
-// asserting the read returned real rows from the backing engine.
 func spannerReadAll[T any](t *testing.T, it *spanner.RowIterator) []T {
 	t.Helper()
 	defer it.Stop()
@@ -378,8 +362,6 @@ func spannerReadAll[T any](t *testing.T, it *spanner.RowIterator) []T {
 	}
 }
 
-// spannerProvision provisions an instance + database + DDL through the REST
-// admin SDK so the gRPC data plane has a real schema to execute against.
 func spannerProvision(t *testing.T, ctx context.Context, project, instance, dbID string, ddl []string) {
 	t.Helper()
 	svc, err := spanneradmin.NewService(ctx, option.WithEndpoint(baseURL+"/spanner/"), option.WithTokenSource(simTokenSource()))
@@ -412,7 +394,7 @@ func spannerProvision(t *testing.T, ctx context.Context, project, instance, dbID
 		require.True(t, ddlOp.Done)
 	}
 
-	// The create operation reported done, so the database is there and ready.
+	// The create operation reported done, so the database exists.
 	db, err := svc.Projects.Instances.Databases.Get(dbName).Do()
 	require.NoError(t, err)
 	require.Equal(t, "READY", db.State)

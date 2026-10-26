@@ -49,7 +49,6 @@ var gcpMachineTypes = map[string]gcpMachineType{
 	"t2a-standard-4": {Description: "4 vCPUs, 16 GB RAM", GuestCpus: 4, MemoryMb: 16384, CPUs: 4, Architecture: "ARM64"},
 }
 
-// gcpMachineTypeNames lists the catalog in name order.
 func gcpMachineTypeNames() []string {
 	names := make([]string, 0, len(gcpMachineTypes))
 	for name := range gcpMachineTypes {

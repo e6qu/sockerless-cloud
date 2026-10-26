@@ -27,8 +27,6 @@ import (
 	iamlogging "google.golang.org/genproto/googleapis/iam/v1/logging"
 )
 
-// auditActivityEntry reads the one Admin Activity entry the project's audit
-// log holds for a method on a resource.
 func auditActivityEntry(t *testing.T, methodName, resourceName string) (*logging.Entry, *audit.AuditLog) {
 	t.Helper()
 	it := logadminClient(t).Entries(ctx, logadmin.Filter(

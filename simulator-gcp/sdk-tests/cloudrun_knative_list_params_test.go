@@ -11,18 +11,14 @@ import (
 )
 
 // The Cloud Run Admin v1 (Knative) list methods take `labelSelector`, `limit`
-// and `continue`, and answer with a ListMeta carrying the cursor that
-// continues a truncated page. These tests drive the parameters through the
-// canonical google.golang.org/api/run/v1 client over the five collections that
-// serve Services and the resources Cloud Run reconciles alongside them —
-// services, configurations, revisions, routes and domain mappings — because a
-// client that pages or selects and silently receives the whole collection
-// cannot tell that it did.
+// and `continue`, and answer with a ListMeta whose cursor continues a truncated
+// page. A client that silently receives the whole collection cannot tell, so
+// these tests drive the parameters over services, configurations, revisions,
+// routes and domain mappings.
 
-// knativeServiceBody builds a Service whose ObjectMeta carries the labels a
-// labelSelector selects on. Cloud Run copies a Service's labels onto the
-// Configuration, Route and Revision it reconciles, so one set of labels
-// reaches every collection under test.
+// knativeServiceBody's labels reach every collection under test: Cloud Run
+// copies a Service's labels onto the Configuration, Route and Revision it
+// reconciles.
 func knativeServiceBody(name string, labels map[string]string) *run.Service {
 	return &run.Service{
 		Metadata: &run.ObjectMeta{Name: name, Labels: labels},
@@ -32,10 +28,8 @@ func knativeServiceBody(name string, labels map[string]string) *run.Service {
 	}
 }
 
-// knativeListContinue returns the continue cursor a Knative list response
-// carries, which is the empty string when the response carries no ListMeta at
-// all. Reading the cursor through it keeps "there is no cursor" one assertion
-// instead of a check a nil ListMeta skips.
+// knativeListContinue reads a missing ListMeta as no cursor, so "there is no
+// cursor" stays one assertion.
 func knativeListContinue(meta *run.ListMeta) string {
 	if meta == nil {
 		return ""
@@ -60,9 +54,8 @@ func TestCloudRunV1_ServicesList_LabelSelectorAndPaging(t *testing.T) {
 		})
 	}
 
-	// An unparameterised list is the whole namespace, is labelled as the kind
-	// it is, and continues nowhere — a cursor here would send a client back
-	// for a page that does not exist.
+	// An unparameterised list is the whole namespace and carries no cursor: one
+	// would send a client back for a page that does not exist.
 	all, err := svc.Namespaces.Services.List(parent).Do()
 	require.NoError(t, err)
 	require.Len(t, all.Items, 3)
@@ -97,7 +90,6 @@ func TestCloudRunV1_ServicesList_LabelSelectorAndPaging(t *testing.T) {
 	assert.Equal(t, map[string]int{names[0]: 1, names[1]: 1, names[2]: 1}, seen,
 		"every service appears exactly once across the pages")
 
-	// labelSelector narrows the collection.
 	frontend, err := svc.Namespaces.Services.List(parent).LabelSelector("tier=frontend").Do()
 	require.NoError(t, err)
 	require.Len(t, frontend.Items, 2)
@@ -150,7 +142,6 @@ func TestCloudRunV1_ReconciledChildrenList_LabelSelectorAndPaging(t *testing.T) 
 	_, err := svc.Namespaces.Services.ReplaceService(parent+"/services/child-svc-a", redeploy).Do()
 	require.NoError(t, err)
 
-	// Configurations.
 	cfgPage, err := svc.Namespaces.Configurations.List(parent).Limit(1).Do()
 	require.NoError(t, err)
 	require.Len(t, cfgPage.Items, 1)
@@ -167,7 +158,6 @@ func TestCloudRunV1_ReconciledChildrenList_LabelSelectorAndPaging(t *testing.T) 
 	require.NoError(t, err)
 	assert.Empty(t, cfgUnselected.Items)
 
-	// Routes.
 	rtPage, err := svc.Namespaces.Routes.List(parent).Limit(1).Do()
 	require.NoError(t, err)
 	require.Len(t, rtPage.Items, 1)
@@ -258,10 +248,9 @@ func TestCloudRunV1_DomainMappingsList_LabelSelectorAndPaging(t *testing.T) {
 	assert.Equal(t, domains[0], selected.Items[0].Metadata.Name)
 }
 
-// TestSDK_RunV2REST_Job_RunEtagOptimisticConcurrency drives the etag the
-// Cloud Run v2 Job resource reports and the RunJobRequest carries. A run
-// naming the etag the client last read proceeds; one naming an etag the job
-// has moved past is a modification conflict, which Cloud Run answers ABORTED.
+// TestSDK_RunV2REST_Job_RunEtagOptimisticConcurrency: a run naming the etag the
+// client last read proceeds; one naming an etag the job has moved past is a
+// modification conflict, which Cloud Run answers ABORTED.
 func TestSDK_RunV2REST_Job_RunEtagOptimisticConcurrency(t *testing.T) {
 	t.Parallel()
 	svc := newRunV2RESTService(t)
@@ -291,7 +280,6 @@ func TestSDK_RunV2REST_Job_RunEtagOptimisticConcurrency(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, created.Etag, "the Job reports the fingerprint a client sends back")
 
-	// The etag the client just read runs the job.
 	runOp, err := svc.Projects.Locations.Jobs.Run(name, &runv2.GoogleCloudRunV2RunJobRequest{
 		Etag: created.Etag,
 	}).Do()
@@ -323,8 +311,7 @@ func TestSDK_RunV2REST_Job_RunEtagOptimisticConcurrency(t *testing.T) {
 	require.NoError(t, err)
 	awaitRunV2Operation(t, svc, patchOp)
 
-	// A request that names no etag is unconditional, which is how every
-	// client that does not track the fingerprint keeps working.
+	// A request naming no etag is unconditional.
 	unconditional, err := svc.Projects.Locations.Jobs.Run(name, &runv2.GoogleCloudRunV2RunJobRequest{}).Do()
 	require.NoError(t, err)
 	require.NotEmpty(t, unconditional.Name)

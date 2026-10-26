@@ -15,17 +15,16 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// TestIntegration_CloudRunJobLifecycle exercises the full Cloud Run backend
-// flow against the simulator: create → run → verify running → logs → cancel → verify cancelled → delete.
+// TestIntegration_CloudRunJobLifecycle creates, runs, observes, cancels and
+// deletes a job.
 func TestIntegration_CloudRunJobLifecycle(t *testing.T) {
 	t.Parallel()
 	jobID := uniquename.New("integ-crj")
 	const marker = "integ-crj-running"
 
-	// 1. Create job. Its container announces itself on stdout and then holds,
-	// so every step below runs against a workload that is really up: a
-	// container that had already exited would settle the execution from its
-	// exit status and leave the cancel with nothing to cancel.
+	// The container announces itself and holds, so every step runs against a
+	// running workload: one that had exited would settle the execution from its
+	// exit status and leave nothing to cancel.
 	job := map[string]any{
 		"template": map[string]any{
 			"template": map[string]any{
@@ -47,7 +46,6 @@ func TestIntegration_CloudRunJobLifecycle(t *testing.T) {
 	createResp.Body.Close()
 	require.Equal(t, http.StatusOK, createResp.StatusCode)
 
-	// 2. Run job
 	runReq, _ := http.NewRequestWithContext(ctx, "POST",
 		baseURL+"/v2/projects/test-project/locations/us-central1/jobs/"+jobID+":run",
 		strings.NewReader("{}"))
@@ -59,8 +57,8 @@ func TestIntegration_CloudRunJobLifecycle(t *testing.T) {
 	run := readJobRun(t, runResp.Body)
 	execName := run.Execution
 
-	// 3. The workload really started: the line the container printed on its
-	// own stdout reached Cloud Logging.
+	// The container's own stdout line reached Cloud Logging, so the workload
+	// started.
 	entries := waitForJobLogEntries(t, jobID, func(entries []jobLogEntry) bool {
 		return containsString(jobLogMessages(entries), marker)
 	})
@@ -68,14 +66,12 @@ func TestIntegration_CloudRunJobLifecycle(t *testing.T) {
 	assert.Equal(t, jobID, entries[0].jobName)
 	assert.Equal(t, marker, entries[0].message)
 
-	// 4. Verify running state while that container is still holding.
 	exec := getExecution(t, execName)
 	assert.Equal(t, float64(1), exec["runningCount"])
 	assert.Equal(t, float64(0), exec["succeededCount"])
 	assert.Equal(t, float64(0), exec["failedCount"])
 	assert.Empty(t, exec["completionTime"])
 
-	// 5. Cancel execution
 	parts := strings.SplitN(execName, "/executions/", 2)
 	cancelURL := baseURL + "/v2/" + parts[0] + "/executions/" + parts[1] + ":cancel"
 	cancelReq, _ := http.NewRequestWithContext(ctx, "POST", cancelURL, strings.NewReader("{}"))
@@ -85,8 +81,7 @@ func TestIntegration_CloudRunJobLifecycle(t *testing.T) {
 	cancelResp.Body.Close()
 	require.Equal(t, http.StatusOK, cancelResp.StatusCode)
 
-	// 6. Verify cancelled state — the running task was cancelled, not settled
-	// from an exit status.
+	// The running task was cancelled, not settled from an exit status.
 	exec = getExecution(t, execName)
 	assert.Equal(t, float64(0), exec["runningCount"])
 	assert.Equal(t, float64(1), exec["cancelledCount"])
@@ -99,7 +94,6 @@ func TestIntegration_CloudRunJobLifecycle(t *testing.T) {
 	require.Error(t, err)
 	assert.Equal(t, codes.Canceled, status.Code(err), "RunJob operation error: %v", err)
 
-	// 7. Delete job
 	delReq, _ := http.NewRequestWithContext(ctx, "DELETE",
 		baseURL+"/v2/projects/test-project/locations/us-central1/jobs/"+jobID, nil)
 	delResp, err := http.DefaultClient.Do(delReq)
@@ -107,7 +101,6 @@ func TestIntegration_CloudRunJobLifecycle(t *testing.T) {
 	delResp.Body.Close()
 	assert.Equal(t, http.StatusOK, delResp.StatusCode)
 
-	// Verify job is gone
 	getReq, _ := http.NewRequestWithContext(ctx, "GET",
 		baseURL+"/v2/projects/test-project/locations/us-central1/jobs/"+jobID, nil)
 	getResp, err := http.DefaultClient.Do(getReq)
@@ -116,8 +109,6 @@ func TestIntegration_CloudRunJobLifecycle(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, getResp.StatusCode)
 }
 
-// TestIntegration_CloudFunctionsLifecycle exercises the full Cloud Functions
-// flow: create → deploy → invoke at serviceConfig.uri → logs → delete.
 func TestIntegration_CloudFunctionsLifecycle(t *testing.T) {
 	t.Parallel()
 	const fnID = "integ-gcf"

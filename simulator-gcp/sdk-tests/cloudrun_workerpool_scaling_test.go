@@ -11,18 +11,13 @@ import (
 	runv2 "google.golang.org/api/run/v2"
 )
 
-// Cloud Run worker-pool automatic scaling.
-//
-// google.cloud.run.v2.WorkerPoolScaling carries scalingMode (AUTOMATIC/MANUAL),
-// minInstanceCount and maxInstanceCount alongside manualInstanceCount. The
-// pinned Cloud Run Discovery revision publishes only manualInstanceCount, so
-// the Discovery-generated Go client below cannot carry the other three — but
-// gcloud's own generated Cloud Run v2 client and the google Terraform provider
-// both send and read them, and a simulator that dropped them would make every
-// automatically-scaled worker pool re-plan (see
-// specs/SIM_SURFACE_TABLES/gcp-cloudrun.md). The wire round trip is asserted
-// here against the same authenticated data plane the official clients use; the
-// end-to-end no-drift proof lives in the terraform-tests worker pool.
+// google.cloud.run.v2.WorkerPoolScaling carries scalingMode,
+// minInstanceCount and maxInstanceCount beside manualInstanceCount. The pinned
+// Discovery revision publishes only manualInstanceCount, so the generated Go
+// client cannot carry the other three, but gcloud's own generated client and
+// the Terraform provider send and read them; dropping them makes every
+// automatically scaled pool re-plan. The Terraform suite holds the no-drift
+// proof.
 
 func TestSDK_RunV2_WorkerPoolAutomaticScaling(t *testing.T) {
 	t.Parallel()

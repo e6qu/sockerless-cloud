@@ -17,8 +17,8 @@ import (
 	"google.golang.org/api/option"
 )
 
-// debianFamily is the Debian 12 image family that matches the engine's
-// architecture, which is what an instance booted on a container backend runs.
+// debianFamily matches the engine's architecture, which an instance booted on
+// a container backend runs.
 func debianFamily() string {
 	if scratchimage.NativePlatform() == "linux/arm64" {
 		return "debian-12-arm64"
@@ -55,8 +55,8 @@ func TestCompute_PublicImageCatalog(t *testing.T) {
 	assertComputeListHasName(t, list.Items, func(i *compute.Image) string { return i.Name }, arm.Name)
 	assertComputeListHasName(t, list.Items, func(i *compute.Image) string { return i.Name }, strings.Replace(arm.Name, "arm64", "amd64", 1))
 
-	// A family is not an image name: Google answers the plain name with the
-	// same not-found a client gets for any absent resource.
+	// A family is not an image name: Google answers the plain name with the same
+	// not-found as any absent resource.
 	_, err = svc.Images.Get("debian-cloud", "debian-12").Do()
 	var gerr *googleapi.Error
 	require.ErrorAs(t, err, &gerr)
@@ -262,9 +262,8 @@ echo "db=$(getent hosts db.boot.internal | awk '{print $1}')"
 	assert.Contains(t, gerr.Message, "Machine type with name 'x9-enormous-64' does not exist")
 }
 
-// awaitSerialPortOutput reads the instance's serial console until it carries
-// marker. The console has no wait of its own: the guest writes it as it goes,
-// and a client reads it the way gcloud tails it, by offset.
+// awaitSerialPortOutput reads the serial console by offset, as gcloud tails
+// it, until it carries marker: the console has no wait of its own.
 func awaitSerialPortOutput(t *testing.T, svc *compute.Service, project, zone, name, marker string) string {
 	t.Helper()
 	var contents string
@@ -327,9 +326,9 @@ func TestCompute_FirewallRulesFilterWhatAnInstanceReceives(t *testing.T) {
 	}
 	firewall("fw-allow-80", "80")
 
-	// The server answers on two ports; the client reports which it reaches.
-	// The listeners leave the script's output behind: the script runner
-	// reads that output to its end before it reports the script's exit.
+	// The server answers on two ports; the client reports which it reaches. The
+	// listeners leave the script's output behind, since the script runner reads
+	// that output to its end before it reports the script's exit.
 	const serverScript = `#!/bin/bash
 serve() { perl -MIO::Socket::INET -e '$s=IO::Socket::INET->new(LocalPort=>$ARGV[0],Listen=>5,Reuse=>1) or die; while($c=$s->accept){print $c "HTTP/1.0 200 OK\r\n\r\nok\n"; close $c}' "$1" >/dev/null 2>&1 & }
 serve 80

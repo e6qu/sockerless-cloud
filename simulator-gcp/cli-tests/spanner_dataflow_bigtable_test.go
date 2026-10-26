@@ -87,13 +87,10 @@ func TestBigtableCLI_InstanceTableList(t *testing.T) {
 	}
 }
 
-// TestBigtableCLI_DataPlane_cbt exercises the Bigtable Data API v2 gRPC slice
-// through the canonical data-plane CLI `cbt` (a distinct adaptor from the Go
-// SDK), configured as against Google: the admin and data endpoints, the
-// bootstrap key as its credential, and the authority the gRPC port's
-// certificate chains to. gcloud bigtable is admin-only, so cbt is the data
-// plane's CLI surface. cbt is built in TestMain (see installCBT) so the test
-// runs unconditionally.
+// TestBigtableCLI_DataPlane_cbt drives the Bigtable Data API v2 through `cbt`,
+// configured as against Google: the admin and data endpoints, the bootstrap key
+// as its credential, and the authority the gRPC port's certificate chains to.
+// gcloud bigtable is admin-only. TestMain builds cbt (installCBT).
 func TestBigtableCLI_DataPlane_cbt(t *testing.T) {
 	t.Parallel()
 	const (
@@ -101,8 +98,6 @@ func TestBigtableCLI_DataPlane_cbt(t *testing.T) {
 		table    = "cbt_table"
 		family   = "cf"
 	)
-	// Provision the instance via gcloud (admin) — cbt can create instances too,
-	// but gcloud is the canonical admin CLI and already wired here.
 	runCLI(t, gcloudCLI("bigtable", "instances", "create", instance,
 		"--display-name=cbt data plane",
 		"--cluster="+instance+"-c1",
@@ -121,32 +116,26 @@ func TestBigtableCLI_DataPlane_cbt(t *testing.T) {
 		return runCLI(t, cmd)
 	}
 
-	// Admin via cbt (exercising BigtableTableAdmin gRPC, not just gcloud):
-	// createtable then createfamily.
+	// cbt drives BigtableTableAdmin over gRPC too.
 	cbt("createtable", table)
 	cbt("createfamily", table, family)
 
-	// set: data-plane MutateRow. Value format is family:qualifier=value.
+	// Value format is family:qualifier=value.
 	cbt("set", table, "r1", family+":name=alice")
 	cbt("set", table, "r2", family+":name=bob")
 
-	// lookup: single-row ReadRow.
 	got := cbt("lookup", table, "r1")
 	if !strings.Contains(got, "alice") {
 		t.Fatalf("cbt lookup r1 missing value alice: %s", got)
 	}
 
-	// read: full-table ReadRows scan must surface both rows.
 	out := cbt("read", table)
 	if !strings.Contains(out, "alice") || !strings.Contains(out, "bob") {
 		t.Fatalf("cbt read missing seeded values: %s", out)
 	}
 
-	// count: a distinct data-plane op (streams SampleRowKeys internally and
-	// reports the row count) — covers SampleRowKeys from the second adaptor.
-	// cbt logs its credential choice before the count, so the number is the
-	// last line it writes; the comparison is on that whole line, because a
-	// substring match on "2" is satisfied by "12", "20" or a timing suffix.
+	// count streams SampleRowKeys. cbt logs its credential choice first, so
+	// compare the whole last line: "2" also matches "12", "20" or a timing suffix.
 	countOut := cbt("count", table)
 	reported := strings.Split(strings.TrimSpace(countOut), "\n")
 	cnt := strings.TrimSpace(reported[len(reported)-1])
@@ -155,9 +144,7 @@ func TestBigtableCLI_DataPlane_cbt(t *testing.T) {
 	}
 }
 
-// gcloudEnv returns the environment-variable set TestMain's gcloudCLI helper
-// builds for every gcloud invocation — reused so cbt inherits the same admin
-// endpoint overrides when it falls back to admin calls internally.
+// gcloudEnv reuses the admin endpoint overrides TestMain's gcloudCLI sets.
 func gcloudEnv() []string {
 	return []string{
 		"CLOUDSDK_API_ENDPOINT_OVERRIDES_DNS=" + baseURL + "/",

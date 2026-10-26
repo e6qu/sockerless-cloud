@@ -52,7 +52,6 @@ func TestSDK_CloudFunctions_GetFunction(t *testing.T) {
 	t.Parallel()
 	client := newFunctionsClient(t)
 
-	// Create first
 	op, err := client.CreateFunction(ctx, &functionspb.CreateFunctionRequest{
 		Parent:     "projects/test-project/locations/us-central1",
 		FunctionId: "sdk-get-fn",
@@ -67,7 +66,6 @@ func TestSDK_CloudFunctions_GetFunction(t *testing.T) {
 	_, err = op.Wait(ctx)
 	require.NoError(t, err)
 
-	// Get
 	fn, err := client.GetFunction(ctx, &functionspb.GetFunctionRequest{
 		Name: "projects/test-project/locations/us-central1/functions/sdk-get-fn",
 	})
@@ -81,7 +79,6 @@ func TestSDK_CloudFunctions_ListFunctions(t *testing.T) {
 	t.Parallel()
 	client := newFunctionsClient(t)
 
-	// Create two functions
 	for _, id := range []string{"sdk-list-fn-a", "sdk-list-fn-b"} {
 		op, err := client.CreateFunction(ctx, &functionspb.CreateFunctionRequest{
 			Parent:     "projects/test-project/locations/us-central1",
@@ -98,7 +95,6 @@ func TestSDK_CloudFunctions_ListFunctions(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	// List
 	it := client.ListFunctions(ctx, &functionspb.ListFunctionsRequest{
 		Parent: "projects/test-project/locations/us-central1",
 	})
@@ -130,7 +126,6 @@ func TestSDK_CloudFunctions_DeleteFunction(t *testing.T) {
 	t.Parallel()
 	client := newFunctionsClient(t)
 
-	// Create
 	createOp, err := client.CreateFunction(ctx, &functionspb.CreateFunctionRequest{
 		Parent:     "projects/test-project/locations/us-central1",
 		FunctionId: "sdk-delete-fn",
@@ -145,7 +140,6 @@ func TestSDK_CloudFunctions_DeleteFunction(t *testing.T) {
 	_, err = createOp.Wait(ctx)
 	require.NoError(t, err)
 
-	// Delete
 	deleteOp, err := client.DeleteFunction(ctx, &functionspb.DeleteFunctionRequest{
 		Name: "projects/test-project/locations/us-central1/functions/sdk-delete-fn",
 	})
@@ -153,7 +147,6 @@ func TestSDK_CloudFunctions_DeleteFunction(t *testing.T) {
 	err = deleteOp.Wait(ctx)
 	require.NoError(t, err)
 
-	// Verify gone
 	_, err = client.GetFunction(ctx, &functionspb.GetFunctionRequest{
 		Name: "projects/test-project/locations/us-central1/functions/sdk-delete-fn",
 	})

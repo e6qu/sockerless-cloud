@@ -214,11 +214,9 @@ func handleSpannerSessionActionREST(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handleSpannerAdaptMessage carries one message of a PostgreSQL wire session
-// through the adapter. The reply reports the session state after the message,
-// and the payload it carries back is the adapter's — there is no PostgreSQL
-// backend behind this session to answer for, so it says the message was taken
-// and the session is at its end rather than inventing a result set.
+// handleSpannerAdaptMessage carries one PostgreSQL wire message through the
+// adapter. No PostgreSQL backend sits behind the session, so the reply reports
+// the message taken and the session at its end.
 func handleSpannerAdaptMessage(w http.ResponseWriter, r *http.Request, session string) {
 	var req struct {
 		Protocol string `json:"protocol"`
@@ -239,10 +237,8 @@ func handleSpannerAdaptMessage(w http.ResponseWriter, r *http.Request, session s
 	})
 }
 
-// handleSpannerCreateAdapterSession opens a session a wire-protocol adapter
-// drives. It is a session like any other — the adapter is how it is spoken to,
-// not what it is — so it is created in the same store, and a database that does
-// not exist cannot hold one.
+// handleSpannerCreateAdapterSession opens a session for a wire-protocol
+// adapter in the same store as every session; the database must exist.
 func handleSpannerCreateAdapterSession(w http.ResponseWriter, r *http.Request, database string) {
 	if _, ok := spannerDatabases.Get(database); !ok {
 		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "database %q not found", database)

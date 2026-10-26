@@ -14,16 +14,10 @@ import (
 	run "google.golang.org/api/run/v1"
 )
 
-// Cloud Run Admin v1 (Knative) instances and worker pools, driven by the
-// canonical google.golang.org/api/run/v1 client.
-//
-// An instance and a worker pool are each ONE resource with two API-version
-// spellings. These tests deploy through the Knative surface and read the same
-// record back through the v2 collection (and the reverse), which is what makes
-// the projection load-bearing rather than decorative.
+// An instance and a worker pool are each one resource with two API-version
+// spellings, so these tests deploy through the Knative surface and read the
+// record back through the v2 collection, and the reverse.
 
-// getCloudRunV2JSON reads a v2 Cloud Run resource over the wire as a map, so
-// the v1-created resource can be inspected in its v2 spelling.
 func getCloudRunV2JSON(t *testing.T, path string) map[string]any {
 	t.Helper()
 	req, err := http.NewRequestWithContext(ctx, "GET", baseURL+path, nil)
@@ -96,8 +90,8 @@ func TestCloudRunV1_InstancesLifecycle(t *testing.T) {
 	require.Len(t, replaced.Spec.Containers, 1)
 	assert.Equal(t, "gcr.io/test-project/worker:v2", replaced.Spec.Containers[0].Image)
 
-	// stop/start flip the readiness condition — exactly what the v2
-	// collection's StopInstance/StartInstance do.
+	// stop and start flip the readiness condition, as the v2 StopInstance and
+	// StartInstance do.
 	stopped, err := svc.Namespaces.Instances.Stop(parent+"/instances/"+id, &run.StopInstanceRequest{}).Do()
 	require.NoError(t, err)
 	require.NotEmpty(t, stopped.Status.Conditions)
@@ -120,8 +114,8 @@ func TestCloudRunV1_InstancesLifecycle(t *testing.T) {
 	require.Error(t, err, "the deleted instance is gone from the one store both versions read")
 }
 
-// TestCloudRunV1_InstancesDryRun pins that dryRun=all validates without
-// persisting, and that any other value is rejected rather than ignored.
+// TestCloudRunV1_InstancesDryRun: dryRun=all validates without persisting, and
+// any other value is refused.
 func TestCloudRunV1_InstancesDryRun(t *testing.T) {
 	t.Parallel()
 	svc := newRunV1(t)
@@ -224,8 +218,6 @@ func TestCloudRunV1_WorkerPoolsLifecycle(t *testing.T) {
 	require.Error(t, err)
 }
 
-// TestCloudRunV1_WorkerPoolFromV2IsVisible deploys through the v2 collection
-// and reads the Knative spelling — the projection in the other direction.
 func TestCloudRunV1_WorkerPoolFromV2IsVisible(t *testing.T) {
 	t.Parallel()
 	svc := newRunV1(t)

@@ -42,10 +42,9 @@ func TestBigQueryAndFirestore_Wire_RESTFlows(t *testing.T) {
 	}
 }
 
-// TestBigQuery_TableDataListInvalidParams asserts tabledata.list rejects a
-// present-but-non-numeric/negative startIndex or maxResults with HTTP 400
-// (INVALID_ARGUMENT), as real BigQuery does, rather than silently parsing it to
-// 0. Absent params keep their defaults (start 0, all rows).
+// TestBigQuery_TableDataListInvalidParams: BigQuery answers 400
+// INVALID_ARGUMENT to a non-numeric or negative startIndex or maxResults rather
+// than reading it as 0.
 func TestBigQuery_TableDataListInvalidParams(t *testing.T) {
 	t.Parallel()
 	ds := `{"datasetReference":{"projectId":"test-project","datasetId":"bq_validate"},"location":"US"}`
@@ -56,7 +55,6 @@ func TestBigQuery_TableDataListInvalidParams(t *testing.T) {
 
 	dataURL := baseURL + "/bigquery/v2/projects/test-project/datasets/bq_validate/tables/rows/data"
 
-	// Absent params → 200 (default path unchanged).
 	resp, err := httpDo("GET", dataURL, "")
 	if err != nil {
 		t.Fatalf("tabledata.list (no params): %v", err)
@@ -66,7 +64,6 @@ func TestBigQuery_TableDataListInvalidParams(t *testing.T) {
 		t.Fatalf("tabledata.list (no params) want 200, got %d", resp.StatusCode)
 	}
 
-	// Present-but-invalid → 400.
 	for _, qs := range []string{"?startIndex=abc", "?maxResults=xyz", "?startIndex=-1"} {
 		resp, err := httpDo("GET", dataURL+qs, "")
 		if err != nil {

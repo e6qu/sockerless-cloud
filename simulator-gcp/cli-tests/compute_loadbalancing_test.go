@@ -47,11 +47,9 @@ func TestGcloudComputeGlobalHTTPLoadBalancer(t *testing.T) {
 		"--format=value(name)").CombinedOutput()
 	require.NoError(t, err, "forwarding-rules create: %s", out)
 
-	// The chain is only a load balancer if each link points at the previous
-	// one. The forwarding rule has to carry the port the CLI was given and
-	// address the proxy by name, and the URL map has to default to the backend
-	// service — a chain built out of five resources that never reference each
-	// other would create just as cleanly.
+	// Five resources that never reference each other create just as cleanly, so
+	// each link must point at the previous one: the forwarding rule carries the
+	// port and names the proxy, and the URL map defaults to the backend service.
 	out, err = gcloudCLI("compute", "forwarding-rules", "describe", rule,
 		"--global",
 		"--format=json").CombinedOutput()

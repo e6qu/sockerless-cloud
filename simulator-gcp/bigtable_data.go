@@ -28,13 +28,9 @@ import (
 	"google.golang.org/protobuf/types/known/wrapperspb"
 )
 
-// Cloud Bigtable Data API (google.bigtable.v2.Bigtable) — the gRPC data plane
-// that ReadRows / MutateRow(s) / CheckAndMutateRow / ReadModifyWriteRow /
-// SampleRowKeys ride, with a faithful RowFilter evaluator. It mounts on the same
-// gRPC server as the existing Bigtable admin services. Storage is an in-memory
-// per-table cell store; an operation on a table that admin never created is a
-// loud NotFound, and an unsupported RowFilter is a loud Unimplemented — never a
-// silent wrong result.
+// The Cloud Bigtable Data API (google.bigtable.v2.Bigtable) over an in-memory
+// per-table cell store. A table the admin surface never created is NotFound,
+// and an unsupported RowFilter is Unimplemented rather than a wrong result.
 
 // btCell is one timestamped cell version.
 type btCell struct {
@@ -43,8 +39,8 @@ type btCell struct {
 	labels []string
 }
 
-// btTableData holds one table's rows: rowKey → family → qualifier → versions
-// (kept newest-first per column).
+// btTableData holds one table's rows: rowKey → family → qualifier → versions,
+// newest first.
 type btTableData struct {
 	mu   sync.Mutex
 	rows map[string]map[string]map[string][]btCell
@@ -67,11 +63,9 @@ type btStoredTableData struct {
 	Rows map[string]map[string]map[string][]btStoredCell `json:"rows"`
 }
 
-// bigtableRows is the durable copy of every table's row data, keyed by table
-// name. The in-memory btTableData is the working copy: every mutation writes
-// the table's rows through this store, and a table's first data access after
-// a restart hydrates the working copy from it. registerBigtable wires it to
-// the same database as the table-metadata store.
+// bigtableRows is the durable copy of every table's rows, keyed by table name.
+// btTableData is the working copy: every mutation writes through this store,
+// and a table's first data access after a restart hydrates from it.
 var bigtableRows sim.Store[btStoredTableData]
 
 func btRowsToStored(rows map[string]map[string]map[string][]btCell) map[string]map[string]map[string][]btStoredCell {
@@ -114,7 +108,7 @@ func btRowsFromStored(stored btStoredTableData) map[string]map[string]map[string
 	return out
 }
 
-// btPersistTableData writes a table's working-copy rows to the durable store.
+// btPersistTableData writes a table's working copy to the durable store.
 // Callers hold td.mu.
 func btPersistTableData(name string, td *btTableData) {
 	if bigtableRows == nil {
@@ -163,8 +157,8 @@ func registerBigtableDataGRPC(gs *grpc.Server) {
 	btpb.RegisterBigtableServer(gs, &bigtableDataGRPC{})
 }
 
-// btRequireTable resolves a data request's table, returning a loud NotFound when
-// admin never created it (matching real Bigtable).
+// btRequireTable resolves a data request's table, NotFound when the admin
+// surface never created it, as Cloud Bigtable answers.
 func btRequireTable(tableName string) (*btTableData, error) {
 	if tableName == "" {
 		return nil, status.Error(codes.InvalidArgument, "table_name is required")
@@ -185,11 +179,8 @@ func btTableFamilies(tableName string) map[string]bool {
 	return out
 }
 
-// ── mutations ────────────────────────────────────────────────────────────────
-
-// btValidateMutations rejects an entry the table cannot accept before any of
-// it is applied, so a rejected mutation leaves the row exactly as it was —
-// the single-row atomicity real Bigtable gives MutateRow.
+// btValidateMutations rejects an entry before any of it applies, so a rejected
+// mutation leaves the row as it was: Cloud Bigtable's single-row atomicity.
 func btValidateMutations(families map[string]bool, muts []*btpb.Mutation) error {
 	for _, m := range muts {
 		switch mut := m.GetMutation().(type) {
@@ -205,9 +196,8 @@ func btValidateMutations(families map[string]bool, muts []*btpb.Mutation) error 
 	return nil
 }
 
-// btApplyMutations applies one row's mutations and records them in the table's
-// change log. It is the one path every row mutation takes, so the log it
-// writes is the table's complete record of applied changes.
+// btApplyMutations applies one row's mutations and records them in the
+// table's change log; every row mutation takes this path.
 func btApplyMutations(tableName string, td *btTableData, families map[string]bool, rowKey string, muts []*btpb.Mutation) error {
 	if err := btValidateMutations(families, muts); err != nil {
 		return err
@@ -231,7 +221,6 @@ func btApplyMutations(tableName string, td *btTableData, families map[string]boo
 			delete(td.rows, rowKey)
 		}
 	}
-	// Drop a row that has become empty.
 	if r, ok := td.rows[rowKey]; ok && len(r) == 0 {
 		delete(td.rows, rowKey)
 	}
@@ -388,8 +377,7 @@ func (s *bigtableDataGRPC) ReadModifyWriteRow(_ context.Context, req *btpb.ReadM
 			return nil, status.Error(codes.Unimplemented, "unsupported read-modify-write rule")
 		}
 	}
-	// The cells the rules produce are the change the table really recorded, so
-	// they go to the change log as the SetCells they are.
+	// Log the cells the rules produce as the SetCells the table recorded.
 	applied := make([]*btpb.Mutation, 0, len(req.GetRules()))
 	setCell := func(fam, qual string, value []byte) {
 		btSetCell(td, rowKey, fam, qual, btCell{ts: now, value: value})
@@ -423,8 +411,8 @@ func (s *bigtableDataGRPC) ReadModifyWriteRow(_ context.Context, req *btpb.ReadM
 	}
 	btPersistTableData(req.GetTableName(), td)
 	btRecordChange(req.GetTableName(), rowKey, applied)
-	// The response carries only the new (latest) value of each modified column,
-	// not the full version history — matching real Bigtable.
+	// Cloud Bigtable answers only each modified column's new value, not its
+	// version history.
 	var modified []btReadCell
 	seen := map[string]bool{}
 	for _, rule := range req.GetRules() {
@@ -455,8 +443,6 @@ func btLatestCell(td *btTableData, rowKey, fam, qual string) (btCell, bool) {
 	}
 	return btCell{}, false
 }
-
-// ── reads ────────────────────────────────────────────────────────────────────
 
 // btReadCell is a row's cell flattened for filtering and emission, ordered
 // family asc, qualifier asc, timestamp desc.
@@ -563,7 +549,7 @@ func btSendRow(srv btpb.Bigtable_ReadRowsServer, rowKey string, cells []btReadCe
 	return srv.Send(&btpb.ReadRowsResponse{Chunks: chunks})
 }
 
-// btRowSetPredicate builds a row-key predicate from a RowSet (nil → all rows).
+// btRowSetPredicate builds a row-key predicate from a RowSet; nil matches every row.
 func btRowSetPredicate(rs *btpb.RowSet) func(string) bool {
 	if rs == nil || (len(rs.GetRowKeys()) == 0 && len(rs.GetRowRanges()) == 0) {
 		return func(string) bool { return true }
@@ -586,10 +572,9 @@ func btRowSetPredicate(rs *btpb.RowSet) func(string) bool {
 	}
 }
 
-// btInRowRange reports whether a row key falls in a range. An empty end key is
-// the end of the table, not the empty string: that is how a client spells an
-// unbounded range, and how the last change-stream partition names the rest of
-// the key space.
+// btInRowRange treats an empty end key as the end of the table: a client
+// spells an unbounded range that way, and so does the last change-stream
+// partition.
 func btInRowRange(k string, rr *btpb.RowRange) bool {
 	switch sk := rr.GetStartKey().(type) {
 	case *btpb.RowRange_StartKeyClosed:
@@ -637,8 +622,6 @@ func btRowToProto(rowKey string, cells []btReadCell) *btpb.Row {
 	return row
 }
 
-// ── SampleRowKeys ────────────────────────────────────────────────────────────
-
 func (s *bigtableDataGRPC) SampleRowKeys(req *btpb.SampleRowKeysRequest, srv btpb.Bigtable_SampleRowKeysServer) error {
 	td, err := btRequireTable(req.GetTableName())
 	if err != nil {
@@ -651,9 +634,8 @@ func (s *bigtableDataGRPC) SampleRowKeys(req *btpb.SampleRowKeysRequest, srv btp
 	}
 	td.mu.Unlock()
 	sort.Strings(keys)
-	// Emit a sample roughly every 100 rows plus a trailing empty key, with a
-	// monotonically increasing cumulative offset — the contract the client uses
-	// to shard scans.
+	// Emit a sample about every 100 rows plus a trailing empty key, with a
+	// monotonically increasing offset: the contract clients shard scans on.
 	offset := int64(0)
 	for i, k := range keys {
 		offset += 1024
@@ -666,11 +648,8 @@ func (s *bigtableDataGRPC) SampleRowKeys(req *btpb.SampleRowKeysRequest, srv btp
 	return nil
 }
 
-// ── RowFilter ────────────────────────────────────────────────────────────────
-
-// btApplyFilter evaluates a RowFilter against a row's cells, returning the
-// surviving cells. An unsupported filter type is a loud Unimplemented error, not
-// a silent pass/block.
+// btApplyFilter evaluates a RowFilter against a row's cells. An unsupported
+// filter type is Unimplemented, never a silent pass or block.
 func btApplyFilter(rowKey string, cells []btReadCell, f *btpb.RowFilter) ([]btReadCell, error) {
 	if f == nil {
 		return cells, nil
@@ -787,9 +766,8 @@ func btApplyFilter(rowKey string, cells []btReadCell, f *btpb.RowFilter) ([]btRe
 		}
 		return out, nil
 	case *btpb.RowFilter_RowSampleFilter:
-		// Deterministic per-row sampling: keep the row when a stable hash of its
-		// key falls under the requested probability (a sim can't use real
-		// randomness without becoming non-reproducible).
+		// Sample deterministically: keep the row when a stable hash of its key falls
+		// under the requested probability, so results stay reproducible.
 		h := fnv.New64a()
 		_, _ = h.Write([]byte(rowKey))
 		frac := float64(h.Sum64()%10000) / 10000.0
@@ -876,8 +854,8 @@ func btValueInRange(value []byte, vr *btpb.ValueRange) bool {
 	return true
 }
 
-// btCompileRE compiles a Bigtable RE2 pattern as a full-string (anchored) match,
-// matching the data API's implicit anchoring.
+// btCompileRE compiles a Bigtable RE2 pattern anchored at both ends, as the
+// Data API matches.
 func btCompileRE(pat []byte) (*regexp.Regexp, error) {
 	re, err := regexp.Compile("^(?:" + string(pat) + ")$")
 	if err != nil {
@@ -886,9 +864,6 @@ func btCompileRE(pat []byte) (*regexp.Regexp, error) {
 	return re, nil
 }
 
-// ── instance coordinates ─────────────────────────────────────────────────────
-
-// btInstanceOfTable returns the instance a table resource name belongs to.
 func btInstanceOfTable(tableName string) string {
 	if i := strings.Index(tableName, "/tables/"); i >= 0 {
 		return tableName[:i]
@@ -896,8 +871,8 @@ func btInstanceOfTable(tableName string) string {
 	return ""
 }
 
-// btRequireInstance resolves an instance the admin surface created, returning a
-// loud NotFound when it never did.
+// btRequireInstance answers NotFound for an instance the admin surface never
+// created.
 func btRequireInstance(name string) error {
 	if name == "" {
 		return status.Error(codes.InvalidArgument, "name is required")
@@ -923,9 +898,7 @@ func btRequireAppProfile(instanceName, appProfileID string) error {
 }
 
 // btInstanceCluster returns the id and zone of the cluster serving an
-// instance. An instance without a cluster serves nothing, so a data-plane
-// answer that has to name its serving cluster fails loudly instead of
-// reporting an empty one.
+// instance; an instance without a cluster is an error, not an empty answer.
 func btInstanceCluster(instanceName string) (id, zone string, err error) {
 	prefix := instanceName + "/clusters/"
 	clusters := bigtableClusters.Filter(func(c bigtableCluster) bool { return strings.HasPrefix(c.Name, prefix) })
@@ -941,8 +914,6 @@ func btInstanceCluster(instanceName string) (id, zone string, err error) {
 	return strings.TrimPrefix(c.Name, prefix), zone, nil
 }
 
-// ── connection keep-alive and client configuration ───────────────────────────
-
 func (s *bigtableDataGRPC) PingAndWarm(_ context.Context, req *btpb.PingAndWarmRequest) (*btpb.PingAndWarmResponse, error) {
 	if err := btRequireInstance(req.GetName()); err != nil {
 		return nil, err
@@ -950,9 +921,8 @@ func (s *bigtableDataGRPC) PingAndWarm(_ context.Context, req *btpb.PingAndWarmR
 	if err := btRequireAppProfile(req.GetName(), req.GetAppProfileId()); err != nil {
 		return nil, err
 	}
-	// Warming is real work here: a table's rows live in the durable store until
-	// its first data access hydrates the working copy, so warming the instance
-	// hydrates its tables and the first read after it pays no hydration cost.
+	// Warming hydrates the instance's tables from the durable store, so the first
+	// read after it pays no hydration cost.
 	prefix := req.GetName() + "/tables/"
 	for _, t := range bigtableTables.Filter(func(t bigtableTable) bool { return strings.HasPrefix(t.Name, prefix) }) {
 		bigtableTableData(t.Name)
@@ -967,20 +937,15 @@ func (s *bigtableDataGRPC) GetClientConfiguration(_ context.Context, req *btpb.G
 	if err := btRequireAppProfile(req.GetInstanceName(), req.GetAppProfileId()); err != nil {
 		return nil, err
 	}
-	// The configuration reports what this server is: it serves the session API
-	// for the point operations that protocol carries, so the whole session
-	// share belongs on it, and its configuration is fixed for the life of the
-	// process, so there is nothing for a client to poll for. The channel-pool,
-	// session-pool, load-balancing and telemetry directives are left unset:
-	// they instruct a client about a fleet of frontends, and this server has no
-	// fleet to describe.
+	// The whole session share belongs on this server, which serves the session
+	// API, and its configuration never changes, so there is nothing to poll. The
+	// pool, load-balancing and telemetry directives describe a frontend fleet the
+	// simulator does not have, so they stay unset.
 	return &btpb.ClientConfiguration{
 		SessionConfiguration: &btpb.SessionClientConfiguration{SessionLoad: 1},
 		Polling:              &btpb.ClientConfiguration_StopPolling{StopPolling: true},
 	}, nil
 }
-
-// ── change stream ────────────────────────────────────────────────────────────
 
 // btChangeRecord is one applied row mutation, as the change stream reports it.
 type btChangeRecord struct {
@@ -990,21 +955,15 @@ type btChangeRecord struct {
 	mutations  []*btpb.Mutation
 }
 
-// btChangeLogLimit bounds the change history one table retains. Real Bigtable
-// retains a table's change stream for its change_stream_retention_period; the
-// simulator retains a fixed number of records and refuses, loudly, to start a
-// stream before the oldest one it still holds.
+// btChangeLogLimit bounds the change history one table retains. Cloud Bigtable
+// retains change_stream_retention_period; the simulator keeps a fixed number of
+// records and refuses a stream that starts before the oldest one.
 const btChangeLogLimit = 10000
 
-// btChangeLog is a table's record of the mutations applied to it, in commit
-// order. btApplyMutations and ReadModifyWriteRow — the only two paths that
-// change a row — append to it, so a stream reading it reports mutations that
-// really happened and never invents one.
-//
-// The log lives for the process. A restart hydrates a table's rows from the
-// durable store but starts its change history empty, so a stream opened after
-// a restart reports the changes made since the restart and refuses a start
-// point before it.
+// btChangeLog is a table's applied mutations in commit order. btApplyMutations
+// and ReadModifyWriteRow append to it, so a stream never invents a mutation.
+// The log lives for the process: after a restart a stream reports only later
+// changes and refuses an earlier start point.
 type btChangeLog struct {
 	mu       sync.Mutex
 	records  []btChangeRecord
@@ -1029,7 +988,6 @@ func btTableChangeLog(tableName string) *btChangeLog {
 	return l
 }
 
-// btRecordChange appends the mutations one row write applied.
 func btRecordChange(tableName, rowKey string, muts []*btpb.Mutation) {
 	if len(muts) == 0 {
 		return
@@ -1094,7 +1052,6 @@ func (l *btChangeLog) btChangeCursorAt(startTime time.Time) (int64, error) {
 	return cursor, nil
 }
 
-// btChangeHead returns the sequence of the newest recorded change.
 func (l *btChangeLog) btChangeHead() int64 {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -1108,12 +1065,11 @@ func (s *bigtableDataGRPC) GenerateInitialChangeStreamPartitions(req *btpb.Gener
 	if err := btRequireAppProfile(btInstanceOfTable(req.GetTableName()), req.GetAppProfileId()); err != nil {
 		return err
 	}
-	// The simulator holds each table whole, in one process. One tablet means
-	// one partition, and the empty start and end keys are its whole key space.
+	// The simulator holds each table whole as one tablet, so one partition with
+	// empty start and end keys spans the key space.
 	return srv.Send(&btpb.GenerateInitialChangeStreamPartitionsResponse{Partition: btFullTablePartition()})
 }
 
-// btFullTablePartition is the partition covering a table's entire key space.
 func btFullTablePartition() *btpb.StreamPartition {
 	return &btpb.StreamPartition{RowRange: &btpb.RowRange{
 		StartKey: &btpb.RowRange_StartKeyClosed{StartKeyClosed: []byte{}},
@@ -1241,10 +1197,9 @@ func btCloseChangeStream(srv btpb.Bigtable_ReadChangeStreamServer, partition *bt
 	})
 }
 
-// btDataChangeResponse renders one recorded change. The mutations travel whole
-// — the simulator holds each value in memory and never splits one across
-// messages — and the tiebreaker is zero because a single-cluster instance has
-// no concurrent conflicting write to resolve.
+// btDataChangeResponse sends each mutation whole, since the simulator never
+// splits a value across messages, with tiebreaker zero, since a single-cluster
+// instance has no conflicting writes to resolve.
 func btDataChangeResponse(rec btChangeRecord, clusterID string) *btpb.ReadChangeStreamResponse {
 	chunks := make([]*btpb.ReadChangeStreamResponse_MutationChunk, 0, len(rec.mutations))
 	for _, m := range rec.mutations {
@@ -1264,14 +1219,9 @@ func btDataChangeResponse(rec btChangeRecord, clusterID string) *btpb.ReadChange
 	}
 }
 
-// ── session API (OpenTable / OpenAuthorizedView / OpenMaterializedView) ──────
-
-// The session entry points are bidirectional streams carrying the same point
-// reads and mutations the unary data plane serves: a client opens a session
-// against a table or an authorized view, then sends virtual RPCs — one
-// SessionReadRowRequest or SessionMutateRowRequest each — and receives a
-// response per rpc_id. They read and write the one per-table cell store, so a
-// row mutated over a session is visible to ReadRows and vice versa.
+// The session entry points are bidirectional streams of virtual RPCs (one
+// SessionReadRowRequest or SessionMutateRowRequest each) answered per rpc_id,
+// over the same cell store as the unary data plane.
 
 // btSessionStream is the shape the three session entry points share: the
 // generated server streams differ only in the RPC they belong to.
@@ -1364,11 +1314,9 @@ func btServeSession(stream btSessionStream, open func(payload []byte) (*btSessio
 	}
 }
 
-// btSessionPermissions splits a session's requested permission into what it may
-// read and what it may write. An unset permission opens the session for both,
-// the access a client gets when it asks for none in particular. The table,
-// authorized-view and materialized-view permission enums are separate types
-// with identical numbering, so the split is made on the number they share.
+// btSessionPermissions splits a session's permission into read and write; an
+// unset one grants both. The table, authorized-view and materialized-view
+// permission enums share their numbering, so the split reads the number.
 func btSessionPermissions(permission int32) (canRead, canWrite bool) {
 	switch permission {
 	case int32(btpb.OpenTableRequest_PERMISSION_READ):
@@ -1537,12 +1485,9 @@ func btSessionMutateRow(tableName string, td *btTableData, subset *btViewSubset,
 	return nil
 }
 
-// ── authorized-view subsets ──────────────────────────────────────────────────
-
 // btViewSubset is the slice of a table an authorized view exposes: the row
-// prefixes it covers and, per column family, the qualifiers within it. It is
-// read from the AuthorizedView resource the admin surface stored, so a session
-// on a view sees exactly what the view was created with.
+// prefixes it covers and, per column family, the qualifiers within it, as the
+// stored AuthorizedView resource declares them.
 type btViewSubset struct {
 	rowPrefixes []string
 	families    map[string]btViewFamilySubset
@@ -1584,7 +1529,6 @@ func (v *btViewSubset) filterCells(cells []btReadCell) []btReadCell {
 	return btFilterCells(cells, func(c btReadCell) bool { return v.coversColumn(c.family, c.qual) })
 }
 
-// authorizeMutations rejects a write that would touch a cell outside the view.
 func (v *btViewSubset) authorizeMutations(rowKey string, muts []*btpb.Mutation) error {
 	if !v.coversRow(rowKey) {
 		return status.Errorf(codes.PermissionDenied, "row %q is outside the authorized view", rowKey)
@@ -1602,8 +1546,7 @@ func (v *btViewSubset) authorizeMutations(rowKey string, muts []*btpb.Mutation) 
 					mut.DeleteFromColumn.GetFamilyName(), mut.DeleteFromColumn.GetColumnQualifier())
 			}
 		default:
-			// A family- or row-wide delete reaches columns the view does not
-			// expose, so it is not a mutation a view session can express.
+			// A family- or row-wide delete reaches columns the view does not expose.
 			return status.Error(codes.PermissionDenied, "an authorized view session can only mutate columns the view exposes")
 		}
 	}
@@ -1650,8 +1593,8 @@ func btAuthorizedViewSubset(viewName string) (*btViewSubset, string, error) {
 	return subset, viewName[:idx], nil
 }
 
-// btDecodeBytesList decodes the base64 the REST admin surface stores a repeated
-// bytes field as.
+// btDecodeBytesList decodes a repeated bytes field the REST admin surface
+// stores as base64.
 func btDecodeBytesList(raw any) ([]string, error) {
 	list, _ := raw.([]any)
 	out := make([]string, 0, len(list))
@@ -1669,18 +1612,11 @@ func btDecodeBytesList(raw any) ([]string, error) {
 	return out, nil
 }
 
-// ── SQL over the data plane (PrepareQuery / ExecuteQuery) ────────────────────
-
-// Bigtable's SQL surface is served for the query shape the simulator can
-// answer from what it holds: `SELECT * FROM <table>`, which reads the table's
-// stored rows. The result set is the one GoogleSQL defines for it — a `_key`
-// BYTES column followed by one MAP<BYTES, BYTES> column per column family,
-// each carrying that row's latest value per qualifier.
-//
-// Every other query is refused with a loud Unimplemented naming what is
-// served. A simulator that answered an unparsed query with an empty result set
-// would report "no rows" for a query that has rows, which is worse than a
-// refusal: the client cannot tell the difference.
+// The simulator answers one SQL shape, `SELECT * FROM <table>`, with the result
+// set GoogleSQL defines for it: a `_key` BYTES column, then one MAP<BYTES,
+// BYTES> column per column family holding each qualifier's latest value. Any
+// other query is Unimplemented, since an empty result set would read as "no
+// rows".
 
 // btPreparedQuery is one prepared statement: the table it reads and the result
 // schema ExecuteQuery must produce for it.
@@ -1695,10 +1631,9 @@ var bigtablePreparedQueries = struct {
 	queries map[string]btPreparedQuery
 }{queries: map[string]btPreparedQuery{}}
 
-// btPreparedQueryLifetime is how long a prepared query stays usable. Real
-// Bigtable expires a prepared query so clients re-plan against a changed
-// schema; the simulator expires it for the same reason, and a column family
-// added after preparation reaches the client through the refreshed plan.
+// btPreparedQueryLifetime is how long a prepared query stays usable. Cloud
+// Bigtable expires prepared queries so clients re-plan against a changed
+// schema, and a column family added later reaches them through the new plan.
 const btPreparedQueryLifetime = time.Hour
 
 var btSelectStarQuery = regexp.MustCompile("(?is)^\\s*SELECT\\s+\\*\\s+FROM\\s+`?([A-Za-z0-9_][A-Za-z0-9_.-]*)`?\\s*;?\\s*$")
@@ -1760,8 +1695,7 @@ func (s *bigtableDataGRPC) PrepareQuery(_ context.Context, req *btpb.PrepareQuer
 	prepared := []byte(sim.NewUUID())
 	validUntil := time.Now().Add(btPreparedQueryLifetime)
 	bigtablePreparedQueries.mu.Lock()
-	// An expired plan can never be executed again, so it is dropped here rather
-	// than held for the life of the process.
+	// Drop expired plans, which can never execute again.
 	for token, query := range bigtablePreparedQueries.queries {
 		if time.Now().After(query.validUntil) {
 			delete(bigtablePreparedQueries.queries, token)
@@ -1892,11 +1826,6 @@ func btQueryRowValues(td *btTableData, rowKey string, columns []*btpb.ColumnMeta
 	return values
 }
 
-// OpenMaterializedView opens a session on a materialized view, whose rows are
-// the continuously maintained result of the GoogleSQL query the view was
-// created with. The simulator stores that query string and nothing else: it
-// materializes no result set, and it has no evaluator for the aggregate
-// queries materialized views are defined by (GROUP BY over column families
-// with windowed accumulators). A session on such a view could only read rows
-// that were never computed, so the method stays on the embedded Unimplemented
-// server and a client gets a clear status instead.
+// OpenMaterializedView stays on the embedded Unimplemented server: the
+// simulator stores a materialized view's query but has no evaluator for the
+// aggregate queries that define one, so it holds no rows to serve.

@@ -70,7 +70,6 @@ func TestLogging_WriteAndListEntries(t *testing.T) {
 	t.Parallel()
 	client := logadminClient(t)
 
-	// Write entries via gRPC using the logging.Client (write client)
 	writeClient, err := newLoggingWriteClient(t)
 	require.NoError(t, err)
 
@@ -81,7 +80,6 @@ func TestLogging_WriteAndListEntries(t *testing.T) {
 	err = writeClient.Close()
 	require.NoError(t, err)
 
-	// List entries via logadmin
 	it := client.Entries(ctx, logadmin.Filter(`logName="projects/test-project/logs/test-log-write"`))
 
 	var messages []string
@@ -103,8 +101,6 @@ func TestLogging_WriteAndListEntries(t *testing.T) {
 	assert.Equal(t, "second entry", messages[1])
 }
 
-// loggingPayloads runs a filter through logadmin.Entries and returns the text
-// payloads of the matching entries, in the order Cloud Logging returned them.
 func loggingPayloads(t *testing.T, client *logadmin.Client, filter string) []string {
 	t.Helper()
 	it := client.Entries(ctx, logadmin.Filter(filter))
@@ -128,16 +124,14 @@ func TestLogging_FilterByResourceType(t *testing.T) {
 	writeClient, err := newLoggingWriteClient(t)
 	require.NoError(t, err)
 
-	// Two entries in one log, differing only in resource type.
 	logName := "filter-test"
 	logger := writeClient.Logger(logName)
 	require.NoError(t, logger.LogSync(ctx, writeEntryWithResource("cloud_run_job", "job-1", "cloud run entry")))
 	require.NoError(t, logger.LogSync(ctx, writeEntryWithResource("cloud_run_revision", "svc-1", "cloud function entry")))
 	require.NoError(t, writeClient.Close())
 
-	// The log name scopes the query to this test's two entries, so the
-	// resource.type clause is the only thing that can separate them: a filter
-	// that ignored it would return both.
+	// The log name scopes the query to this test's two entries, so only the
+	// resource.type clause can separate them.
 	byLogName := fmt.Sprintf(`logName="projects/test-project/logs/%s"`, logName)
 	scope := byLogName + " AND "
 
@@ -154,11 +148,10 @@ func TestLogging_FilterByResourceType(t *testing.T) {
 		loggingPayloads(t, client, byLogName))
 }
 
-// Cloud Logging stores the timestamp the writer gives each entry, so the
-// timestamp tests set them rather than wait for the clock to separate writes.
-// Each run writes to a log of its own: Cloud Logging keeps what an earlier run
-// wrote, and a shared log would hand a cutoff-before-everything query its
-// entries too.
+// Cloud Logging stores the timestamp the writer gives, so the timestamp tests
+// set it rather than wait for the clock. Each run writes a log of its own:
+// Cloud Logging keeps earlier runs' entries, which a cutoff-before-everything
+// query would also return.
 func TestLogging_FilterByTimestamp(t *testing.T) {
 	t.Parallel()
 	client := logadminClient(t)
@@ -178,8 +171,8 @@ func TestLogging_FilterByTimestamp(t *testing.T) {
 	cutoff := written.Add(100 * time.Millisecond).Format(time.RFC3339Nano)
 	scope := fmt.Sprintf(`logName="projects/test-project/logs/%s" AND `, logName)
 
-	// Both directions around the cutoff. A sim that dropped the timestamp
-	// predicate would return both entries for the second query.
+	// A filter that dropped the timestamp predicate would return both entries for
+	// the second query.
 	assert.Equal(t, []string{"old entry", "new entry"},
 		loggingPayloads(t, client, scope+fmt.Sprintf(`timestamp>="%s"`, beforeAll)),
 		"a cutoff before both writes must return both entries")
@@ -188,9 +181,8 @@ func TestLogging_FilterByTimestamp(t *testing.T) {
 		"a cutoff between the writes must exclude the earlier entry")
 }
 
-// TestLogging_FilterByTimestampStrictGT covers the strict greater-than filter
-// a follower uses, timestamp>"<cutoff>": an entry stamped exactly at the
-// cutoff is excluded.
+// TestLogging_FilterByTimestampStrictGT: timestamp>"<cutoff>", the filter a
+// follower uses, excludes an entry stamped exactly at the cutoff.
 func TestLogging_FilterByTimestampStrictGT(t *testing.T) {
 	t.Parallel()
 	client := logadminClient(t)
@@ -213,9 +205,9 @@ func TestLogging_FilterByTimestampStrictGT(t *testing.T) {
 		"a strict > filter excludes the entries at and before the cutoff")
 }
 
-// TestLogging_RESTWriteRejectsAnUnreadableTimestamp pins that entries:write
-// refuses a timestamp that is not RFC 3339 rather than storing an entry no
-// timestamp filter or ordering could place.
+// TestLogging_RESTWriteRejectsAnUnreadableTimestamp: entries:write refuses a
+// timestamp that is not RFC 3339 rather than store an entry no filter or order
+// could place.
 func TestLogging_RESTWriteRejectsAnUnreadableTimestamp(t *testing.T) {
 	t.Parallel()
 	svc := loggingRESTService(t)
@@ -268,19 +260,17 @@ func TestLogging_SinkCRUD(t *testing.T) {
 	}
 	created, err := svc.Projects.Sinks.Create(parent, sink).Do()
 	require.NoError(t, err)
-	// Real Cloud Logging returns the short identifier in LogSink.name and the
-	// full path in the separate output-only resourceName field.
+	// Cloud Logging returns the short identifier in LogSink.name and the full path
+	// in the output-only resourceName.
 	assert.Equal(t, "sdk-test-sink", created.Name)
 	assert.Equal(t, sinkResourceName, created.ResourceName)
 	assert.Equal(t, sink.Destination, created.Destination)
 
-	// Get sink.
 	got, err := svc.Projects.Sinks.Get(sinkResourceName).Do()
 	require.NoError(t, err)
 	assert.Equal(t, "sdk-test-sink", got.Name)
 	assert.Equal(t, sinkResourceName, got.ResourceName)
 
-	// List sinks — must contain created sink by short name.
 	list, err := svc.Projects.Sinks.List(parent).Do()
 	require.NoError(t, err)
 	found := false
@@ -291,7 +281,6 @@ func TestLogging_SinkCRUD(t *testing.T) {
 	}
 	assert.True(t, found, "created sink must appear in list")
 
-	// Update (PUT) — change destination.
 	updated, err := svc.Projects.Sinks.Update(sinkResourceName,
 		&loggingrpc.LogSink{
 			Name:        "sdk-test-sink",
@@ -301,11 +290,9 @@ func TestLogging_SinkCRUD(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, updated.Destination, "backup-logs")
 
-	// Delete sink.
 	_, err = svc.Projects.Sinks.Delete(sinkResourceName).Do()
 	require.NoError(t, err)
 
-	// Get after delete must fail.
 	_, err = svc.Projects.Sinks.Get(sinkResourceName).Do()
 	require.Error(t, err)
 }
@@ -323,17 +310,14 @@ func TestLogging_MetricCRUD(t *testing.T) {
 	}
 	created, err := svc.Projects.Metrics.Create(parent, metric).Do()
 	require.NoError(t, err)
-	// Real Cloud Logging returns the short metric identifier in LogMetric.name
-	// (the [METRIC_ID] part), not the full resource path.
+	// Cloud Logging returns the short metric identifier in LogMetric.name.
 	assert.Equal(t, "sdk-test-metric", created.Name)
 	assert.Equal(t, `severity >= ERROR`, created.Filter)
 
-	// Get metric.
 	got, err := svc.Projects.Metrics.Get(metricResourceName).Do()
 	require.NoError(t, err)
 	assert.Equal(t, "sdk-test-metric", got.Name)
 
-	// List metrics — must contain created metric by short name.
 	list, err := svc.Projects.Metrics.List(parent).Do()
 	require.NoError(t, err)
 	found := false
@@ -344,7 +328,6 @@ func TestLogging_MetricCRUD(t *testing.T) {
 	}
 	assert.True(t, found, "created metric must appear in list")
 
-	// Update — change filter.
 	updated, err := svc.Projects.Metrics.Update(metricResourceName,
 		&loggingrpc.LogMetric{
 			Name:   "sdk-test-metric",
@@ -353,18 +336,15 @@ func TestLogging_MetricCRUD(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, `severity >= CRITICAL`, updated.Filter)
 
-	// Delete metric.
 	_, err = svc.Projects.Metrics.Delete(metricResourceName).Do()
 	require.NoError(t, err)
 
-	// Get after delete must fail.
 	_, err = svc.Projects.Metrics.Get(metricResourceName).Do()
 	require.Error(t, err)
 }
 
-// loggingSinkPage fetches one page of sinks.list, returning the sink names in
-// wire order plus the page's nextPageToken. Real Cloud Logging returns the short
-// sink identifier in LogSink.name.
+// loggingSinkPage returns the sink names in wire order and the page's
+// nextPageToken.
 func loggingSinkPage(t *testing.T, listURL, pageToken string) (names []string, next string) {
 	t.Helper()
 	u := listURL
@@ -433,9 +413,9 @@ func TestLogging_ListSinks_Pagination(t *testing.T) {
 	require.Equal(t, want, all)
 	require.Empty(t, next, "a list without pageSize returns everything and no token")
 
-	// pageSize=1 must yield one sink per page, a token on every page but the
-	// last, and no sink twice — a single page carrying all of them would satisfy
-	// a union-only assertion while paginating nothing.
+	// pageSize=1 must yield one sink per page, a token on every page but the last,
+	// and no sink twice: a single page with all of them would satisfy a union
+	// check while paginating nothing.
 	seen := map[string]bool{}
 	var got []string
 	var token string

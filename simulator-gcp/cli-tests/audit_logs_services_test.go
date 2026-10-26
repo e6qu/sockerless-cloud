@@ -8,8 +8,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// cliAuditEntry is the part of a Cloud Audit Logs entry gcloud logging read
-// prints that these tests read.
 type cliAuditEntry struct {
 	LogName   string `json:"logName"`
 	Operation struct {
@@ -33,8 +31,6 @@ type cliAuditEntry struct {
 	} `json:"protoPayload"`
 }
 
-// readAuditEntry reads, with gcloud logging read, the one Admin Activity
-// entry for a method on a resource.
 func readAuditEntry(t *testing.T, methodName, resourceName string) cliAuditEntry {
 	t.Helper()
 	var entries []cliAuditEntry

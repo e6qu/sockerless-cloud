@@ -10,9 +10,7 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// registerComputeInstanceTemplates mounts global instance templates.
 func registerComputeInstanceTemplates(srv *sim.Server, instanceTemplates sim.Store[ComputeInstanceTemplate]) {
-	// Instance templates — global, no networking side-effects.
 	srv.HandleFunc("POST /compute/v1/projects/{project}/global/instanceTemplates", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		var req ComputeInstanceTemplate
@@ -82,8 +80,8 @@ func registerComputeInstanceTemplates(srv *sim.Server, instanceTemplates sim.Sto
 		sim.WriteJSON(w, http.StatusOK, op)
 	})
 
-	// Aggregated list — gcloud instance-templates list calls this endpoint.
-	// Real GCP returns items keyed by scope ("global" for global resources).
+	// gcloud instance-templates list calls the aggregated list, which keys items
+	// by scope ("global").
 	srv.HandleFunc("GET /compute/v1/projects/{project}/aggregated/instanceTemplates", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		prefix := fmt.Sprintf("projects/%s/global/instanceTemplates/", project)

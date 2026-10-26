@@ -6,17 +6,12 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// The verbs the global load-balancing collections carry beyond what
-// compute_lb_verbs.go already serves: the Cloud Armor policies a backend
-// service is behind, the target a forwarding rule points at and the labels on
-// it, and the URL map a proxy routes through.
-//
-// These collections are typed rather than map-backed, so each verb goes through
-// computeTypedWrite — the same path the patch and update verbs take — which
-// keeps one notion of "apply this to the stored resource" across all of them.
+// The global load-balancing verbs beyond compute_lb_verbs.go: a backend
+// service's Cloud Armor policies, a forwarding rule's target and labels, and a
+// proxy's URL map. Each goes through computeTypedWrite, as patch and update do.
 
-// registerComputeGlobalLBVerbs mounts them. Every route is literal, because a
-// route assembled from a variable is one the surface tables cannot see.
+// registerComputeGlobalLBVerbs writes every route literally, since the surface
+// tables cannot see a route assembled from a variable.
 func registerComputeGlobalLBVerbs(srv *sim.Server) {
 	// setVerb applies one member of the request body to a stored resource.
 	setVerb := func(collection, verb, member, into string, apply func(string, map[string]any) (bool, error)) http.HandlerFunc {
@@ -58,14 +53,12 @@ func registerComputeGlobalLBVerbs(srv *sim.Server) {
 	}
 
 	// A backend service sits behind a Cloud Armor policy at the origin and, for
-	// cached content, one at the edge. Both arrive as a SecurityPolicyReference,
-	// so the body member is the same name for two different resource members.
+	// cached content, one at the edge; both arrive as a SecurityPolicyReference.
 	srv.HandleFunc("POST /compute/v1/projects/{project}/global/backendServices/{name}/setSecurityPolicy",
 		setVerb("backendServices", "setSecurityPolicy", "securityPolicy", "securityPolicy", backend))
 	srv.HandleFunc("POST /compute/v1/projects/{project}/global/backendServices/{name}/setEdgeSecurityPolicy",
 		setVerb("backendServices", "setEdgeSecurityPolicy", "securityPolicy", "edgeSecurityPolicy", backend))
 
-	// What a forwarding rule points at, and the labels on it.
 	srv.HandleFunc("POST /compute/v1/projects/{project}/global/forwardingRules/{name}/setTarget",
 		setVerb("forwardingRules", "setTarget", "target", "target", rule))
 	srv.HandleFunc("POST /compute/v1/projects/{project}/global/forwardingRules/{name}/setLabels",
@@ -77,9 +70,8 @@ func registerComputeGlobalLBVerbs(srv *sim.Server) {
 	srv.HandleFunc("POST /compute/v1/projects/{project}/targetHttpProxies/{name}/setUrlMap",
 		setVerb("targetHttpProxies", "setUrlMap", "urlMap", "urlMap", httpProxy))
 
-	// The same two spellings for the resources a HTTPS proxy is configured
-	// with. The scoped spellings are served by the meta-resource registrar;
-	// these are the unscoped ones the document also declares.
+	// The meta-resource registrar serves an HTTPS proxy's scoped spellings; these
+	// are the unscoped ones the document also declares.
 	unscoped := func(verb, member string) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
 			project, name := sim.PathParam(r, "project"), sim.PathParam(r, "name")
@@ -134,8 +126,8 @@ func registerComputeGlobalLBVerbs(srv *sim.Server) {
 	srv.HandleFunc("PATCH /compute/v1/projects/{project}/global/targetHttpProxies/{name}",
 		patch("targetHttpProxies", httpProxy))
 
-	// A backend service signs its cached URLs the same way a backend bucket
-	// does. The values never come back; the names do.
+	// A backend service signs cached URLs as a backend bucket does: the key names
+	// come back, the values never do.
 	signingKey := func(verb string, add bool) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
 			project, name := sim.PathParam(r, "project"), sim.PathParam(r, "name")
@@ -216,11 +208,8 @@ func registerComputeGlobalLBVerbs(srv *sim.Server) {
 	srv.HandleFunc("POST /compute/v1/projects/{project}/global/backendServices/{name}/deleteSignedUrlKey",
 		signingKey("deleteSignedUrlKey", false))
 
-	// The policies in force on a backend service. The Discovery document
-	// declares no response for this method, so it answers with none: a body
-	// here would be a shape the document does not describe and no generated
-	// client reads. The service still has to exist, which is the part of the
-	// call a client can observe.
+	// The Discovery document declares no response for getEffectiveSecurityPolicies,
+	// so it answers none once the service is found to exist.
 	srv.HandleFunc("GET /compute/v1/projects/{project}/global/backendServices/{name}/getEffectiveSecurityPolicies",
 		func(w http.ResponseWriter, r *http.Request) {
 			project, name := sim.PathParam(r, "project"), sim.PathParam(r, "name")

@@ -25,64 +25,43 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The Google Artifact Registry Docker credential contract, driven by the two
-// clients the documentation names and by nothing else: the Google Cloud CLI for
-// the credential and the Docker command line interface for the registry.
+// The Artifact Registry Docker credential contract, driven only by the clients
+// its documentation names:
 //
-//	gcloud auth print-access-token |
-//	    docker login -u oauth2accesstoken --password-stdin https://LOCATION-docker.pkg.dev
-//	docker push LOCATION-docker.pkg.dev/PROJECT/REPOSITORY/IMAGE:TAG
+//   gcloud auth print-access-token |
+//       docker login -u oauth2accesstoken --password-stdin https://LOCATION-docker.pkg.dev
+//   docker push LOCATION-docker.pkg.dev/PROJECT/REPOSITORY/IMAGE:TAG
 //
-// ("Authenticate to Artifact Registry for Docker" and "Push and pull images",
-// Artifact Registry documentation.) The container engine — not this process —
-// performs the login handshake and the transfer, so this is the exchange a user
-// actually gets: the engine probes /v2/, reads the Bearer challenge, exchanges
-// its stored credential for a token at the realm the challenge names, and
-// pushes and pulls under the token it gets back.
+// The container engine, not this process, performs the login handshake and the
+// transfer: it probes /v2/, follows the Bearer challenge to the token service,
+// and pushes and pulls under the token it gets back.
 //
-// Two things follow from the engine being the client.
-//
-// The registry is addressed by the host in the image reference, and that host
-// needs a certificate, because a container engine speaks TLS to a registry it
-// was not told to treat as insecure. The repository's Caddy HTTPS gateway
-// (make/https-gateway/Caddyfile) serves the simulator under an Artifact
-// Registry Docker endpoint name at its own coordinate and issues a certificate
-// for it from its local authority, and that authority is installed in the
-// engine's per-registry certificate directory the way an administrator installs
-// a private registry's — the engine reads that directory while building the
-// client for each request, so it applies to the very next login.
-//
-// And the engine has to be able to reach the listener. Where the engine runs in
-// its own virtual machine — Podman on macOS, Docker Desktop — it has no route
-// into this host's network namespace, which is why this test is gated to Linux
-// and why the repository's Linux container path (`make docker-test`, which runs
-// this suite with `--network host` against the engine's own socket) is where it
-// runs on such a host: there, engine, gateway, simulator and client share one
-// loopback.
+// A container engine speaks TLS to a registry it was not told to treat as
+// insecure, so the repository's Caddy HTTPS gateway (make/https-gateway/Caddyfile)
+// serves the simulator under an Artifact Registry Docker endpoint name with a
+// certificate from its local authority, which the test installs in the engine's
+// per-registry certificate directory. An engine in its own virtual machine
+// (Podman on macOS, Docker Desktop) has no route to this host's loopback, so the
+// test runs on Linux only; `make docker-test` runs it there with
+// `--network host`.
 
-// arRegistryEndpointDomain is the domain the HTTPS gateway serves the Artifact
-// Registry Docker data plane under. The endpoint a client is pointed at is
-// therefore `<location>-docker.pkg.gcp.sockerless.localhost:<gateway port>`,
-// which is the real `<location>-docker.pkg.dev` shape with the coordinate — and
-// only the coordinate — changed.
+// arRegistryEndpointDomain replaces only the coordinate of the real
+// `<location>-docker.pkg.dev`: a client names the registry
+// `<location>-docker.pkg.gcp.sockerless.localhost:<gateway port>`.
 const arRegistryEndpointDomain = "pkg.gcp.sockerless.localhost"
 
 // arRegistryLoginUsername is the username Artifact Registry reserves for an
-// OAuth 2.0 access token presented as an HTTP Basic password, which is the
-// value `docker login -u` is documented to take and what the `gcloud auth
-// configure-docker` credential helper produces.
+// OAuth 2.0 access token presented as an HTTP Basic password; `gcloud auth
+// configure-docker`'s credential helper produces it too.
 const arRegistryLoginUsername = "oauth2accesstoken"
 
 // The IAM permissions Artifact Registry names when it denies a Docker Registry
-// v2 request at the resource, as its audit-logging method table maps them: a
-// manifest or blob read downloads, an upload uploads.
+// v2 request, as its audit-logging method table maps them.
 const (
 	arCLIPermDownload = "artifactregistry.repositories.downloadArtifacts"
 	arCLIPermUpload   = "artifactregistry.repositories.uploadArtifacts"
 )
 
-// arRegistryGateway is the TLS front the container engine reaches the
-// simulator's Docker Registry HTTP API v2 data plane through.
 type arRegistryGateway struct {
 	// coordinate is the `host:port` a client names the registry by.
 	coordinate string
@@ -123,18 +102,14 @@ func TestArtifactRegistryCLI_DockerLoginPushPull(t *testing.T) {
 	imagePath := project + "/" + repoID + "/app"
 	reference := gateway.coordinate + "/" + imagePath + ":v1"
 
-	// The credential, from the command the documentation pipes into
-	// `docker login`.
+	// The credential the documentation pipes into `docker login`.
 	token := strings.TrimSpace(runCLI(t, gcloudCLI("auth", "print-access-token")))
 	require.NotEmpty(t, token)
 
-	// Negative control for the certificate authority installed below. Engines
-	// differ on whether they need it: one that resolves this endpoint to a
-	// loopback address may treat the registry as insecure and reach it with no
-	// trust configuration at all, and where that happens the installation
-	// cannot be falsified here. Where it can, the login must fail on the
-	// certificate first and succeed once the authority is installed, which is
-	// what makes the installation more than a no-op.
+	// Negative control for the authority installed below. An engine that
+	// resolves this endpoint to loopback may treat the registry as insecure and
+	// need no trust at all; elsewhere the login must fail on the certificate
+	// first and succeed once the authority is installed.
 	untrusted, untrustedErr := dockerCLI(t, token, "login", "--username", arRegistryLoginUsername, "--password-stdin", gateway.coordinate)
 	trustIsFalsifiable := strings.Contains(untrusted, "certificate signed by unknown authority") ||
 		strings.Contains(untrusted, "x509:")
@@ -146,22 +121,16 @@ func TestArtifactRegistryCLI_DockerLoginPushPull(t *testing.T) {
 		t.Logf("engine reaches %s without the gateway's authority installed, so installing it is not falsifiable here: %s",
 			gateway.coordinate, strings.TrimSpace(untrusted))
 	}
-	// Whatever the probe stored, the arms below have to start from no
-	// credential.
 	_, _ = dockerCLI(t, "", "logout", gateway.coordinate)
 
 	cleanupTrust, err := registrytrust.ConfigureTrustedRegistryCA(ctx, gateway.coordinate, gateway.authority)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, cleanupTrust()) })
 
-	// A login with a credential the registry cannot accept is refused, and the
-	// engine cannot log in with it. Artifact Registry refuses it in two places,
-	// with two different messages, and the engine meets both: the token service
-	// the challenge sends it to reports `authentication failed`, and the data
-	// plane itself reports `No valid credential was supplied.` with no challenge
-	// at all. The login below runs the same command against the same endpoint
-	// through the same engine and succeeds, so the credential is the only thing
-	// that separates the refusal from the success.
+	// Artifact Registry refuses a credential it cannot accept in two places with
+	// two messages: the token service reports `authentication failed`, and the data
+	// plane reports `No valid credential was supplied.` with no challenge. The
+	// login below differs only in its credential and succeeds.
 	const rejectedToken = "not-a-real-access-token"
 	refusedToken := gateway.requireTokenServiceRefusal(t, rejectedToken)
 	gateway.requireRejectedCredential(t, http.MethodGet, "/v2/", "Bearer "+rejectedToken)
@@ -174,8 +143,8 @@ func TestArtifactRegistryCLI_DockerLoginPushPull(t *testing.T) {
 	assert.Contains(t, loggedIn, "Login Succeeded")
 	t.Cleanup(func() { _, _ = dockerCLI(t, "", "logout", gateway.coordinate) })
 
-	// An image whose content exists nowhere else, so the pull below has to come
-	// off the registry rather than out of the engine's store.
+	// Content unique to this run, so the pull has to come off the registry rather
+	// than out of the engine's store.
 	buildArtifactRegistryTestImage(t, reference)
 	t.Cleanup(func() { _, _ = dockerCLI(t, "", "image", "rm", "-f", reference) })
 	built := dockerImageID(t, reference)
@@ -215,11 +184,8 @@ func TestArtifactRegistryCLI_DockerLoginPushPull(t *testing.T) {
 	loggedOut, err := dockerCLI(t, "", "logout", gateway.coordinate)
 	require.NoError(t, err, "logout: %s", loggedOut)
 
-	// The registry refuses the upload a push starts with when no credential
-	// comes with it, and the engine, holding none, cannot push. Artifact
-	// Registry's refusal is a two-step: the challenge sends the client to the
-	// token service, and the token service refuses the scope it was told to ask
-	// for.
+	// Artifact Registry refuses an anonymous upload in two steps: the challenge
+	// sends the client to the token service, which refuses the scope.
 	deniedUpload := gateway.requireAnonymousRefusal(t, http.MethodPost, "/v2/"+imagePath+"/blobs/uploads/",
 		"repository:"+imagePath+":pull,push", arCLIPermUpload, resource)
 	refusedPush, refusedPushErr := dockerCLI(t, "", "push", reference)
@@ -238,10 +204,7 @@ func TestArtifactRegistryCLI_DockerLoginPushPull(t *testing.T) {
 }
 
 // startArtifactRegistryGateway serves the running simulator's registry data
-// plane over TLS under an Artifact Registry Docker endpoint name for this
-// suite's location, using the repository's HTTPS gateway configuration, and
-// returns the coordinate a client names it by together with the authority that
-// issued its certificate.
+// plane over TLS under this suite's Artifact Registry Docker endpoint name.
 func startArtifactRegistryGateway(t *testing.T) *arRegistryGateway {
 	t.Helper()
 
@@ -299,10 +262,8 @@ func startArtifactRegistryGateway(t *testing.T) *arRegistryGateway {
 	return gateway
 }
 
-// client reaches the registry the way the container engine does — over TLS,
-// under the Docker endpoint name, trusting the authority that issued the
-// gateway's certificate, which is the same PEM the engine's per-registry
-// certificate directory carries.
+// client trusts the same authority PEM the engine's per-registry certificate
+// directory carries.
 func (g *arRegistryGateway) client(t *testing.T) *http.Client {
 	t.Helper()
 	pool := x509.NewCertPool()
@@ -313,8 +274,6 @@ func (g *arRegistryGateway) client(t *testing.T) *http.Client {
 	}
 }
 
-// do drives one request at the gateway with the Authorization header named, or
-// none at all, and returns the response together with its body.
 func (g *arRegistryGateway) do(t *testing.T, method, path, authorization string) (*http.Response, string) {
 	t.Helper()
 	req, err := http.NewRequest(method, "https://"+g.coordinate+path, http.NoBody)
@@ -330,13 +289,10 @@ func (g *arRegistryGateway) do(t *testing.T, method, path, authorization string)
 	return resp, string(body)
 }
 
-// requireRegistryChallenge requires Artifact Registry's own answer to an
-// unauthenticated /v2/ probe under the Docker endpoint name — the first request
-// a container engine makes. The shapes asserted are the ones the live service
-// sends a request that carries no credential at all: the Bearer challenge
-// naming the token service, and the shorter of the two `not authenticated`
-// messages, because this request addresses the registry rather than a
-// repository.
+// requireRegistryChallenge requires Artifact Registry's answer to the
+// credential-less /v2/ probe a container engine opens with: the Bearer
+// challenge naming the token service, and the shorter `not authenticated`
+// message, because the request names the registry rather than a repository.
 func (g *arRegistryGateway) requireRegistryChallenge(t *testing.T) {
 	t.Helper()
 	resp, err := g.client(t).Get("https://" + g.coordinate + "/v2/")
@@ -353,10 +309,9 @@ func (g *arRegistryGateway) requireRegistryChallenge(t *testing.T) {
 	assert.Equal(t, "not authenticated: No credential was supplied.", message)
 }
 
-// requireTokenServiceRefusal drives the Docker token service at the realm every
-// challenge names with a credential the registry cannot accept — the exchange a
-// `docker login` performs the moment it has read the challenge — and requires
-// Artifact Registry's own refusal of it, which the token service words
+// requireTokenServiceRefusal sends the token service a credential the registry
+// cannot accept, as `docker login` does once it has read the challenge, and
+// requires Artifact Registry's refusal, which the token service words
 // differently from the data plane:
 //
 //	$ curl -i -u 'oauth2accesstoken:bogus' \
@@ -383,11 +338,10 @@ func (g *arRegistryGateway) requireTokenServiceRefusal(t *testing.T, password st
 	return resp.StatusCode
 }
 
-// requireRejectedCredential drives one Docker Registry HTTP API v2 request with
-// a credential the registry cannot accept and requires Artifact Registry's own
-// refusal: 401, no challenge at all — the client already knows where the token
-// service is, and repeating the challenge would send it back to mint the same
-// rejected credential — and the service's flat message.
+// requireRejectedCredential requires Artifact Registry's refusal of a request
+// carrying a credential it cannot accept: 401 with the flat message and no
+// challenge, since repeating it would only send the client to mint the same
+// rejected credential.
 func (g *arRegistryGateway) requireRejectedCredential(t *testing.T, method, path, authorization string) {
 	t.Helper()
 	resp, body := g.do(t, method, path, authorization)
@@ -401,21 +355,12 @@ func (g *arRegistryGateway) requireRejectedCredential(t *testing.T, method, path
 	assert.Equal(t, "No valid credential was supplied.", message)
 }
 
-// requireAnonymousRefusal walks the whole exchange a container engine holding
-// no credential performs against Artifact Registry, and requires the service's
-// own answer at each step: the request draws a Bearer challenge naming the
-// token service, the service and the scope; and the token service refuses that
-// scope with HTTP 403, the `DENIED` code, and the IAM permission the method
-// needs. The engine reports a `denied:` because the mint denied it, which is
-// where the live service denies it too.
-//
-// This is the registry half of the refusals the engine meets, asserted where
-// the coordinate cannot distort it (requireEngineRefused explains what the
-// coordinate does to the engine's own report). The request is the one the
-// engine makes at that point in the exchange — the blob upload a push begins
-// with, the manifest read a pull begins with — sent over the same TLS
-// coordinate, in the same credential state, by a client trusting the same
-// authority.
+// requireAnonymousRefusal walks the exchange a credential-less container engine
+// performs: the request draws a Bearer challenge naming the token service, the
+// service and the scope, and the token service refuses that scope with 403,
+// `DENIED` and the IAM permission the method needs. It is the registry half of
+// the refusal, asserted where the coordinate cannot distort it; see
+// requireEngineRefused.
 func (g *arRegistryGateway) requireAnonymousRefusal(t *testing.T, method, path, wantScope, permission, resource string) int {
 	t.Helper()
 
@@ -430,9 +375,8 @@ func (g *arRegistryGateway) requireAnonymousRefusal(t *testing.T, method, path, 
 	assert.Equal(t, "UNAUTHORIZED", code)
 	assert.Equal(t, "not authenticated: No valid credential was supplied.", message)
 
-	// The engine asks the token service for the scope the challenge named, and
-	// Artifact Registry refuses that scope to an uncredentialled caller. This is
-	// where the exchange ends and where the `denied:` the user reads comes from.
+	// The token service's refusal of the scope is where the `denied:` the user
+	// reads comes from.
 	resp, body = g.do(t, http.MethodGet,
 		"/v2/token?service="+url.QueryEscape(g.coordinate)+"&scope="+url.QueryEscape(wantScope), "")
 	require.Equalf(t, http.StatusForbidden, resp.StatusCode,
@@ -444,10 +388,9 @@ func (g *arRegistryGateway) requireAnonymousRefusal(t *testing.T, method, path, 
 			permission, resource),
 		message)
 
-	// A token the mint does issue carries an identity rather than a permission,
-	// so the data plane evaluates access per request against the repository
-	// addressed — and refuses the anonymous identity there too. `registry:catalog`
-	// names no repository, so it is minted without a credential.
+	// A minted token carries an identity rather than a permission, so the data
+	// plane checks access per repository. `registry:catalog` names no repository
+	// and is minted without a credential.
 	resp, body = g.do(t, http.MethodGet,
 		"/v2/token?service="+url.QueryEscape(g.coordinate)+"&scope="+url.QueryEscape("registry:catalog:*"), "")
 	require.Equal(t, http.StatusOK, resp.StatusCode, body)
@@ -473,9 +416,8 @@ func (g *arRegistryGateway) requireAnonymousRefusal(t *testing.T, method, path, 
 	return resp.StatusCode
 }
 
-// buildArtifactRegistryTestImage builds a single-layer image whose only content
-// is unique to this run, so nothing already in the engine's store can stand in
-// for it.
+// buildArtifactRegistryTestImage builds a single-layer image unique to this
+// run, so nothing already in the engine's store can stand in for it.
 func buildArtifactRegistryTestImage(t *testing.T, reference string) {
 	t.Helper()
 	buildDir := t.TempDir()
@@ -486,9 +428,8 @@ func buildArtifactRegistryTestImage(t *testing.T, reference string) {
 
 	args := []string{"build"}
 	if exec.Command("docker", "buildx", "version").Run() == nil {
-		// A docker-container buildx driver keeps a plain `docker build` result
-		// only in its build cache; the push needs the tag in the engine's
-		// image store.
+		// A docker-container buildx driver keeps a plain `docker build` result only in
+		// its build cache; the push needs the tag in the engine's image store.
 		args = []string{"buildx", "build", "--load"}
 	}
 	args = append(args, "--platform", scratchimage.NativePlatform(), "-t", reference, buildDir)
@@ -496,8 +437,8 @@ func buildArtifactRegistryTestImage(t *testing.T, reference string) {
 	require.NoError(t, err, "build the image to push: %s", out)
 }
 
-// dockerImageID reads the identifier the engine holds an image under, which is
-// the same before a push and after the pull that brings it back.
+// dockerImageID is the same before a push and after the pull that brings the
+// image back.
 func dockerImageID(t *testing.T, reference string) string {
 	t.Helper()
 	out, err := dockerCLI(t, "", "image", "inspect", "--format", "{{.Id}}", reference)
@@ -505,9 +446,8 @@ func dockerImageID(t *testing.T, reference string) string {
 	return strings.TrimSpace(out)
 }
 
-// dockerCLI runs the Docker command line interface, feeding stdin when the
-// subcommand reads a secret from it, and bounds the call so a wedged engine
-// fails this test rather than the whole suite's deadline.
+// dockerCLI bounds each call so a wedged engine fails this test rather than
+// the whole suite's deadline.
 func dockerCLI(t *testing.T, stdin string, args ...string) (string, error) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
@@ -521,43 +461,18 @@ func dockerCLI(t *testing.T, stdin string, args ...string) (string, error) {
 	return string(out), err
 }
 
-// requireEngineRefused asserts the container engine could not carry out one
-// operation for want of a credential the registry accepts. It is the engine
-// half of a refusal; the registry half — that the registry answers this exact
-// credential state with Artifact Registry's own status, code and message — is
-// asserted against the registry itself immediately before the command runs.
-// What makes the pair a refusal rather than a stuck engine is that this very
-// command, with the same arguments against the same endpoint, succeeds
-// elsewhere in this test under the credential `gcloud auth print-access-token`
-// issued: the login, the push and the pull all go through, and the credential
-// is the only thing that changes here.
+// requireEngineRefused asserts the engine half of a refusal; the caller asserts
+// the registry half against the registry just before, and the same command
+// succeeds elsewhere in the test under a valid credential.
 //
-// What the engine prints is deliberately not matched, because the wording is
-// the engine's, not the registry's, and the two engines word the same refusal
-// differently. A refused login is `unauthorized: authentication failed` on
-// dockerd and `invalid username/password` on Podman; a refused push is the
-// service's own `denied: …` line on dockerd and `403 (Forbidden)` from the
-// blob copy on Podman. Matching either wording would assert the engine's
-// rendering rather than Artifact Registry's contract.
-//
-// The coordinate can distort the engine's report further. dockerd carries
-// `127.0.0.0/8` and `::1/128` in its built-in insecure-registry list and
-// resolves a registry's name to classify it (registry/config.go,
-// isSecureIndex), so an endpoint that resolves to loopback — which every
-// `*.localhost` name does — is insecure to it and gets a second endpoint,
-// plain HTTP at the same host and port (registry/service_v2.go,
-// lookupV2Endpoints). Where dockerd does not stop at the first endpoint's
-// refusal it retries in plain HTTP against the gateway's TLS listener, and the
-// transport's answer to that is the error the caller finally sees. Artifact
-// Registry's own endpoint resolves to a public address, where there is no
-// second endpoint — the divergence is in the coordinate, the one thing a
-// simulator test differs in.
-//
-// Asserting the registry's refusal at the registry is what keeps all of that
-// out of the claim while still proving the credential is what was missing.
-// The registry's status is a parameter rather than a convention, so the engine
-// half of the claim cannot be written without the registry half that identifies
-// it: a bare "the command failed" is exactly what this pair exists not to be.
+// It does not match the engine's wording, which differs between engines: a
+// refused login is `unauthorized: authentication failed` on dockerd and
+// `invalid username/password` on Podman. The coordinate distorts it further:
+// dockerd treats a registry that resolves to loopback, as every `*.localhost`
+// name does, as insecure (registry/config.go, isSecureIndex) and retries in
+// plain HTTP against the gateway's TLS listener (registry/service_v2.go,
+// lookupV2Endpoints). registryStatus is a parameter so no caller can assert the
+// engine half without the registry half.
 func requireEngineRefused(t *testing.T, registryStatus int, output string, err error, what string) {
 	t.Helper()
 	require.Contains(t, []int{http.StatusUnauthorized, http.StatusForbidden}, registryStatus,
@@ -565,9 +480,8 @@ func requireEngineRefused(t *testing.T, registryStatus int, output string, err e
 	require.Error(t, err, "%s must be refused: %s", what, output)
 }
 
-// reserveGatewayPorts returns n distinct ports free for the wildcard bind the
-// gateway performs. Every listener is held open until all n are chosen, so the
-// operating system cannot hand the same port out twice.
+// reserveGatewayPorts holds every listener open until all n are chosen, so the
+// operating system cannot hand out the same port twice.
 func reserveGatewayPorts(t *testing.T, n int) []int {
 	t.Helper()
 	listeners := make([]net.Listener, 0, n)

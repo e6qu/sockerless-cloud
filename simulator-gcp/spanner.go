@@ -121,9 +121,8 @@ func registerSpanner(srv *sim.Server) {
 	srv.HandleFunc("PATCH "+base+"/{rest...}", handleSpannerInstanceChild)
 	srv.HandleFunc("DELETE "+base+"/{rest...}", handleSpannerInstanceChild)
 
-	// Instance configurations: real CRUD plus their long-running operations
-	// and ssdCaches operations. Registered in flatPath form so the routes
-	// align with the Discovery method URIs.
+	// Instance configurations, their operations and ssdCaches operations, in
+	// flatPath form to match the Discovery method URIs.
 	const cfgBase = "/spanner/v1/projects/{project}/instanceConfigs"
 	srv.HandleFunc("POST "+cfgBase, handleSpannerCreateInstanceConfig)
 	srv.HandleFunc("GET "+cfgBase, handleSpannerListInstanceConfigs)
@@ -177,14 +176,9 @@ func handleSpannerSessions(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handleSpannerInstanceChild is the sub-router for everything addressed below
-// projects/{project}/instances: the instance itself, its databases, backups,
-// backup schedules, instance partitions, sessions, and the four operation
-// collections. Each arm is keyed on the tail's segment count and shape.
-//
-// A tail whose last segment carries an AIP-136 ":verb" suffix reaches the
-// matching fan-in handler, which rejects a verb it does not implement as an
-// unknown action rather than pretending to serve it.
+// handleSpannerInstanceChild routes everything below projects/{project}/
+// instances by the tail's segment count and shape. A ":verb" tail reaches the
+// matching fan-in, which rejects a verb it does not serve as unknown.
 func handleSpannerInstanceChild(w http.ResponseWriter, r *http.Request) {
 	parts := spannerRestParts(r)
 	var routed bool
@@ -203,9 +197,8 @@ func handleSpannerInstanceChild(w http.ResponseWriter, r *http.Request) {
 	if routed {
 		return
 	}
-	// The "{rest...}" mount routes the tail itself, so this is the sub-router's
-	// own miss: no Cloud Spanner method the simulator serves has this shape.
-	// Google's frontend answers an unmatched URI the same way.
+	// No Cloud Spanner method the simulator serves has this shape; Google's
+	// frontend answers an unmatched URI the same way.
 	gcpMethodNotFound(w)
 }
 
@@ -420,10 +413,8 @@ func spannerRouteDatabaseCollection(w http.ResponseWriter, r *http.Request, part
 			return false
 		}
 	case "scans":
-		// A database's key-visualizer scan. Spanner builds one from observed
-		// traffic, so a database nothing has queried has a scan resource with
-		// no data in it — inventing scanData would describe access patterns
-		// that never happened.
+		// Spanner builds a key-visualizer scan from observed traffic; the simulator
+		// observes none, so the scan resource carries no scanData.
 		if r.Method != http.MethodGet {
 			return false
 		}
@@ -617,9 +608,8 @@ func handleSpannerDeleteInstance(w http.ResponseWriter, r *http.Request) {
 		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance %q not found", name)
 		return
 	}
-	// Drop protection on any database in the instance blocks the delete, the
-	// way it does on the real service: the instance cannot go while a database
-	// it holds is protected.
+	// Drop protection on any database blocks the instance delete, as in Cloud
+	// Spanner.
 	for _, db := range spannerDatabases.List() {
 		if strings.HasPrefix(db.Name, name+"/databases/") && db.EnableDropProtection {
 			GCPErrorf(w, http.StatusBadRequest, "FAILED_PRECONDITION",
@@ -718,14 +708,12 @@ func handleSpannerCreateDatabase(w http.ResponseWriter, r *http.Request) {
 		db.DatabaseDialect = "GOOGLE_STANDARD_SQL"
 	}
 	spannerDatabases.Put(db.Name, db)
-	// extraStatements is the database's initial schema. Applying it here — to
-	// the same backing engine the data plane queries — is what makes a database
-	// created through the admin API immediately usable: the tables exist in
-	// SQL as soon as the create operation reports done.
+	// Apply the initial schema to the engine the data plane queries, so the tables
+	// exist once the create operation is done.
 	if len(req.ExtraStatements) > 0 {
 		if err := spannerApplyDDLStatements(db.Name, req.ExtraStatements); err != nil {
-			// The real service fails the create operation and leaves no
-			// database behind when its initial schema is rejected.
+			// Cloud Spanner fails the create and leaves no database when its initial
+			// schema is rejected.
 			spannerDatabases.Delete(db.Name)
 			if dropErr := spannerDropBackend(db.Name); dropErr != nil {
 				GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "release backing store for %q: %v", db.Name, dropErr)

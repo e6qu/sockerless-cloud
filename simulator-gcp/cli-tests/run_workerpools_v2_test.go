@@ -11,40 +11,24 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Cloud Run Worker Pools and Instances from the vendor CLI.
+// What `gcloud run worker-pools` reaches:
 //
-// What `gcloud run worker-pools` reaches, and what it does not:
-//
-//   - The IAM commands (`get-iam-policy`, `set-iam-policy`,
-//     `add-iam-policy-binding`, `remove-iam-policy-binding`) are declarative
-//     commands bound to the `run.projects.locations.workerpools` collection.
-//     They call the Cloud Run Admin v1 IAM triple at
-//     `/v1/projects/{p}/locations/{l}/workerpools/{id}:{verb}` on the global
-//     endpoint, which addresses the same worker pool the v2 collection does.
-//     Those are driven here as real gcloud invocations.
-//   - `deploy`, `delete`, `update` and `update-instance-split` call Cloud Run
-//     v2 through gcloud's gRPC client on the regional Cloud Run host
-//     (`{region}-run.googleapis.com`), and the simulator serves Cloud Run v2
-//     over REST only, so those commands have no CLI coverage; the v2
-//     collection they would otherwise reach is covered by the SDK tests and
-//     the wire round-trips below. `describe`, `list --region` and `replace`
-//     speak the Knative surface on the same regional host instead.
-//   - `logs read` reads the pool's Cloud Logging entries and reaches the
-//     simulator; run_workerpools_run_test.go drives it against running
-//     instances.
-//   - Cloud Run *Instances* have a `gcloud alpha run instances` group whose
-//     IAM commands reach the simulator; they are driven in
-//     run_instances_iam_test.go. Its lifecycle commands resolve the regional
-//     host like the worker-pool ones do, so the instance collection itself is
-//     exercised through the raw v2 wire here and through the official clients
-//     in sdk-tests.
+//   - The IAM commands are declarative commands on the
+//     `run.projects.locations.workerpools` collection. They call the Cloud Run
+//     Admin v1 IAM triple at `/v1/projects/{p}/locations/{l}/workerpools/{id}:{verb}`
+//     on the global endpoint, addressing the same worker pool as v2.
+//   - `deploy`, `delete`, `update` and `update-instance-split` call Cloud Run v2
+//     over gRPC on the regional host, which the simulator does not serve, so
+//     they have no CLI coverage. `describe`, `list --region` and `replace` speak
+//     the Knative surface on the same regional host.
+//   - `logs read` reaches the simulator; run_workerpools_run_test.go drives it.
+//   - `gcloud alpha run instances` IAM commands reach the simulator
+//     (run_instances_iam_test.go); its lifecycle commands resolve the regional
+//     host, so the instance collection runs over the raw v2 wire here.
 //   - `scaling.scalingMode`, `scaling.minInstanceCount` and
-//     `scaling.maxInstanceCount` are members the pinned Cloud Run Discovery
-//     revision does not publish, so the Discovery-generated Go client cannot
-//     carry them (see specs/SIM_SURFACE_TABLES/gcp-cloudrun.md). gcloud's own
-//     generated Cloud Run v2 client and the google Terraform provider both
-//     model them; they are round-tripped over the raw v2 wire below and driven
-//     end to end by the terraform-tests worker pool.
+//     `scaling.maxInstanceCount` are missing from the pinned Cloud Run Discovery
+//     revision, so the Discovery-generated Go client cannot carry them; they
+//     round-trip over the raw v2 wire below and through the Terraform suite.
 
 func workerPoolsBaseURL() string {
 	return fmt.Sprintf("%s/v2/projects/%s/locations/%s/workerPools", baseURL, project, location)
@@ -62,10 +46,8 @@ func instanceURL(name string) string {
 	return fmt.Sprintf("%s/v2/projects/%s/locations/%s/instances/%s", baseURL, project, location, name)
 }
 
-// awaitRunOperation waits on a Cloud Run operation through
-// projects.locations.operations.wait until it is done and returns it. The
-// method may answer before the operation is done, so a not-done answer is
-// waited on again.
+// awaitRunOperation calls projects.locations.operations.wait until the
+// operation is done; the method may answer before then.
 func awaitRunOperation(t *testing.T, operationJSON string) string {
 	t.Helper()
 	var op struct {
@@ -80,10 +62,8 @@ func awaitRunOperation(t *testing.T, operationJSON string) string {
 	return operationJSON
 }
 
-// createWorkerPoolForCLI deploys a worker pool over the v2 collection and
-// registers its teardown. gcloud's own deploy command cannot reach the
-// simulator (see the file comment), so the resource the CLI commands act on is
-// created through the same v2 API the Cloud Run backend uses.
+// createWorkerPoolForCLI deploys over the v2 collection, since gcloud's deploy
+// cannot reach the simulator.
 func createWorkerPoolForCLI(t *testing.T, id string) {
 	t.Helper()
 	body := `{"template": {"containers": [{"image": "gcr.io/test-project/` + id + `"}]}}`
@@ -101,7 +81,6 @@ func TestCloudRunWorkerPools_CLI_IAMPolicyLifecycle(t *testing.T) {
 	const id = "cli-wp-iam"
 	createWorkerPoolForCLI(t, id)
 
-	// A fresh worker pool starts with no bindings.
 	out := runCLI(t, gcloudCLI("run", "worker-pools", "get-iam-policy", id,
 		"--region="+location, "--format=json"))
 	var initial struct {
@@ -115,7 +94,6 @@ func TestCloudRunWorkerPools_CLI_IAMPolicyLifecycle(t *testing.T) {
 	assert.Empty(t, initial.Bindings, "a newly deployed worker pool has no IAM bindings")
 	assert.NotEmpty(t, initial.Etag, "getIamPolicy always returns an etag")
 
-	// add-iam-policy-binding reads, mutates and writes the policy back.
 	added := runCLI(t, gcloudCLI("run", "worker-pools", "add-iam-policy-binding", id,
 		"--region="+location,
 		"--member=user:cli@example.com",
@@ -132,8 +110,7 @@ func TestCloudRunWorkerPools_CLI_IAMPolicyLifecycle(t *testing.T) {
 	assert.Equal(t, "roles/run.invoker", afterAdd.Bindings[0].Role)
 	assert.Equal(t, []string{"user:cli@example.com"}, afterAdd.Bindings[0].Members)
 
-	// The v1 collection gcloud writes through and the v2 collection the SDK
-	// reads are two spellings of one resource — the binding is visible on both.
+	// gcloud writes through v1 and the SDK reads v2; both name one resource.
 	v2Policy := httpDoJSON(t, "GET", workerPoolURL(id)+":getIamPolicy", "")
 	var fromV2 struct {
 		Bindings []struct {
@@ -145,7 +122,6 @@ func TestCloudRunWorkerPools_CLI_IAMPolicyLifecycle(t *testing.T) {
 	require.Len(t, fromV2.Bindings, 1, "the v2 collection must see the policy gcloud wrote through v1")
 	assert.Equal(t, "roles/run.invoker", fromV2.Bindings[0].Role)
 
-	// remove-iam-policy-binding takes it back off.
 	removed := runCLI(t, gcloudCLI("run", "worker-pools", "remove-iam-policy-binding", id,
 		"--region="+location,
 		"--member=user:cli@example.com",
@@ -159,7 +135,6 @@ func TestCloudRunWorkerPools_CLI_IAMPolicyLifecycle(t *testing.T) {
 	parseJSON(t, removed, &afterRemove)
 	assert.Empty(t, afterRemove.Bindings, "the only binding is gone after remove")
 
-	// set-iam-policy replaces the whole policy from a file.
 	policyPath := filepath.Join(tmpDir, "worker-pool-policy.json")
 	policy := map[string]any{
 		"bindings": []map[string]any{{
@@ -187,9 +162,8 @@ func TestCloudRunWorkerPools_CLI_IAMPolicyLifecycle(t *testing.T) {
 		afterSet.Bindings[0].Members)
 }
 
-// TestCloudRunWorkerPools_CLI_IAMPolicyOnMissingPool pins the CLI-visible
-// error for a worker pool that was never deployed: the IAM verb is NOT_FOUND,
-// not an empty policy.
+// TestCloudRunWorkerPools_CLI_IAMPolicyOnMissingPool: the IAM verb answers
+// NOT_FOUND for a pool never deployed, not an empty policy.
 func TestCloudRunWorkerPools_CLI_IAMPolicyOnMissingPool(t *testing.T) {
 	t.Parallel()
 	cmd := gcloudCLI("run", "worker-pools", "get-iam-policy", "cli-wp-never-deployed",

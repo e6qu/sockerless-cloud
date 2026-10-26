@@ -67,10 +67,9 @@ func TestPubSub_GRPC_SeekReplaysRetainedAcknowledgedMessages(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	// The seek targets the first "after" message's publish time, and a seek
-	// replays every retained message published at or after it — "before" too
-	// when it shares that millisecond — so the expectation comes from the
-	// publish times the pull returned.
+	// A seek replays every retained message published at or after the target,
+	// "before" too when it shares that millisecond, so take the expectation from
+	// the publish times the pull returned.
 	var seekTo time.Time
 	var wantReplayed []string
 	for _, sub := range []string{retaining, plain} {

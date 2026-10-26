@@ -9,7 +9,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// newCloudBuildClient is the Cloud Build Go SDK over its REST transport.
 func newCloudBuildClient(t *testing.T) *cloudbuildv2.Client {
 	t.Helper()
 	client, err := cloudbuildv2.NewRESTClient(ctx, serviceHostOptions(cloudBuildHost)...)
@@ -18,17 +17,13 @@ func newCloudBuildClient(t *testing.T) *cloudbuildv2.Client {
 	return client
 }
 
-// startedBuild is what a method that starts a build answers with: the
-// operation tracking the build, and the build its BuildOperationMetadata
-// carries.
 type startedBuild struct {
 	Operation string
 	BuildID   string
 }
 
-// readStartedBuild decodes the operation a build-starting method returned and
-// requires it to be the one Cloud Build hands back at once: not done yet, with
-// the queued build in its metadata.
+// readStartedBuild requires the operation Cloud Build answers at once: not
+// done, with the queued build in its metadata.
 func readStartedBuild(t *testing.T, raw string) startedBuild {
 	t.Helper()
 	var op struct {
@@ -51,9 +46,8 @@ func readStartedBuild(t *testing.T, raw string) startedBuild {
 	return startedBuild{Operation: op.Name, BuildID: op.Metadata.Build.ID}
 }
 
-// waitBuild waits on a build's operation through the Cloud Build SDK, which
-// completes it when the build ends: the Build when it succeeded, the
-// operation's error otherwise.
+// waitBuild returns the Build when it succeeded and the operation's error
+// otherwise.
 func waitBuild(t *testing.T, started startedBuild) (*cloudbuildpb.Build, error) {
 	t.Helper()
 	return newCloudBuildClient(t).CreateBuildOperation(started.Operation).Wait(ctx)

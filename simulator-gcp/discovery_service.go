@@ -31,7 +31,6 @@ type gcpDiscoveryDocument struct {
 	version string
 }
 
-// gcpServiceBigQuery is the service label of bigquery.googleapis.com.
 const gcpServiceBigQuery = "bigquery"
 
 var gcpDiscoveryIndex = sync.OnceValues(func() ([]gcpDiscoveryDocument, error) {

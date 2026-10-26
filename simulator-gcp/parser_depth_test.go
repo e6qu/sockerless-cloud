@@ -5,11 +5,9 @@ import (
 	"testing"
 )
 
-// TestGCPFilterGroupingSurvivesNesting pins the part of the parenthesis
-// handling that a caller can observe: grouping changes the answer. `(a OR b)
-// AND c` is not `a OR (b AND c)`, so a parser that loses a group — by failing
-// to consume its closing parenthesis, or by flattening the levels it descended
-// — answers differently for a value the group excludes.
+// TestGCPFilterGroupingSurvivesNesting pins what a caller observes of grouping:
+// `(a OR b) AND c` is not `a OR (b AND c)`, so a parser that loses a group
+// answers differently for a value the group excludes.
 func TestGCPFilterGroupingSurvivesNesting(t *testing.T) {
 	failsTheConjunct := map[string]any{"a": "1", "b": "9", "c": "9"}
 	matchesBothHalves := map[string]any{"a": "1", "b": "9", "c": "3"}

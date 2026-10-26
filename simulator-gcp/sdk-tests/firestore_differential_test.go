@@ -21,19 +21,15 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// Differential testing of the Firestore slice against Google's own Firestore
-// emulator: the same SDK operations run against the sim (REST transport) and the
-// emulator (gRPC), and the observable outcome must match. As with the
-// DynamoDB-Local differential, the emulator is a REFERENCE, not a ceiling — a
-// case where the sim is more faithful (or where the REST vs gRPC transports
-// legitimately differ) is recorded in fsDiffKnownDivergences with a
-// justification and asserted exactly, never used to regress the sim.
+// Differential testing against Google's Firestore emulator: the same SDK
+// operations run against the simulator (REST) and the emulator (gRPC). The
+// emulator is a reference, not a ceiling: where the simulator is more faithful,
+// or the transports legitimately differ, fsDiffKnownDivergences records the case
+// with its reason and asserts it exactly.
 //
 // Every scenario also carries the outcome the simulator must produce, asserted
-// unconditionally. The emulator cross-checks that expectation; it does not
-// stand in for it. Without the explicit expectation a defect the sim and the
-// emulator shared would agree its way to green, and the whole suite would prove
-// nothing on a host where the emulator is unavailable.
+// on its own, so a defect the simulator and the emulator share cannot agree its
+// way to green.
 
 type fsDiffResult struct {
 	value   string // canonical JSON of the observed document data, or a sentinel
@@ -47,10 +43,9 @@ type fsDiffDivergence struct {
 }
 
 var fsDiffKnownDivergences = map[string]fsDiffDivergence{
-	// Create-on-existing: the sim is reached over the REST transport, which gax
-	// maps HTTP 409 ALREADY_EXISTS to codes.Aborted; the emulator is reached over
-	// gRPC and returns codes.AlreadyExists directly. Same underlying condition,
-	// different transport status mapping — not a sim defect.
+	// The gax REST transport maps HTTP 409 ALREADY_EXISTS to codes.Aborted, while
+	// the emulator answers codes.AlreadyExists over gRPC: one condition, two
+	// transport mappings.
 	"create-on-existing": {
 		sim:    fsDiffResult{errCode: "Aborted"},
 		oracle: fsDiffResult{errCode: "AlreadyExists"},
@@ -99,9 +94,7 @@ func TestFirestore_DifferentialVsEmulator(t *testing.T) {
 type fsDiffScenario struct {
 	name string
 	run  func(c *firestore.Client, name string) (map[string]any, error)
-	// wantData is the document data the scenario must leave behind, and
-	// wantErrCode the gRPC status name the scenario must fail with. Exactly one
-	// is set; want() renders them into the comparable result the capture yields.
+	// Exactly one of wantData and wantErrCode is set.
 	wantData    map[string]any
 	wantErrCode string
 }
@@ -241,17 +234,15 @@ func firestoreDiffScenarios() []fsDiffScenario {
 				_, err := doc.Create(ctx, map[string]any{"n": int64(2)}) // already exists
 				return nil, err
 			},
-			// Create emits currentDocument.exists=false; the sim answers the
-			// ALREADY_EXISTS condition at HTTP 409, which the gax REST transport
-			// maps to Aborted (see fsDiffKnownDivergences).
+			// The 409 ALREADY_EXISTS reaches the REST client as Aborted (see
+			// fsDiffKnownDivergences).
 			wantErrCode: "Aborted",
 		},
 	}
 }
 
-// fsCanon renders document data canonically: numbers via big.Rat (so int64 1 and
-// float64 1.0 compare equal), timestamps as a presence sentinel (server
-// timestamps are non-deterministic), maps with sorted keys, arrays in order.
+// fsCanon renders numbers through big.Rat, so int64 1 and float64 1.0 compare
+// equal, and timestamps as a presence sentinel, since server timestamps vary.
 func fsCanon(data map[string]any) string {
 	b, _ := json.Marshal(fsCanonValue(data))
 	return string(b)
@@ -287,15 +278,9 @@ func fsCanonValue(v any) any {
 	}
 }
 
-// startFirestoreEmulator launches Google's Firestore emulator via gcloud. The
-// gcp CI job installs all three things it needs: the Google Cloud CLI, the
-// cloud-firestore-emulator component, and a Java 21 or newer runtime, which the
-// emulator refuses to start without. Each is a required tool, so a missing one
-// fails loud rather than skipping.
-// requireFirestoreEmulatorJava fails with the actual reason when the Java on
-// PATH is too old for the emulator. Without this the emulator process starts,
-// refuses in its own output, and the failure reads as "the emulator did not
-// open its port in time" ninety seconds later.
+// requireFirestoreEmulatorJava fails with the real reason when the Java on
+// PATH is too old; otherwise the emulator refuses in its own output and the
+// failure reads as a port timeout ninety seconds later.
 func requireFirestoreEmulatorJava(t *testing.T) {
 	t.Helper()
 	javaPath, err := exec.LookPath("java")
@@ -321,6 +306,9 @@ func requireFirestoreEmulatorJava(t *testing.T) {
 	}
 }
 
+// startFirestoreEmulator launches Google's Firestore emulator through gcloud.
+// CI installs the Google Cloud CLI, the cloud-firestore-emulator component and
+// a Java 21 or newer runtime; each is required, so a missing one fails loud.
 func startFirestoreEmulator(t *testing.T) (host string, stop func()) {
 	t.Helper()
 	if _, err := exec.LookPath("gcloud"); err != nil {

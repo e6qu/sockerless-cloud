@@ -16,16 +16,12 @@ import (
 	pubsub "google.golang.org/api/pubsub/v1"
 )
 
-// TestPubSub_PushSubscriptionDeliversSDK proves a push subscription created
-// through the official client POSTs each published message to its
-// pushEndpoint with an OIDC token for its service account, and that a
-// rejected push is retried until the endpoint accepts it.
-//
-// The two messages share an ordering key, and Pub/Sub pushes a key's next
-// message only once the previous one is acknowledged. The second message's
-// push is therefore the proof that the accepted first push acknowledged it:
-// the endpoint must see exactly the rejected attempt, the accepted retry and
-// then the second message, with nothing pushed again in between.
+// TestPubSub_PushSubscriptionDeliversSDK: a push subscription POSTs each
+// message to its pushEndpoint with an OIDC token for its service account and
+// retries a rejected push. Both messages share an ordering key, and Pub/Sub
+// pushes a key's next message only once the previous one is acknowledged, so
+// the endpoint must see the rejected attempt, the accepted retry and then the
+// second message, with nothing pushed twice.
 func TestPubSub_PushSubscriptionDeliversSDK(t *testing.T) {
 	t.Parallel()
 	svc := pubsubService(t)

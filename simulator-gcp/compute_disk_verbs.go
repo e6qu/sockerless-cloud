@@ -6,18 +6,11 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// The verbs a Compute Engine disk carries beyond its lifecycle.
-//
-// A disk's resource policies, the key it is encrypted under, the snapshot taken
-// from it and the asynchronous replication it takes part in are things the disk
-// remembers, so each is written to the record the reads return. The snapshot a
-// createSnapshot produces is a real snapshot in the collection the snapshots
-// API serves: a caller that takes one and then lists them finds it.
-//
-// The zonal disks are a typed record and the regional ones a map, which is the
-// shape each collection was already stored in. The verbs are written once
-// against a small accessor over both, so the two scopes cannot drift into
-// serving the same verb differently.
+// A disk's resource policies, encryption key, snapshots and asynchronous
+// replication are written to the record reads return, and createSnapshot
+// produces a real snapshot in the snapshots collection. Zonal disks are typed
+// records and regional ones maps; the verbs go through computeDiskAccessor so
+// the two scopes serve each verb the same way.
 
 // The stores the disk verbs share with the collections that own them.
 var (
@@ -135,9 +128,8 @@ func computeTrimSelfLink(link string) string {
 }
 
 func registerComputeDiskVerbs(srv *sim.Server) {
-	// Called once per scope with the path written out, rather than composed in
-	// a loop: the generated surface tables read the literal route out of each
-	// registration.
+	// Register each scope with its path written out: the surface tables read the
+	// literal route from each registration.
 	registerComputeDiskVerbsAt(srv, "/compute/v1/projects/{project}/zones/{zone}/disks",
 		cScopeZone, zoneDiskAccessor)
 	registerComputeDiskVerbsAt(srv, "/compute/v1/projects/{project}/regions/{region}/disks",
@@ -299,9 +291,8 @@ func registerComputeDiskVerbsAt(
 			sim.WriteJSON(w, http.StatusOK, operation(r, key, "createSnapshot"))
 		})
 
-		// The group-wide stop addresses a consistency group rather than one
-		// disk, so every disk the named policy holds stops together — which is
-		// the whole point of the group.
+		// The group-wide stop addresses a consistency group, so every disk the named
+		// policy holds stops together.
 		srv.HandleFunc("POST "+base+"/stopGroupAsyncReplication", func(w http.ResponseWriter, r *http.Request) {
 			var req struct {
 				ResourcePolicy string `json:"resourcePolicy"`

@@ -19,10 +19,9 @@ import (
 	"time"
 )
 
-// workforceIssuer is a minimal but real OpenID Connect issuer: it serves the
-// discovery document and JSON Web Key Set the Security Token Service fetches
-// to verify a subject token, and signs assertions with the matching RSA key.
-// It stands in for the external identity provider a workforce pool federates.
+// workforceIssuer stands in for the external OpenID Connect identity provider a
+// workforce pool federates: it serves the discovery document and JSON Web Key
+// Set the Security Token Service fetches, and signs assertions.
 type workforceIssuer struct {
 	server *httptest.Server
 	key    *rsa.PrivateKey
@@ -58,8 +57,6 @@ func newWorkforceIssuer(t *testing.T) *workforceIssuer {
 	return issuer
 }
 
-// mintAssertion signs the OpenID Connect assertion the external identity
-// provider would issue for a signed-in user.
 func (i *workforceIssuer) mintAssertion(t *testing.T, subject, audience string) string {
 	t.Helper()
 	encode := func(v any) string {
@@ -83,15 +80,12 @@ func (i *workforceIssuer) mintAssertion(t *testing.T, subject, audience string) 
 	return signingInput + "." + base64.RawURLEncoding.EncodeToString(sig)
 }
 
-// TestWorkforceExternalAccountGcloudLogin drives the full Workforce Identity
-// Federation login the `gcloud` CLI runs from an external_account credential
-// file: `gcloud auth login --cred-file` exchanges the subject token at the
-// Security Token Service token endpoint (`/v1/token`), resolves the federated
-// principal through STS token introspection (`/v1/introspect`, the
-// `token_info_url` coordinate), stores the workforce principal as the account
-// name, and then authenticates a data-plane command with the federated
-// credential — all against the simulator, differing from real Google only in
-// the endpoint coordinates inside the credential file.
+// TestWorkforceExternalAccountGcloudLogin runs `gcloud auth login --cred-file`
+// with an external_account credential file: gcloud exchanges the subject token
+// at the Security Token Service (`/v1/token`), resolves the principal through
+// token introspection (`/v1/introspect`, the `token_info_url` coordinate),
+// stores it as the account, and authenticates a data-plane command. Only the
+// endpoint coordinates in the file differ from real Google.
 func TestWorkforceExternalAccountGcloudLogin(t *testing.T) {
 	t.Parallel()
 	issuer := newWorkforceIssuer(t)
@@ -130,8 +124,8 @@ func TestWorkforceExternalAccountGcloudLogin(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// An isolated gcloud config dir carrying no pre-minted access token: the
-	// stored external-account credential is what must authenticate.
+	// An isolated config dir with no pre-minted access token, so the stored
+	// external-account credential must authenticate.
 	configDir := filepath.Join(workDir, "gcloud-config")
 	gcloudEnv := []string{
 		"CLOUDSDK_CONFIG=" + configDir,
@@ -152,8 +146,8 @@ func TestWorkforceExternalAccountGcloudLogin(t *testing.T) {
 		t.Fatalf("gcloud stored account %q, want %q", strings.TrimSpace(accounts), wantAccount)
 	}
 
-	// The federated credential authenticates the data plane: gcloud refreshes
-	// it itself through the token-exchange + introspection coordinates.
+	// gcloud refreshes the federated credential itself through the token-exchange
+	// and introspection coordinates.
 	projects := runCLI(t, gcloudWith("projects", "list", "--format=value(projectId)"))
 	if !strings.Contains(projects, "test-project") {
 		t.Fatalf("projects list with the federated credential returned %q", projects)

@@ -68,7 +68,6 @@ func TestDNS_ListManagedZones(t *testing.T) {
 		"the zone just created must be listed")
 }
 
-// dnsZoneNames reduces a managedZones.list response to its zone names.
 func dnsZoneNames(resp *dns.ManagedZonesListResponse) []string {
 	names := make([]string, 0, len(resp.ManagedZones))
 	for _, z := range resp.ManagedZones {

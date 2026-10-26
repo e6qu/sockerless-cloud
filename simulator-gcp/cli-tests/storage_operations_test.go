@@ -9,22 +9,19 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// `gcloud storage buckets relocate` and the `gcloud storage operations` group,
-// driven as real CLI invocations against the bucket operations collection:
+// `gcloud storage buckets relocate` and the `gcloud storage operations` group
+// drive the bucket operations collection:
 //
-//	POST /storage/v1/b/{bucket}/relocate
-//	GET  /storage/v1/b/{bucket}/operations
-//	GET  /storage/v1/b/{bucket}/operations/{operationId}
-//	POST /storage/v1/b/{bucket}/operations/{operationId}/cancel
-//	POST /storage/v1/b/{bucket}/operations/{operationId}/advanceRelocateBucket
+//   POST /storage/v1/b/{bucket}/relocate
+//   GET  /storage/v1/b/{bucket}/operations
+//   GET  /storage/v1/b/{bucket}/operations/{operationId}
+//   POST /storage/v1/b/{bucket}/operations/{operationId}/cancel
+//   POST /storage/v1/b/{bucket}/operations/{operationId}/advanceRelocateBucket
 //
-// The relocation is what mints an operation, and every operations command then
-// addresses that record by the `projects/_/buckets/{bucket}/operations/{id}`
-// name the relocation returned — which is exactly how the commands' own
-// examples spell it.
+// The relocation mints the operation, and every operations command addresses it
+// by the `projects/_/buckets/{bucket}/operations/{id}` name, as the commands'
+// own examples spell it.
 
-// gcloudCLIFails runs a gcloud command that is expected to fail and returns its
-// combined output.
 func gcloudCLIFails(t *testing.T, cmd *exec.Cmd) string {
 	t.Helper()
 	out, err := cmd.CombinedOutput()
@@ -46,9 +43,8 @@ func operationNameFrom(t *testing.T, out string) string {
 	return ""
 }
 
-// assertStorageOperationStillDone reads a bucket operation back and pins the
-// record a best-effort advance or cancel leaves behind: the operation is still
-// there, still done, and still carries no error.
+// assertStorageOperationStillDone pins the record a late advance or cancel
+// leaves: still there, done, and without error.
 func assertStorageOperationStillDone(t *testing.T, name string) {
 	t.Helper()
 	out := runCLI(t, gcloudCLI("storage", "operations", "describe", name, "--format=json"))
@@ -81,7 +77,6 @@ func TestGCSCLI_BucketRelocateAndOperations(t *testing.T) {
 		"projects/_/buckets/"+bucket, "--format=value(name)"))
 	assert.NotContains(t, empty, "projects/_/buckets/"+bucket+"/operations/")
 
-	// The relocation both moves the bucket and records the operation that did.
 	relocated := runCLI(t, gcloudCLI("storage", "buckets", "relocate", "gs://"+bucket,
 		"--location=us-east1", "--format=value(name)"))
 	name := operationNameFrom(t, relocated)
@@ -110,11 +105,8 @@ func TestGCSCLI_BucketRelocateAndOperations(t *testing.T) {
 		"projects/_/buckets/"+bucket, "--server-filter=done = false", "--format=value(name)"))
 	assert.NotContains(t, running, name)
 
-	// Advancing and cancelling both resolve the operation first. The
-	// relocation finished inside the request that started it, so both are the
-	// late calls the methods contemplate: each answers an empty body and
-	// leaves the settled record exactly as it stands, which is read back off
-	// the operation rather than inferred from the exit status.
+	// The relocation finished inside its request, so advance and cancel are late
+	// calls: each answers an empty body and leaves the settled record as it stands.
 	runCLI(t, gcloudCLI("storage", "buckets", "relocate",
 		"--operation="+name, "--finalize", "--ttl=7h"))
 	assertStorageOperationStillDone(t, name)
@@ -122,7 +114,6 @@ func TestGCSCLI_BucketRelocateAndOperations(t *testing.T) {
 	runCLI(t, gcloudCLI("storage", "operations", "cancel", name))
 	assertStorageOperationStillDone(t, name)
 
-	// And the bucket the relocation moved is still where it moved it.
 	assert.Equal(t, "US-EAST1", strings.TrimSpace(runCLI(t, gcloudCLI(
 		"storage", "buckets", "describe", "gs://"+bucket, "--format=value(location)"))))
 

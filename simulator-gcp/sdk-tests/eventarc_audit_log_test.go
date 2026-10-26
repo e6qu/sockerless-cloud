@@ -31,10 +31,9 @@ type cloudEvent struct {
 	Data       string            `json:"data"`
 }
 
-// awaitServiceCloudEvent waits on the Cloud Run service's stdout log, through
-// TailLogEntries, for the first CloudEvent the log-cloudevent workload wrote.
-// It waits for the tail to stream before reading what the log already holds,
-// so an event is in one or the other.
+// awaitServiceCloudEvent tails the Cloud Run service's stdout log and waits for
+// the tail to stream before reading what the log already holds, so the event
+// is in one or the other.
 func awaitServiceCloudEvent(t *testing.T, serviceID string) cloudEvent {
 	t.Helper()
 	filter := `resource.type="cloud_run_revision" AND resource.labels.service_name="` + serviceID + `"`
@@ -79,9 +78,8 @@ func awaitServiceCloudEvent(t *testing.T, serviceID string) cloudEvent {
 	}
 }
 
-// callerStorage is a Cloud Storage JSON API client that calls as the service
-// account, with an access token minted for it through the IAM Service Account
-// Credentials API.
+// callerStorage calls Cloud Storage as the service account, with an access
+// token minted through the IAM Service Account Credentials API.
 func callerStorage(t *testing.T, email string) *storageapi.Service {
 	t.Helper()
 	token, err := iamCredentialsService(t).Projects.ServiceAccounts.GenerateAccessToken(
@@ -96,7 +94,6 @@ func callerStorage(t *testing.T, email string) *storageapi.Service {
 	return svc
 }
 
-// grantOnProject binds member to role on the project until the test ends.
 func grantOnProject(t *testing.T, project, role, member string) {
 	t.Helper()
 	editProjectPolicy(t, project, func(policy *cloudresourcemanager.Policy) {
@@ -114,8 +111,6 @@ func grantOnProject(t *testing.T, project, role, member string) {
 	})
 }
 
-// auditLogEntries reads the project's audit entries that match filter from
-// one of its Cloud Audit Logs.
 func auditLogEntries(t *testing.T, logID, filter string) []*audit.AuditLog {
 	t.Helper()
 	it := logadminClient(t).Entries(ctx, logadmin.Filter(

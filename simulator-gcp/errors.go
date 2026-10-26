@@ -10,9 +10,7 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// GCPError writes a GCP-style JSON error response.
-//
-// GCP error format:
+// GCPError writes Google Cloud's JSON error:
 //
 //	{"error": {"code": 404, "message": "details", "status": "NOT_FOUND", "details": []}}
 func GCPError(w http.ResponseWriter, code int, message string, status string) {
@@ -28,7 +26,6 @@ func GCPError(w http.ResponseWriter, code int, message string, status string) {
 	})
 }
 
-// GCPErrorf writes a GCP-style error with a formatted message.
 func GCPErrorf(w http.ResponseWriter, code int, status string, format string, args ...any) {
 	GCPError(w, code, fmt.Sprintf(format, args...), status)
 }

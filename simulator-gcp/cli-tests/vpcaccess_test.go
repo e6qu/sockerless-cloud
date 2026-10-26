@@ -27,13 +27,11 @@ func TestVPCAccess_CreateAndDescribe(t *testing.T) {
 		"ipCidrRange": "10.8.0.0/28"
 	}`)
 
-	// Create returns an operation
 	var op struct {
 		Done bool `json:"done"`
 	}
 	parseJSON(t, out, &op)
 
-	// GET the connector
 	getURL := vpcAccessURL("cli-test-connector")
 	out = httpDoJSON(t, "GET", getURL, "")
 
@@ -49,7 +47,6 @@ func TestVPCAccess_CreateAndDescribe(t *testing.T) {
 	assert.Equal(t, "10.8.0.0/28", connector.IpCidrRange)
 	assert.Equal(t, "READY", connector.State)
 
-	// Cleanup
 	httpDoJSON(t, "DELETE", getURL, "")
 }
 
@@ -61,7 +58,6 @@ func TestVPCAccess_List(t *testing.T) {
 		"ipCidrRange": "10.9.0.0/28"
 	}`)
 
-	// List connectors
 	out := httpDoJSON(t, "GET", vpcAccessBaseURL(), "")
 
 	var result struct {
@@ -72,13 +68,12 @@ func TestVPCAccess_List(t *testing.T) {
 	parseJSON(t, out, &result)
 	require.NotEmpty(t, result.Connectors)
 
-	// Cleanup
 	httpDoJSON(t, "DELETE", vpcAccessURL("list-test-connector"), "")
 }
 
-// TestVPCAccess_CreateRequiresNetworkOrSubnet asserts the sim rejects a
-// connector that specifies neither (network + ipCidrRange) nor a subnet, the
-// way real Cloud VPC Access does (INVALID_ARGUMENT / 400).
+// TestVPCAccess_CreateRequiresNetworkOrSubnet: Serverless VPC Access answers 400
+// INVALID_ARGUMENT to a connector naming neither network and ipCidrRange nor a
+// subnet.
 func TestVPCAccess_CreateRequiresNetworkOrSubnet(t *testing.T) {
 	t.Parallel()
 	url := vpcAccessBaseURL() + "?connectorId=invalid-connector"
@@ -88,8 +83,6 @@ func TestVPCAccess_CreateRequiresNetworkOrSubnet(t *testing.T) {
 	assert.Equal(t, 400, resp.StatusCode)
 }
 
-// TestVPCAccess_ListPagination asserts the List handler honors pageSize +
-// pageToken instead of dumping the full set.
 func TestVPCAccess_ListPagination(t *testing.T) {
 	t.Parallel()
 	ids := []string{"page-conn-a", "page-conn-b", "page-conn-c"}
@@ -149,10 +142,8 @@ func TestVPCAccess_Delete(t *testing.T) {
 		"ipCidrRange": "10.10.0.0/28"
 	}`)
 
-	// Delete
 	httpDoJSON(t, "DELETE", vpcAccessURL("delete-test-connector"), "")
 
-	// Verify gone
 	resp, err := httpDo("GET", vpcAccessURL("delete-test-connector"), "")
 	require.NoError(t, err)
 	resp.Body.Close()

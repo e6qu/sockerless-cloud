@@ -23,7 +23,7 @@ The extractor reads the route out of a single string literal, so a registration 
 | `POST /compute/v1/projects/{project}/zones/{zone}/instances/{name}/reset` | ✓ `simulator-gcp/compute_instance_power.go:220::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `POST /compute/v1/projects/{project}/zones/{zone}/instances/{name}/suspend` | ✓ `simulator-gcp/compute_instance_power.go:223::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `POST /compute/v1/projects/{project}/zones/{zone}/instances/{name}/resume` | ✓ `simulator-gcp/compute_instance_power.go:226::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /compute/v1/projects/{project}/zones/{zone}/instances/{name}/startWithEncryptionKey` | ✓ `simulator-gcp/compute_instance_power.go:233::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /compute/v1/projects/{project}/zones/{zone}/instances/{name}/startWithEncryptionKey` | ✓ `simulator-gcp/compute_instance_power.go:231::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 
 ## Coverage status
 

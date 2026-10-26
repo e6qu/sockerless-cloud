@@ -107,8 +107,8 @@ func registerGCSHmacKeys(srv *sim.Server) {
 			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "HMAC key %q not found", accessID)
 			return
 		}
-		// Real GCS only allows deleting an INACTIVE key; it then transitions
-		// to DELETED rather than vanishing.
+		// Cloud Storage deletes only an INACTIVE key, which then reads DELETED rather
+		// than vanishing.
 		k.State = "DELETED"
 		k.Updated = gcsTimestamp()
 		gcsHmacKeys.Put(project+"\x00"+accessID, k)

@@ -21,19 +21,12 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-// The Cloud Bigtable admin surface over gRPC: app profiles, logical and
-// materialized views, backups, authorized views, schema bundles, the
-// consistency-token pair, the instance and cluster updates and the IAM
-// triples, driven through the generated google.bigtable.admin.v2 clients and
-// the google.longrunning.Operations client against the simulator's gRPC port.
-//
-// The same resources are served over REST from the same stores, so these tests
-// assert behaviour rather than absence of error: a created resource appears in
-// its listing, an update is what reads back, a delete removes it, an IAM
-// policy round-trips, and a name that does not exist is a real NotFound.
+// The Cloud Bigtable admin surface over gRPC, through the generated
+// google.bigtable.admin.v2 and google.longrunning clients. REST serves the same
+// stores, so these tests assert behaviour: a created resource lists, an update
+// reads back, a delete removes, an IAM policy round-trips, and a missing name
+// is NotFound.
 
-// bigtableAdminGRPCConn dials the simulator's gRPC port and returns the three
-// generated clients the Cloud Bigtable admin surface is reached through.
 func bigtableAdminGRPCConn(t *testing.T) (adminpb.BigtableInstanceAdminClient, adminpb.BigtableTableAdminClient, longrunningpb.OperationsClient) {
 	t.Helper()
 	conn, err := grpc.NewClient(grpcAddr, simGRPCDialOptions(simTokenSource())...)
@@ -44,8 +37,6 @@ func bigtableAdminGRPCConn(t *testing.T) (adminpb.BigtableInstanceAdminClient, a
 		longrunningpb.NewOperationsClient(conn)
 }
 
-// bigtableAdminGRPCInstance provisions an instance holding one cluster and
-// returns the instance and cluster resource names.
 func bigtableAdminGRPCInstance(t *testing.T, ia adminpb.BigtableInstanceAdminClient, project, instanceID, clusterID string) (string, string) {
 	t.Helper()
 	op, err := ia.CreateInstance(ctx, &adminpb.CreateInstanceRequest{
@@ -66,8 +57,6 @@ func bigtableAdminGRPCInstance(t *testing.T, ia adminpb.BigtableInstanceAdminCli
 	return instance, instance + "/clusters/" + clusterID
 }
 
-// bigtableAdminGRPCTable creates a table with one column family and returns its
-// resource name.
 func bigtableAdminGRPCTable(t *testing.T, ta adminpb.BigtableTableAdminClient, instance, tableID, family string) string {
 	t.Helper()
 	table, err := ta.CreateTable(ctx, &adminpb.CreateTableRequest{
@@ -79,8 +68,7 @@ func bigtableAdminGRPCTable(t *testing.T, ta adminpb.BigtableTableAdminClient, i
 	return table.GetName()
 }
 
-// bigtableLROResource unwraps a completed long-running operation's response
-// into msg, proving the operation carries the resource it created.
+// bigtableLROResource unwraps a completed operation's response into msg.
 func bigtableLROResource[T proto.Message](t *testing.T, op *longrunningpb.Operation, msg T) T {
 	t.Helper()
 	require.True(t, op.GetDone(), "operation %q must be complete", op.GetName())
@@ -399,17 +387,15 @@ func TestBigtableAdminGRPC_IAMPolicies(t *testing.T) {
 
 func TestBigtableAdminGRPC_BackupsAndRestore(t *testing.T) {
 	t.Parallel()
-	// The data client reaches the simulator through the coordinate a real
-	// client uses for the Cloud Bigtable emulator.
+	// The data client reaches the simulator through the coordinate a real client
+	// uses for the Cloud Bigtable emulator.
 	ia, ta, _ := bigtableAdminGRPCConn(t)
 	const project, instanceID, family = "bt-grpc-backups", "inst", "cf"
 	instance, cluster := bigtableAdminGRPCInstance(t, ia, project, instanceID, "c1")
 	table := bigtableAdminGRPCTable(t, ta, instance, "events", family)
 
-	// A backup captures the source table's rows, so the assertions further
-	// down read them back out of the restore. Were the capture missing, a
-	// restore would yield an empty table and still report success — every row
-	// silently lost behind a green result.
+	// A restore of a backup that captured nothing would yield an empty table and
+	// still succeed, so write rows and read them back out of the restore.
 	client, err := bigtable.NewClientWithConfig(ctx, project, instanceID, bigtableClientConfig, simGRPCClientOptions()...)
 	require.NoError(t, err)
 	defer client.Close()
@@ -773,7 +759,6 @@ func TestBigtableAdminGRPC_TableUpdatesConsistencyAndDropRowRange(t *testing.T) 
 	requireGRPCCode(t, err, codes.NotFound)
 }
 
-// bigtableRowKeys reads every row key in the table.
 func bigtableRowKeys(t *testing.T, tbl *bigtable.Table) []string {
 	t.Helper()
 	keys := []string{}
@@ -784,14 +769,13 @@ func bigtableRowKeys(t *testing.T, tbl *bigtable.Table) []string {
 	return keys
 }
 
-// TestBigtableAdminGRPC_SnapshotsAndCreateTableFromSnapshot drives the
-// snapshot family, which the bigtableadmin Discovery document does not
-// declare — it is served on the gRPC door alone, out of the same capture the
-// backups use.
+// TestBigtableAdminGRPC_SnapshotsAndCreateTableFromSnapshot: the bigtableadmin
+// Discovery document does not declare snapshots, so only gRPC serves them, out
+// of the capture backups use.
 func TestBigtableAdminGRPC_SnapshotsAndCreateTableFromSnapshot(t *testing.T) {
 	t.Parallel()
-	// The data client reaches the simulator through the coordinate a real
-	// client uses for the Cloud Bigtable emulator.
+	// The data client reaches the simulator through the coordinate a real client
+	// uses for the Cloud Bigtable emulator.
 	ia, ta, _ := bigtableAdminGRPCConn(t)
 	const project, instanceID, family = "bt-grpc-snapshots", "inst", "cf"
 	instance, cluster := bigtableAdminGRPCInstance(t, ia, project, instanceID, "c1")
@@ -883,9 +867,9 @@ func TestBigtableAdminGRPC_Operations(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, created.GetName())
 
-	// A Cloud Bigtable admin operation lives under the project, in the
-	// "operations/" collection the bigtableadmin document declares — the same
-	// name the REST operations door addresses it by.
+	// A Cloud Bigtable admin operation lives in the project's "operations/"
+	// collection the bigtableadmin document declares, the name REST addresses it
+	// by.
 	const operationsParent = "operations/projects/bt-grpc-ops"
 	require.True(t, strings.HasPrefix(created.GetName(), operationsParent+"/operations/"),
 		"an operation name must be the one both doors address: got %q", created.GetName())

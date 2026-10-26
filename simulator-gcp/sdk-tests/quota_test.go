@@ -20,13 +20,9 @@ import (
 	"google.golang.org/api/option"
 )
 
-// startQuotaIsolatedSim spawns a dedicated simulator instance with the
-// regional CPU quota set to `budget`. The default sim (helpers_test.go)
-// has quota disabled — this isolated instance lets quota tests run
-// alongside everything else without bleeding rejections into unrelated
-// SDK tests.
-//
-// Returns the test-scoped baseURL; t.Cleanup tears down the process.
+// startQuotaIsolatedSim spawns a dedicated simulator with the regional CPU
+// quota set to budget, so quota rejections cannot reach other tests; the
+// shared simulator runs with quota off.
 func startQuotaIsolatedSim(t *testing.T, budget float64) string {
 	t.Helper()
 
@@ -60,13 +56,9 @@ func startQuotaIsolatedSim(t *testing.T, budget float64) string {
 	return fmt.Sprintf("http://127.0.0.1:%d", port)
 }
 
-// TestSDK_RegionalCPUQuota_RejectsCloudRunDeployOverBudget exercises
-// the live-cloud quota error path through the same Cloud Run v2 REST
-// client the cloudrun backend uses. With the simulator's
-// SIM_GCP_CPU_QUOTA_PER_REGION set to 2 vCPU-min and the test
-// deploying 1 vCPU services, the third deploy must be rejected with
-// the canonical "Quota exceeded for total allowable CPU per project
-// per region" error.
+// TestSDK_RegionalCPUQuota_RejectsCloudRunDeployOverBudget: with
+// SIM_GCP_CPU_QUOTA_PER_REGION at 2 vCPU and 1-vCPU services, the third deploy
+// fails with "Quota exceeded for total allowable CPU per project per region".
 func TestSDK_RegionalCPUQuota_RejectsCloudRunDeployOverBudget(t *testing.T) {
 	t.Parallel()
 	url := startQuotaIsolatedSim(t, 2)
@@ -95,7 +87,6 @@ func TestSDK_RegionalCPUQuota_RejectsCloudRunDeployOverBudget(t *testing.T) {
 		}
 	}
 
-	// First two deploys debit 1 + 1 = 2 vCPU-min — at budget, both succeed.
 	for i, id := range []string{"svc-a", "svc-b"} {
 		op, err := client.CreateService(ctx, mkSvc(id))
 		require.NoError(t, err, "service %d (%s) CreateService should succeed under budget", i, id)
@@ -103,8 +94,6 @@ func TestSDK_RegionalCPUQuota_RejectsCloudRunDeployOverBudget(t *testing.T) {
 		require.NoError(t, err, "service %d (%s) LRO should complete", i, id)
 	}
 
-	// Third deploy would push to 3 vCPU-min, over the budget=2 threshold.
-	// Expect the canonical InvalidArgument with the quota message.
 	_, err = client.CreateService(ctx, mkSvc("svc-c"))
 	require.Error(t, err, "third deploy should be rejected; over budget=2")
 	if !strings.Contains(err.Error(), "Quota exceeded for total allowable CPU per project per region") {
@@ -112,11 +101,8 @@ func TestSDK_RegionalCPUQuota_RejectsCloudRunDeployOverBudget(t *testing.T) {
 	}
 }
 
-// TestSDK_RegionalCPUQuota_PartitionedByRegion verifies that
-// per-region budgets are independent — exhausting us-central1 does
-// not block europe-west1 deploys. Real Cloud Run regional quotas are
-// per-(project, region) so simulator parity matters for tests that
-// exercise multi-region deployment patterns.
+// TestSDK_RegionalCPUQuota_PartitionedByRegion: Cloud Run quotas are per
+// project and region, so exhausting us-central1 leaves europe-west1 free.
 func TestSDK_RegionalCPUQuota_PartitionedByRegion(t *testing.T) {
 	t.Parallel()
 	url := startQuotaIsolatedSim(t, 1)
@@ -160,12 +146,9 @@ func TestSDK_RegionalCPUQuota_PartitionedByRegion(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestSDK_RegionalCPUQuota_RejectsCloudFunctionsDeploy walks the
-// gcf path: CreateFunction triggers the simulator to also create the
-// underlying Cloud Run service (cloudfunctions.go:registerCloudFunctions
-// stamps a backing ServiceV2). The function's AvailableCpu is the
-// container CPU limit on that backing service — so the same regional
-// quota check fires, just one layer deeper.
+// TestSDK_RegionalCPUQuota_RejectsCloudFunctionsDeploy: CreateFunction creates
+// the function's Cloud Run service, whose container CPU limit is the function's
+// AvailableCpu, so the same regional quota applies.
 func TestSDK_RegionalCPUQuota_RejectsCloudFunctionsDeploy(t *testing.T) {
 	t.Parallel()
 	url := startQuotaIsolatedSim(t, 1)
@@ -195,14 +178,11 @@ func TestSDK_RegionalCPUQuota_RejectsCloudFunctionsDeploy(t *testing.T) {
 		}
 	}
 
-	// First function: 1 vCPU; at budget. Succeeds.
 	op, err := fnClient.CreateFunction(ctx, mkFn("fn-a"))
 	require.NoError(t, err)
 	_, err = op.Wait(ctx)
 	require.NoError(t, err)
 
-	// Second function: would push us over budget=1. Rejected with the
-	// canonical quota message — same wire shape the gcf backend matches on.
 	_, err = fnClient.CreateFunction(ctx, mkFn("fn-b"))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "Quota exceeded for total allowable CPU per project per region",

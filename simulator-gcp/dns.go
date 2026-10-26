@@ -23,13 +23,10 @@ import (
 	"github.com/miekg/dns"
 )
 
-// dnsChangeMu serializes the Changes.create critical section. Real Cloud DNS
-// applies changes atomically and sequentially per zone; without this lock two
-// concurrent POSTs could read the same highest change ID and overwrite each
-// other's change record, and interleave record-set mutations mid-validation.
+// dnsChangeMu serializes Changes.create: Cloud DNS applies a zone's changes
+// atomically and in sequence, so two concurrent creates must not read the same
+// highest change ID or interleave record-set writes.
 var dnsChangeMu sync.Mutex
-
-// Cloud DNS types
 
 // ManagedZone represents a Cloud DNS managed zone.
 type ManagedZone struct {
@@ -41,9 +38,8 @@ type ManagedZone struct {
 	PrivateVisibilityConfig map[string]any    `json:"privateVisibilityConfig,omitempty"`
 	Labels                  map[string]string `json:"labels,omitempty"`
 	NameServers             []string          `json:"nameServers,omitempty"`
-	// Nested writable configs the sim doesn't otherwise interpret are
-	// stored verbatim so create→get round-trips byte-exact and the
-	// terraform-provider-google read path doesn't perpetually drift.
+	// Nested writable configs the simulator does not interpret, stored verbatim so
+	// terraform-provider-google reads back what it wrote.
 	DnssecConfig       json.RawMessage `json:"dnssecConfig,omitempty"`
 	ForwardingConfig   json.RawMessage `json:"forwardingConfig,omitempty"`
 	PeeringConfig      json.RawMessage `json:"peeringConfig,omitempty"`
@@ -58,9 +54,8 @@ type storedManagedZone struct {
 	ManagedZone
 }
 
-// pruneEmptyPrivateVisibilityConfig returns nil when the config carries no
-// networks and no GKE clusters, matching real Cloud DNS (which omits an empty
-// privateVisibilityConfig). A populated config is returned unchanged.
+// pruneEmptyPrivateVisibilityConfig returns nil for a config with no networks
+// and no GKE clusters, which Cloud DNS omits from a read.
 func pruneEmptyPrivateVisibilityConfig(pvc map[string]any) map[string]any {
 	if len(pvc) == 0 {
 		return nil
@@ -108,11 +103,9 @@ type storedDNSChange struct {
 	Change  DNSChange `json:"change"`
 }
 
-// DNSPolicy mirrors the Cloud DNS Policy resource (a DNS server policy:
-// inbound/outbound forwarding + alternative name servers for one or more
-// VPC networks). Nested writable configs the simulator doesn't otherwise
-// interpret are stored verbatim as RawMessage so create→get round-trips
-// byte-exact.
+// DNSPolicy mirrors the Cloud DNS Policy resource: inbound and outbound
+// forwarding and alternative name servers for VPC networks. Nested configs the
+// simulator does not interpret are stored verbatim.
 type DNSPolicy struct {
 	ID                          string            `json:"id,omitempty"`
 	Name                        string            `json:"name"`
@@ -161,10 +154,9 @@ type storedDNSResponsePolicyRule struct {
 	Rule           DNSResponsePolicyRule `json:"rule"`
 }
 
-// DNSOperation mirrors the Cloud DNS Operation resource: an audit-log
-// record of a successful mutation on a ManagedZone. Real Cloud DNS records
-// one per managed-zone create/update/patch/delete; managedZoneOperations.get
-// and .list read them back.
+// DNSOperation mirrors the Cloud DNS Operation resource, the record Cloud DNS
+// keeps of each managed-zone create, update, patch and delete, which
+// managedZoneOperations.get and .list read back.
 type DNSOperation struct {
 	ID          string                   `json:"id,omitempty"`
 	StartTime   string                   `json:"startTime,omitempty"`
@@ -226,7 +218,6 @@ func registerCloudDNS(srv *sim.Server) {
 		dnsUnserved("operations.cancel")(w, r)
 	})
 
-	// Create managed zone
 	srv.HandleFunc("POST /dns/v1/projects/{project}/managedZones", func(w http.ResponseWriter, r *http.Request) {
 		var zone ManagedZone
 		if err := sim.ReadJSON(r, &zone); err != nil {
@@ -252,7 +243,7 @@ func registerCloudDNS(srv *sim.Server) {
 		}
 
 		if zone.ID == "" {
-			// DNS API expects a numeric uint64 ID
+			// Cloud DNS zone IDs are numeric uint64s.
 			b := make([]byte, 8)
 			_, _ = rand.Read(b)
 			zone.ID = fmt.Sprintf("%d", binary.BigEndian.Uint64(b)>>1)
@@ -261,11 +252,9 @@ func registerCloudDNS(srv *sim.Server) {
 			zone.Visibility = "public"
 		}
 		zone.NameServers = cloudDNSNameServers(zone)
-		// terraform-provider-google always sends privateVisibilityConfig with an
-		// empty networks list (even for public zones). Real Cloud DNS drops an
-		// empty privateVisibilityConfig from the read-back; echoing it makes the
-		// provider's flatten materialize a phantom block on every refresh. Strip
-		// it unless it actually carries networks or GKE clusters.
+		// terraform-provider-google sends an empty privateVisibilityConfig even for
+		// public zones, and Cloud DNS drops it from the read; echoing it makes the
+		// provider plan a phantom block on every refresh.
 		zone.PrivateVisibilityConfig = pruneEmptyPrivateVisibilityConfig(zone.PrivateVisibilityConfig)
 
 		stored := storedManagedZone{ManagedZone: zone}
@@ -277,7 +266,6 @@ func registerCloudDNS(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, stored.ManagedZone)
 	})
 
-	// List managed zones
 	srv.HandleFunc("GET /dns/v1/projects/{project}/managedZones", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		prefix := project + "/"
@@ -296,7 +284,6 @@ func registerCloudDNS(srv *sim.Server) {
 		})
 	})
 
-	// Get managed zone
 	srv.HandleFunc("GET /dns/v1/projects/{project}/managedZones/{zone}", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		zoneName := sim.PathParam(r, "zone")
@@ -310,7 +297,6 @@ func registerCloudDNS(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, zone.ManagedZone)
 	})
 
-	// Delete managed zone
 	srv.HandleFunc("DELETE /dns/v1/projects/{project}/managedZones/{zone}", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		zoneName := sim.PathParam(r, "zone")
@@ -339,7 +325,6 @@ func registerCloudDNS(srv *sim.Server) {
 		oldZone := zone.ManagedZone
 		recordDNSZoneOperation(operations, project, zoneName, "delete", &oldZone, nil)
 
-		// Delete associated record sets for this zone.
 		for _, stored := range recordSets.List() {
 			if stored.Project == project && stored.Zone == zoneName {
 				recordSets.Delete(dnsRecordSetKey(project, zoneName, stored.Record.Name, stored.Record.Type))
@@ -349,7 +334,6 @@ func registerCloudDNS(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, map[string]any{})
 	})
 
-	// List record sets
 	srv.HandleFunc("GET /dns/v1/projects/{project}/managedZones/{zone}/rrsets", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		zoneName := sim.PathParam(r, "zone")
@@ -360,9 +344,7 @@ func registerCloudDNS(srv *sim.Server) {
 			return
 		}
 
-		// Real Cloud DNS rrsets.list filters on the optional name +
-		// type query params (the Go SDK's .Name()/.Type() builders);
-		// the Cloud Run service-discovery path relies on this.
+		// rrsets.list filters on the optional name and type query parameters.
 		nameFilter := r.URL.Query().Get("name")
 		typeFilter := r.URL.Query().Get("type")
 		var filtered []ResourceRecordSet
@@ -402,7 +384,6 @@ func registerCloudDNS(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, resp)
 	})
 
-	// Create record set
 	srv.HandleFunc("POST /dns/v1/projects/{project}/managedZones/{zone}/rrsets", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		zoneName := sim.PathParam(r, "zone")
@@ -434,7 +415,6 @@ func registerCloudDNS(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, rs)
 	})
 
-	// Get record set
 	srv.HandleFunc("GET /dns/v1/projects/{project}/managedZones/{zone}/rrsets/{name}/{type}", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		zoneName := sim.PathParam(r, "zone")
@@ -596,8 +576,8 @@ func registerCloudDNS(srv *sim.Server) {
 				out = append(out, stored.Change)
 			}
 		}
-		// Honor sortOrder (ascending default | descending) — real Cloud DNS
-		// changes.list sorts by change id.
+		// Cloud DNS changes.list sorts by change ID, ascending unless sortOrder says
+		// descending.
 		byID := gcpAscNumber(func(c DNSChange) string { return c.ID })
 		if r.URL.Query().Get("sortOrder") == "descending" {
 			byID = gcpDescNumber(func(c DNSChange) string { return c.ID })
@@ -619,24 +599,20 @@ func registerCloudDNS(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, resp)
 	})
 
-	// Patch managed zone (merge-update of mutable fields).
+	// Patch merges the mutable fields of a managed zone.
 	srv.HandleFunc("PATCH /dns/v1/projects/{project}/managedZones/{zone}", func(w http.ResponseWriter, r *http.Request) {
 		dnsManagedZoneUpdate(w, r, zones, operations, false)
 	})
 
-	// Update managed zone (full replace of mutable fields).
+	// Update replaces the mutable fields of a managed zone.
 	srv.HandleFunc("PUT /dns/v1/projects/{project}/managedZones/{zone}", func(w http.ResponseWriter, r *http.Request) {
 		dnsManagedZoneUpdate(w, r, zones, operations, true)
 	})
 
-	// Managed-zone IAM — the AIP-141 triple, which Cloud DNS spells as POSTs
-	// on the zone (`managedZones/{zone}:getIamPolicy` and friends): the wire
-	// `gcloud dns managed-zones get-iam-policy` and terraform's
-	// google_dns_managed_zone_iam_* resources speak. Go's mux captures the
-	// "{zone}:{verb}" segment whole; the verb resolves before the zone, the
-	// way Google's frontend resolves a method before the resource. The policy
-	// rides the same per-resource store every other AIP-141 resource uses, so
-	// etag / member-validation / optimistic-concurrency behavior matches.
+	// Cloud DNS spells the AIP-141 triple as POSTs on the zone
+	// (`managedZones/{zone}:getIamPolicy`), as `gcloud dns managed-zones
+	// get-iam-policy` and google_dns_managed_zone_iam_* send. The verb resolves
+	// before the zone, as Google's frontend resolves a method before the resource.
 	srv.HandleFunc("POST /dns/v1/projects/{project}/managedZones/{zoneAction}", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		zoneName, verb, found := gcpCustomMethod(sim.PathParam(r, "zoneAction"))
@@ -656,7 +632,7 @@ func registerCloudDNS(srv *sim.Server) {
 		}
 	})
 
-	// List DNSSEC keys for a zone — derived from the zone's dnssecConfig.
+	// dnsKeys.list derives the keys from the zone's dnssecConfig.
 	srv.HandleFunc("GET /dns/v1/projects/{project}/managedZones/{zone}/dnsKeys", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		zoneName := sim.PathParam(r, "zone")
@@ -683,7 +659,6 @@ func registerCloudDNS(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, resp)
 	})
 
-	// Get a single DNSSEC key by id.
 	srv.HandleFunc("GET /dns/v1/projects/{project}/managedZones/{zone}/dnsKeys/{dnsKeyId}", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		zoneName := sim.PathParam(r, "zone")
@@ -702,7 +677,7 @@ func registerCloudDNS(srv *sim.Server) {
 		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "DNS key %q not found", keyID)
 	})
 
-	// List managed-zone operations (audit log of zone mutations).
+	// managedZoneOperations.list reads the zone's mutation records.
 	srv.HandleFunc("GET /dns/v1/projects/{project}/managedZones/{zone}/operations", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		zoneName := sim.PathParam(r, "zone")
@@ -738,7 +713,6 @@ func registerCloudDNS(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, resp)
 	})
 
-	// Get a single managed-zone operation by id.
 	srv.HandleFunc("GET /dns/v1/projects/{project}/managedZones/{zone}/operations/{operation}", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		zoneName := sim.PathParam(r, "zone")
@@ -755,7 +729,6 @@ func registerCloudDNS(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, stored.Operation)
 	})
 
-	// Get project DNS info (quota/number).
 	srv.HandleFunc("GET /dns/v1/projects/{project}", func(w http.ResponseWriter, r *http.Request) {
 		p, ok := crmResolveProject(sim.PathParam(r, "project"))
 		if !ok || p.State != "ACTIVE" {
@@ -769,8 +742,6 @@ func registerCloudDNS(srv *sim.Server) {
 	registerCloudDNSResponsePolicies(srv, responsePolicies, responsePolicyRules)
 }
 
-// registerCloudDNSPolicies mounts the Cloud DNS Policy resource (a DNS server
-// policy applied to one or more VPC networks).
 func registerCloudDNSPolicies(srv *sim.Server, policies sim.Store[storedDNSPolicy]) {
 	srv.HandleFunc("POST /dns/v1/projects/{project}/policies", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
@@ -929,7 +900,6 @@ func registerCloudDNSResponsePolicies(srv *sim.Server, responsePolicies sim.Stor
 		patchOrUpdateRP(w, r, true)
 	})
 
-	// Response-policy rules.
 	srv.HandleFunc("POST /dns/v1/projects/{project}/responsePolicies/{responsePolicy}/rules", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		rpName := sim.PathParam(r, "responsePolicy")
@@ -1109,9 +1079,8 @@ func dnsZoneOperationKey(project, zone, id string) string {
 	return fmt.Sprintf("%s/%s:%s", project, zone, id)
 }
 
-// recordDNSZoneOperation appends an audit-log Operation for a managed-zone
-// mutation, matching real Cloud DNS (which surfaces every zone insert/update/
-// delete through managedZoneOperations).
+// recordDNSZoneOperation records an Operation for a managed-zone mutation, as
+// Cloud DNS surfaces each one through managedZoneOperations.
 func recordDNSZoneOperation(ops sim.Store[storedDNSOperation], project, zone, opType string, oldVal, newVal *ManagedZone) {
 	seq := 0
 	for _, op := range ops.List() {
@@ -1140,10 +1109,9 @@ func recordDNSZoneOperation(ops sim.Store[storedDNSOperation], project, zone, op
 	})
 }
 
-// dnsManagedZoneUpdate applies a PATCH (merge) or PUT (replace of mutable
-// fields) to a managed zone and records an "update" operation. The id,
-// dnsName, and visibility of a zone are immutable; only description, labels,
-// and the nested writable configs change.
+// dnsManagedZoneUpdate applies a PATCH (merge) or PUT (replace) to a managed
+// zone and records an "update" operation. The id, dnsName and visibility are
+// immutable; description, labels and the nested configs change.
 func dnsManagedZoneUpdate(w http.ResponseWriter, r *http.Request, zones sim.Store[storedManagedZone], ops sim.Store[storedDNSOperation], replace bool) {
 	project := sim.PathParam(r, "project")
 	zoneName := sim.PathParam(r, "zone")
@@ -1190,13 +1158,7 @@ func dnsManagedZoneUpdate(w http.ResponseWriter, r *http.Request, zones sim.Stor
 	stored.ManagedZone = updated
 	zones.Put(key, stored)
 	recordDNSZoneOperation(ops, project, zoneName, "update", &oldVal, &updated)
-	// Cloud DNS managedZones.patch/update return a Operation (long-running),
-	// but the Go SDK ManagedZonesUpdateCall/PatchCall decode it into an
-	// Operation only when DNSSEC mutation is involved; the common terraform
-	// path issues these and reads the zone back via Get. Returning the
-	// updated zone keeps create→patch→get round-trips coherent. Real Cloud
-	// DNS returns the Operation; the Go SDK's ManagedZones.Patch/Update
-	// response type is *Operation, so emit that shape.
+	// managedZones.patch and update answer the Operation they recorded.
 	op, _ := ops.Get(dnsZoneOperationKey(project, zoneName, strconv.Itoa(latestDNSZoneOpSeq(ops, project, zoneName))))
 	sim.WriteJSON(w, http.StatusOK, op.Operation)
 }
@@ -1349,12 +1311,10 @@ type DNSKeyDigest struct {
 	Digest string `json:"digest,omitempty"`
 }
 
-// deriveDNSKeys returns the DNSSEC key set for a zone, derived from its
-// dnssecConfig. When DNSSEC is off (or unset), Cloud DNS exposes no DnsKeys,
-// so the list is honestly empty. When on, Cloud DNS generates one key-signing
-// key (KSK) and one zone-signing key (ZSK); we derive real ECDSA P-256 key
-// pairs deterministically from the zone id, compute the RFC 4034 Appendix B
-// key tag, and emit a real SHA-256 DS digest.
+// deriveDNSKeys returns a zone's DNSSEC keys: none when DNSSEC is off, as
+// Cloud DNS exposes none, and otherwise one key-signing and one zone-signing
+// ECDSA P-256 key derived from the zone ID, with the RFC 4034 Appendix B key
+// tag and a SHA-256 DS digest.
 func deriveDNSKeys(zone ManagedZone) []DNSKey {
 	state := dnssecState(zone.DnssecConfig)
 	if state != "on" && state != "transfer" {
@@ -1383,13 +1343,10 @@ func dnssecState(raw json.RawMessage) string {
 }
 
 func deriveDNSKey(zone ManagedZone, keyType string) DNSKey {
-	// Deterministic ECDSA P-256 key from the zone id + key type, so dnsKeys.list
-	// and dnsKeys.get re-derive the SAME key (and thus the same key tag get-by-id
-	// must match). ecdsa.GenerateKey is deliberately NOT deterministic — it
-	// consumes a random number of bytes from the reader via the crypto-internal
-	// MaybeReadByte masking — so derive the private scalar directly from a
-	// SHA-256 keystream instead. 320 bits reduced into [1, n-1] leaves negligible
-	// modular bias, ample for a simulator's stable DNSSEC key.
+	// Derive the private scalar from a SHA-256 keystream over the zone ID and key
+	// type, so list and get return the same key and key tag. ecdsa.GenerateKey is
+	// not deterministic: it reads a random number of bytes through MaybeReadByte.
+	// Reducing 320 bits into [1, n-1] leaves negligible bias.
 	curve := elliptic.P256()
 	scalarBuf := make([]byte, 40)
 	_, _ = io.ReadFull(newDNSKeyKeystream("dnssec:"+zone.ID+":"+keyType), scalarBuf)
@@ -1435,10 +1392,8 @@ func deriveDNSKey(zone ManagedZone, keyType string) DNSKey {
 	}
 }
 
-// dnsKeyKeystream is an unbounded deterministic byte source: blocks of
-// SHA-256(seed || counter) concatenated. It feeds ecdsa.GenerateKey so key
-// derivation is reproducible regardless of how many bytes rejection sampling
-// consumes.
+// dnsKeyKeystream is an unbounded deterministic byte source: SHA-256(seed ||
+// counter) blocks, concatenated.
 type dnsKeyKeystream struct {
 	seed    []byte
 	counter uint64

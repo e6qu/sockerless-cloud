@@ -12,19 +12,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Literal wire-path index for the simulator-testing-contract hook.
-//
-// The routes below are driven by the Google Cloud Go SDK round-trip tests in
-// this package, but the SDK builds request URLs internally, so their literal
-// wire paths never appear in test source and the hook — which greps changed
-// test files for each route's literal path — cannot see them. This block is
-// where they are written down.
-//
-// A comment satisfies a grep whether or not the route exists, so the block is
-// not taken on trust: TestRouteCoveragePathsAreServed reads these lines back
-// out of this file and sends each one to the running simulator, failing on any
-// that no handler answers. That check proves the routes are real; it does not
-// prove any particular SDK call drives them, which is the sibling tests' job.
+// Literal wire paths for the simulator-testing-contract hook, which greps test
+// files for each route's path: the SDK tests in this package drive these routes,
+// but the SDK builds the URLs internally. TestRouteCoveragePathsAreServed sends
+// each line to the simulator and fails on any no handler answers; the sibling
+// tests prove what the SDK calls do.
 //
 //   DELETE /bigquery/v2/projects/{project}/datasets/{dataset}/models/{model}
 //   DELETE /bigquery/v2/projects/{project}/datasets/{dataset}/routines/{routine}
@@ -269,12 +261,8 @@ import (
 //   PUT /dns/v1/projects/{project}/responsePolicies/{responsePolicy}/rules/{rule}
 //   PUT /v1/projects/{project}/serviceAccounts/{email}
 
-// Cloud Run v1 (Knative) + v2 ratchet routes — each is mounted in
-// simulator-gcp/cloudrun.go or cloudrunservices.go and exercised by a
-// genuine SDK round-trip in this package (cloudrun_knative_resources_test.go,
-// cloudrun_v2_revisions_iam_test.go). The Google clients build the wire URLs
-// internally, so the literal paths are recorded here for the testing-contract
-// hook's grep:
+// Cloud Run v1 (Knative) and v2 routes, driven by
+// cloudrun_knative_resources_test.go and cloudrun_v2_revisions_iam_test.go:
 //
 //   GET /apis/serving.knative.dev/v1/namespaces/{namespace}/configurations
 //   GET /apis/serving.knative.dev/v1/namespaces/{namespace}/configurations/{name}
@@ -314,10 +302,9 @@ import (
 //   DELETE /v2/projects/{project}/locations/{location}/operations/{operation}
 //   POST /v2/projects/{project}/locations/{location}/operations/{opAction}
 //
-// Cloud Dataflow v1b3 — driven by the TestDataflow_* round-trips in
-// spanner_dataflow_bigtable_test.go. Each job/template/snapshot family is
-// mounted under both the global (projects/{project}/...) and regional
-// (projects/{project}/locations/{location}/...) path forms.
+// Cloud Dataflow v1b3, driven by the TestDataflow_* tests in
+// spanner_dataflow_bigtable_test.go; each family mounts under both the global
+// and the regional path form.
 //   POST /v1b3/projects/{project}/jobs
 //   GET /v1b3/projects/{project}/jobs
 //   GET /v1b3/projects/{project}/jobs:aggregated
@@ -361,10 +348,8 @@ import (
 //   POST /v1b3/projects/{project}/WorkerMessages
 //   POST /v1b3/projects/{project}/locations/{location}/WorkerMessages
 //
-// Bigtable Admin (bigtableadmin/v2) — exercised by TestBigtable_AdminSurfaceSDK
-// and TestBigtable_InstanceClusterTableSDK. The SDK builds these wire paths
-// internally; each is a real route mounted in simulator-gcp/bigtable.go and
-// driven by a genuine SDK round-trip in this package.
+// Bigtable Admin (bigtableadmin/v2), driven by TestBigtable_AdminSurfaceSDK and
+// TestBigtable_InstanceClusterTableSDK.
 //   POST /v2/projects/{project}/instances/{instanceAction}
 //   PUT /v2/projects/{project}/instances/{instance}
 //   GET /v2/operations/projects/{project}/operations
@@ -413,19 +398,15 @@ import (
 //   PATCH /v2/projects/{project}/instances/{instance}/materializedViews/{matView}
 //   DELETE /v2/projects/{project}/instances/{instance}/materializedViews/{matView}
 //
-// Cloud Logging v2 admin — driven by the TestLogging_* round-trips in
-// logging_test.go and logging_admin_test.go. The sinks/exclusions/buckets/
-// views/links families mount under each parent scope via concatenated route
-// patterns (the SDK builds the wire URL internally). The three literal-mounted
-// top-level routes below are recorded here so the simulator-testing-contract
-// hook sees their coverage.
+// Cloud Logging v2 admin, driven by logging_test.go and logging_admin_test.go.
+// The admin families mount under each parent scope through concatenated
+// patterns; these are the three literally mounted top-level routes.
 //   POST /v2/entries:copy
 //   POST /v2/entries:tail
 //   GET /v2/monitoredResourceDescriptors
 //
-// GCP ratchet round 2 (BUG-2220) — CRM v3 / Spanner / IAM Credentials / Cloud
-// Functions / API Gateway / VPC Access routes exercised by the SDK round-trips
-// in this package (the SDK builds request URLs internally):
+// Cloud Resource Manager v3, Spanner, IAM Service Account Credentials, Cloud
+// Functions, API Gateway and Serverless VPC Access:
 //   DELETE /v1/operations/{operation}
 //   DELETE /v3/folders/{folder}
 //   DELETE /v3/liens/{lien}
@@ -487,12 +468,8 @@ import (
 //   POST /v3/tagValues/{val}/tagHolds
 //   POST /v3/tagValues/{valAction}
 
-// Cloud Run v2 ratchet: worker pools, instances, job update, execution
-// delete, and tasks. These routes are driven by the run/apiv2 clients in
-// cloudrun_more_test.go and by the Discovery REST clients
-// (google.golang.org/api/run/v2 and /run/v1) in
-// cloudrun_v2_workerpools_instances_rest_test.go; the literal wire paths are
-// recorded here so the simulator-testing-contract hook can see the coverage.
+// Cloud Run v2 worker pools, instances, job update, execution delete and tasks,
+// driven by cloudrun_more_test.go and cloudrun_v2_workerpools_instances_rest_test.go.
 //
 //   POST /v2/projects/{project}/locations/{location}/workerPools
 //   GET /v2/projects/{project}/locations/{location}/workerPools/{workerPool}
@@ -516,11 +493,8 @@ import (
 //   GET /v2/projects/{project}/locations/{location}/jobs/{job}/executions/{execution}/tasks/{task}
 //   GET /v2/projects/{project}/locations/{location}/jobs/{job}/executions/{execution}/tasks
 
-// Cloud Billing account collection, project links and service catalog,
-// driven by google.golang.org/api/cloudbilling/v1 in cloudbilling_test.go
-// and by gcloud billing in cli-tests/cloudbilling_cli_test.go; the literal
-// wire paths are recorded here so the simulator-testing-contract hook can
-// see the coverage.
+// Cloud Billing accounts, project links and service catalog, driven by
+// cloudbilling_test.go and cli-tests/cloudbilling_cli_test.go.
 //
 //   GET /v1/billingAccounts
 //   POST /v1/billingAccounts
@@ -537,14 +511,9 @@ import (
 //   GET /v1/services
 //   GET /v1/services/{service}/skus
 
-// Cloud Resource Manager project lifecycle (v1 + v3) and the Cloud Billing
-// project billing-info read. These routes are driven by
-// cloud.google.com/go/resourcemanager/apiv3 (create/list/search/get/delete/
-// undelete with LRO polling), google.golang.org/api/cloudresourcemanager/v1
-// (the wire gcloud `projects` and terraform's google_project speak), and
-// google.golang.org/api/cloudbilling/v1 in resourcemanager_projects_test.go
-// and cloudresourcemanager_v3_test.go; the literal wire paths are recorded
-// here so the simulator-testing-contract hook can see the coverage.
+// Cloud Resource Manager project lifecycle (v1 and v3) and the Cloud Billing
+// billing-info read, driven by resourcemanager_projects_test.go and
+// cloudresourcemanager_v3_test.go.
 //
 //   POST /v1/projects
 //   GET /v1/projects
@@ -555,12 +524,9 @@ import (
 //   GET /v1/operations/{operation}
 //   GET /v1/projects/{project}/billingInfo
 
-// Cloud Run Admin v1 (Knative) Jobs family. These routes render the v2-owned
-// job / execution / task records in the Knative shape and are driven by the
-// canonical google.golang.org/api/run/v1 client in cloudrun_v1_jobs_test.go
-// (and, for the jobs IAM read, by `gcloud run jobs get-iam-policy` in
-// cli-tests/run_jobs_iam_test.go). The literal wire paths are recorded here so
-// the simulator-testing-contract hook can see the coverage.
+// Cloud Run Admin v1 (Knative) jobs, executions and tasks over the v2-owned
+// records, driven by cloudrun_v1_jobs_test.go and, for the jobs IAM read,
+// cli-tests/run_jobs_iam_test.go.
 //
 //   GET /apis/run.googleapis.com/v1/namespaces/{namespace}/executions/{name}
 //   GET /apis/run.googleapis.com/v1/namespaces/{namespace}/executions
@@ -569,14 +535,10 @@ import (
 //   GET /v1/projects/{project}/locations/{location}/jobs/{jobAction}
 //   POST /v1/projects/{project}/locations/{location}/operations/{opAction}
 
-// Cloud Run Admin v1 (Knative) instances and worker pools. These routes render
-// the v2-owned instance and worker-pool records in the Knative shape and are
-// driven by google.golang.org/api/run/v1 in
-// cloudrun_v1_instances_workerpools_test.go. `gcloud run worker-pools` and
-// `gcloud alpha run instances` reach these collections only at the regional
-// Cloud Run host, which no endpoint coordinate can point at a loopback
-// simulator (see cli-tests/run_workerpools_v2_test.go), so the SDK is the
-// client surface here.
+// Cloud Run Admin v1 (Knative) instances and worker pools, driven by
+// cloudrun_v1_instances_workerpools_test.go. gcloud reaches these only at the
+// regional Cloud Run host, which no endpoint coordinate points at a loopback
+// simulator (see cli-tests/run_workerpools_v2_test.go).
 //
 //   POST /apis/run.googleapis.com/v1/namespaces/{namespace}/instances
 //   GET /apis/run.googleapis.com/v1/namespaces/{namespace}/instances/{name}
@@ -590,16 +552,10 @@ import (
 //   PUT /apis/run.googleapis.com/v1/namespaces/{namespace}/workerpools/{name}
 //   DELETE /apis/run.googleapis.com/v1/namespaces/{namespace}/workerpools/{name}
 
-// Cloud Run Admin v1 (Knative) jobs, and the v2 jobs colon-verb fan-in that
-// dispatches RunJob and the POST-side IAM verbs. The Knative jobs collection
-// writes and reads the same records the v2 collection owns and drives the same
-// container execution; both are driven by google.golang.org/api/run/v1 and raw
-// v2 wire calls in cloudrun_v1_jobs_lifecycle_test.go, including a real image
-// whose non-zero exit reaches status.failedCount and a cancel that stops the
-// running container. `gcloud run jobs create/execute/describe` reach these
-// collections only at the regional Cloud Run host, which no endpoint
-// coordinate can point at a loopback simulator; only the global-path IAM
-// commands are CLI-reachable (cli-tests/run_jobs_iam_test.go).
+// Cloud Run Admin v1 (Knative) jobs and the v2 jobs colon-verb route serving
+// RunJob and the POST IAM verbs, driven by cloudrun_v1_jobs_lifecycle_test.go.
+// gcloud reaches these only at the regional Cloud Run host; only the
+// global-path IAM commands are CLI-reachable (cli-tests/run_jobs_iam_test.go).
 //
 //   POST /apis/run.googleapis.com/v1/namespaces/{namespace}/jobs
 //   GET /apis/run.googleapis.com/v1/namespaces/{namespace}/jobs/{name}
@@ -611,26 +567,15 @@ import (
 //   POST /apis/run.googleapis.com/v1/namespaces/{namespace}/executions/{nameAction}
 //   POST /v2/projects/{project}/locations/{location}/jobs/{jobAction}
 
-// routeCoverageLine matches one entry of the block above: the method and the
-// wire path, as the hook reads them.
 var routeCoverageLine = regexp.MustCompile(`^//\s{3}([A-Z]+) (/\S*)$`)
 
-// routeCoveragePathParam matches a path template's placeholder segment.
 var routeCoveragePathParam = regexp.MustCompile(`\{[^}]*\}`)
 
-// TestRouteCoveragePathsAreServed holds the block above to its claim. The list
-// exists so the simulator-testing-contract hook can see routes whose literal
-// wire paths never appear in SDK test source (the SDK builds request URLs
-// internally) — but a comment satisfies a grep whether or not the route exists,
-// so the list would otherwise be able to name a route nothing serves and still
-// green the gate for it.
-//
-// Every entry is therefore rendered into a concrete URI and sent to the running
-// simulator. Go's own plain-text mux miss is the failure: it means no handler is
-// mounted at that method and path. A service-level refusal (a JSON 404, a 400,
-// a 403) means a handler answered, which is all this list can honestly claim —
-// that the route is real. What the sibling tests then assert about it is their
-// business, not this file's.
+// TestRouteCoveragePathsAreServed renders every entry into a URI and sends it
+// to the simulator: a comment satisfies the hook's grep whether or not the
+// route exists. Go's plain-text mux miss fails the entry; a service-level
+// refusal (a JSON 404, a 400, a 403) means a handler answered, which is all
+// the list claims.
 func TestRouteCoveragePathsAreServed(t *testing.T) {
 	t.Parallel()
 	_, thisFile, _, ok := runtime.Caller(0)
@@ -657,11 +602,10 @@ func TestRouteCoveragePathsAreServed(t *testing.T) {
 		}
 		seen[key] = true
 
-		// A route mounted from a concatenated pattern (".../{repo}/" + kind +
-		// ":create") is keyed by the hook on its literal prefix, so the entry is
-		// a path prefix rather than a whole path and nothing answers it. Such an
-		// entry earns its place by prefixing a complete entry in this same list,
-		// which is probed on its own line.
+		// The hook keys a route mounted from a concatenated pattern
+		// (".../{repo}/" + kind + ":create") on its literal prefix, so such an entry
+		// is a prefix nothing answers; it earns its place by prefixing a complete
+		// entry probed on its own line.
 		if strings.HasSuffix(template, "/") {
 			covered := false
 			for _, other := range routes {
@@ -676,9 +620,8 @@ func TestRouteCoveragePathsAreServed(t *testing.T) {
 			continue
 		}
 
-		// A placeholder stands for any single segment, so any non-empty value
-		// routes the same way. `probe` also keeps a colon-verb suffix
-		// (`{nameAction}` → `probe`) from accidentally naming a real verb.
+		// A placeholder stands for any single segment. `probe` also keeps a colon-verb
+		// suffix (`{nameAction}`) from naming a real verb.
 		uri := routeCoveragePathParam.ReplaceAllString(template, "probe")
 		req, err := http.NewRequestWithContext(ctx, method, baseURL+uri, http.NoBody)
 		require.NoError(t, err)
@@ -696,14 +639,11 @@ func TestRouteCoveragePathsAreServed(t *testing.T) {
 	}
 }
 
-// The tails served on 2026-08-26: Cloud DNS managed-zone IAM, the IAM v1
-// key and catalog methods, Cloud SQL's connect resolve and point-in-time
-// restore, Cloud Storage's rapid caches and managed-folder patch, and
-// Service Usage's batch read. Driven by served_tails_test.go through the
-// generated Go clients, and by the JSON API directly where the generated
-// client has no collection yet (rapid caches); the literal wire paths are
-// recorded here so the simulator-testing-contract hook can see the
-// coverage.
+// Cloud DNS managed-zone IAM, the IAM v1 key and catalog methods, Cloud SQL's
+// connect resolve and point-in-time restore, Cloud Storage's rapid caches and
+// managed-folder patch, and Service Usage's batch read, driven by
+// served_tails_test.go (rapid caches over the JSON API directly, since the
+// generated client has no collection for them).
 //
 //   GET /storage/v1/b/{bucket}/rapidCaches
 //   GET /storage/v1/b/{bucket}/rapidCaches/{rapidCacheId}
@@ -729,13 +669,9 @@ func TestRouteCoveragePathsAreServed(t *testing.T) {
 //   POST /v1/projects/{project}/serviceAccounts/{email}/keys/{keyAction}
 //   POST /v1/roles:queryGrantableRoles
 
-// Cloud Resource Manager v3 capabilityConfigs, published on all three
-// hierarchy nodes by the 2026-09-18 Discovery re-vendor and driven by
-// cloudresourcemanager_capability_configs_test.go. The generated Go client
-// carries no collection for them yet, so the tests send the wire paths
-// themselves, with a folder, an organization and a project name in place of
-// the parent — the literal templates are recorded here so the
-// simulator-testing-contract hook can see the coverage.
+// Cloud Resource Manager v3 capabilityConfigs on all three hierarchy nodes,
+// driven by cloudresourcemanager_capability_configs_test.go over the wire,
+// since the generated client has no collection for them.
 //
 //   POST /v3/folders/{parent}/capabilityConfigs
 //   GET /v3/folders/{parent}/capabilityConfigs

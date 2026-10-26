@@ -132,11 +132,9 @@ func cbHandleRunTrigger(w http.ResponseWriter, r *http.Request, project, locatio
 	cbWriteBuildOperation(w, project, startCloudBuild(started))
 }
 
-// cbHandleTriggerWebhook answers the webhook a trigger exposes. The caller
-// names the trigger in the path and presents the secret the trigger declares,
-// and the trigger's build starts. The response carries no members, so what a
-// caller sees of the build is the build itself — which is exactly why
-// answering without starting one reports nothing wrong.
+// cbHandleTriggerWebhook answers the webhook a trigger exposes: the caller
+// names the trigger and presents its declared secret, and the trigger's build
+// starts. The response carries no members.
 func cbHandleTriggerWebhook(w http.ResponseWriter, r *http.Request, project, location, id string) {
 	trigger, ok := cbTriggers.Get(buildTriggerKey(project, location, id))
 	if !ok {
@@ -162,10 +160,9 @@ func cbHandleTriggerWebhook(w http.ResponseWriter, r *http.Request, project, loc
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
-// cbTriggerWebhookSecretMatches authenticates a trigger webhook. The trigger's
-// WebhookConfig names a Secret Manager version, and the caller presents its
-// payload as the secret query parameter — so the check reads the secret the
-// operator actually stored rather than trusting the request.
+// cbTriggerWebhookSecretMatches compares the caller's secret query parameter
+// with the payload of the Secret Manager version the trigger's WebhookConfig
+// names.
 func cbTriggerWebhookSecretMatches(w http.ResponseWriter, r *http.Request, trigger BuildTrigger) bool {
 	reference := ""
 	if trigger.WebhookConfig != nil {
@@ -264,8 +261,8 @@ func startCloudBuild(build Build) Build {
 }
 
 func registerCloudBuildRegional(srv *sim.Server) {
-	// Regional build create. The global collection was mounted; its regional
-	// twin writes the same record under the location the caller named.
+	// The regional create writes the same record as the global one, under the
+	// location the caller names.
 	srv.HandleFunc("POST /v1/projects/{project}/locations/{location}/builds", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		location := sim.PathParam(r, "location")
@@ -287,8 +284,8 @@ func registerCloudBuildRegional(srv *sim.Server) {
 		cbWriteBuildOperation(w, project, startCloudBuild(build))
 	})
 
-	// Global trigger colon-verbs. The regional ones arrive through Eventarc's
-	// fan-in, which shares the path; nothing else claims the global one.
+	// The regional trigger colon-verbs arrive through Eventarc's fan-in, which
+	// shares their path.
 	srv.HandleFunc("POST /v1/projects/{project}/triggers/{triggerAction}", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		id, action, found := strings.Cut(sim.PathParam(r, "triggerAction"), ":")

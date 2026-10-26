@@ -34,22 +34,12 @@ func arDo(t *testing.T, method, url string, body []byte, contentType string) *ht
 	return resp
 }
 
-// TestArtifactRegistry_OCIMonolithicPush covers the blob upload Artifact
-// Registry serves and refuses the one it does not.
-//
-// Google is explicit: "Artifact Registry doesn't support Docker chunked
-// uploads. … You must use monolithic uploads when you push container images to
-// Artifact Registry" ("Support for the Docker Registry API"). The line is
-// between one write into an upload session and several, not between PATCH and
-// PUT: a container engine's `docker push` opens with POST, sends the whole blob
-// in a single PATCH and finalizes with PUT, and that push succeeds against the
-// live service. Refusing the first write broke a real `docker push` in CI while
-// passing on a host whose engine sent the blob on the PUT instead.
-//
-// The requests carry the access token the suite's shared transport attaches, so
-// the whole exchange is authenticated the way Artifact Registry requires; the
-// repository is created through the control plane first because the data plane
-// refuses a repository that does not exist.
+// TestArtifactRegistry_OCIMonolithicPush: "Artifact Registry doesn't support
+// Docker chunked uploads. … You must use monolithic uploads" ("Support for the
+// Docker Registry API"). The line falls between one write into an upload
+// session and several, not between PATCH and PUT: `docker push` opens with
+// POST, sends the whole blob in a single PATCH and finalizes with PUT, and the
+// live service accepts it.
 func TestArtifactRegistry_OCIMonolithicPush(t *testing.T) {
 	t.Parallel()
 	arCreateRepository(t, "test-project", "us-central1", "my-repo")
@@ -68,7 +58,6 @@ func TestArtifactRegistry_OCIMonolithicPush(t *testing.T) {
 	require.NotEmpty(t, loc)
 	resp.Body.Close()
 
-	// The whole blob in one write, which is what an engine sends.
 	resp = arDo(t, http.MethodPatch, baseURL+loc, layer, "application/octet-stream")
 	require.Equal(t, http.StatusAccepted, resp.StatusCode)
 	resp.Body.Close()
@@ -83,8 +72,7 @@ func TestArtifactRegistry_OCIMonolithicPush(t *testing.T) {
 	assert.Contains(t, string(refusal), "UNSUPPORTED")
 	assert.Contains(t, string(refusal), "monolithic")
 
-	// The refused chunk left nothing behind: the blob the session finalizes is
-	// the one write it accepted.
+	// The refused chunk left nothing behind.
 	resp = arDo(t, http.MethodPut, baseURL+loc+"?digest="+digest, nil, "")
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
 	resp.Body.Close()

@@ -133,8 +133,8 @@ func gcsMountOnlyDir(options []string) (string, error) {
 	return onlyDir, nil
 }
 
-// cloudRunGCSBinds returns the binds that mount c's Cloud Storage volumes
-// and the buckets c mounts writable.
+// cloudRunGCSBinds returns the binds that mount c's Cloud Storage volumes and
+// the buckets c mounts writable.
 func cloudRunGCSBinds(volumes map[string]Volume, c Container) (binds, writable []string, err error) {
 	for _, mp := range c.VolumeMounts {
 		v, ok := volumes[mp.Name]

@@ -9,16 +9,12 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// Cloud Run's source uploads and image exports.
-//
-// A client that deploys from source asks Cloud Run where to put it, uploads
-// there, and deploys from that location. Going the other way, it asks Cloud Run
-// to export a service's image to a repository it owns and then polls for how
-// that went. Both are addressed with colon verbs, which Go's router cannot
-// spell — a wildcard segment has to end at its brace — so each is mounted on
-// the segment before the colon and dispatched on the verb.
+// A client deploying from source asks Cloud Run where to upload it; going the
+// other way, it asks Cloud Run to export a revision's or execution's image and
+// polls the export's status. ServeMux cannot spell a colon verb after a
+// wildcard, so each mounts on the segment before the colon and dispatches on
+// the verb.
 
-// registerCloudRunExport mounts them.
 func registerCloudRunExport(srv *sim.Server) {
 	// The exports a client has asked for, keyed by the operation id handed back.
 	exports := sim.MakeStore[map[string]any](srv.DB(), "cloudrun_image_exports")
@@ -30,8 +26,8 @@ func registerCloudRunExport(srv *sim.Server) {
 
 	cloudRunExports = exports
 
-	// How an export went, asked for through the resource it ran against. The
-	// operation id is the last segment, carrying the verb with it.
+	// The export status hangs off the resource it ran against; the last segment
+	// is the operation id with the verb attached.
 	exportStatus := func(w http.ResponseWriter, r *http.Request) {
 		operationID, verb, _ := strings.Cut(sim.PathParam(r, "operationId"), ":")
 		_ = locationName
@@ -96,15 +92,13 @@ func registerCloudRunExport(srv *sim.Server) {
 		})
 }
 
-// cloudRunExports records the image exports a caller has asked for, keyed by
-// the operation id handed back — a status read answers from what was asked for
-// rather than inventing an export nobody requested.
+// cloudRunExports records the image exports callers asked for, keyed by
+// operation id, so a status read answers only for a requested export.
 var cloudRunExports sim.Store[map[string]any]
 
-// cloudRunLocationExportHandled answers the Cloud Run custom methods that share
-// the /v2 location path with Cloud Logging and Cloud Functions. Those two own
-// the routes; this is the fan-in they offer Cloud Run before falling through to
-// their own handling, which is how one path serves three services.
+// cloudRunLocationExportHandled serves the Cloud Run custom methods on the /v2
+// location path, which Cloud Logging and Cloud Functions own and offer to Cloud
+// Run first.
 func cloudRunLocationExportHandled(w http.ResponseWriter, r *http.Request, name, verb string) bool {
 	switch verb {
 	case "exportProjectMetadata", "exportMetadata", "exportImageMetadata":
@@ -134,10 +128,8 @@ func cloudRunExportImage(w http.ResponseWriter, r *http.Request, source string) 
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"operationId": operationID})
 }
 
-// cloudRunMetadata renders the metadata export for a resource. The member is a
-// string, because what Cloud Run hands back is the resource's definition
-// serialized — a caller writes it to a file — rather than a structure to read
-// members off.
+// cloudRunMetadata renders a resource's metadata export: its definition
+// serialized as a string, which a caller writes to a file.
 func cloudRunMetadata(name string) map[string]any {
 	definition, err := json.Marshal(map[string]any{"name": name})
 	if err != nil {

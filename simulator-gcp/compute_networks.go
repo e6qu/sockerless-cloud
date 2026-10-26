@@ -8,9 +8,7 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// registerComputeNetworks mounts VPC networks and their subnetworks.
 func registerComputeNetworks(srv *sim.Server, networks sim.Store[ComputeNetwork], subnetworks sim.Store[ComputeSubnetwork]) {
-	// Create network
 	srv.HandleFunc("POST /compute/v1/projects/{project}/global/networks", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 
@@ -55,7 +53,6 @@ func registerComputeNetworks(srv *sim.Server, networks sim.Store[ComputeNetwork]
 		sim.WriteJSON(w, http.StatusOK, op)
 	})
 
-	// Get network
 	srv.HandleFunc("GET /compute/v1/projects/{project}/global/networks/{name}", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		name := sim.PathParam(r, "name")
@@ -69,14 +66,12 @@ func registerComputeNetworks(srv *sim.Server, networks sim.Store[ComputeNetwork]
 		sim.WriteJSON(w, http.StatusOK, net)
 	})
 
-	// List networks
 	srv.HandleFunc("GET /compute/v1/projects/{project}/global/networks", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		prefix := fmt.Sprintf("projects/%s/global/networks/", project)
 		computeWriteScopedList(w, r, networks, "compute#networkList", prefix, func(v ComputeNetwork) string { return v.SelfLink }, func(v ComputeNetwork) string { return v.Name })
 	})
 
-	// Delete network
 	srv.HandleFunc("DELETE /compute/v1/projects/{project}/global/networks/{name}", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		name := sim.PathParam(r, "name")
@@ -95,14 +90,12 @@ func registerComputeNetworks(srv *sim.Server, networks sim.Store[ComputeNetwork]
 			}
 		}
 		networks.Delete(selfLink)
-		// Real Compute Engine stamps a delete operation `operationType: "delete"`;
-		// gcloud keys off it to report the resource as deleted instead of
-		// re-fetching it (which then 404s and fails the command).
+		// Compute Engine stamps a delete operation `operationType: "delete"`; gcloud
+		// reports the resource deleted on it instead of re-fetching a 404.
 		op := newComputeOpWithType(project, "global", selfLink, "delete")
 		sim.WriteJSON(w, http.StatusOK, op)
 	})
 
-	// Patch network (for updates)
 	srv.HandleFunc("PATCH /compute/v1/projects/{project}/global/networks/{name}", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		name := sim.PathParam(r, "name")
@@ -128,7 +121,6 @@ func registerComputeNetworks(srv *sim.Server, networks sim.Store[ComputeNetwork]
 		sim.WriteJSON(w, http.StatusOK, op)
 	})
 
-	// Create subnetwork
 	srv.HandleFunc("POST /compute/v1/projects/{project}/regions/{region}/subnetworks", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		region := sim.PathParam(r, "region")
@@ -166,7 +158,6 @@ func registerComputeNetworks(srv *sim.Server, networks sim.Store[ComputeNetwork]
 		sim.WriteJSON(w, http.StatusOK, op)
 	})
 
-	// Get subnetwork
 	srv.HandleFunc("GET /compute/v1/projects/{project}/regions/{region}/subnetworks/{name}", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		region := sim.PathParam(r, "region")
@@ -181,9 +172,8 @@ func registerComputeNetworks(srv *sim.Server, networks sim.Store[ComputeNetwork]
 		sim.WriteJSON(w, http.StatusOK, subnet)
 	})
 
-	// List subnetworks in a region (compute.subnetworks.list). Regional, so
-	// the reply is a SubnetworkList — `kind` plus `items` — rather than the
-	// scope-keyed map subnetworks.aggregatedList returns.
+	// subnetworks.list answers a SubnetworkList (`kind` and `items`), not the
+	// scope-keyed map aggregatedList returns.
 	srv.HandleFunc("GET /compute/v1/projects/{project}/regions/{region}/subnetworks", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		region := sim.PathParam(r, "region")
@@ -191,11 +181,9 @@ func registerComputeNetworks(srv *sim.Server, networks sim.Store[ComputeNetwork]
 		computeWriteScopedList(w, r, subnetworks, "compute#subnetworkList", prefix, func(v ComputeSubnetwork) string { return v.SelfLink }, func(v ComputeSubnetwork) string { return v.Name })
 	})
 
-	// Delete subnetwork
-	// A subnetwork's range only grows: shrinking it would strand the addresses
-	// already handed out of it, so Compute Engine refuses that and so does
-	// this. The comparison is on the prefix length, where a smaller number is
-	// a larger range.
+	// A subnetwork's range only grows: shrinking it would strand addresses already
+	// handed out, so Compute Engine refuses it. A smaller prefix length is a
+	// larger range.
 	srv.HandleFunc("POST /compute/v1/projects/{project}/regions/{region}/subnetworks/{name}/expandIpCidrRange", func(w http.ResponseWriter, r *http.Request) {
 		project, region, name := sim.PathParam(r, "project"), sim.PathParam(r, "region"), sim.PathParam(r, "name")
 		var req struct {
@@ -229,8 +217,7 @@ func registerComputeNetworks(srv *sim.Server, networks sim.Store[ComputeNetwork]
 			newComputeOpWithType(project, "regions/"+region, selfLink, "expandIpCidrRange"))
 	})
 
-	// A subnetwork's patch, which edits the members that can change without
-	// the subnetwork being recreated.
+	// A subnetwork's patch edits the members that change without recreating it.
 	srv.HandleFunc("PATCH /compute/v1/projects/{project}/regions/{region}/subnetworks/{name}", func(w http.ResponseWriter, r *http.Request) {
 		project, region, name := sim.PathParam(r, "project"), sim.PathParam(r, "region"), sim.PathParam(r, "name")
 		var body map[string]any
@@ -252,8 +239,6 @@ func registerComputeNetworks(srv *sim.Server, networks sim.Store[ComputeNetwork]
 			newComputeOpWithType(project, "regions/"+region, selfLink, "patch"))
 	})
 
-	// Private Google Access is a member of the subnetwork, and the verb that
-	// turns it on is how a client changes it without rewriting the resource.
 	srv.HandleFunc("POST /compute/v1/projects/{project}/regions/{region}/subnetworks/{name}/setPrivateIpGoogleAccess", func(w http.ResponseWriter, r *http.Request) {
 		project, region, name := sim.PathParam(r, "project"), sim.PathParam(r, "region"), sim.PathParam(r, "name")
 		var req struct {
@@ -288,9 +273,8 @@ func registerComputeNetworks(srv *sim.Server, networks sim.Store[ComputeNetwork]
 		}
 		subnetworks.Delete(selfLink)
 		gcpForgetSubnetworkIPAM(selfLink)
-		// Real Compute Engine stamps a delete operation `operationType: "delete"`;
-		// gcloud keys off it to report the resource as deleted instead of
-		// re-fetching it (which then 404s and fails the command).
+		// Compute Engine stamps a delete operation `operationType: "delete"`; gcloud
+		// reports the resource deleted on it instead of re-fetching a 404.
 		op := newComputeOpWithType(project, "regions/"+region, selfLink, "delete")
 		sim.WriteJSON(w, http.StatusOK, op)
 	})

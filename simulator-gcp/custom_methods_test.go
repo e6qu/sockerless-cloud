@@ -117,10 +117,8 @@ func TestUnservedCustomMethodsAreMethodNotFound(t *testing.T) {
 			body:   `{}`,
 		},
 		{
-			// sessions:adapter is served now, so an unrouted sibling stands in
-			// its place: the fan-in that routes it must still answer a method
-			// it does not serve with Method not found rather than reporting on
-			// the database.
+			// An unrouted sessions verb: the fan-in must answer it with Method not found
+			// rather than report on the database.
 			name:   "SpannerUnroutedSessionsMethod",
 			method: http.MethodPost,
 			host:   "spanner.googleapis.com",
@@ -201,8 +199,8 @@ func TestServedCustomMethodsStillReachTheResource(t *testing.T) {
 		t.Fatalf("CreateDocument: got %d %s, want the created document", status, strings.TrimSpace(body))
 	}
 
-	// Spanner CreateSession is routed by the same sub-router whose unrouted
-	// tails now answer method-not-found.
+	// The sub-router that answers unrouted tails with method-not-found still
+	// routes Spanner CreateSession.
 	status, body = gcpDo(t, srv, http.MethodPost, "spanner.googleapis.com",
 		"/spanner/v1/projects/test-project/instances/inst/databases/db/sessions", `{}`)
 	if status == http.StatusNotFound && strings.Contains(body, "Method not found.") {

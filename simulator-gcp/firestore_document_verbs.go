@@ -260,14 +260,12 @@ func fsCollectionID(name string) string {
 	return parent[strings.LastIndex(parent, "/")+1:]
 }
 
-// registerFSDocumentVerbs mounts the root-level custom methods. The
-// document-parent ones ride the CreateDocument dispatcher, which cannot reach
-// these: they hang off the collection segment itself.
+// registerFSDocumentVerbs mounts the custom methods on the collection segment,
+// which the CreateDocument dispatcher cannot reach.
 func registerFSDocumentVerbs(srv *sim.Server) {
-	// documents:write is the REST spelling of the bidirectional Write stream.
-	// A REST caller gets one request and one response, so the stream's resume
-	// tokens are answered as a stream that begins and ends within the call —
-	// the writes themselves apply exactly as a commit's do.
+	// documents:write is the REST spelling of the bidirectional Write stream: one
+	// request and one response, a stream that opens and closes within the call;
+	// the writes apply as a commit's do.
 	write := func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			StreamID    string            `json:"streamId"`

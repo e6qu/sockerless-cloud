@@ -22,8 +22,7 @@ func registerComputeInstances(srv *sim.Server, networks sim.Store[ComputeNetwork
 	recoverComputeOperations()
 	logger := srv.Logger()
 
-	// One spelling of the instance key, shared with the verbs registered
-	// alongside these handlers: two spellings would read past each other.
+	// The verbs registered beside these handlers share this instance key.
 	instanceSelfLink := computeInstanceSelfLink
 
 	normalizeInstance := func(ctx context.Context, project, zone string, inst *ComputeInstance) error {
@@ -192,13 +191,10 @@ func registerComputeInstances(srv *sim.Server, networks sim.Store[ComputeNetwork
 			return
 		}
 
-		// Compute Engine does not boot the instance inside the insert request.
-		// It records the instance as PROVISIONING, answers with a RUNNING zone
-		// operation, and brings the virtual machine up behind it; the client
-		// polls zoneOperations.get or zoneOperations.wait for the verdict. The
-		// boot therefore runs on a context of its own — a client that stops
-		// waiting must not take the machine down with it, and the request's
-		// context dies with the response.
+		// Compute Engine records the instance PROVISIONING, answers a RUNNING zone
+		// operation and boots the machine behind it, on a context of its own: the
+		// request's context dies with the response, and a client that stops waiting
+		// must not take the machine down.
 		inst.Status = ComputeInstanceProvisioning
 		instances.Put(inst.SelfLink, inst)
 

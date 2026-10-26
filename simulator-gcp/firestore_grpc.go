@@ -28,20 +28,11 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-// Firestore v1 gRPC data plane. This slice mounts the
-// google.firestore.v1.Firestore service on the shared gRPC server so the
-// high-level cloud.google.com/go/firestore client (which is gRPC-only) can talk
-// to the simulator — the REST slice already serves the low-level REST client.
-//
-// Storage is the same fsDocuments store the REST slice owns; every RPC reads
-// and writes that store through the existing helpers (fsApplyWrite,
-// fsEvaluateQuery, fsEvalPrecondition, the value converters below). No document
-// state lives here, and no query/transform/precondition logic is duplicated.
-//
-// Transactions share the fsTransactions store and the same opaque-token model
-// as the REST slice: BeginTransaction issues a token pinning a read snapshot,
-// reads carrying the token report that snapshot time, Commit applies the
-// writes and retires the token, Rollback retires it.
+// google.firestore.v1.Firestore on the shared gRPC server, for the gRPC-only
+// cloud.google.com/go/firestore client. Every RPC reads and writes the REST
+// slice's fsDocuments and fsTransactions stores through its helpers
+// (fsApplyWrite, fsEvaluateQuery, fsEvalPrecondition), so no document state or
+// query logic lives here.
 
 // fsTimestampLayout matches nowTimestamp's millisecond-truncated RFC3339 form.
 const fsTimestampLayout = "2006-01-02T15:04:05.000Z"
@@ -54,9 +45,6 @@ func registerFirestoreGRPC(gs *grpc.Server) {
 	fspb.RegisterFirestoreServer(gs, &firestoreGRPC{})
 }
 
-// proto <-> REST-store converters
-
-// fsValueToProto converts the REST JSON typed-value shape to the proto Value.
 func fsValueToProto(v FSValue) *fspb.Value {
 	switch {
 	case v.NullValue != nil:
@@ -103,7 +91,6 @@ func fsValueToProto(v FSValue) *fspb.Value {
 	}
 }
 
-// fsValueFromProto converts the proto Value to the REST JSON typed-value shape.
 func fsValueFromProto(v *fspb.Value) FSValue {
 	if v == nil {
 		return FSValue{}
@@ -158,7 +145,6 @@ func fsValueFromProto(v *fspb.Value) FSValue {
 	}
 }
 
-// fsDocToProto converts a stored FSDocument to its proto form.
 func fsDocToProto(d FSDocument) *fspb.Document {
 	out := &fspb.Document{
 		Name:       d.Name,
@@ -172,7 +158,6 @@ func fsDocToProto(d FSDocument) *fspb.Document {
 	return out
 }
 
-// fsDocFromProto converts a proto Document to the REST-store shape.
 func fsDocFromProto(d *fspb.Document) FSDocument {
 	out := FSDocument{
 		Name:       d.GetName(),
@@ -206,8 +191,6 @@ func fsTimestampFromProto(ts *timestamppb.Timestamp) string {
 	}
 	return ts.AsTime().UTC().Truncate(time.Millisecond).Format(fsTimestampLayout)
 }
-
-// request-field converters
 
 func fsPreconditionFromProto(p *fspb.Precondition) *fsPrecondition {
 	if p == nil {
@@ -295,7 +278,6 @@ func fsArrayValueFromProto(a *fspb.ArrayValue) *FSArrayValue {
 	return out
 }
 
-// fsWriteResultFromMap converts an fsApplyWrite result map to a WriteResult.
 func fsWriteResultFromMap(m map[string]any) *fspb.WriteResult {
 	wr := &fspb.WriteResult{}
 	if ut, ok := m["updateTime"].(string); ok {
@@ -310,7 +292,6 @@ func fsWriteResultFromMap(m map[string]any) *fspb.WriteResult {
 	return wr
 }
 
-// fsGRPCErr converts an fsWriteError to a gRPC status error.
 func fsGRPCErr(e *fsWriteError) error {
 	if e == nil {
 		return nil
@@ -333,12 +314,8 @@ func fsCode(n int) codes.Code {
 	}
 }
 
-// query evaluation (reuses the REST slice's pure helpers)
-
-// fsEvaluateQuery runs a structured query against the store, returning the
-// matching documents in order. It reuses fsWhereMatches, fsCompareToCursor,
-// fsCursorIndex, and fsProjectDocument — the same evaluation path as the REST
-// runQuery handler, with no duplicated filter/sort/cursor logic.
+// fsEvaluateQuery runs a structured query against the store and returns the
+// matching documents in order, through the evaluator REST runQuery uses.
 func fsEvaluateQuery(parent string, q fsStructuredQuery) []FSDocument {
 	if len(q.From) == 0 || q.From[0].CollectionID == "" {
 		return nil
@@ -545,8 +522,6 @@ func fsCursorFromProto(c *fspb.Cursor) *fsCursor {
 	return out
 }
 
-// field-mask projection for GetDocument / ListDocuments
-
 func fsProjectDocByMask(d FSDocument, mask *fspb.DocumentMask) FSDocument {
 	if mask == nil || len(mask.GetFieldPaths()) == 0 {
 		return d
@@ -568,8 +543,6 @@ func fsProjectDocByMask(d FSDocument, mask *fspb.DocumentMask) FSDocument {
 	return out
 }
 
-// transactions
-
 // fsBeginTxnBytes creates a transaction token (opaque bytes), pins a read
 // snapshot time, and persists it in the shared fsTransactions store.
 func fsBeginTxnBytes(readOnly bool, readTime string) []byte {
@@ -581,12 +554,9 @@ func fsBeginTxnBytes(readOnly bool, readTime string) []byte {
 	return token
 }
 
-// fsReadTimeForTxnBytes resolves the snapshot time for a byte-encoded token.
 func fsReadTimeForTxnBytes(b []byte) (string, bool) {
 	return fsReadTimeForTxn(string(b))
 }
-
-// Firestore RPCs
 
 func (s *firestoreGRPC) GetDocument(_ context.Context, req *fspb.GetDocumentRequest) (*fspb.Document, error) {
 	doc, ok := fsDocuments.Get(req.GetName())
@@ -670,7 +640,7 @@ func (s *firestoreGRPC) ListDocuments(_ context.Context, req *fspb.ListDocuments
 		return rest != "" && strings.Count(rest, "/") == separators
 	})
 
-	// Index-based pagination, mirroring the REST paginateList token scheme.
+	// Paginate by index, as the REST paginateList tokens do.
 	start := 0
 	if tok := req.GetPageToken(); tok != "" {
 		n, err := strconv.Atoi(tok)
@@ -952,25 +922,16 @@ func (s *firestoreGRPC) BatchWrite(_ context.Context, req *fspb.BatchWriteReques
 }
 
 func (s *firestoreGRPC) PartitionQuery(_ context.Context, req *fspb.PartitionQueryRequest) (*fspb.PartitionQueryResponse, error) {
-	// The simulator holds the whole collection in one process, so the faithful
-	// partition of any query is a single (empty) cursor — the client runs the
-	// query unpartitioned. Real Firestore returns split cursors for parallel
-	// execution; with nothing to split across, one partition is the correct
-	// answer and the response shape is preserved.
+	// The simulator holds a collection in one process, so a query's partition is
+	// a single empty cursor and the client runs it unpartitioned.
 	_ = req
 	return &fspb.PartitionQueryResponse{}, nil
 }
 
-// Write — the bidirectional write stream
-
-// fsWriteStreamTokens holds the token of the most recent response each open
-// write stream received. The stream id and the token are the resumption
-// contract: a client reconnecting presents both, and only the token the server
-// issued last is still accepted — sending a token retires every earlier one.
-//
-// The writes themselves go through fsApplyWrite into fsDocuments, the same path
-// Commit, BatchWrite and the REST slice take, so a document written over the
-// stream is immediately visible to a subsequent GetDocument.
+// fsWriteStreamTokens holds the token of each open write stream's latest
+// response. A reconnecting client presents the stream id and token, and only
+// the last token issued is accepted. Writes go through fsApplyWrite, so a
+// streamed write is visible to the next GetDocument.
 var fsWriteStreamTokens = struct {
 	mu     sync.Mutex
 	tokens map[string][]byte
@@ -1018,10 +979,8 @@ func (s *firestoreGRPC) Write(srv fspb.Firestore_WriteServer) error {
 				if !known {
 					return status.Errorf(codes.InvalidArgument, "Unknown stream id: %s", resumed)
 				}
-				// The simulator keeps no history of already-sent responses, so
-				// the only position it can resume from is the one its last
-				// token names. An older token would require replaying
-				// responses that were never retained.
+				// The simulator keeps no sent responses, so it resumes only from the position
+				// its last token names.
 				if !bytes.Equal(req.GetStreamToken(), current) {
 					return status.Error(codes.FailedPrecondition, "The stream token is no longer valid; restart the stream.")
 				}
@@ -1063,8 +1022,6 @@ func (s *firestoreGRPC) Write(srv fspb.Firestore_WriteServer) error {
 	}
 }
 
-// Listen — the bidirectional watch stream
-
 // fsListenTarget is one target on a Listen stream: the spec the client added
 // and the snapshot last reported for it (document name → the version that
 // snapshot carried), which is what the next sweep diffs against.
@@ -1105,10 +1062,9 @@ func (s *firestoreGRPC) Listen(srv fspb.Firestore_ListenServer) error {
 		}
 	}()
 
-	// Every response is sent from this loop, so the stream has exactly one
-	// writer. The store's generation advances on every write that changed it
-	// and on no other event, so a stream that re-reads its targets when the
-	// generation moved reports real writes and nothing else.
+	// Every response is sent from this loop, so the stream has one writer. The
+	// store's generation advances only on a write that changed it, so re-reading
+	// targets when it moves reports real writes and nothing else.
 	targets := map[int32]*fsListenTarget{}
 	generation := fsDocuments.Generation()
 
@@ -1146,7 +1102,6 @@ func (s *firestoreGRPC) Listen(srv fspb.Firestore_ListenServer) error {
 	}
 }
 
-// fsListenHandleRequest applies one client request to the stream's target set.
 func fsListenHandleRequest(srv fspb.Firestore_ListenServer, targets map[int32]*fsListenTarget, req *fspb.ListenRequest) error {
 	switch change := req.GetTargetChange().(type) {
 	case *fspb.ListenRequest_AddTarget:
@@ -1183,10 +1138,9 @@ func fsListenHandleRequest(srv fspb.Firestore_ListenServer, targets map[int32]*f
 			return err
 		}
 		if resumeFrom != "" {
-			// The store keeps no tombstones, so a document deleted while the
-			// client was away cannot be named. The existence filter carries the
-			// target's true match count, which is what lets the client discover
-			// that its cache holds documents the target no longer matches.
+			// The store keeps no tombstones, so a document deleted while the client was
+			// away cannot be named; the existence filter's match count lets the client
+			// find documents its cache holds that the target no longer matches.
 			if err := srv.Send(&fspb.ListenResponse{ResponseType: &fspb.ListenResponse_Filter{
 				Filter: &fspb.ExistenceFilter{TargetId: id, Count: int32(len(matches))},
 			}}); err != nil {
@@ -1316,7 +1270,6 @@ func fsListenResumePoint(target *fspb.Target) string {
 	return ""
 }
 
-// fsListenNextServerTargetID picks an id for a target the client left at zero.
 func fsListenNextServerTargetID(targets map[int32]*fsListenTarget) int32 {
 	id := int32(1)
 	for {
@@ -1327,7 +1280,6 @@ func fsListenNextServerTargetID(targets map[int32]*fsListenTarget) int32 {
 	}
 }
 
-// fsListenTargetIDs returns the stream's target ids in a stable order.
 func fsListenTargetIDs(targets map[int32]*fsListenTarget) []int32 {
 	ids := make([]int32, 0, len(targets))
 	for id := range targets {
@@ -1337,14 +1289,6 @@ func fsListenTargetIDs(targets map[int32]*fsListenTarget) []int32 {
 	return ids
 }
 
-// ExecutePipeline executes a Firestore pipeline: a stage list whose stages
-// carry expression trees built from the pipeline function library (field
-// references, comparisons, arithmetic, array and map accessors, aggregate
-// accumulators). The simulator holds documents and the structured-query
-// evaluator that RunQuery and the REST runQuery handler share; it has no
-// evaluator for pipeline expressions, and a pipeline's stages are not
-// expressible as a structured query — collection sources may be replaced by
-// arbitrary document sets, stages compose in any order, and expressions
-// compute values that no document field holds. It therefore stays on the
-// UnimplementedFirestoreServer default: a client that calls it gets a clear
-// status rather than a result set computed from a subset of its pipeline.
+// ExecutePipeline stays on the UnimplementedFirestoreServer default: the
+// simulator has no evaluator for pipeline expressions, which a structured
+// query cannot express.

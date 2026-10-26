@@ -83,7 +83,8 @@ func TestCloudKMSShowEffectiveAutokeyConfigSDK(t *testing.T) {
 
 func TestCloudKMSTrustedWrappedKeyExportImportSDK(t *testing.T) {
 	t.Parallel()
-	// The generated method below drives POST /v1/projects/{project}/locations/{location}/keyRings/{keyRing}/cryptoKeys/{cryptoKey}/cryptoKeyVersions:importTrustedKeyWrappedCryptoKeyVersion.
+	// The generated method sends POST
+	// /v1/projects/{project}/locations/{location}/keyRings/{keyRing}/cryptoKeys/{cryptoKey}/cryptoKeyVersions:importTrustedKeyWrappedCryptoKeyVersion.
 	svc := kmsService(t)
 	_, ringName := kmsNewRing(t, svc, "sdk-ring-trusted-wrap")
 
@@ -179,7 +180,6 @@ func TestCloudKMSKeyRingLifecycleSDK(t *testing.T) {
 	require.Equal(t, ringName, created.Name)
 	require.NotEmpty(t, created.CreateTime)
 
-	// Re-create the same ring → ALREADY_EXISTS.
 	_, err = svc.Projects.Locations.KeyRings.Create(parent, &cloudkms.KeyRing{}).KeyRingId(ringID).Do()
 	requireKMSErrorCode(t, err, 409)
 
@@ -268,7 +268,6 @@ func TestCloudKMSEncryptDecryptSDK(t *testing.T) {
 		AdditionalAuthenticatedData: aadB64,
 	}).Do()
 	require.NoError(t, err)
-	// Decrypt with matching AAD succeeds.
 	_, err = svc.Projects.Locations.KeyRings.CryptoKeys.Decrypt(keyName, &cloudkms.DecryptRequest{
 		Ciphertext:                  encAAD.Ciphertext,
 		AdditionalAuthenticatedData: aadB64,
@@ -318,7 +317,6 @@ func TestCloudKMSCryptoKeyManagementSDK(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "ENABLED", gotVer.State)
 
-	// Patch rotation period via update mask.
 	patched, err := svc.Projects.Locations.KeyRings.CryptoKeys.Patch(keyName, &cloudkms.CryptoKey{
 		RotationPeriod: "604800s",
 	}).UpdateMask("rotationPeriod").Do()
@@ -338,7 +336,6 @@ func TestCloudKMSCryptoKeyManagementSDK(t *testing.T) {
 	require.Error(t, err)
 }
 
-// kmsNewRing creates a fresh keyRing and returns its full name.
 func kmsNewRing(t *testing.T, svc *cloudkms.Service, ringID string) (string, string) {
 	t.Helper()
 	parent := "projects/sdk-kms-project/locations/global"
@@ -358,7 +355,6 @@ func TestCloudKMSIamPolicySDK(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, pol.Bindings)
 
-	// Set a binding, then read it back.
 	want := &cloudkms.Policy{
 		Bindings: []*cloudkms.Binding{{
 			Role:    "roles/cloudkms.cryptoKeyEncrypterDecrypter",
@@ -442,7 +438,6 @@ func TestCloudKMSMacSignVerifySDK(t *testing.T) {
 	require.NotEmpty(t, signResp.Mac)
 	require.True(t, signResp.VerifiedDataCrc32c)
 
-	// Verify the genuine HMAC round-trips.
 	verifyResp, err := svc.Projects.Locations.KeyRings.CryptoKeys.CryptoKeyVersions.MacVerify(versionName, &cloudkms.MacVerifyRequest{
 		Data: base64.StdEncoding.EncodeToString(data),
 		Mac:  signResp.Mac,
@@ -510,13 +505,11 @@ func TestCloudKMSAsymmetricSignSDK(t *testing.T) {
 	require.NoError(t, err)
 	versionName := keyName + "/cryptoKeyVersions/1"
 
-	// Fetch the genuine public key PEM.
 	pub, err := svc.Projects.Locations.KeyRings.CryptoKeys.CryptoKeyVersions.GetPublicKey(versionName).Do()
 	require.NoError(t, err)
 	require.Contains(t, pub.Pem, "BEGIN PUBLIC KEY")
 
-	// Sign a message; the signature must verify against the public key with
-	// Go's crypto/rsa — proving the sim signed with the matching private key.
+	// The signature must verify with crypto/rsa against the published public key.
 	data := []byte("sign-this-payload")
 	signResp, err := svc.Projects.Locations.KeyRings.CryptoKeys.CryptoKeyVersions.AsymmetricSign(versionName, &cloudkms.AsymmetricSignRequest{
 		Data:       base64.StdEncoding.EncodeToString(data),
@@ -561,8 +554,8 @@ func TestCloudKMSAsymmetricDecryptSDK(t *testing.T) {
 	require.NoError(t, err)
 	rsaPub := pubKeyAny.(*rsa.PublicKey)
 
-	// Encrypt locally with the published public key, then the sim decrypts with
-	// its private half — a genuine RSA-OAEP round-trip.
+	// Encrypt locally with the published public key; Cloud KMS decrypts with the
+	// private half.
 	plaintext := []byte("oaep-secret")
 	ct, err := rsa.EncryptOAEP(sha256.New(), rand.Reader, rsaPub, plaintext, nil)
 	require.NoError(t, err)
@@ -674,7 +667,6 @@ func TestCloudKMSEkmConnectionSDK(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, list.EkmConnections, 1)
 
-	// EkmConfig get + patch.
 	cfg, err := svc.Projects.Locations.GetEkmConfig(location + "/ekmConfig").Do()
 	require.NoError(t, err)
 	require.Equal(t, location+"/ekmConfig", cfg.Name)
@@ -716,7 +708,6 @@ func TestCloudKMSUpdatePrimaryVersionSDK(t *testing.T) {
 	_, err := svc.Projects.Locations.KeyRings.CryptoKeys.Create(ringName, &cloudkms.CryptoKey{Purpose: "ENCRYPT_DECRYPT"}).CryptoKeyId("primary-key").Do()
 	require.NoError(t, err)
 
-	// Add a second version and promote it to primary.
 	v2, err := svc.Projects.Locations.KeyRings.CryptoKeys.CryptoKeyVersions.Create(keyName, &cloudkms.CryptoKeyVersion{}).Do()
 	require.NoError(t, err)
 	require.Equal(t, keyName+"/cryptoKeyVersions/2", v2.Name)
@@ -735,9 +726,8 @@ func TestCloudKMSDeleteCryptoKeyAndVersionSDK(t *testing.T) {
 	_, ringName := kmsNewRing(t, svc, "sdk-ring-delete")
 
 	keyName := ringName + "/cryptoKeys/del-key"
-	// destroyScheduledDuration decides when a scheduled destroy completes; a
-	// second of it lets this test watch the whole lifecycle the delete
-	// preconditions are stated in terms of.
+	// destroyScheduledDuration decides when a scheduled destroy completes; one
+	// second lets the test watch the lifecycle the delete preconditions name.
 	created, err := svc.Projects.Locations.KeyRings.CryptoKeys.Create(ringName, &cloudkms.CryptoKey{
 		Purpose:                  "ENCRYPT_DECRYPT",
 		DestroyScheduledDuration: "1s",
@@ -771,15 +761,14 @@ func TestCloudKMSDeleteCryptoKeyAndVersionSDK(t *testing.T) {
 	_, err = svc.Projects.Locations.KeyRings.CryptoKeys.CryptoKeyVersions.Delete(first).Do()
 	require.NoError(t, err)
 
-	// Delete the now-empty key.
 	_, err = svc.Projects.Locations.KeyRings.CryptoKeys.Delete(keyName).Do()
 	require.NoError(t, err)
 	_, err = svc.Projects.Locations.KeyRings.CryptoKeys.Get(keyName).Do()
 	requireKMSErrorCode(t, err, 404)
 }
 
-// kmsAwaitRESTVersionState polls a version until it reports want, which is how
-// a client observes a scheduled destroy completing.
+// kmsAwaitRESTVersionState polls the version's state: Cloud KMS offers no wait
+// on a scheduled destroy.
 func kmsAwaitRESTVersionState(t *testing.T, svc *cloudkms.Service, name, want string) {
 	t.Helper()
 	deadline := time.Now().Add(30 * time.Second)

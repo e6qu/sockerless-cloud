@@ -142,7 +142,6 @@ func bqUpdateJob(key string, change func(*storedBQJob)) {
 	bqJobs.Put(key, job)
 }
 
-// bqCancelRun asks a running job to stop.
 func bqCancelRun(key string) {
 	if run, ok := bqRunning.Load(key); ok {
 		if r, ok := run.(*bqRun); ok {

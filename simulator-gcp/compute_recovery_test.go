@@ -74,11 +74,9 @@ func TestRecoverComputeInstancesTerminatesInstancesCaughtMoving(t *testing.T) {
 	}
 }
 
-// TestRecoverComputeOperationsSettlesOperationsCaughtMidFlight covers the other
-// half of a restart during an instance insert: the goroutine carrying the boot
-// died with the previous process, so an operation left RUNNING would never
-// reach DONE and a client polling it would wait forever. Recovery finishes each
-// one with the error, which is the only verdict the sim can honestly report.
+// TestRecoverComputeOperationsSettlesOperationsCaughtMidFlight checks that a
+// restart finishes each operation left RUNNING with an error, since the
+// goroutine carrying its work died with the previous process.
 func TestRecoverComputeOperationsSettlesOperationsCaughtMidFlight(t *testing.T) {
 	computeOpRegistry = sim.MakeStore[ComputeOperationRecord](nil, "test_compute_operations_recovery")
 

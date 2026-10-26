@@ -14,19 +14,13 @@ import (
 	sqladmin "google.golang.org/api/sqladmin/v1"
 )
 
-// A Cloud SQL backup carries the data, and a restore returns to it.
-//
-// This is the property that separates a backup from a metadata row: rows
-// written before the backup exist after instances.restoreBackup, and rows
-// written after it do not. Both halves are asserted through a stock
-// PostgreSQL driver against the instance's real data plane — the address in
-// ipAddresses is a listener the simulator owns at PostgreSQL's own port
-// (the Cloud SQL Admin API carries no port), the engine is a real
-// PostgreSQL on a named volume, and the restore stops the engine, clones
-// the backup volume back over the instance's, and boots on it.
-//
-// The declared user is real inside the engine too: the session runs as the
-// user the client named, not as a shared superuser.
+// A Cloud SQL backup carries the data: rows written before the backup exist
+// after instances.restoreBackup, and rows written after it do not. A stock
+// PostgreSQL driver asserts both against the instance's data plane: the address
+// in ipAddresses is a listener the simulator owns at PostgreSQL's own port (the
+// Cloud SQL Admin API carries no port), the engine is a real PostgreSQL on a
+// named volume, and the restore clones the backup volume over the instance's.
+// The session runs as the user the client named, not a shared superuser.
 func TestCloudSQL_BackupCapturesDataAndRestoreReturnsToIt(t *testing.T) {
 	t.Parallel()
 	testContext, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
@@ -56,11 +50,8 @@ func TestCloudSQL_BackupCapturesDataAndRestoreReturnsToIt(t *testing.T) {
 	require.NotEmpty(t, inst.IpAddresses)
 	address := inst.IpAddresses[0].IpAddress
 	if ip := net.ParseIP(address); ip == nil || !ip.IsLoopback() {
-		// The data plane needs the engine's conventional port on a
-		// per-instance loopback address. Linux provides loopback aliases
-		// natively, so a modeled address there is a defect; macOS cannot
-		// provide one without root — a host-kernel capability no test can
-		// install.
+		// The data plane needs a per-instance loopback address at the engine's port.
+		// Linux provides loopback aliases natively; macOS cannot without root.
 		if runtime.GOOS == "linux" {
 			t.Fatalf("instance reports %s: on Linux the data plane must install", address)
 		}
@@ -98,8 +89,7 @@ func TestCloudSQL_BackupCapturesDataAndRestoreReturnsToIt(t *testing.T) {
 	_, err = source.Exec(testContext, `INSERT INTO ledger VALUES ('before-backup')`)
 	require.NoError(t, err)
 
-	// Back up, and wait for the operation the way a real client does: the
-	// BACKUP_VOLUME operation runs until the capture settles.
+	// Wait on the BACKUP_VOLUME operation, which runs until the capture settles.
 	backupOp, err := svc.BackupRuns.Insert(project, instanceName, &sqladmin.BackupRun{}).Do()
 	require.NoError(t, err)
 	waitSQLOperationDone(t, svc, project, backupOp.Name)
@@ -136,9 +126,8 @@ func TestCloudSQL_BackupCapturesDataAndRestoreReturnsToIt(t *testing.T) {
 		"the restore must return to the backup: rows from before it, and none from after it")
 }
 
-// waitSQLOperationDone polls operations.get until the operation completes,
-// failing on an operation that completed carrying an error — the same loop
-// gcloud and terraform run against Cloud SQL.
+// waitSQLOperationDone polls operations.get until the operation completes and
+// fails on an error, the loop gcloud and Terraform run against Cloud SQL.
 func waitSQLOperationDone(t *testing.T, svc *sqladmin.Service, project, operation string) {
 	t.Helper()
 	require.Eventually(t, func() bool {

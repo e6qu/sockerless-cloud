@@ -19,9 +19,8 @@ import (
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
-// outsideListener is a listener of the test's own on an address an instance
-// reaches only by leaving its network: the host's own address, where the
-// test records who connected.
+// outsideListener listens on the host's own address, which an instance reaches
+// only by leaving its network, and records who connected.
 func outsideListener(t *testing.T) (address string, lastRemote func() string) {
 	t.Helper()
 	probe, err := net.Dial("udp4", "192.0.2.1:9")
@@ -70,8 +69,8 @@ func TestCompute_CloudNATCarriesAnInstancesConnections(t *testing.T) {
 	t.Cleanup(func() { _, _ = svc.Routers.Delete(project, region, "nat-router").Do() })
 
 	outside, lastRemote := outsideListener(t)
-	// The image carries bash and no curl: the request goes through bash's
-	// own TCP device.
+	// The image carries bash and no curl, so the request goes through bash's TCP
+	// device.
 	script := fmt.Sprintf("#!/bin/bash\nif timeout 5 bash -c 'exec 3<>/dev/tcp/%s && printf \"GET / HTTP/1.0\\r\\n\\r\\n\" >&3 && cat <&3 >/dev/null'; then echo rc=0; else echo rc=1; fi\n", strings.Replace(outside, ":", "/", 1))
 	op, err := svc.Instances.Insert(project, zone, &compute.Instance{
 		Name:        "nat-vm",
@@ -95,8 +94,7 @@ func TestCompute_CloudNATCarriesAnInstancesConnections(t *testing.T) {
 	require.Contains(t, console, "startup-script: rc=0", "the instance did not reach the outside through Cloud NAT")
 	assert.NotEqual(t, instanceIP, lastRemote(), "the connection arrived from the instance's own address, not the NAT's")
 
-	// The NAT logs each connection it translated to Cloud Logging, as the
-	// connections happen.
+	// The NAT logs each connection it translates to Cloud Logging as it happens.
 	logs := logadminClientFor(t, project)
 	var found bool
 	require.Eventually(t, func() bool {
@@ -107,8 +105,8 @@ func TestCompute_CloudNATCarriesAnInstancesConnections(t *testing.T) {
 				return found
 			}
 			require.NoError(t, err)
-			// The client unescapes the log ID and hands a JSON payload over
-			// as a protobuf Struct.
+			// The client unescapes the log ID and hands a JSON payload over as a protobuf
+			// Struct.
 			if entry.Resource == nil || entry.Resource.Labels["gateway_name"] != "nat" || !strings.HasSuffix(entry.LogName, "/logs/compute.googleapis.com/nat_flows") {
 				continue
 			}

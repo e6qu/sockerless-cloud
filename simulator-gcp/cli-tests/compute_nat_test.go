@@ -48,10 +48,9 @@ func TestGcloudComputeAddressAndRouterNAT(t *testing.T) {
 		"--format=value(name)").CombinedOutput()
 	require.NoError(t, err, "nat create: %s", out)
 
-	// The NAT the CLI patched onto the router is read back off the router:
 	// gcloud turns --nat-external-ip-pool into MANUAL_ONLY plus the resolved
 	// address URL, and resolves each --nat-custom-subnet-ip-ranges entry to a
-	// subnetwork of the region, which the router has to be carrying.
+	// subnetwork of the region.
 	described := computeRouterJSON(t, router, region)
 	require.Len(t, described.Nats, 1, "the router carries the NAT the CLI created")
 	created := described.Nats[0]
@@ -105,15 +104,12 @@ func TestGcloudComputeAddressAndRouterNAT(t *testing.T) {
 		"--region="+region, "--format=json").CombinedOutput()
 	require.Error(t, err, "describing a deleted address must fail: %s", out)
 
-	// The network the router was built on is torn down too, so the test leaves
-	// nothing behind.
 	out, err = gcloudCLI("compute", "networks", "delete", network, "--quiet").CombinedOutput()
 	require.NoError(t, err, "network delete: %s", out)
 	out, err = gcloudCLI("compute", "networks", "describe", network, "--format=json").CombinedOutput()
 	require.Error(t, err, "describing a deleted network must fail: %s", out)
 }
 
-// computeRouterNAT is the subset of compute#routerNat this suite reads back.
 type computeRouterNAT struct {
 	Name                          string   `json:"name"`
 	NatIPAllocateOption           string   `json:"natIpAllocateOption"`
@@ -124,13 +120,11 @@ type computeRouterNAT struct {
 	} `json:"subnetworks"`
 }
 
-// computeRouter is the subset of compute#router this suite reads back.
 type computeRouter struct {
 	Name string             `json:"name"`
 	Nats []computeRouterNAT `json:"nats"`
 }
 
-// computeRouterJSON describes a Cloud Router through the CLI.
 func computeRouterJSON(t *testing.T, router, region string) computeRouter {
 	t.Helper()
 	out, err := gcloudCLI("compute", "routers", "describe", router,
@@ -142,9 +136,8 @@ func computeRouterJSON(t *testing.T, router, region string) computeRouter {
 	return described
 }
 
-// TestGcloudComputeSubnetsList exercises compute.subnetworks.list — the
-// regional list the CLI calls for `gcloud compute networks subnets list
-// --region`:
+// TestGcloudComputeSubnetsList lists a region's subnetworks with
+// `gcloud compute networks subnets list --region`, which calls
 //
 //	GET /compute/v1/projects/{project}/regions/{region}/subnetworks
 func TestGcloudComputeSubnetsList(t *testing.T) {

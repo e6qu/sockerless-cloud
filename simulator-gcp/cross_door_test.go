@@ -11,28 +11,15 @@ import (
 	"testing"
 )
 
-// A service reached over two protocols is served here from one set of stores,
-// and sdk-tests/cross_door_test.go proves it by writing through one door and
-// observing through the other. This holds that file to the services the server
-// actually mounts, so a two-door service cannot arrive uncrossed.
-//
-// The gate exists because the divergence it guards against is invisible to
-// every other test. A suite that drives one door and reads back through the
-// same door passes whether the handler did the work or only said it did: Cloud
-// Bigtable's REST dropRowRange acknowledged deletes it never performed while
-// the gRPC spelling deleted for real, and the long-running Operations service
-// kept its own store, so an operation a gRPC call returned was invisible to the
-// REST operations door and the reverse. Both survived a green suite. Neither
-// survives a crossing.
+// A service reached over two protocols is served from one set of stores, and
+// sdk-tests/cross_door_test.go writes through one door and reads through the
+// other. This holds that file to the services the server mounts: a suite that
+// reads back through the door it wrote passes whether or not the handler did
+// the work.
 
 // crossDoorTests names the test that crosses each mounted gRPC service against
-// its REST door.
-//
-// Several services are crossed by one test where their state is one thing: the
-// Cloud Bigtable admin services and the data service share the instance,
-// table and row stores a single test exercises end to end, and Pub/Sub's
-// Publisher and Subscriber share the queue their test publishes into and pulls
-// from.
+// its REST door. One test covers services that share their state: the Cloud
+// Bigtable admin and data services, and Pub/Sub's Publisher and Subscriber.
 var crossDoorTests = map[string]string{
 	"google.bigtable.admin.v2.BigtableInstanceAdmin":     "TestCrossDoor_BigtableAdminAndData",
 	"google.bigtable.admin.v2.BigtableTableAdmin":        "TestCrossDoor_BigtableAdminAndData",
@@ -48,10 +35,9 @@ var crossDoorTests = map[string]string{
 	"google.spanner.v1.Spanner":                          "TestCrossDoor_Spanner",
 }
 
-// crossDoorSingleDoor records a mounted gRPC service the cloud does not also
-// serve over REST, with the reason. An entry here is a claim about the cloud's
-// own surface, not about this simulator's: adding one to avoid writing a
-// crossing would hide exactly what the crossing is for.
+// crossDoorSingleDoor records a mounted gRPC service Google does not also serve
+// over REST, with the reason; it is a claim about the cloud, not a way to skip
+// a crossing.
 var crossDoorSingleDoor = map[string]string{}
 
 func TestCrossDoorEveryTwoDoorServiceIsCrossed(t *testing.T) {

@@ -6,7 +6,6 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// registerARArtifactMedia mounts the format-specific artifact uploads and imports.
 func registerARArtifactMedia(srv *sim.Server, repos sim.Store[Repository]) {
 	// :create rides the media /upload/v1 prefix and answers {operation:
 	// Operation}; :import is a control-plane POST answering an Operation.

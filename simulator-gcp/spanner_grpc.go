@@ -29,27 +29,18 @@ import (
 	structpb "google.golang.org/protobuf/types/known/structpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	// Pure-Go SQLite driver — same one sim.Store relies on. Registering it
-	// here keeps the data plane self-contained even though the parent binary
-	// already pulls the driver in transitively.
+	// The pure-Go SQLite driver sim.Store uses; the data plane registers it
+	// itself.
 	_ "modernc.org/sqlite"
 )
 
-// Cloud Spanner gRPC data plane (google.spanner.v1.Spanner). The admin REST
-// slice in spanner.go owns the instance/database/DDL/session stores; every
-// RPC here reads those same stores so the REST and gRPC surfaces observe one
-// consistent cloud state. The high-level cloud.google.com/go/spanner client is
-// gRPC-only and reaches the simulator through SPANNER_EMULATOR_HOST, the same
-// coordinate it uses for Google's own Spanner emulator.
-//
-// ExecuteSql / ExecuteStreamingSql / Read / StreamingRead / Commit execute
-// against a real in-memory SQLite engine that is materialized from each
-// database's CREATE TABLE DDL. A CREATE TABLE followed by an INSERT followed by
-// a SELECT therefore returns the inserted row — no synthetic result sets. SQL
-// constructs Spanner supports that SQLite cannot express (interleaved tables,
-// proto-typed columns, generated columns) are rejected with a loud error at DDL
-// time so the untranslatable table is simply absent from the backing store,
-// rather than returning empty rows at query time.
+// The Cloud Spanner data plane (google.spanner.v1.Spanner) over gRPC, reading
+// the instance, database, DDL and session stores spanner.go owns. The
+// gRPC-only cloud.google.com/go/spanner client reaches it at the simulator's
+// gRPC endpoint over TLS with a bearer token. Queries, reads and commits run
+// against a SQLite engine materialized from each database's DDL; DDL SQLite
+// cannot express (interleaved tables, proto columns, generated columns) is
+// rejected when applied.
 
 type spannerDataGRPC struct {
 	sppb.UnimplementedSpannerServer
@@ -59,11 +50,8 @@ func registerSpannerGRPC(gs *grpc.Server) {
 	sppb.RegisterSpannerServer(gs, &spannerDataGRPC{})
 }
 
-// per-database SQLite backing engine
-
-// spannerBackend holds the materialized SQLite engine for one database plus
-// the count of DDL statements already applied, so a subsequent
-// UpdateDatabaseDdl that appends statements can be reconciled incrementally.
+// spannerBackend is a database's SQLite engine and how many of its DDL
+// statements it has applied, so UpdateDatabaseDdl reconciles incrementally.
 type spannerBackend struct {
 	mu              sync.Mutex
 	db              *sql.DB
@@ -79,10 +67,9 @@ var (
 	spannerPartitionsMu  sync.RWMutex
 )
 
-// spannerTxnRuntime owns the real SQLite transaction behind one Spanner
-// transaction ID. Reads, SQL DML, mutations, commit, and rollback all use this
-// same transaction, so uncommitted writes remain isolated and rollback really
-// discards them.
+// spannerTxnRuntime owns the SQLite transaction behind one Spanner transaction
+// ID, which reads, DML, mutations, commit and rollback all use, so uncommitted
+// writes stay isolated and rollback discards them.
 type spannerTxnRuntime struct {
 	mu             sync.Mutex
 	session        string
@@ -103,9 +90,8 @@ type spannerPartitionRuntime struct {
 	read          *sppb.PartitionReadRequest
 }
 
-// spannerDataDir returns the directory holding file-backed Spanner engines,
-// or "" when the simulator runs without a data directory (engines are then
-// in-memory, matching the rest of the process-lifetime state).
+// spannerDataDir returns the directory of file-backed engines, or "" without
+// a data directory, when engines are in-memory.
 func spannerDataDir() string {
 	dir := os.Getenv("SIM_DATA_DIR")
 	if dir == "" {
@@ -114,10 +100,9 @@ func spannerDataDir() string {
 	return filepath.Join(dir, "spanner")
 }
 
-// spannerBackendFile derives the deterministic, filesystem-safe backing
-// filename for a database resource name: the name with every non-portable
-// rune replaced, plus a short digest of the original name so two names that
-// sanitize identically never share a file.
+// spannerBackendFile derives a filesystem-safe file name for a database: the
+// name with non-portable runes replaced, plus a short digest so two names
+// that sanitize alike never share a file.
 func spannerBackendFile(dbName string) string {
 	safe := strings.Map(func(r rune) rune {
 		switch {
@@ -132,9 +117,8 @@ func spannerBackendFile(dbName string) string {
 	return safe + "-" + hex.EncodeToString(sum[:8]) + ".db"
 }
 
-// The engine records how many of the database's DDL statements it has already
-// applied inside the engine itself, so a file-backed database reopened after a
-// restart does not re-run CREATE TABLE statements against its existing schema.
+// The engine records how many DDL statements it applied, so a file-backed
+// database reopened after a restart does not re-run its CREATE TABLEs.
 func spannerReadAppliedDDLCount(db *sql.DB) (int, error) {
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS _sockerless_applied_ddl (id INTEGER PRIMARY KEY CHECK (id = 0), count INTEGER NOT NULL)`); err != nil {
 		return 0, err
@@ -152,21 +136,16 @@ func spannerWriteAppliedDDLCount(db *sql.DB, n int) error {
 	return err
 }
 
-// spannerBackendFor returns the materialized SQLite backend for a database,
-// creating it and applying any pending DDL on first access. DDL statements
-// beyond what has already been applied are reconciled incrementally, mirroring
-// how UpdateDatabaseDdl extends a database's schema over time.
+// spannerBackendFor returns a database's SQLite backend, creating it and
+// applying any DDL beyond what it has applied.
 func spannerBackendFor(dbName string) (*spannerBackend, error) {
 	spannerBackendsMutex.Lock()
 	defer spannerBackendsMutex.Unlock()
 	b, ok := spannerBackends[dbName]
 	if !ok {
-		// In-memory by default: the unique shared cache name keeps each
-		// database isolated; modernc honors file::memory:?cache=shared
-		// semantics with a unique id so concurrent databases do not collide.
-		// With a data directory the engine is a real file under
-		// <SIM_DATA_DIR>/spanner so committed rows survive a restart the way
-		// the SQLite-backed schema/session stores do.
+		// In-memory by default, under a unique shared-cache name per database. With a
+		// data directory the engine is a file under <SIM_DATA_DIR>/spanner, so
+		// committed rows survive a restart as the schema and session stores do.
 		dsn := "file:" + dbName + "?mode=memory&cache=shared"
 		if dir := spannerDataDir(); dir != "" {
 			if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -215,9 +194,8 @@ func spannerBackendFor(dbName string) (*spannerBackend, error) {
 	return b, nil
 }
 
-// spannerDropBackend closes and discards a database's materialized engine and
-// removes its file backing, so DropDatabase releases the rows together with
-// the schema. An absent file (the database was never queried) is not an error.
+// spannerDropBackend closes a database's engine and removes its file, so
+// DropDatabase releases the rows with the schema; a missing file is fine.
 func spannerDropBackend(dbName string) error {
 	spannerBackendsMutex.Lock()
 	b := spannerBackends[dbName]
@@ -237,21 +215,14 @@ func spannerDropBackend(dbName string) error {
 	return errors.Join(errs...)
 }
 
-// DDL translation: Spanner SQL dialect → SQLite
-
 var (
 	spannerInterleaveRe = regexp.MustCompile(`(?is)\s*,?\s*INTERLEAVE\s+IN\s+PARENT\b.*$`)
 )
 
-// spannerTranslateDDL converts a Spanner DDL statement to a SQLite-equivalent
-// statement. Unsupported statements return ok=false and make UpdateDatabaseDdl
-// complete with an UNIMPLEMENTED operation error; schema updates are never
-// silently skipped.
-//
-// A statement that is valid Spanner DDL but shapes no SQLite object returns an
-// empty statement with ok=true: CREATE ROLE and DROP ROLE define the database's
-// fine-grained access-control roles, which the databaseRoles collection reads
-// straight out of this DDL history rather than out of the SQLite schema.
+// spannerTranslateDDL converts a Spanner DDL statement to SQLite. An
+// unsupported statement returns ok=false, which fails UpdateDatabaseDdl with
+// UNIMPLEMENTED. CREATE ROLE and DROP ROLE translate to an empty statement:
+// databaseRoles reads them from the DDL history, not the SQLite schema.
 func spannerTranslateDDL(stmt string) (string, bool) {
 	trimmed := strings.TrimSpace(stmt)
 	upper := strings.ToUpper(trimmed)
@@ -276,10 +247,8 @@ func spannerTranslateDDL(stmt string) (string, bool) {
 	return "", false
 }
 
-// spannerApplyDDLStatements executes one UpdateDatabaseDdl request atomically
-// against the database's real backing engine. The durable DDL store is updated
-// only after the backing schema commits, so a rejected statement never becomes
-// a latent failure on the next data-plane request.
+// spannerApplyDDLStatements applies one UpdateDatabaseDdl request atomically
+// to the engine, and updates the DDL store only after the schema commits.
 func spannerApplyDDLStatements(dbName string, statements []string) error {
 	b, err := spannerBackendFor(dbName)
 	if err != nil {
@@ -315,18 +284,15 @@ func spannerApplyDDLStatements(dbName string, statements []string) error {
 	return nil
 }
 
-// spannerCreateTableHeadRe captures the CREATE TABLE keyword, the table name,
-// and everything after the opening paren of the column list. The column list's
-// matching close paren is located by balanced paren scanning in the caller, so
-// nested parens inside column types (STRING(100), ARRAY<...>) survive.
+// spannerCreateTableHeadRe captures CREATE TABLE, the table name and what
+// follows the column list's opening paren; the caller finds the matching
+// close paren by balanced scanning, so STRING(100) and ARRAY<...> survive.
 var spannerCreateTableHeadRe = regexp.MustCompile(`(?is)^\s*CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?` + "`?" + `([A-Za-z0-9_\.]+)` + "`?" + `\s*\((.*)$`)
 
-// spannerTranslateCreateTable rewrites a Spanner CREATE TABLE into a SQLite one
-// the engine will accept: Spanner-specific column types are mapped onto
-// SQLite's dynamic typing, and clauses SQLite has no analogue for (INTERLEAVE
-// IN PARENT, ON DELETE CASCADE) are dropped. The trailing PRIMARY KEY (...)
-// clause Spanner places after the column list is moved inside the parentheses
-// as a table-level constraint, which is where SQLite expects it.
+// spannerTranslateCreateTable rewrites a Spanner CREATE TABLE for SQLite: it
+// maps the column types onto SQLite's dynamic typing, drops INTERLEAVE IN
+// PARENT and ON DELETE CASCADE, and moves the trailing PRIMARY KEY (...) inside
+// the parentheses as a table constraint.
 func spannerTranslateCreateTable(stmt string) (string, bool) {
 	m := spannerCreateTableHeadRe.FindStringSubmatch(stmt)
 	if m == nil {
@@ -334,8 +300,6 @@ func spannerTranslateCreateTable(stmt string) (string, bool) {
 	}
 	table := m[1]
 	rest := m[2]
-	// Scan for the matching close paren of the column list, accounting for
-	// nested parens (STRING(100), ARRAY<...> when rewritten, etc.).
 	depth := 1
 	close := -1
 	for i, r := range rest {
@@ -402,8 +366,6 @@ func quoteIdent(name string) string {
 	return "\"" + strings.ReplaceAll(name, "\"", "\"\"") + "\""
 }
 
-// path / name normalization
-
 // spannerSessionDatabase resolves a session name to its parent database full
 // name (projects/.../databases/...). Returns "" if the session does not exist.
 func spannerSessionDatabase(sessionName string) (string, error) {
@@ -411,7 +373,6 @@ func spannerSessionDatabase(sessionName string) (string, error) {
 	if !ok {
 		return "", status.Errorf(codes.NotFound, "session not found: %s", sessionName)
 	}
-	// Session name = projects/{p}/instances/{i}/databases/{d}/sessions/{s}
 	idx := strings.LastIndex(sess.Name, "/sessions/")
 	if idx < 0 {
 		return "", status.Errorf(codes.InvalidArgument, "malformed session name: %s", sess.Name)
@@ -419,12 +380,8 @@ func spannerSessionDatabase(sessionName string) (string, error) {
 	return sess.Name[:idx], nil
 }
 
-// proto Value <-> Go value conversion (per Spanner Type)
-
-// spannerProtoToGo converts a proto Value to a Go value suitable for binding
-// to a SQLite parameter, guided by the column's Spanner type. INT64 values may
-// arrive as string_value (canonical Spanner encoding) or number_value; both are
-// honored.
+// spannerProtoToGo converts a proto Value to a SQLite bind value by its Spanner
+// type; INT64 arrives as string_value (Spanner's encoding) or number_value.
 func spannerProtoToGo(v *structpb.Value, t *sppb.Type) any {
 	if v == nil {
 		return nil
@@ -603,11 +560,8 @@ func spannerTypeForSQLite(declType string) *sppb.Type {
 	return &sppb.Type{Code: sppb.TypeCode_STRING}
 }
 
-// metadata helpers
-
-// spannerTableColumns returns the SQLite column names and Spanner types for a
-// table, in declared order. Used to shape ResultSet row types and to coerce
-// mutation values to the right Go type.
+// spannerTableColumns returns a table's column names and Spanner types in
+// declared order, for ResultSet row types and mutation coercion.
 func spannerTableColumns(b *spannerBackend, table string) ([]string, []*sppb.Type, error) {
 	rows, err := b.db.Query("PRAGMA table_info(" + quoteIdent(table) + ")")
 	if err != nil {
@@ -636,8 +590,7 @@ func spannerTableColumns(b *spannerBackend, table string) ([]string, []*sppb.Typ
 	return names, types, nil
 }
 
-// spannerPrimaryKeyColumns returns the primary-key column names of a table in
-// SQLite-defined order. Used to scope UPDATE/DELETE mutations and point reads.
+// spannerPrimaryKeyColumns returns a table's primary-key columns in key order.
 func spannerPrimaryKeyColumns(b *spannerBackend, table string) ([]string, error) {
 	rows, err := b.db.Query("PRAGMA table_info(" + quoteIdent(table) + ")")
 	if err != nil {
@@ -676,11 +629,8 @@ func spannerPrimaryKeyColumns(b *spannerBackend, table string) ([]string, error)
 	return pkCols, nil
 }
 
-// query execution core
-
-// spannerExecResult captures everything needed to shape a ResultSet: the column
-// names, their Spanner types, and the materialized row values (already in proto
-// form).
+// spannerExecResult is a ResultSet's columns, their Spanner types and the rows
+// in proto form.
 type spannerExecResult struct {
 	columns []string
 	types   []*sppb.Type
@@ -695,12 +645,10 @@ type spannerExecer interface {
 	ExecContext(context.Context, string, ...any) (sql.Result, error)
 }
 
-// spannerRunQuery executes a SQL statement (with optional bind args) against
-// the database's SQLite backend and returns its rows shaped for Spanner's
-// ResultSet. The column types are derived from the SQLite result columns; for
-// SELECTs these come from the declared schema, for expressions they default to
-// STRING. Args may be sql.NamedArg (for @name placeholders in ExecuteSql) or
-// plain positional values (for ? placeholders in Read).
+// spannerRunQuery executes a statement against the database's engine and
+// shapes its rows as a Spanner ResultSet. Args are sql.NamedArg for
+// ExecuteSql's @name placeholders or positional values for Read's ?
+// placeholders.
 func spannerRunQuery(ctx context.Context, b *spannerBackend, queryer spannerQueryer, sqlText string, args []any) (*spannerExecResult, error) {
 	q, err := queryer.QueryContext(ctx, sqlText, args...)
 	if err != nil {
@@ -720,11 +668,8 @@ func spannerRunQuery(ctx context.Context, b *spannerBackend, queryer spannerQuer
 		columns: colNames,
 		types:   make([]*sppb.Type, len(colNames)),
 	}
-	// Prefer the table's declared types (richer than the runtime affinity SQLite
-	// reports via ColumnTypes.DatabaseTypeName, which is often blank for
-	// expressions). For a plain SELECT col1, col2 FROM table the declared type
-	// is recoverable by mapping the column name back through the table schema;
-	// for expressions we fall back to DatabaseTypeName.
+	// Prefer the table's declared types, recovered for a plain "SELECT cols FROM
+	// table"; SQLite's DatabaseTypeName is often blank for an expression.
 	tableColTypes := spannerLookupSelectTypes(b, sqlText, colNames, colTypes)
 	for i := range colNames {
 		if tableColTypes != nil && tableColTypes[i] != nil {
@@ -791,9 +736,8 @@ func spannerColumnDeclType(ct *sql.ColumnType) string {
 	return ct.DatabaseTypeName()
 }
 
-// spannerBindArgs turns the params Struct into a slice of sql.NamedArg bound to
-// the @name placeholders Spanner SQL uses. SQLite (modernc) honors @name named
-// parameters natively, so the SQL text is passed through unchanged.
+// spannerBindArgs binds the params Struct to Spanner's @name placeholders,
+// which modernc SQLite honours natively.
 func spannerBindArgs(params *structpb.Struct, paramTypes map[string]*sppb.Type) []any {
 	if params == nil {
 		return nil
@@ -818,10 +762,9 @@ func spannerNormalizeScanValue(v any) any {
 	return v
 }
 
-// spannerLookupSelectTypes best-effort maps a SELECT's result columns to the
-// declared Spanner types of the underlying table columns, by recognizing the
-// common "SELECT cols FROM table" shape the high-level client emits for point
-// and range reads. Returns nil if the shape is not recognized.
+// spannerLookupSelectTypes maps a "SELECT cols FROM table" result's columns,
+// the shape the client emits for point and range reads, to the table's
+// declared Spanner types, or returns nil for any other shape.
 var spannerSimpleSelectRe = regexp.MustCompile(`(?is)^\s*SELECT\s+(.+?)\s+FROM\s+([A-Za-z0-9_\.]+)(?:\s|$)`)
 
 func spannerLookupSelectTypes(b *spannerBackend, sqlText string, colNames []string, colTypes []*sql.ColumnType) []*sppb.Type {
@@ -862,7 +805,6 @@ func spannerLookupSelectTypes(b *spannerBackend, sqlText string, colNames []stri
 	return out
 }
 
-// spannerShapeResultSet builds a non-streaming ResultSet from an exec result.
 func spannerShapeResultSet(r *spannerExecResult) *sppb.ResultSet {
 	fields := make([]*sppb.StructType_Field, len(r.columns))
 	for i, name := range r.columns {
@@ -874,22 +816,16 @@ func spannerShapeResultSet(r *spannerExecResult) *sppb.ResultSet {
 	}
 }
 
-// Sessions RPCs
-
-// spannerResolveTxn interprets a request's TransactionSelector. When the
-// selector asks to begin a transaction, a new id is minted and recorded against
-// the database, and begun=true so the caller can surface it in the response
-// metadata (the high-level client relies on this inline-begin path for
-// ReadWriteTransaction). A selector carrying an existing id is validated against
-// the store; single-use and absent selectors are no-ops.
+// spannerBeginTxn mints a transaction ID for the database and opens the SQLite
+// transaction behind it.
 func spannerBeginTxn(session, dbName string, readOnly, partitionedDML bool) ([]byte, *spannerTxnRuntime, error) {
 	b, err := spannerBackendFor(dbName)
 	if err != nil {
 		return nil, nil, err
 	}
-	// A Spanner transaction outlives the BeginTransaction RPC that created it.
-	// database/sql rolls back a BeginTx transaction when its context ends, so use
-	// Begin and let Commit, Rollback, or session deletion own the lifecycle.
+	// A Spanner transaction outlives the BeginTransaction RPC, and database/sql
+	// rolls back a BeginTx transaction when its context ends, so use Begin and let
+	// Commit, Rollback or session deletion end it.
 	tx, err := b.db.Begin()
 	if err != nil {
 		return nil, nil, status.Errorf(codes.Internal, "begin Cloud Spanner transaction: %v", err)
@@ -947,6 +883,10 @@ func spannerRollbackSessionTransactions(session string) {
 	spannerPartitionsMu.Unlock()
 }
 
+// spannerResolveTxn interprets a request's TransactionSelector. A begin mints
+// a transaction and reports begun, so the response metadata carries it, as the
+// client's inline-begin ReadWriteTransaction relies on; an existing ID is
+// checked against the store; single-use and absent selectors do nothing.
 func spannerResolveTxn(session, dbName string, sel *sppb.TransactionSelector) (id []byte, begun bool, runtime *spannerTxnRuntime, err error) {
 	if sel == nil {
 		return nil, false, nil, nil
@@ -1060,8 +1000,6 @@ func spannerStoredSessionToProto(s spannerSession) *sppb.Session {
 	return out
 }
 
-// ExecuteSql / ExecuteStreamingSql
-
 func (s *spannerDataGRPC) ExecuteSql(ctx context.Context, req *sppb.ExecuteSqlRequest) (*sppb.ResultSet, error) {
 	dbName, err := spannerSessionDatabase(req.GetSession())
 	if err != nil {
@@ -1157,11 +1095,8 @@ func spannerResultSetToPartial(rs *sppb.ResultSet) *sppb.PartialResultSet {
 	return partial
 }
 
-// Read / StreamingRead
-
-// spannerBuildReadQuery translates a Spanner Read request into a parameterized
-// SQLite SELECT plus the bind args. It supports AllKeys, point-key lists, and
-// lexicographic ranges over full or prefix primary keys.
+// spannerBuildReadQuery translates a Read into a parameterized SELECT over
+// AllKeys, point keys or ranges over full or prefix primary keys.
 func spannerBuildReadQuery(b *spannerBackend, req *sppb.ReadRequest) (string, []any, error) {
 	table := req.GetTable()
 	cols := req.GetColumns()
@@ -1194,8 +1129,8 @@ func spannerBuildReadQuery(b *spannerBackend, req *sppb.ReadRequest) (string, []
 	if ks == nil || ks.GetAll() {
 		where = ""
 	} else if len(ks.GetKeys()) > 0 {
-		// Point keys. Each key is a ListValue of the PK columns in declared
-		// order. Build (pk1=? AND pk2=?) OR (pk1=? AND pk2=?) …
+		// Each point key is a ListValue of the key columns:
+		// (pk1=? AND pk2=?) OR (pk1=? AND pk2=?) …
 		var ors []string
 		for _, key := range ks.GetKeys() {
 			vals := key.GetValues()
@@ -1344,16 +1279,13 @@ func (s *spannerDataGRPC) StreamingRead(req *sppb.ReadRequest, stream sppb.Spann
 	return nil
 }
 
-// spannerReorderReadColumns projects a Read's result onto the requested columns
-// in the requested order. The query always selects the requested columns
-// already, so this is only needed when the query selected * (no explicit column
-// list) to project down to the requested set.
+// spannerReorderReadColumns projects a `SELECT *` result onto the requested
+// columns in the requested order.
 func spannerReorderReadColumns(req *sppb.ReadRequest, res *spannerExecResult) *spannerExecResult {
 	cols := req.GetColumns()
 	if len(cols) == 0 || len(res.columns) == 0 {
 		return res
 	}
-	// If the result columns already match the request order, nothing to do.
 	match := len(cols) == len(res.columns)
 	if match {
 		for i, c := range cols {
@@ -1366,7 +1298,6 @@ func spannerReorderReadColumns(req *sppb.ReadRequest, res *spannerExecResult) *s
 	if match {
 		return res
 	}
-	// Build a projection from the result's declared columns.
 	idx := map[string]int{}
 	for i, c := range res.columns {
 		idx[c] = i
@@ -1392,8 +1323,6 @@ func spannerReorderReadColumns(req *sppb.ReadRequest, res *spannerExecResult) *s
 	}
 	return out
 }
-
-// Transactions
 
 func (s *spannerDataGRPC) BeginTransaction(_ context.Context, req *sppb.BeginTransactionRequest) (*sppb.Transaction, error) {
 	dbName, err := spannerSessionDatabase(req.GetSession())
@@ -1489,12 +1418,9 @@ func (s *spannerDataGRPC) Rollback(_ context.Context, req *sppb.RollbackRequest)
 	return &emptypb.Empty{}, nil
 }
 
-// Mutations
-
-// spannerApplyMutation applies one write mutation inside a SQLite transaction.
-// Insert / InsertOrUpdate / Replace / Update / Delete map onto SQLite's own
-// INSERT / INSERT OR REPLACE / UPDATE / DELETE statements; the table's primary
-// key scopes UPDATE and DELETE.
+// spannerApplyMutation applies one mutation inside a SQLite transaction:
+// Insert, InsertOrUpdate, Replace, Update and Delete map onto INSERT, INSERT OR
+// REPLACE, UPDATE and DELETE, scoped by the primary key.
 func spannerApplyMutation(tx *sql.Tx, m *sppb.Mutation) error {
 	if m == nil {
 		return nil
@@ -1514,9 +1440,8 @@ func spannerApplyMutation(tx *sql.Tx, m *sppb.Mutation) error {
 	return status.Error(codes.InvalidArgument, "mutation carried no recognized operation")
 }
 
-// spannerExecWrite applies an Insert/Update/InsertOrUpdate/Replace mutation.
-// Column types are looked up from the SQLite schema so proto values are coerced
-// to the right Go type on the way in (notably INT64 → int64).
+// spannerExecWrite applies an Insert, Update, InsertOrUpdate or Replace,
+// coercing values by the SQLite schema's types (INT64 to int64).
 func spannerExecWrite(tx *sql.Tx, w *sppb.Mutation_Write, verb string) error {
 	if w == nil {
 		return status.Error(codes.InvalidArgument, "write mutation is empty")
@@ -1556,9 +1481,8 @@ func spannerExecWrite(tx *sql.Tx, w *sppb.Mutation_Write, verb string) error {
 		if err != nil {
 			return err
 		}
-		// UPDATE's WHERE must pin the row by primary key. The mutation supplies
-		// column values in declared order; the PK columns are a subset, so build
-		// the WHERE by mapping each PK back to its position in cols.
+		// UPDATE's WHERE pins the row by primary key, mapping each key column back to
+		// its position among the mutation's columns.
 		colIndex := map[string]int{}
 		for i, c := range cols {
 			colIndex[c] = i
@@ -1585,8 +1509,7 @@ func spannerExecWrite(tx *sql.Tx, w *sppb.Mutation_Write, verb string) error {
 			args = append(args, spannerProtoToGo(vals[i], typeByName[c]))
 		}
 		if verb == "UPDATE" {
-			// Append the PK values (already included in the SET positions) so
-			// the WHERE placeholders bind to the same row's keys.
+			// Bind the key values to the WHERE placeholders.
 			colIndex := map[string]int{}
 			for i, c := range cols {
 				colIndex[c] = i
@@ -1604,7 +1527,6 @@ func spannerExecWrite(tx *sql.Tx, w *sppb.Mutation_Write, verb string) error {
 	return nil
 }
 
-// spannerExecDelete applies a Delete mutation scoped by its key set.
 func spannerExecDelete(tx *sql.Tx, d *sppb.Mutation_Delete) error {
 	if d == nil {
 		return status.Error(codes.InvalidArgument, "delete mutation is empty")
@@ -1670,8 +1592,7 @@ func spannerExecDelete(tx *sql.Tx, d *sppb.Mutation_Delete) error {
 	return nil
 }
 
-// spannerTableColumnsFromTx is the *sql.Tx variant of spannerTableColumns, so
-// mutations running inside a Commit transaction see a consistent view.
+// spannerTableColumnsFromTx reads the columns inside a Commit's transaction.
 func spannerTableColumnsFromTx(tx *sql.Tx, table string) ([]string, []*sppb.Type, error) {
 	rows, err := tx.Query("PRAGMA table_info(" + quoteIdent(table) + ")")
 	if err != nil {
@@ -1733,8 +1654,6 @@ func spannerPrimaryKeyColumnsFromTx(tx *sql.Tx, table string) ([]string, error) 
 	}
 	return pkCols, nil
 }
-
-// Batch DML and batch mutations
 
 func (s *spannerDataGRPC) ExecuteBatchDml(ctx context.Context, req *sppb.ExecuteBatchDmlRequest) (*sppb.ExecuteBatchDmlResponse, error) {
 	if len(req.GetStatements()) == 0 {
@@ -1837,13 +1756,9 @@ func (s *spannerDataGRPC) BatchWrite(req *sppb.BatchWriteRequest, stream sppb.Sp
 	return nil
 }
 
-// Partitioning
-
-// The backing database lives in one SQLite engine, so a partition request has
-// exactly one real partition. Its opaque token remains bound to the session,
-// read-only transaction, and original query/read fields, matching Cloud
-// Spanner's rule that an execution request must exactly match the request that
-// created the token.
+// A database is one SQLite engine, so a partition request yields one
+// partition, whose token stays bound to the session, the read-only
+// transaction and the original request, as Cloud Spanner requires.
 func (s *spannerDataGRPC) PartitionQuery(_ context.Context, req *sppb.PartitionQueryRequest) (*sppb.PartitionResponse, error) {
 	if strings.TrimSpace(req.GetSql()) == "" {
 		return nil, status.Error(codes.InvalidArgument, "sql is required")
@@ -1984,18 +1899,6 @@ func slicesEqual(a, b []string) bool {
 	return true
 }
 
-// FetchCacheUpdate streams a client's location cache: the database's split
-// ranges, the groups serving each range with their zones, and the key recipes
-// that encode a row key into the sortable form used to select a range. Its
-// purpose is to let a client address the server holding a key directly instead
-// of routing through a frontend, and to keep doing so as splits move.
-//
-// The simulator is a single SQLite database in a single process. It has no
-// splits, no replica groups, no zones and no server topology, so every field
-// that makes a cache update useful has no source here; a stream carrying only
-// key recipes would hand the client a cache with nothing to route on. Nor is
-// there anything to stream after a first message: cache updates exist to
-// report splits moving, and no split in the simulator moves. The method stays
-// on the embedded UnimplementedSpannerServer, so a client asking for a location
-// cache gets a clear status instead of a routing document describing a
-// topology that does not exist.
+// FetchCacheUpdate stays on the embedded UnimplementedSpannerServer: a
+// location cache describes split ranges, replica groups and zones, and the
+// simulator is one SQLite database with none of them, and no splits that move.

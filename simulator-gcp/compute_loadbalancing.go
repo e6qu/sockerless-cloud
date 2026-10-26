@@ -120,9 +120,8 @@ func registerComputeLoadBalancing(srv *sim.Server) {
 	srv.HandleFunc("GET /compute/v1/projects/{project}/global/backendServices", func(w http.ResponseWriter, r *http.Request) {
 		computeWriteGlobalList(w, r, backendServices, "compute#backendServiceList")
 	})
-	// The subset the caller may attach to a load balancer, which for the
-	// project's holder is the project's own backend services. The literal
-	// segment wins over the `{name}` get that would otherwise answer for it.
+	// listUsable answers the project's own backend services; the literal segment
+	// wins over the `{name}` get.
 	srv.HandleFunc("GET /compute/v1/projects/{project}/global/backendServices/listUsable", func(w http.ResponseWriter, r *http.Request) {
 		computeWriteGlobalList(w, r, backendServices, "compute#usableBackendServiceList")
 	})
@@ -384,20 +383,15 @@ func computeDeleteGlobalResource[T computeNamedResource](w http.ResponseWriter, 
 	sim.WriteJSON(w, http.StatusOK, computeGlobalOp(project, selfLink, "delete"))
 }
 
-// computeFingerprint returns a fresh opaque optimistic-concurrency token. Real
-// GCP fingerprints change whenever the resource is mutated, so callers set a new
-// one on every write; a client that PATCHes with a stale fingerprint then fails
-// the precondition (see fingerprintMatches). Generated per call (not a
-// constant) so each mutation invalidates the prior token.
+// computeFingerprint returns a fresh optimistic-concurrency token per write, so
+// each write invalidates the previous one, as Compute Engine fingerprints do.
 func computeFingerprint() string {
 	return strings.ReplaceAll(sim.NewUUID(), "-", "")[:16]
 }
 
-// fingerprintMatches reports whether a client-supplied fingerprint may proceed
-// against the resource's current fingerprint. An empty client fingerprint is
-// permitted (the SDK omits it on first write / when the caller opts out of the
-// optimistic-concurrency check); a non-empty one must equal the current value,
-// exactly as real GCP gates setLabels/setMetadata/setTags/PATCH.
+// fingerprintMatches lets an empty client fingerprint proceed (the SDK omits it
+// on a first write) and otherwise requires the current one, as Compute Engine
+// gates setLabels, setMetadata, setTags and PATCH.
 func fingerprintMatches(current, supplied string) bool {
 	return supplied == "" || supplied == current
 }

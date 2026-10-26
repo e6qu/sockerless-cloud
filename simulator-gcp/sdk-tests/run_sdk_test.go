@@ -31,8 +31,6 @@ func newJobsClient(t *testing.T) *run.JobsClient {
 	return client
 }
 
-// cleanupJob deletes a Cloud Run job when the test ends and waits for the
-// delete to complete.
 func cleanupJob(t *testing.T, client *run.JobsClient, name string) {
 	t.Helper()
 	t.Cleanup(func() {
@@ -83,11 +81,8 @@ func TestSDK_CloudRun_CreateJob(t *testing.T) {
 	assert.Equal(t, int64(1), job.Generation)
 }
 
-// TestSDK_CloudRun_CreateJob_OperationsPersisted pins the real Cloud Run
-// LRO contract: the operation returned by CreateJob is addressable by name
-// (GET /operations/{op} returns the same record); unknown ops 404.
-// Previously the sim returned a synthetic `done=true` Operation for any op
-// id, which masked client bugs and dropped LRO inspection by name.
+// TestSDK_CloudRun_CreateJob_OperationsPersisted: CreateJob's operation is
+// addressable by name, and an unknown operation is 404.
 func TestSDK_CloudRun_CreateJob_OperationsPersisted(t *testing.T) {
 	t.Parallel()
 	client := newJobsClient(t)
@@ -113,10 +108,8 @@ func TestSDK_CloudRun_CreateJob_OperationsPersisted(t *testing.T) {
 	require.NotNil(t, job.TerminalCondition)
 	assert.Equal(t, runpb.Condition_CONDITION_SUCCEEDED, job.TerminalCondition.State)
 
-	// The operation record must be retrievable by name from the
-	// /operations endpoint — real Cloud Run keeps LRO records around for
-	// the SDK to GetOperation against. Unknown operation ids must 404
-	// (not silently return done=true).
+	// Cloud Run keeps operation records for GetOperation; an unknown id is 404,
+	// not done=true.
 	resp, err := http.Get(baseURL + "/v2/projects/test-project/locations/us-central1/operations/does-not-exist-op")
 	require.NoError(t, err)
 	defer resp.Body.Close()
@@ -129,7 +122,6 @@ func TestSDK_CloudRun_RunJob(t *testing.T) {
 	jobsClient := newJobsClient(t)
 	jobID := uniquename.New("sdk-run-job")
 
-	// Create job first
 	createOp, err := jobsClient.CreateJob(ctx, &runpb.CreateJobRequest{
 		Parent: "projects/test-project/locations/us-central1",
 		JobId:  jobID,
@@ -148,14 +140,13 @@ func TestSDK_CloudRun_RunJob(t *testing.T) {
 	_, err = createOp.Wait(ctx)
 	require.NoError(t, err)
 
-	// Run job
 	runOp, err := jobsClient.RunJob(ctx, &runpb.RunJobRequest{
 		Name: "projects/test-project/locations/us-central1/jobs/" + jobID,
 	})
 	require.NoError(t, err)
 
-	// The operation carries the execution from the start and completes only
-	// when it finishes, with the settled Execution as its response.
+	// The operation carries the execution from the start and completes, with the
+	// settled Execution as its response, only when the execution finishes.
 	started, err := runOp.Metadata()
 	require.NoError(t, err)
 	require.NotNil(t, started)
@@ -235,7 +226,6 @@ func TestSDK_CloudRun_GetExecution(t *testing.T) {
 	execClient := newExecutionsClient(t)
 	jobID := uniquename.New("sdk-getexec-job")
 
-	// Create and run job
 	createOp, err := jobsClient.CreateJob(ctx, &runpb.CreateJobRequest{
 		Parent: "projects/test-project/locations/us-central1",
 		JobId:  jobID,
@@ -278,10 +268,9 @@ func TestSDK_CloudRun_CancelExecution(t *testing.T) {
 	jobID := uniquename.New("sdk-cancel-job")
 	const marker = "sdk-cancel-marker"
 
-	// The container announces itself on stdout and then holds until it is
-	// cancelled. A container that had already exited would settle the
-	// execution from its exit status, so the cancel would find no running task
-	// and the cancelled count would stay at zero.
+	// The container announces itself and holds until cancelled: one that had
+	// already exited would settle the execution from its exit status, leaving the
+	// cancelled count at zero.
 	createOp, err := jobsClient.CreateJob(ctx, &runpb.CreateJobRequest{
 		Parent: "projects/test-project/locations/us-central1",
 		JobId:  jobID,
@@ -311,7 +300,6 @@ func TestSDK_CloudRun_CancelExecution(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, exec)
 
-	// Cancel while that container is demonstrably running.
 	waitForJobLogMessage(t, jobID, marker)
 	running, err := execClient.GetExecution(ctx, &runpb.GetExecutionRequest{Name: exec.Name})
 	require.NoError(t, err)
@@ -343,7 +331,6 @@ func TestSDK_CloudRun_DeleteJob(t *testing.T) {
 	client := newJobsClient(t)
 	jobID := uniquename.New("sdk-delete-job")
 
-	// Create job
 	createOp, err := client.CreateJob(ctx, &runpb.CreateJobRequest{
 		Parent: "projects/test-project/locations/us-central1",
 		JobId:  jobID,
@@ -361,7 +348,6 @@ func TestSDK_CloudRun_DeleteJob(t *testing.T) {
 	_, err = createOp.Wait(ctx)
 	require.NoError(t, err)
 
-	// Delete job
 	deleteOp, err := client.DeleteJob(ctx, &runpb.DeleteJobRequest{
 		Name: "projects/test-project/locations/us-central1/jobs/" + jobID,
 	})
@@ -397,7 +383,6 @@ func TestSDK_CloudRun_ListJobs(t *testing.T) {
 		cleanupJob(t, client, job.Name)
 	}
 
-	// List jobs
 	it := client.ListJobs(ctx, &runpb.ListJobsRequest{
 		Parent: "projects/test-project/locations/us-central1",
 	})
@@ -412,7 +397,6 @@ func TestSDK_CloudRun_ListJobs(t *testing.T) {
 		names = append(names, job.Name)
 	}
 
-	// Should contain at least our two jobs
 	foundA, foundB := false, false
 	for _, n := range names {
 		if n == "projects/test-project/locations/us-central1/jobs/"+nameA {

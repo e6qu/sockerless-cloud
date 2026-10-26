@@ -20,9 +20,8 @@ func debianFamily() string {
 	return "debian-12"
 }
 
-// The startup script every CLI instance runs: it counts its boots on the
-// disk and reads the metadata server by the name every guest resolves it
-// under, both on the serial console.
+// cliStartupScript counts its boots on the disk and reads the metadata server
+// by the name every guest resolves it under, both onto the serial console.
 const cliStartupScript = `#!/bin/bash
 n=0
 [ -f /var/lib/sockerless-boots ] && n=$(cat /var/lib/sockerless-boots)
@@ -39,7 +38,6 @@ func TestGcloudComputeInstances_Lifecycle(t *testing.T) {
 	zone := "us-central1-a"
 	name := "sim-instance-cli-1"
 
-	// The catalog resolves the family to the image the instance boots from.
 	out, err := gcloudCLI("compute", "images", "describe-from-family", debianFamily(),
 		"--project=debian-cloud", "--format=value(name,family,status)").CombinedOutput()
 	require.NoError(t, err, "describe-from-family: %s", out)
@@ -83,11 +81,9 @@ func TestGcloudComputeInstances_Lifecycle(t *testing.T) {
 	require.NoError(t, err, "serial port 2")
 	require.NotContains(t, string(second), "startup-script", "only the first serial port carries the console")
 
-	// Each transition below is read back off the instance rather than trusted
-	// from the command's exit status: Compute Engine reports a stopped
-	// instance as TERMINATED and a restarted one as RUNNING, and a lifecycle
-	// verb that returned a DONE operation without moving the instance would
-	// leave the previous status in place here.
+	// Read each transition back off the instance: Compute Engine reports a stopped
+	// instance as TERMINATED and a restarted one as RUNNING, so a verb that
+	// returned DONE without moving the instance fails here.
 
 	out, err = gcloudCLI("compute", "instances", "stop", name,
 		"--zone="+zone,
@@ -128,8 +124,6 @@ func TestGcloudComputeInstances_Lifecycle(t *testing.T) {
 		"--quiet").CombinedOutput()
 	require.NoError(t, err, "delete: %s", out)
 
-	// The deleted instance is gone from both reads: describing it fails and
-	// the zone's list no longer holds it.
 	out, err = gcloudCLI("compute", "instances", "describe", name,
 		"--zone="+zone, "--format=value(status)").CombinedOutput()
 	require.Error(t, err, "describing a deleted instance must fail: %s", out)
@@ -154,7 +148,6 @@ func gcloudSerialPortOutput(t *testing.T, name, zone, marker string) string {
 	return console
 }
 
-// computeInstanceStatus reads one instance's lifecycle status through the CLI.
 func computeInstanceStatus(t *testing.T, name, zone string) string {
 	t.Helper()
 	out, err := gcloudCLI("compute", "instances", "describe", name,
@@ -164,16 +157,11 @@ func computeInstanceStatus(t *testing.T, name, zone string) string {
 	return strings.TrimSpace(string(out))
 }
 
-// TestGcloudComputeInstances_AsyncInsertOperation drives the asynchronous
-// contract through the vendor CLI. `gcloud compute instances create --async`
-// documents itself as "Return immediately, without waiting for the operation
-// in progress to complete", so it prints the zone operation Compute Engine
-// answered with and leaves the boot running behind it; `gcloud compute
-// operations describe` is then the client-side poll that reads the verdict.
-//
-// A simulator that booted inside the insert request could not serve this at
-// all: --async would still have blocked for the whole boot, and the operation
-// it printed would already have been DONE.
+// TestGcloudComputeInstances_AsyncInsertOperation runs `gcloud compute
+// instances create --async`, which prints the zone operation and returns while
+// the boot runs behind it, then polls `gcloud compute operations describe`. A
+// simulator that booted inside the insert request would block --async and print
+// an operation already DONE.
 func TestGcloudComputeInstances_AsyncInsertOperation(t *testing.T) {
 	t.Parallel()
 	zone := "us-central1-a"
@@ -191,12 +179,9 @@ func TestGcloudComputeInstances_AsyncInsertOperation(t *testing.T) {
 		"--async",
 		"--format=value(name)").CombinedOutput()
 	require.NoError(t, err, "async create: %s", out)
-	// gcloud reports the operation it started on stderr before printing the
-	// formatted value, and says so in as many words: "Instance creation in
-	// progress for [NAME]: …/operations/operation-xxxx. Use [gcloud compute
-	// operations describe URI] command to check the status of the
-	// operation(s)." runCLI-style combined output therefore carries the notes
-	// first and the operation name last.
+	// gcloud writes "Instance creation in progress for [NAME]: …/operations/…" to
+	// stderr before the formatted value, so the combined output ends with the
+	// operation name.
 	require.Contains(t, string(out), "Instance creation in progress",
 		"--async must report the operation it left running: %s", out)
 	operation := lastLine(string(out))
@@ -204,7 +189,6 @@ func TestGcloudComputeInstances_AsyncInsertOperation(t *testing.T) {
 	require.True(t, strings.HasPrefix(operation, "operation-"),
 		"--async prints the zone operation name; got %q (full output %s)", operation, out)
 
-	// The operation exists and describes itself as an instance insert.
 	out, err = gcloudCLI("compute", "operations", "describe", operation,
 		"--zone="+zone, "--format=value(operationType,targetLink)").CombinedOutput()
 	require.NoError(t, err, "operations describe: %s", out)
@@ -212,7 +196,6 @@ func TestGcloudComputeInstances_AsyncInsertOperation(t *testing.T) {
 	require.Contains(t, described, "insert")
 	require.Contains(t, described, name)
 
-	// Poll it to DONE the way a client that used --async does.
 	require.Eventually(t, func() bool {
 		status, err := gcloudCLI("compute", "operations", "describe", operation,
 			"--zone="+zone, "--format=value(status)").CombinedOutput()

@@ -8,9 +8,6 @@ import (
 	compute "google.golang.org/api/compute/v1"
 )
 
-// The verbs that move a resource through its lifecycle, and the reads that
-// report what its parts are doing.
-
 func TestCompute_PublicAdvertisedPrefixAnnounceAndWithdraw(t *testing.T) {
 	t.Parallel()
 	svc := computeService(t)
@@ -84,9 +81,8 @@ func TestCompute_StatusReadsReportWhatTheResourceHolds(t *testing.T) {
 	require.NotNil(t, status.Result)
 	assert.Empty(t, status.Result.VpnConnections, "a gateway with no tunnels reports none")
 
-	// An interconnect group with no members cannot carry traffic, so it is
-	// degraded rather than fully up — saying otherwise would tell a client its
-	// topology is redundant when it is empty.
+	// An interconnect group with no members carries no traffic, so it is degraded
+	// rather than fully up.
 	_, err = svc.InterconnectGroups.Insert(project, &compute.InterconnectGroup{
 		Name: "sites", Description: "two sites",
 	}).Do()

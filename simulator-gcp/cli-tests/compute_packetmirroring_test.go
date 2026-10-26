@@ -8,12 +8,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// `gcloud compute packet-mirrorings` drives the policy through the real CLI.
-// The CLI builds the resource's nested members — network, collectorIlb and
-// mirroredResources — from its own flags, resolving each flag value to a
-// resource URL, so this covers the request shape a real operator sends rather
-// than the one the SDK test hand-assembles. Each of those members is read back
-// off the described policy and has to resolve to the resource the flag named.
+// TestGcloudComputePacketMirroring_CRUD drives `gcloud compute
+// packet-mirrorings`. gcloud builds network, collectorIlb and mirroredResources
+// from its own flags, resolving each to a resource URL, so the described policy
+// must resolve each member to the resource its flag named.
 func TestGcloudComputePacketMirroring_CRUD(t *testing.T) {
 	t.Parallel()
 	const (
@@ -26,9 +24,8 @@ func TestGcloudComputePacketMirroring_CRUD(t *testing.T) {
 		health  = "sim-pm-cli-hc"
 	)
 
-	// The policy references a network, a subnetwork and the collector
-	// forwarding rule; gcloud resolves each to a URL when it builds the
-	// request, so they have to exist.
+	// gcloud resolves each referenced resource to a URL when it builds the
+	// request, so they must exist.
 	out, err := gcloudCLI("compute", "networks", "create", network,
 		"--subnet-mode=custom", "--format=value(name)").CombinedOutput()
 	require.NoError(t, err, "create network: %s", out)
@@ -45,9 +42,8 @@ func TestGcloudComputePacketMirroring_CRUD(t *testing.T) {
 			"--region="+region, "--quiet").CombinedOutput()
 	})
 
-	// An INTERNAL forwarding rule fronts a regional backend service, and that
-	// chain is not incidental: it is what the policy's collectorIlb resolves
-	// through to reach the instances the mirrored traffic is delivered to.
+	// The policy's collectorIlb resolves through this INTERNAL forwarding rule and
+	// its regional backend service to the instances that receive mirrored traffic.
 	out, err = gcloudCLI("compute", "health-checks", "create", "tcp", health,
 		"--region="+region, "--port=80", "--format=value(name)").CombinedOutput()
 	require.NoError(t, err, "create health check: %s", out)
@@ -122,8 +118,6 @@ func TestGcloudComputePacketMirroring_CRUD(t *testing.T) {
 	require.NoError(t, err, "list: %s", out)
 	assert.Contains(t, string(out), name)
 
-	// Disabling is the operator's way to stop a policy mirroring without
-	// deleting it.
 	out, err = gcloudCLI("compute", "packet-mirrorings", "update", name,
 		"--region="+region, "--no-enable", "--format=value(name)").CombinedOutput()
 	require.NoError(t, err, "update: %s", out)

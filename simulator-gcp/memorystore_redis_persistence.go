@@ -167,7 +167,7 @@ func msRedisClusterPersistence(current msRedisPersistence, req *MSRedisClusterPe
 	return next, nil
 }
 
-// msRedisPersistenceOf reads back a persistence a resource recorded.
+// msRedisPersistenceOfInstance reads back the persistence an instance recorded.
 func msRedisPersistenceOfInstance(config *MSRedisPersistenceConfig) msRedisPersistence {
 	persistence, _ := msRedisInstancePersistence(msRedisPersistence{}, config, time.Now())
 	return persistence

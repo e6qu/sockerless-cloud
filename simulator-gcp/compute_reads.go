@@ -9,17 +9,13 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// Compute Engine reads that answer from what the project already holds, and the
-// writes that go with them: the zones a region has, the image a family resolves
-// to, the disks a storage pool backs, the subnetworks a caller may use, and the
-// key a snapshot is encrypted under.
+// Compute Engine reads that answer from what the project holds, and their
+// writes: a region's zones, a family's image, a storage pool's disks, usable
+// subnetworks and a snapshot's key.
 
-// registerComputeReads mounts them.
 func registerComputeReads(srv *sim.Server) {
-	// The zones a region contains. Compute Engine's zone names are the region
-	// with a letter appended, and the simulator's zone catalogue is built the
-	// same way, so a region's zones are derived rather than listed separately —
-	// which is what keeps them agreeing with the zonal resources that exist.
+	// A zone's name is its region's plus a letter, as the simulator's zone
+	// catalogue builds them, so a region's zones derive from the catalogue.
 	srv.HandleFunc("GET /compute/v1/projects/{project}/regions/{region}/zones",
 		func(w http.ResponseWriter, r *http.Request) {
 			project, region := sim.PathParam(r, "project"), sim.PathParam(r, "region")
@@ -40,9 +36,7 @@ func registerComputeReads(srv *sim.Server) {
 			})
 		})
 
-	// The image a family currently resolves to. The family view is a read of
-	// the image catalogue rather than a resource of its own, so it answers with
-	// whatever images.getFromFamily would.
+	// The family view answers what images.getFromFamily would.
 	srv.HandleFunc("GET /compute/v1/projects/{project}/zones/{zone}/imageFamilyViews/{family}",
 		func(w http.ResponseWriter, r *http.Request) {
 			project, family := sim.PathParam(r, "project"), sim.PathParam(r, "family")
@@ -54,9 +48,8 @@ func registerComputeReads(srv *sim.Server) {
 			sim.WriteJSON(w, http.StatusOK, map[string]any{"image": image})
 		})
 
-	// The disks a storage pool backs. A disk names the pool it draws from, so
-	// the pool's disks are the ones pointing at it — derived, not a second list
-	// that could disagree with the disks themselves.
+	// A pool's disks are the disks naming it, derived rather than kept as a second
+	// list.
 	srv.HandleFunc("GET /compute/v1/projects/{project}/zones/{zone}/storagePools/{storagePool}/listDisks",
 		func(w http.ResponseWriter, r *http.Request) {
 			project, zone, pool := sim.PathParam(r, "project"), sim.PathParam(r, "zone"), sim.PathParam(r, "storagePool")
@@ -72,11 +65,8 @@ func registerComputeReads(srv *sim.Server) {
 				held = append(held, disk)
 			}
 			sort.Slice(held, func(i, j int) bool { return held[i].Name < held[j].Name })
-			// The document declares a StoragePoolDisk here, which is a
-			// narrower thing than a disk: it names the disk and what it is
-			// taking from the pool, and carries none of the disk's own
-			// identity. Answering with the whole disk would put members in the
-			// response the schema does not have.
+			// The document declares a StoragePoolDisk here, which names the disk and its
+			// use of the pool but none of the disk's other members.
 			items := make([]any, 0, len(held))
 			for _, disk := range held {
 				item := map[string]any{
@@ -100,9 +90,8 @@ func registerComputeReads(srv *sim.Server) {
 			})
 		})
 
-	// The subnetworks a caller may use, across every region. Usable means the
-	// caller can create in it, and every subnetwork the project holds qualifies
-	// here — there is no second permission model to narrow it by.
+	// Every subnetwork the project holds is usable: there is no second permission
+	// model to narrow it.
 	srv.HandleFunc("GET /compute/v1/projects/{project}/aggregated/subnetworks/listUsable",
 		func(w http.ResponseWriter, r *http.Request) {
 			prefix := "projects/" + sim.PathParam(r, "project") + "/regions/"
@@ -127,8 +116,8 @@ func registerComputeReads(srv *sim.Server) {
 			})
 		})
 
-	// Re-encrypting a snapshot records the key it is now under. The material
-	// never comes back, so what a client can observe is the key's name.
+	// Re-encrypting a snapshot records the new key's name; the material never
+	// comes back.
 	updateKmsKey := func(store sim.Store[map[string]any], scope computeScopeKind) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
 			project, name := sim.PathParam(r, "project"), sim.PathParam(r, "name")
@@ -161,8 +150,6 @@ func registerComputeReads(srv *sim.Server) {
 	srv.HandleFunc("POST /compute/v1/projects/{project}/regions/{region}/snapshots/{name}/updateKmsKey",
 		updateKmsKey(gcpComputeRegionSnapshots, cScopeRegion))
 
-	// Deprecating an image records where it stands and what replaces it, which
-	// is what a client reads before choosing to boot from it.
 	srv.HandleFunc("POST /compute/v1/projects/{project}/global/images/{name}/deprecate",
 		func(w http.ResponseWriter, r *http.Request) {
 			project, name := sim.PathParam(r, "project"), sim.PathParam(r, "name")
@@ -184,8 +171,7 @@ func registerComputeReads(srv *sim.Server) {
 			sim.WriteJSON(w, http.StatusOK, computeGlobalOp(project, key, "deprecate"))
 		})
 
-	// A regional disk's resize. A disk only grows: shrinking one would lose
-	// what is on it, so Compute Engine refuses it and so does this.
+	// A disk only grows: Compute Engine refuses a shrink, which would lose data.
 	srv.HandleFunc("POST /compute/v1/projects/{project}/regions/{region}/disks/{name}/resize",
 		func(w http.ResponseWriter, r *http.Request) {
 			project, region, name := sim.PathParam(r, "project"), sim.PathParam(r, "region"), sim.PathParam(r, "name")

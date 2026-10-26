@@ -37,9 +37,8 @@ type gcpPublicImage struct {
 }
 
 // gcpPublicImages is the catalog: Debian 12 and Ubuntu 24.04 LTS on both
-// architectures, the images their families resolve to today. Each maps to
-// the per-architecture manifest of the matching Docker official image on
-// mirror.gcr.io; `docker manifest inspect` reports the digests.
+// architectures, each mapped to its per-architecture Docker official image
+// manifest on mirror.gcr.io.
 var gcpPublicImages = []gcpPublicImage{
 	{
 		Project: "debian-cloud", Name: "debian-12-bookworm-v20251001", Family: "debian-12",
@@ -79,7 +78,6 @@ func gcpImageLink(project, name string) string {
 	return fmt.Sprintf("projects/%s/global/images/%s", project, name)
 }
 
-// gcpPublicImageJSON renders a catalog entry as compute#image.
 func gcpPublicImageJSON(img gcpPublicImage) map[string]any {
 	link := gcpImageLink(img.Project, img.Name)
 	sum := sha256.Sum256([]byte(link))
@@ -467,12 +465,9 @@ func registerComputeImages(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, resource)
 	})
 
-	// An image's family lookup and its IAM policy read are the same shape to
-	// a path router — "images/family/{family}" against
-	// "images/{resource}/getIamPolicy" — so one handler serves both. Compute
-	// Engine resolves the overlap by its templates' literal segments, and the
-	// family segment comes first, so a request for the family named
-	// "getIamPolicy" is a family lookup.
+	// "images/family/{family}" and "images/{resource}/getIamPolicy" share a path
+	// shape, so one handler serves both. Compute Engine's family template comes
+	// first, so a family named "getIamPolicy" is a family lookup.
 	srv.HandleFunc("GET "+base+"/{first}/{second}", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		first, second := sim.PathParam(r, "first"), sim.PathParam(r, "second")

@@ -22,10 +22,8 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/blobstore"
 )
 
-// GCSBucketHostDir returns the on-disk directory backing a simulated GCS
-// bucket, which inserting the bucket makes. Exported for use by the Cloud Run
-// Jobs/Services + Cloud Functions task runners when they honour
-// `Volume{Gcs{Bucket}}`.
+// GCSBucketHostDir returns the host directory backing a bucket, which bucket
+// insert makes and a Cloud Run or Cloud Functions `Volume{Gcs{Bucket}}` mounts.
 func GCSBucketHostDir(bucket string) string {
 	return filepath.Join(gcsDataRoot(), bucket)
 }
@@ -66,8 +64,8 @@ func gcsDataRoot() string {
 // size of a page whose request names no maxResults.
 const gcsListLimit = 1000
 
-// Bucket stores the full JSON object from the API so that terraform read-backs
-// return every field the provider expects (id, selfLink, iamConfiguration, etc.).
+// Bucket stores the bucket's whole JSON so terraform reads back every field
+// it expects (id, selfLink, iamConfiguration).
 type Bucket struct {
 	Data map[string]any
 	// Project is the project the bucket was created in — the `project`
@@ -108,7 +106,6 @@ func gcsSeedDefaultBucketPolicy(name string) IAMPolicy {
 	return policy
 }
 
-// GCSObject represents a Cloud Storage object (metadata).
 type GCSObject struct {
 	Name               string                      `json:"name"`
 	Bucket             string                      `json:"bucket"`
@@ -146,24 +143,19 @@ type gcsObjectResource struct {
 	StorageClass       *string            `json:"storageClass,omitempty"`
 	CustomTime         *string            `json:"customTime,omitempty"`
 	Metadata           *map[string]string `json:"metadata,omitempty"`
-	// Acl is the object's access controls as carried on the object resource
-	// itself. The objectAccessControls collection is one door onto these
-	// entries and objects.patch is the other: `gcloud storage objects update
-	// --add-acl-grant` writes them here, never through the collection, so a
-	// patch that ignored this member acknowledged the grant and dropped it.
+	// Acl is the object's access controls on the object resource itself.
+	// objectAccessControls and objects.patch both write it: `gcloud storage
+	// objects update --add-acl-grant` patches the object.
 	Acl      *[]GCSObjectACL  `json:"acl,omitempty"`
 	Contexts gcsContextsInput `json:"contexts"`
 }
 
-// Package-level store: gcsObjects
-// is exposed so other slices (e.g. cloudbuild.go) can read uploaded
-// build context tarballs without depending on the gcs.go handler
-// closure.
+// gcsObjects is package-level so other slices read objects outside the
+// handler closures.
 var (
 	gcsObjects sim.PrefixStore[GCSObject]
-	// gcsBuckets is package-level so a slice that exports into Cloud Storage
-	// (Artifact Registry's exportArtifact) can refuse a bucket that does not
-	// exist rather than inventing one.
+	// gcsBuckets is package-level so a slice exporting into Cloud Storage
+	// (Artifact Registry's exportArtifact) can refuse a bucket that does not exist.
 	gcsBuckets sim.Store[Bucket]
 )
 
@@ -272,11 +264,9 @@ func gcsLocationType(location string) string {
 	return "region"
 }
 
-// applyBucketPatch merges a PATCH/PUT body into the stored bucket JSON.
-// Top-level fields replace; `labels` follows GCS null-value-deletes
-// semantics (a null value removes the label, others merge in). Immutable
-// server-set fields (id/name/kind/selfLink/timeCreated/projectNumber) are
-// not overwritten from the patch body.
+// applyBucketPatch merges a PATCH or PUT body into the stored bucket JSON:
+// top-level fields replace, a null label removes the label, and the server-set
+// id, name, kind, selfLink, timeCreated and projectNumber stay.
 func applyBucketPatch(data, patch map[string]any) {
 	for k, v := range patch {
 		switch k {
@@ -310,13 +300,10 @@ func gcsTimestamp() string {
 	return time.Now().UTC().Truncate(time.Millisecond).Format("2006-01-02T15:04:05.000Z")
 }
 
-// persistGCSObjectMetadata writes a metadata-only update (objects.patch /
-// ObjectHandle.Update) to the store. Unlike persistGCSObject it does NOT
-// touch the host backing file or bump generation — a metadata patch leaves
-// the object payload (and its generation) unchanged, bumping only
-// metageneration. Kept as a distinct, auditable write path so the
-// data-write invariant (every payload write goes through persistGCSObject
-// and reaches the host backing store) stays enforced by the AST guard test.
+// persistGCSObjectMetadata writes a metadata-only update (objects.patch,
+// ObjectHandle.Update): it bumps metageneration and leaves the payload and
+// generation alone. Every payload write goes through persistGCSObject, which
+// the AST guard test enforces.
 func persistGCSObjectMetadata(objects sim.PrefixStore[GCSObject], key string, obj GCSObject) {
 	objects.Put(key, obj)
 }
@@ -410,20 +397,17 @@ func writeGCSPersistError(w http.ResponseWriter, action string, err error) {
 	GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "%s: %v", action, err)
 }
 
-// gcsResumableSession holds the in-flight state of a resumable upload
-// between session initiation (POST with metadata) and finalization
-// (the chunk PUT that delivers the last byte). Keyed by upload_id in
-// gcsResumableSessions. Real GCS resumable sessions survive server
-// restarts (the session URL stays valid for a week), so the session —
-// including the buffered bytes — lives in the store rather than a
-// process-local map.
+// gcsResumableSession is a resumable upload between its initiation and the
+// chunk that delivers the last byte, keyed by upload_id. Cloud Storage
+// sessions stay valid for a week across restarts, so the session and its
+// bytes live in the store.
 type gcsResumableSession struct {
 	Bucket string    `json:"bucket"`
 	Object string    `json:"object"`
 	Attrs  GCSObject `json:"attrs"`
 	// Body references the bytes received so far, staged in gcsBodies.
 	Body string `json:"body,omitempty"`
-	// LegacyData is where a build before Body buffered them.
+	// LegacyData holds bytes an older store format buffered inline.
 	LegacyData []byte `json:"data,omitempty"`
 	// Preconditions stated when the session began, which the write that
 	// completes the upload must meet.
@@ -445,9 +429,8 @@ func gcsStagedSize(ref string) (int64, error) {
 
 var gcsResumableSessions sim.Store[gcsResumableSession]
 
-// gcsResumableWriters serializes the chunk PUTs of one session. Real clients
-// upload a session's chunks sequentially; this guards the staged payload and
-// the session record against a retried chunk racing the one it repeats.
+// gcsResumableWriters serializes one session's chunk PUTs, so a retried chunk
+// cannot race the one it repeats.
 var gcsResumableWriters = sim.NewKeyedLocks()
 
 // handleGCSResumableCancel cancels a resumable upload: Cloud Storage answers
@@ -465,12 +448,9 @@ func handleGCSResumableCancel(w http.ResponseWriter, uploadID string) {
 	w.WriteHeader(499)
 }
 
-// parseGCSContentRange parses `Content-Range: bytes <start>-<end>/<total>`
-// (total may be `*`). Returns (start, end, total) where total is -1
-// when the header carries `/*`. An absent header assumes the chunk is
-// the entire object; any other malformed shape returns an error so
-// the caller can emit a real 400, matching GCS's Content-Range
-// validation.
+// parseGCSContentRange parses `Content-Range: bytes <start>-<end>/<total>`,
+// total -1 for `/*`. An absent header means the chunk is the whole object; any
+// other malformed shape is an error, which Cloud Storage answers with 400.
 func parseGCSContentRange(s string, chunkLen int64) (start, end, total int64, err error) {
 	if s == "" {
 		return 0, chunkLen - 1, chunkLen, nil
@@ -511,9 +491,8 @@ func parseGCSContentRange(s string, chunkLen int64) (start, end, total int64, er
 	return start, end, total, nil
 }
 
-// gcsObjectMetadata returns the canonical object-metadata response
-// shape with hard-coded https URLs (real GCS is HTTPS-only on the
-// JSON API surface).
+// gcsObjectMetadata renders the object resource with https URLs: the JSON API
+// is HTTPS-only.
 func gcsObjectMetadata(r *http.Request, obj GCSObject) map[string]any {
 	escapedObject := url.PathEscape(obj.Name)
 	selfLink := fmt.Sprintf("https://%s/storage/v1/b/%s/o/%s", r.Host, obj.Bucket, escapedObject)
@@ -591,8 +570,8 @@ func registerGCS(srv *sim.Server) {
 	gcsResumableSessions = sim.MakeStore[gcsResumableSession](srv.DB(), "gcs_resumable_sessions")
 	objects := gcsObjects
 	srv.WrapHandler(gcsMountSyncMiddleware)
-	// Cloud Storage's long-running methods record into the operation store
-	// every Google slice shares, whichever register function reaches it first.
+	// Cloud Storage's long-running methods record into the shared operation
+	// store, whichever register function opens it first.
 	if crOperations == nil {
 		crOperations = sim.MakeStore[Operation](srv.DB(), "operations")
 	}
@@ -757,10 +736,9 @@ func copyGCSObject(w http.ResponseWriter, r *http.Request, srcBucket, srcObject,
 	return dst, true
 }
 
-// The types below mirror the storage v1 Discovery schemas exactly (field
-// names + the constant `kind` discriminator) so the runtime spec-validator
-// — which rejects any member the schema does not define — passes. Each is a
-// real CRUD resource tied to the existing bucket/object stores.
+// These types mirror the storage v1 Discovery schemas exactly, constant `kind`
+// included, since the spec validator rejects any member the schema does not
+// define.
 
 // GCSBucketACL mirrors the storage#bucketAccessControl resource.
 type GCSBucketACL struct {
@@ -777,9 +755,8 @@ type GCSBucketACL struct {
 	Etag        string          `json:"etag,omitempty"`
 }
 
-// GCSObjectACL mirrors the storage#objectAccessControl resource. The
-// default-object-ACL surface reuses it (same schema, the `object`/`generation`
-// fields stay empty for a bucket-level default entry).
+// GCSObjectACL mirrors the storage#objectAccessControl resource; a
+// default-object-ACL entry leaves `object` and `generation` empty.
 type GCSObjectACL struct {
 	Kind        string          `json:"kind"`
 	ID          string          `json:"id"`
@@ -813,11 +790,8 @@ type GCSFolder struct {
 	UpdateTime     string `json:"updateTime,omitempty"`
 }
 
-// GCSManagedFolder mirrors the storage#managedFolder resource.
-// RapidCacheConfig is the folder's one mutable member (a policies map of
-// rapid cache IDs to RapidCachePolicy objects, per the schema); it is
-// persisted verbatim
-// so patch→get round-trips byte-exact.
+// GCSManagedFolder mirrors the storage#managedFolder resource;
+// RapidCacheConfig, its one mutable member, is stored verbatim.
 type GCSManagedFolder struct {
 	Kind             string          `json:"kind"`
 	ID               string          `json:"id"`
@@ -843,9 +817,8 @@ type GCSNotification struct {
 	Etag             string            `json:"etag,omitempty"`
 }
 
-// GCSHmacKey mirrors the storage#hmacKeyMetadata resource. The secret is
-// stored on the record but only ever emitted in the create response
-// (storage#hmacKey), matching real GCS.
+// GCSHmacKey mirrors the storage#hmacKeyMetadata resource; the secret appears
+// only in the create response (storage#hmacKey), as Cloud Storage answers.
 type GCSHmacKey struct {
 	Kind                string `json:"kind"`
 	ID                  string `json:"id"`
@@ -870,10 +843,9 @@ var (
 	gcsHmacKeys       sim.Store[GCSHmacKey]
 )
 
-// gcsACLEmailFor derives the email/projectTeam fields from an ACL entity in
-// the documented forms (user-<email>, group-<email>, project-team-<id>,
-// allUsers, allAuthenticatedUsers) so the returned resource carries the
-// derived members the schema describes.
+// gcsACLEmailFor derives the email or projectTeam members from an ACL entity
+// (user-<email>, group-<email>, project-team-<id>, allUsers,
+// allAuthenticatedUsers).
 func gcsACLEmailFor(entity string) (email string, team *gcsProjectTeam) {
 	switch {
 	case strings.HasPrefix(entity, "user-") && strings.Contains(entity, "@"):
@@ -889,11 +861,11 @@ func gcsACLEmailFor(entity string) (email string, team *gcsProjectTeam) {
 	return "", nil
 }
 
-// registerGCSExtras mounts the remaining storage v1 control-plane surfaces —
-// bucket ACLs, default object ACLs, folders, managed folders (+ their IAM),
-// notification configs, HMAC keys, anywhere caches, bucket operations,
-// bucket-level lifecycle verbs (relocate/restore/lockRetentionPolicy), the
-// project service account, and the metadata-only object insert. Each is a faithful slice of the real JSON API.
+// registerGCSExtras mounts the rest of the storage v1 control plane: bucket
+// and default object ACLs, folders and managed folders with their IAM,
+// notification configs, HMAC keys, anywhere caches, bucket operations, the
+// bucket lifecycle verbs, the project service account and the metadata-only
+// object insert.
 func registerGCSExtras(srv *sim.Server, buckets sim.Store[Bucket], objects sim.PrefixStore[GCSObject]) {
 	gcsBucketACLs = sim.MakeStore[GCSBucketACL](srv.DB(), "gcs_bucket_acls")
 	gcsObjectDefACLs = sim.MakeStore[GCSObjectACL](srv.DB(), "gcs_default_object_acls")
@@ -1031,9 +1003,6 @@ type GCSRapidCache struct {
 	CacheType       string `json:"cacheType,omitempty"`
 }
 
-// --- Bucket lifecycle verbs, operations, IAM testPermissions, channels,
-//     and the metadata-only object insert. ---
-
 // gcsWriteTestPermissions answers a testIamPermissions with the requested
 // permissions the caller holds under the policies that govern the resource.
 func gcsWriteTestPermissions(w http.ResponseWriter, r *http.Request, policies []IAMPolicy, resource gcpIAMResource) {
@@ -1076,11 +1045,9 @@ func gcsOperationName(bucket, id string) string {
 	return "projects/_/buckets/" + bucket + "/operations/" + id
 }
 
-// gcsRecordDoneOperation records the operation for work a request just
-// performed and returns it. Cloud Storage answers its long-running methods with
-// an operation the bucket's operations collection can then be asked about, so
-// the record has to outlive the request that minted it — it goes into the same
-// store every other Google slice writes its operations to.
+// gcsRecordDoneOperation records the operation for work a request just did, in
+// the shared operation store, so the bucket's operations collection can answer
+// for it after the request.
 func gcsRecordDoneOperation(r *http.Request, bucket string, response map[string]any) Operation {
 	// One operation, so one id: the name and the selfLink must address the
 	// same record.
@@ -1115,12 +1082,9 @@ func gcsLookupOperation(w http.ResponseWriter, r *http.Request, bucketExists fun
 	return op, true
 }
 
-// gcsOperationFilter reads the operations.list `filter` parameter. The
-// filtering language is AIP-160, and the term the collection is asked for —
-// the one `gcloud storage operations list --server-filter` documents — is
-// `done = true` / `done = false`. A filter naming anything else is refused
-// rather than ignored: a silently dropped filter answers with every operation
-// in the bucket and reads as a result.
+// gcsOperationFilter reads operations.list's AIP-160 `filter`, whose one term
+// is `done = true` or `done = false`, as `gcloud storage operations list
+// --server-filter` documents. Any other filter is refused rather than ignored.
 func gcsOperationFilter(w http.ResponseWriter, r *http.Request) (done, filtered, ok bool) {
 	filter := strings.TrimSpace(r.URL.Query().Get("filter"))
 	if filter == "" {
@@ -1150,7 +1114,7 @@ func gcsStructToMap(v any) map[string]any {
 	return m
 }
 
-// gcsRandHex returns n random hex characters for synthesizing resource IDs.
+// gcsRandHex returns n random hex characters for a resource ID.
 func gcsRandHex(n int) string {
 	buf := make([]byte, (n+1)/2)
 	_, _ = rand.Read(buf)

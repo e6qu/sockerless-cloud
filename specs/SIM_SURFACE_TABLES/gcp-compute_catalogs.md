@@ -17,14 +17,14 @@ The extractor reads the route out of a single string literal, so a registration 
 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
-| `POST /compute/v1/projects/{project}/regions/{region}/advice/capacity` | 501 `simulator-gcp/compute_catalogs.go:135::adviceUnimplemented` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `POST /compute/v1/projects/{project}/regions/{region}/advice/capacityHistory` | 501 `simulator-gcp/compute_catalogs.go:137::adviceUnimplemented` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `GET /compute/v1/projects/{project}/global/reliabilityRisks` | ○ `simulator-gcp/compute_catalogs.go:41::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `GET /compute/v1/projects/{project}/global/reliabilityRisks/{reliabilityRisk}` | ○ `simulator-gcp/compute_catalogs.go:50::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `GET /compute/v1/projects/{project}/global/licenseCodes/{resource}/getIamPolicy` | ✓ `simulator-gcp/compute_catalogs.go:63::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `POST /compute/v1/projects/{project}/global/licenseCodes/{resource}/setIamPolicy` | ✓ `simulator-gcp/compute_catalogs.go:67::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `POST /compute/v1/projects/{project}/global/licenseCodes/{resource}/testIamPermissions` | ✓ `simulator-gcp/compute_catalogs.go:71::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `GET /compute/v1/projects/{project}/regions/{region}/projectViews` | 501 `simulator-gcp/compute_catalogs.go:85::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `POST /compute/v1/projects/{project}/regions/{region}/advice/capacity` | 501 `simulator-gcp/compute_catalogs.go:101::adviceUnimplemented` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `POST /compute/v1/projects/{project}/regions/{region}/advice/capacityHistory` | 501 `simulator-gcp/compute_catalogs.go:103::adviceUnimplemented` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `GET /compute/v1/projects/{project}/global/reliabilityRisks` | ○ `simulator-gcp/compute_catalogs.go:19::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `GET /compute/v1/projects/{project}/global/reliabilityRisks/{reliabilityRisk}` | ○ `simulator-gcp/compute_catalogs.go:28::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `GET /compute/v1/projects/{project}/global/licenseCodes/{resource}/getIamPolicy` | ✓ `simulator-gcp/compute_catalogs.go:40::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `POST /compute/v1/projects/{project}/global/licenseCodes/{resource}/setIamPolicy` | ✓ `simulator-gcp/compute_catalogs.go:44::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `POST /compute/v1/projects/{project}/global/licenseCodes/{resource}/testIamPermissions` | ✓ `simulator-gcp/compute_catalogs.go:48::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `GET /compute/v1/projects/{project}/regions/{region}/projectViews` | 501 `simulator-gcp/compute_catalogs.go:59::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
 
 ## Coverage status
 

@@ -9,13 +9,8 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// A reservation's resize, the maintenance it reports, and the blocks its
-// capacity is held in.
-//
-// The blocks are derived from the reservation's own count rather than stored
-// beside it, because that is what they are: a block holds up to sixteen
-// machines, so a reservation for forty is three of them. Deriving keeps the two
-// from disagreeing after a resize.
+// A reservation's blocks derive from its count, sixteen machines to a block,
+// so a resize reaches them.
 
 // computeScopedKey names a resource in its scope, as the meta-registrar does.
 func computeScopedKey(r *http.Request, scope computeScopeKind, collection, name string) string {
@@ -26,8 +21,8 @@ func computeScopedKey(r *http.Request, scope computeScopeKind, collection, name 
 // registerComputeReservationVerbs serves a reservation's resize and the
 // maintenance it reports, plus the blocks it is made of.
 func registerComputeReservationVerbs(srv *sim.Server, reservations sim.Store[map[string]any]) {
-	// Written out rather than composed through computeScopeMux: the generated
-	// surface tables read the literal path out of each registration.
+	// Write the path out: the surface tables read the literal path from each
+	// registration.
 	const base = "/compute/v1/projects/{project}/zones/{zone}/reservations"
 
 	load := func(w http.ResponseWriter, r *http.Request) (string, map[string]any, bool) {
@@ -83,9 +78,7 @@ func registerComputeReservationVerbs(srv *sim.Server, reservations sim.Store[map
 		sim.WriteJSON(w, http.StatusOK, operation(r, key, "performMaintenance"))
 	})
 
-	// The blocks a reservation is made of. They are derived from the
-	// reservation's own count rather than stored separately, because that is
-	// what they are: the capacity it holds, reported in the shape the document
+	// A reservation's blocks derive from its own count, in the shape the document
 	// describes.
 	srv.HandleFunc("GET "+base+"/{name}/reservationBlocks", func(w http.ResponseWriter, r *http.Request) {
 		_, reservation, ok := load(w, r)
@@ -122,11 +115,8 @@ func registerComputeReservationVerbs(srv *sim.Server, reservations sim.Store[map
 		sim.WriteJSON(w, http.StatusOK, operation(r, key, "performMaintenance"))
 	})
 
-	// A block's IAM policy, and the sub-blocks it is divided into. A sub-block
-	// is the unit maintenance is performed on and a fault is reported against,
-	// so it is derived from the block the same way the block is derived from
-	// the reservation: two sub-blocks to a block, which is the shape Compute
-	// Engine reports for the reservations that expose them.
+	// A sub-block is the unit of maintenance and fault reporting, two to a block,
+	// as Compute Engine reports for the reservations that expose them.
 	blockIAM := func(r *http.Request) string {
 		return "compute/" + computeScopedKey(r, cScopeZone, "reservations", sim.PathParam(r, "name")) +
 			"/reservationBlocks/" + sim.PathParam(r, "block")
@@ -215,10 +205,8 @@ func registerComputeReservationVerbs(srv *sim.Server, reservations sim.Store[map
 		handleResourceIAM(w, r, gcpResourcePolicies, subIAM(r), "testIamPermissions")
 	})
 
-	// A slot is one machine of a sub-block, and the level at which a
-	// reservation reports health and takes an update. Slots come from the
-	// sub-block's count for the same reason sub-blocks come from the block's:
-	// a resize has to reach all the way down, and a stored copy would not.
+	// A slot is one machine of a sub-block, the level a reservation reports
+	// health and takes an update at; slots derive from the sub-block's count.
 	slots := func(w http.ResponseWriter, r *http.Request) ([]map[string]any, bool) {
 		sub, ok := findSub(w, r)
 		if !ok {
@@ -291,9 +279,7 @@ func computeReservationSlots(sub map[string]any) []map[string]any {
 	return slots
 }
 
-// computeReservationSubBlocks divides a block into the units maintenance is
-// performed on. Two to a block, which is what Compute Engine reports for the
-// reservations that expose them.
+// computeReservationSubBlocks divides a block into its two sub-blocks.
 func computeReservationSubBlocks(block map[string]any) []map[string]any {
 	count, _ := block["count"].(int)
 	if count <= 0 {
@@ -314,9 +300,8 @@ func computeReservationSubBlocks(block map[string]any) []map[string]any {
 	return subs
 }
 
-// computeReservationBlocks reports the blocks a reservation's capacity is held
-// in. A block holds up to sixteen machines, which is the shape Compute Engine
-// reports for the reservations that expose them.
+// computeReservationBlocks divides a reservation's capacity into blocks of up
+// to sixteen machines.
 func computeReservationBlocks(reservation map[string]any, name string) []map[string]any {
 	const perBlock = 16
 	count := 0

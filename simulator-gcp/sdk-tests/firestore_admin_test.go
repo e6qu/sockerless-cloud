@@ -10,8 +10,6 @@ import (
 	durationpb "google.golang.org/protobuf/types/known/durationpb"
 )
 
-// newFSAdminClient connects the Firestore Admin REST client to the simulator,
-// exactly as a real consumer would but with the sim's endpoint and no auth.
 func newFSAdminClient(t *testing.T) *admin.FirestoreAdminClient {
 	t.Helper()
 	c, err := admin.NewFirestoreAdminRESTClient(ctx,
@@ -25,8 +23,6 @@ func newFSAdminClient(t *testing.T) *admin.FirestoreAdminClient {
 	return c
 }
 
-// TestFirestoreAdmin_Databases exercises the database admin CRUD: CreateDatabase
-// (a long-running operation), GetDatabase, and ListDatabases.
 func TestFirestoreAdmin_Databases(t *testing.T) {
 	t.Parallel()
 	c := newFSAdminClient(t)
@@ -75,8 +71,6 @@ func TestFirestoreAdmin_Databases(t *testing.T) {
 	}
 }
 
-// TestFirestoreAdmin_Indexes exercises the index admin surface: CreateIndex (a
-// long-running operation), GetIndex, ListIndexes, and DeleteIndex.
 func TestFirestoreAdmin_Indexes(t *testing.T) {
 	t.Parallel()
 	c := newFSAdminClient(t)
@@ -139,8 +133,6 @@ func TestFirestoreAdmin_Indexes(t *testing.T) {
 	}
 }
 
-// TestFirestoreAdmin_Fields exercises the field admin surface: UpdateField (a
-// long-running operation), GetField, and ListFields.
 func TestFirestoreAdmin_Fields(t *testing.T) {
 	t.Parallel()
 	c := newFSAdminClient(t)
@@ -195,9 +187,6 @@ func TestFirestoreAdmin_Fields(t *testing.T) {
 	}
 }
 
-// TestFirestoreAdmin_BackupSchedules exercises the backup-schedule admin CRUD:
-// CreateBackupSchedule, GetBackupSchedule, ListBackupSchedules,
-// UpdateBackupSchedule, and DeleteBackupSchedule.
 func TestFirestoreAdmin_BackupSchedules(t *testing.T) {
 	t.Parallel()
 	c := newFSAdminClient(t)

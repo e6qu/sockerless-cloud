@@ -26,25 +26,14 @@ import (
 	"google.golang.org/grpc"
 )
 
-// Several Google Cloud services are reached over two protocols, and this
-// simulator serves both from one set of stores. That is the whole claim: one
-// cloud state, two doors onto it.
-//
-// Nothing checked the claim. Every suite drove one door and read back through
-// the same door, so a handler that answered plausibly while doing nothing
-// stayed invisible as long as its sibling behaved — which is exactly how Cloud
-// Bigtable's REST dropRowRange came to acknowledge deletes it never performed
-// while the gRPC spelling deleted for real. A test that dropped over REST and
-// read over gRPC would have failed the day that divergence appeared.
-//
-// So every test here crosses: it writes through one protocol and observes
-// through the other, in both directions. A service keeping a second copy of
-// its state, or a handler that only pretends, fails here and nowhere else.
+// Several Google Cloud services serve two protocols, and the simulator serves
+// both from one set of stores. Every test here writes through one protocol and
+// observes through the other, in both directions, so a service keeping a
+// second copy of its state, or a handler that only pretends, fails here.
 //
 // simulator-gcp/cross_door_test.go holds this file to the gRPC services the
-// server actually mounts, so a two-door service cannot arrive uncrossed.
+// server mounts, so a two-protocol service cannot arrive uncrossed.
 
-// crossDoorBase64 is how the REST doors carry bytes.
 func crossDoorBase64(b []byte) string { return base64.StdEncoding.EncodeToString(b) }
 
 func crossDoorBytes(t *testing.T, encoded string) []byte {
@@ -87,8 +76,8 @@ func TestCrossDoor_BigtableAdminAndData(t *testing.T) {
 	require.Contains(t, viaGRPC.GetColumnFamilies(), "rf",
 		"a table created over REST must read back over gRPC")
 
-	// Rows written over gRPC, dropped over REST, gone over gRPC. This is the
-	// crossing the REST no-op survived: both doors address one row store.
+	// Rows written over gRPC, dropped over REST, gone over gRPC: both protocols
+	// address one row store.
 	client, err := bigtable.NewClientWithConfig(ctx, project, instanceID, bigtableClientConfig, simGRPCClientOptions()...)
 	require.NoError(t, err)
 	defer client.Close()
@@ -133,8 +122,8 @@ func TestCrossDoor_CloudKMS(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, keyName, viaGRPC.GetName())
 
-	// Encrypted over gRPC, decrypted over REST — only possible if both doors
-	// hold one key's material rather than a copy each.
+	// Encrypted over gRPC, decrypted over REST: possible only if both protocols
+	// hold one key's material.
 	plaintext := []byte("one key, two doors")
 	encrypted, err := grpcClient.Encrypt(ctx, &kmspb.EncryptRequest{Name: keyName, Plaintext: plaintext})
 	require.NoError(t, err)
@@ -347,8 +336,8 @@ func TestCrossDoor_PubSubSchemas(t *testing.T) {
 	}
 }
 
-// TestCrossDoor_Operations crosses the long-running Operations service: an
-// operation minted by a gRPC call is one the REST operations door reports.
+// TestCrossDoor_Operations: an operation a gRPC call minted is one the REST
+// operations surface reports.
 func TestCrossDoor_Operations(t *testing.T) {
 	t.Parallel()
 	ia, ta, _ := bigtableAdminGRPCConn(t)
@@ -371,10 +360,9 @@ func TestCrossDoor_Operations(t *testing.T) {
 	require.Contains(t, names, op.GetName(),
 		"an operation a gRPC call returned must be reported by the REST operations door")
 
-	// And fetched by name through it. operations.get takes the whole remaining
-	// path (`v2/{+name}` over `^operations/.*$`), so the name's own slashes are
-	// part of it: a route matching a single segment answers the flat names and
-	// 404s these, which is exactly what a client polling a create hits.
+	// operations.get takes the whole remaining path (`v2/{+name}` over
+	// `^operations/.*$`), so the name's own slashes belong to it; a single-segment
+	// route would 404 these, as a client polling a create would see.
 	fetched, err := rest.Operations.Get(op.GetName()).Do()
 	require.NoError(t, err, "the REST operations door must fetch an operation by its full name")
 	require.Equal(t, op.GetName(), fetched.Name)

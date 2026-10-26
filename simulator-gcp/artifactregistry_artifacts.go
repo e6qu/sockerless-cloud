@@ -432,7 +432,6 @@ func arGCSSourceObjects(uri string, wildcards bool) ([]GCSObject, int, error) {
 	return matched, 0, nil
 }
 
-// arExportFile is one file of an exported artifact.
 type arExportFile struct {
 	id, name, contentType string
 	data                  []byte

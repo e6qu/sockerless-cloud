@@ -38,10 +38,9 @@ import (
 	fieldmaskpb "google.golang.org/protobuf/types/known/fieldmaskpb"
 )
 
-// These tests assert that writable fields accepted on create/patch survive a
-// read back through the real Google client libraries. A field dropped on
-// get/list produces perpetual terraform-provider-google drift; each case below
-// drives the canonical client a consumer would use.
+// Writable fields accepted on create or patch must survive a read through the
+// Google client libraries: a field dropped on get or list causes perpetual
+// terraform-provider-google drift.
 
 func TestConformance_DNSManagedZoneLabelsRoundTrip(t *testing.T) {
 	t.Parallel()
@@ -289,9 +288,8 @@ func TestConformance_LoggingMetricValueExtractorRoundTrip(t *testing.T) {
 	assert.Equal(t, map[string]string{"zone": "EXTRACT(resource.labels.zone)"}, got.LabelExtractors)
 }
 
-// requireGoogleErr asserts the error is a googleapi.Error with the given HTTP
-// code and that the GCP error envelope's `status` string is present in the raw
-// body — the canonical {"error":{"code","message","status"}} shape.
+// requireGoogleErr also requires the envelope's `status` string in the raw
+// body: {"error":{"code","message","status"}}.
 func requireGoogleErr(t *testing.T, err error, code int, gcpStatus string) {
 	t.Helper()
 	require.Error(t, err)
@@ -301,9 +299,8 @@ func requireGoogleErr(t *testing.T, err error, code int, gcpStatus string) {
 	assert.Contains(t, gerr.Body, gcpStatus, "GCP error.status field")
 }
 
-// TestConformance_ComputeDuplicateInsertConflict pins that a second insert of
-// a metadata-only Compute resource (backendService) returns 409 ALREADY_EXISTS
-// like real GCP, instead of silently overwriting.
+// TestConformance_ComputeDuplicateInsertConflict: a second insert of a
+// backendService answers 409 ALREADY_EXISTS rather than overwriting.
 func TestConformance_ComputeDuplicateInsertConflict(t *testing.T) {
 	t.Parallel()
 	svc, err := compute.NewService(ctx, option.WithEndpoint(baseURL+"/compute/v1/"), option.WithTokenSource(simTokenSource()))
@@ -319,9 +316,8 @@ func TestConformance_ComputeDuplicateInsertConflict(t *testing.T) {
 	requireGoogleErr(t, err, 409, "ALREADY_EXISTS")
 }
 
-// TestConformance_ComputeDeleteMissingNotFound pins that deleting a never-
-// created metadata-only Compute resource (healthCheck) returns 404 NOT_FOUND
-// like real GCP, instead of a synthesized DONE operation.
+// TestConformance_ComputeDeleteMissingNotFound: deleting a never-created
+// healthCheck answers 404 NOT_FOUND, not a DONE operation.
 func TestConformance_ComputeDeleteMissingNotFound(t *testing.T) {
 	t.Parallel()
 	svc, err := compute.NewService(ctx, option.WithEndpoint(baseURL+"/compute/v1/"), option.WithTokenSource(simTokenSource()))
@@ -331,8 +327,6 @@ func TestConformance_ComputeDeleteMissingNotFound(t *testing.T) {
 	requireGoogleErr(t, err, 404, "NOT_FOUND")
 }
 
-// TestConformance_PubSubDuplicateTopicConflict pins that creating a topic twice
-// returns 409 ALREADY_EXISTS like real Pub/Sub instead of overwriting.
 func TestConformance_PubSubDuplicateTopicConflict(t *testing.T) {
 	t.Parallel()
 	ensureProject(t, "conformance-project")
@@ -348,8 +342,6 @@ func TestConformance_PubSubDuplicateTopicConflict(t *testing.T) {
 	requireGoogleErr(t, err, 409, "ALREADY_EXISTS")
 }
 
-// TestConformance_PubSubDuplicateSubscriptionConflict pins the same contract
-// for subscriptions.
 func TestConformance_PubSubDuplicateSubscriptionConflict(t *testing.T) {
 	t.Parallel()
 	ensureProject(t, "conformance-project")
@@ -370,9 +362,8 @@ func TestConformance_PubSubDuplicateSubscriptionConflict(t *testing.T) {
 	requireGoogleErr(t, err, 409, "ALREADY_EXISTS")
 }
 
-// TestConformance_EventarcDuplicateTriggerConflict pins that a second
-// CreateTrigger with the same triggerId returns ALREADY_EXISTS. The eventarc
-// gRPC client surfaces the 409 as codes.AlreadyExists.
+// TestConformance_EventarcDuplicateTriggerConflict: a second CreateTrigger
+// with the same triggerId answers 409 ALREADY_EXISTS.
 func TestConformance_EventarcDuplicateTriggerConflict(t *testing.T) {
 	t.Parallel()
 	client, err := eventarc.NewRESTClient(ctx, serviceHostOptions(eventarcHost)...)
@@ -411,19 +402,14 @@ func TestConformance_EventarcDuplicateTriggerConflict(t *testing.T) {
 
 	_, err = client.CreateTrigger(ctx, req)
 	require.Error(t, err)
-	// The eventarc REST-over-gRPC client maps the sim's HTTP 409 to a gRPC
-	// status. ALREADY_EXISTS and ABORTED both carry HTTP 409, and this
-	// client's transport derives the gRPC code from the HTTP status rather
-	// than the body's `status` string, so accept either 409-family code and
-	// assert the conflict message — exactly what real Eventarc + this client
-	// surface for a duplicate create.
+	// The Eventarc REST client derives the gRPC code from the HTTP status, which
+	// ALREADY_EXISTS and ABORTED share, so accept either and assert the conflict
+	// message.
 	code := status.Code(err)
 	assert.Contains(t, []codes.Code{codes.AlreadyExists, codes.Aborted}, code, "duplicate CreateTrigger must be a 409-family conflict: %v", err)
 	assert.Contains(t, err.Error(), "already exists")
 }
 
-// TestConformance_LoggingDeleteMissingSinkNotFound pins that deleting a
-// never-created log sink returns 404 NOT_FOUND like real Cloud Logging.
 func TestConformance_LoggingDeleteMissingSinkNotFound(t *testing.T) {
 	t.Parallel()
 	svc, err := logging.NewService(ctx, option.WithEndpoint(baseURL), option.WithTokenSource(simTokenSource()))
@@ -433,16 +419,14 @@ func TestConformance_LoggingDeleteMissingSinkNotFound(t *testing.T) {
 	requireGoogleErr(t, err, 404, "NOT_FOUND")
 }
 
-// TestConformance_IAMSetPolicyStaleEtagAborted pins the optimistic-concurrency
-// contract: a setIamPolicy carrying a stale etag is rejected with 409 ABORTED
-// so the caller re-reads and retries.
+// TestConformance_IAMSetPolicyStaleEtagAborted: a setIamPolicy carrying a
+// stale etag answers 409 ABORTED so the caller re-reads and retries.
 func TestConformance_IAMSetPolicyStaleEtagAborted(t *testing.T) {
 	svc, err := cloudresourcemanager.NewService(ctx, option.WithEndpoint(baseURL), option.WithTokenSource(simTokenSource()))
 	require.NoError(t, err)
 	project := "conformance-iam-etag-project"
 	ensureV1Project(t, svc, project)
 
-	// Read the current policy to learn its etag.
 	got, err := svc.Projects.GetIamPolicy(project, &cloudresourcemanager.GetIamPolicyRequest{}).Do()
 	require.NoError(t, err)
 	require.NotEmpty(t, got.Etag)
@@ -467,10 +451,8 @@ func TestConformance_IAMSetPolicyStaleEtagAborted(t *testing.T) {
 	requireGoogleErr(t, err, 409, "ABORTED")
 }
 
-// TestConformance_ComputeListPaginatesByMaxResults pins that the Compute list
-// surface honors the API's maxResults page size + pageToken cursor. Before
-// the fix, paginateList read "pageSize" — a param the Compute SDK never sends
-// — so every list returned the full set on page 1 with no nextPageToken.
+// TestConformance_ComputeListPaginatesByMaxResults: Compute lists page by
+// maxResults and pageToken; the Compute SDK never sends pageSize.
 func TestConformance_ComputeListPaginatesByMaxResults(t *testing.T) {
 	t.Parallel()
 	svc, err := compute.NewService(ctx, option.WithEndpoint(baseURL+"/compute/v1/"), option.WithTokenSource(simTokenSource()))
@@ -497,16 +479,14 @@ func TestConformance_ComputeListPaginatesByMaxResults(t *testing.T) {
 	assert.NotEqual(t, first.Items[0].Name, second.Items[0].Name, "pages must not overlap")
 	assert.Empty(t, second.NextPageToken, "last page must not carry a token")
 
-	// No maxResults returns the full list with no token (unchanged behavior).
 	all, err := svc.BackendServices.List(project).Context(ctx).Do()
 	require.NoError(t, err)
 	require.Len(t, all.Items, 2, "an unbounded list returns every item")
 	assert.Empty(t, all.NextPageToken, "an unbounded list carries no token")
 }
 
-// TestConformance_DNSRecordSetsPaginate pins that rrsets list honors maxResults +
-// pageToken and stamps the dns#resourceRecordSetsListResponse kind. Before the
-// fix the handler ignored both params and emitted no nextPageToken.
+// TestConformance_DNSRecordSetsPaginate: rrsets list honours maxResults and
+// pageToken and stamps dns#resourceRecordSetsListResponse.
 func TestConformance_DNSRecordSetsPaginate(t *testing.T) {
 	t.Parallel()
 	svc, err := dns.NewService(ctx, option.WithEndpoint(baseURL), option.WithTokenSource(simTokenSource()))
@@ -547,9 +527,8 @@ func TestConformance_DNSRecordSetsPaginate(t *testing.T) {
 	assert.Empty(t, all.NextPageToken)
 }
 
-// TestConformance_EventarcTriggersPaginate pins that ListTriggers honors
-// pageSize + emits a nextPageToken. The REST iterator's InternalFetch exposes a
-// single page and its follow-on token directly.
+// TestConformance_EventarcTriggersPaginate: the REST iterator's InternalFetch
+// exposes one page and its follow-on token.
 func TestConformance_EventarcTriggersPaginate(t *testing.T) {
 	t.Parallel()
 	client, err := eventarc.NewRESTClient(ctx, serviceHostOptions(eventarcHost)...)
@@ -599,8 +578,6 @@ func TestConformance_EventarcTriggersPaginate(t *testing.T) {
 	assert.Empty(t, next2, "last trigger page carries no token")
 }
 
-// TestConformance_DataflowJobsPaginate pins that ListJobs honors pageSize +
-// pageToken and emits a nextPageToken.
 func TestConformance_DataflowJobsPaginate(t *testing.T) {
 	t.Parallel()
 	svc, err := dataflow.NewService(ctx, option.WithEndpoint(baseURL+"/"), option.WithTokenSource(simTokenSource()))
@@ -631,8 +608,6 @@ func TestConformance_DataflowJobsPaginate(t *testing.T) {
 	assert.Empty(t, all.NextPageToken)
 }
 
-// TestConformance_LoggingEntriesPaginate pins that entries:list honors pageSize +
-// pageToken and emits a nextPageToken so a caller can walk every page.
 func TestConformance_LoggingEntriesPaginate(t *testing.T) {
 	t.Parallel()
 	svc, err := logging.NewService(ctx, option.WithEndpoint(baseURL), option.WithTokenSource(simTokenSource()))
@@ -671,8 +646,6 @@ func TestConformance_LoggingEntriesPaginate(t *testing.T) {
 	assert.Empty(t, second.NextPageToken, "last entries page carries no token")
 }
 
-// TestConformance_BigQueryDatasetsPaginate pins that datasets.list honors
-// maxResults + pageToken and emits a nextPageToken.
 func TestConformance_BigQueryDatasetsPaginate(t *testing.T) {
 	t.Parallel()
 	svc, err := bigquery.NewService(ctx, option.WithEndpoint(baseURL+"/bigquery/v2/"), option.WithTokenSource(simTokenSource()))
@@ -698,9 +671,9 @@ func TestConformance_BigQueryDatasetsPaginate(t *testing.T) {
 	assert.Empty(t, second.NextPageToken, "last dataset page carries no token")
 }
 
-// TestConformance_FirestoreListAndQueryPagination pins that documents.list honors
-// pageSize + pageToken and that runQuery honors limit, offset, and the
-// LESS_THAN / GREATER_THAN comparison operators (not only EQUAL).
+// TestConformance_FirestoreListAndQueryPagination: documents.list honours
+// pageSize and pageToken, and runQuery honours limit, offset and the
+// LESS_THAN and GREATER_THAN operators.
 func TestConformance_FirestoreListAndQueryPagination(t *testing.T) {
 	t.Parallel()
 	svc, err := firestore.NewService(ctx, option.WithEndpoint(baseURL+"/"), option.WithTokenSource(simTokenSource()))
@@ -736,13 +709,11 @@ func TestConformance_FirestoreListAndQueryPagination(t *testing.T) {
 	require.Len(t, second.Documents, 1, "second document page must return another document")
 	assert.NotEqual(t, first.Documents[0].Name, second.Documents[0].Name, "document pages must not overlap")
 
-	// runQuery returns a streamed JSON array of RunQueryResponse elements that
-	// the REST .Do() (single-object decode) can't capture, so post the canonical
-	// structured-query body directly and count the document-bearing elements —
-	// the same wire shape the firestore client emits.
+	// runQuery streams a JSON array of RunQueryResponse elements that the REST
+	// .Do() cannot decode, so post the structured-query body directly, as the
+	// Firestore client does, and count the document-bearing elements.
 	queryURL := baseURL + "/v1/" + db + "/documents:runQuery"
 
-	// limit caps results.
 	limited := runFirestoreQuery(t, queryURL,
 		`{"structuredQuery":{"from":[{"collectionId":"conf-pag-users"}],"limit":2}}`)
 	assert.Len(t, limited, 2, "runQuery limit=2 must return at most two documents")
@@ -753,8 +724,6 @@ func TestConformance_FirestoreListAndQueryPagination(t *testing.T) {
 	assert.Len(t, gt, 2, "rank > 1 must match exactly two documents")
 }
 
-// runFirestoreQuery posts a structured query and returns the document-bearing
-// elements of the streamed RunQueryResponse array.
 func runFirestoreQuery(t *testing.T, url, body string) []*firestore.RunQueryResponse {
 	t.Helper()
 	resp, err := http.Post(url, "application/json", strings.NewReader(body))
@@ -901,7 +870,6 @@ func TestConformance_KMSCreateAndToggleCryptoKeyVersion(t *testing.T) {
 	}).CryptoKeyId("conf-ckv-key").Do()
 	require.NoError(t, err)
 
-	// Create a second version explicitly.
 	v2, err := svc.Projects.Locations.KeyRings.CryptoKeys.CryptoKeyVersions.
 		Create(key.Name, &cloudkms.CryptoKeyVersion{}).Do()
 	require.NoError(t, err, "CreateCryptoKeyVersion must not 404")
@@ -912,22 +880,20 @@ func TestConformance_KMSCreateAndToggleCryptoKeyVersion(t *testing.T) {
 	require.NoError(t, err)
 	assert.GreaterOrEqual(t, len(list.CryptoKeyVersions), 2, "both versions must be listed")
 
-	// Disable v2 via UpdateCryptoKeyVersion (PATCH state) — the canonical
-	// state toggle terraform's google_kms_crypto_key_version uses.
+	// Disable v2 through UpdateCryptoKeyVersion (PATCH state), the toggle
+	// terraform's google_kms_crypto_key_version uses.
 	disabled, err := svc.Projects.Locations.KeyRings.CryptoKeys.CryptoKeyVersions.
 		Patch(v2.Name, &cloudkms.CryptoKeyVersion{State: "DISABLED"}).
 		UpdateMask("state").Do()
 	require.NoError(t, err, "UpdateCryptoKeyVersion must not 404")
 	assert.Equal(t, "DISABLED", disabled.State)
 
-	// Re-enable.
 	enabled, err := svc.Projects.Locations.KeyRings.CryptoKeys.CryptoKeyVersions.
 		Patch(v2.Name, &cloudkms.CryptoKeyVersion{State: "ENABLED"}).
 		UpdateMask("state").Do()
 	require.NoError(t, err, "UpdateCryptoKeyVersion must not 404")
 	assert.Equal(t, "ENABLED", enabled.State)
 
-	// Schedule destroy then restore.
 	destroyed, err := svc.Projects.Locations.KeyRings.CryptoKeys.CryptoKeyVersions.
 		Destroy(v2.Name, &cloudkms.DestroyCryptoKeyVersionRequest{}).Do()
 	require.NoError(t, err)
@@ -946,8 +912,7 @@ func TestConformance_CloudBuildListBuilds(t *testing.T) {
 
 	const project = "conf-cb-list-project"
 	requireProject(t, project)
-	// CreateBuild persists the build even when execution fails (no source),
-	// which is all ListBuilds needs to surface it.
+	// CreateBuild persists the build even when it fails for want of source.
 	op, err := svc.Projects.Builds.Create(project, &cloudbuild.Build{
 		Steps: []*cloudbuild.BuildStep{{Name: "gcr.io/cloud-builders/docker", Args: []string{"version"}}},
 	}).Do()
@@ -1117,7 +1082,6 @@ func TestConformance_CloudFunctionsUpdateAndGenerateUploadUrl(t *testing.T) {
 
 	const parent = "projects/conf-gcf-project/locations/us-central1"
 
-	// generateUploadUrl is called before create.
 	upload, err := client.GenerateUploadUrl(ctx, &functionspb.GenerateUploadUrlRequest{
 		Parent: parent,
 	})

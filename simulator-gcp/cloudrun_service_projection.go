@@ -213,7 +213,7 @@ func cloudRunV1ToV2(service CRService, project, location string) ServiceV2 {
 				annotations, template.VpcAccess, err = cloudRunUnfoldVpcAccess(annotations)
 			}
 			if err != nil {
-				// cloudRunKnativeServiceValid refuses the service before it is stored.
+				// Unreachable: cloudRunKnativeServiceValid refuses the service before it is stored.
 				panic(err)
 			}
 			template.Annotations = annotations
@@ -231,7 +231,7 @@ func cloudRunV1ToV2(service CRService, project, location string) ServiceV2 {
 	}
 	annotations, scaling, err := cloudRunUnfoldServiceScaling(service.Metadata.Annotations)
 	if err != nil {
-		// cloudRunKnativeServiceValid refuses the service before it is stored.
+		// Unreachable: cloudRunKnativeServiceValid refuses the service before it is stored.
 		panic(err)
 	}
 	return ServiceV2{

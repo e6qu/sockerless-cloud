@@ -20,17 +20,11 @@ import (
 	"google.golang.org/api/cloudbuild/v1"
 )
 
-// TestCloudBuild_DockerBuild exercises the Cloud Build slice: the GCP simulator
-// implements CreateBuild + LRO: the create answers at once with the build's
-// operation, the build extracts the uploaded GCS source tarball and runs
-// `docker build` against it, and the operation completes with the SUCCESS
-// build, which the Cloud Build SDK's operation wait returns.
-//
-// The build's verdict alone would be satisfied by a handler that never ran the
-// step, so the image the step was told to produce is inspected on the daemon
-// afterwards. The push half of a real build — a `docker push` step landing the
-// image in a registry a workload pulls from — is exercised in
-// TestCloudBuild_FaithfulBuildPush.
+// TestCloudBuild_DockerBuild: CreateBuild answers at once with the build's
+// operation, the build extracts the Cloud Storage source tarball and runs
+// `docker build` on it, and the operation completes with the SUCCESS build.
+// A verdict alone would pass a handler that never ran the step, so inspect the
+// image on the daemon. TestCloudBuild_FaithfulBuildPush covers the push.
 func TestCloudBuild_DockerBuild(t *testing.T) {
 	t.Parallel()
 	if _, err := exec.LookPath("docker"); err != nil {
@@ -40,9 +34,6 @@ func TestCloudBuild_DockerBuild(t *testing.T) {
 
 	project := "cb-test-project"
 
-	// 1. Upload a tiny build context (a Dockerfile only) to the sim's
-	// GCS slice. Real sockerless uploads context via the GCS client;
-	// we do it directly via REST.
 	bucket := "cb-test-bucket"
 	createBucket(t, project, bucket)
 	objectName := fmt.Sprintf("cb-context-%d.tar.gz", time.Now().UnixNano())
@@ -51,7 +42,6 @@ func TestCloudBuild_DockerBuild(t *testing.T) {
 	})
 	uploadGCSObject(t, bucket, objectName, tarball)
 
-	// 2. Submit a build via the Cloud Build REST endpoint.
 	imageTag := fmt.Sprintf("sim-cb-build:gcp-sdk-%d", time.Now().UnixNano())
 	t.Cleanup(func() { _, _ = dockerCLIWithTimeout(60*time.Second, "image", "rm", "-f", imageTag) })
 	buildURL := fmt.Sprintf("%s/v1/projects/%s/builds", baseURL, project)
@@ -75,17 +65,10 @@ func TestCloudBuild_DockerBuild(t *testing.T) {
 		"the build step must leave %s in the daemon image store: %s", imageTag, inspect)
 }
 
-// TestCloudBuild_SecretEnvExpansion exercises secret expansion: Secret Manager
-// references in the build's AvailableSecrets are resolved to env vars available
-// to each build step's secretEnv.
-//
-// A plain `docker build` proves nothing about the expansion, because a
-// Dockerfile does not read the builder's environment on its own. The step
-// therefore passes `--build-arg MYSECRET` with no value, which is exactly the
-// form that takes the variable from the docker CLI's own environment — the
-// environment the simulator injects the resolved secret into — and the
-// Dockerfile compares it against the payload. Dropping the secretEnv injection
-// leaves the argument empty, the RUN exits non-zero, and the build turns red.
+// TestCloudBuild_SecretEnvExpansion: Cloud Build resolves availableSecrets into
+// each step's secretEnv. A Dockerfile does not read the builder's environment,
+// so the step passes a bare `--build-arg MYSECRET`, which docker takes from its
+// own environment, and the Dockerfile compares it with the payload.
 func TestCloudBuild_SecretEnvExpansion(t *testing.T) {
 	t.Parallel()
 	if _, err := exec.LookPath("docker"); err != nil {
@@ -97,7 +80,6 @@ func TestCloudBuild_SecretEnvExpansion(t *testing.T) {
 	bucket := "cb-secret-bucket"
 	createBucket(t, project, bucket)
 
-	// Seed a Secret Manager secret + version.
 	secretID := "mysecret"
 	secretValue := "s3cret-payload"
 	smCreateURL := fmt.Sprintf("%s/v1/projects/%s/secrets?secretId=%s", baseURL, project, secretID)
@@ -106,14 +88,11 @@ func TestCloudBuild_SecretEnvExpansion(t *testing.T) {
 	addVerBody := fmt.Sprintf(`{"payload":{"data":%q}}`, base64.StdEncoding.EncodeToString([]byte(secretValue)))
 	httpPOST(t, addVerURL, addVerBody)
 
-	// Upload a trivial Dockerfile.
 	objectName := fmt.Sprintf("secret-cb-%d.tar.gz", time.Now().UnixNano())
 	tarball := makeTarGz(t, map[string]string{"Dockerfile": "FROM " + cbBaseImage +
 		"\nARG MYSECRET\nRUN test \"$MYSECRET\" = \"" + secretValue + "\"\n"})
 	uploadGCSObject(t, bucket, objectName, tarball)
 
-	// Submit build with secretEnv — simulator must resolve the Secret
-	// Manager reference and expose the payload in the step's env.
 	imageTag := fmt.Sprintf("sim-cb-secret:gcp-sdk-%d", time.Now().UnixNano())
 	t.Cleanup(func() { _, _ = dockerCLIWithTimeout(60*time.Second, "image", "rm", "-f", imageTag) })
 	buildURL := fmt.Sprintf("%s/v1/projects/%s/builds", baseURL, project)
@@ -135,18 +114,12 @@ func TestCloudBuild_SecretEnvExpansion(t *testing.T) {
 	assert.Equal(t, cloudbuildpb.Build_SUCCESS, built.GetStatus())
 }
 
-// TestCloudBuild_SecretEnvWithoutMatchingAvailableSecret pins what the
-// simulator does with a step that names a secretEnv the build's
-// availableSecrets never declares.
-//
-// Real Cloud Build refuses such a build at CreateBuild: the request is
-// INVALID_ARGUMENT ("secretEnv ... is not defined in availableSecrets") and no
-// step runs. The simulator accepts it and runs the step with the variable
-// simply absent, which the step's Dockerfile observes through a bare
-// `--build-arg`. The assertion is written against that observed behaviour so
-// the divergence is recorded rather than invisible; a simulator taught to
-// refuse the build turns this red, and the refusal is then what the test should
-// assert.
+// TestCloudBuild_SecretEnvWithoutMatchingAvailableSecret pins a divergence:
+// real Cloud Build refuses at CreateBuild with INVALID_ARGUMENT ("secretEnv ...
+// is not defined in availableSecrets") a step naming a secretEnv that
+// availableSecrets never declares, while the simulator runs the step with the
+// variable absent. A simulator taught to refuse turns this red, and the refusal
+// is then what to assert.
 func TestCloudBuild_SecretEnvWithoutMatchingAvailableSecret(t *testing.T) {
 	t.Parallel()
 	if _, err := exec.LookPath("docker"); err != nil {
@@ -189,10 +162,8 @@ func TestCloudBuild_SecretEnvWithoutMatchingAvailableSecret(t *testing.T) {
 	assert.Equal(t, cloudbuildpb.Build_SUCCESS, built.GetStatus())
 }
 
-// cbBaseImage is the base every Cloud Build step in this file builds from and
-// runs: the harness-wide workload image, served from mirror.gcr.io rather than
-// Docker Hub, whose anonymous pull throttle has flaked
-// these builds.
+// cbBaseImage comes from mirror.gcr.io, so Docker Hub's anonymous pull
+// throttle cannot fail these builds.
 const cbBaseImage = simWorkloadImage
 
 // cbDockerStep builds one gcr.io/cloud-builders/docker build step, optionally
@@ -205,9 +176,8 @@ func cbDockerStep(args []string, secretEnv ...string) map[string]any {
 	return step
 }
 
-// cbBuildBody renders a CreateBuild request over a GCS source tarball. It
-// marshals rather than interpolating so a step argument carrying quotes — a
-// shell command run inside a container — reaches the simulator intact.
+// cbBuildBody marshals rather than interpolates, so a step argument carrying
+// quotes reaches the simulator intact.
 func cbBuildBody(t *testing.T, bucket, object string, steps []any, availableSecrets map[string]any) string {
 	t.Helper()
 	build := map[string]any{
@@ -224,9 +194,6 @@ func cbBuildBody(t *testing.T, bucket, object string, steps []any, availableSecr
 	return string(raw)
 }
 
-// TestCloudBuild_MissingSecretFails asserts that an unresolvable
-// Secret Manager reference fails the build with a clear error (rather
-// than silently dropping the secret env var).
 func TestCloudBuild_MissingSecretFails(t *testing.T) {
 	t.Parallel()
 	if _, err := exec.LookPath("docker"); err != nil {
@@ -275,11 +242,8 @@ func makeTarGz(t *testing.T, files map[string]string) []byte {
 	return buf.Bytes()
 }
 
-// createBucket makes sure the named bucket exists. Creating a bucket that is
-// already there is a 409 ALREADY_EXISTS, exactly as it is on Cloud Storage, and
-// that answer satisfies the caller: the bucket exists either way. Tolerating it
-// is what lets a test in this package be re-run in one process (`-count`),
-// which is how a flaky build test gets stressed.
+// createBucket accepts the 409 ALREADY_EXISTS Cloud Storage answers for an
+// existing bucket, so a test can rerun in one process (`-count`).
 func createBucket(t *testing.T, project, name string) {
 	t.Helper()
 	requireProject(t, project)
@@ -334,7 +298,6 @@ func TestCloudBuild_TriggerCRUD(t *testing.T) {
 	svc := cloudbuildService(t)
 	project := "cb-trigger-project"
 
-	// Create a trigger.
 	trigger := &cloudbuild.BuildTrigger{
 		Name:     "sdk-test-trigger",
 		Filename: "cloudbuild.yaml",
@@ -348,14 +311,12 @@ func TestCloudBuild_TriggerCRUD(t *testing.T) {
 	assert.Equal(t, "sdk-test-trigger", created.Name)
 	require.NotEmpty(t, created.Id)
 
-	// Get trigger.
 	got, err := svc.Projects.Triggers.Get(project, created.Id).Do()
 	require.NoError(t, err)
 	assert.Equal(t, created.Id, got.Id)
 	assert.Equal(t, "sdk-test-trigger", got.Name)
 	assert.Equal(t, "cloudbuild.yaml", got.Filename)
 
-	// List triggers — must contain created trigger.
 	list, err := svc.Projects.Triggers.List(project).Do()
 	require.NoError(t, err)
 	found := false
@@ -366,7 +327,6 @@ func TestCloudBuild_TriggerCRUD(t *testing.T) {
 	}
 	assert.True(t, found, "created trigger must appear in list")
 
-	// Patch — update the filename.
 	patched, err := svc.Projects.Triggers.Patch(project, created.Id,
 		&cloudbuild.BuildTrigger{
 			Name:     "sdk-test-trigger",
@@ -375,11 +335,9 @@ func TestCloudBuild_TriggerCRUD(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "ci/cloudbuild.yaml", patched.Filename)
 
-	// Delete trigger.
 	_, err = svc.Projects.Triggers.Delete(project, created.Id).Do()
 	require.NoError(t, err)
 
-	// Get after delete must fail.
 	_, err = svc.Projects.Triggers.Get(project, created.Id).Do()
 	require.Error(t, err)
 }
@@ -387,11 +345,9 @@ func TestCloudBuild_TriggerCRUD(t *testing.T) {
 func TestCloudBuild_ListTriggers_Pagination(t *testing.T) {
 	t.Parallel()
 	const project = "test-project"
-	// A create whose status went unread would let a rejected create pass as a
-	// success while the walk below found a trigger an earlier run had left
-	// behind. Each create is checked, and the id it answers with — the
-	// identifier the collection is keyed by, which the request never supplies —
-	// is what the cleanup deletes.
+	// Check each create, and clean up by the id it answers with, which the request
+	// never supplies: an unchecked create would let a trigger an earlier run left
+	// behind pass the walk below.
 	for _, name := range []string{"pag-trig-a", "pag-trig-b", "pag-trig-c"} {
 		body, err := json.Marshal(map[string]any{
 			"name": name,

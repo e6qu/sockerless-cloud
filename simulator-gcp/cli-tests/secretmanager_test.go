@@ -62,8 +62,7 @@ func TestSecretManagerSecretLifecycleCLI(t *testing.T) {
 	require.Equal(t, created.Name+"/versions/2", versions[0].Name)
 	require.Equal(t, created.Name+"/versions/1", versions[1].Name)
 
-	// Naming the versions is not storing them: each version has to give back
-	// the payload it was added with, and `latest` has to resolve to the newest.
+	// Each version must give back its own payload and `latest` the newest.
 	// `versions access` prints the decoded payload with no terminator.
 	for version, want := range map[string]string{
 		"1":      "first",
@@ -89,9 +88,6 @@ func TestSecretManagerSecretLifecycleCLI(t *testing.T) {
 	runCLI(t, gcloudCLI("secrets", "delete", secretID, "--quiet"))
 }
 
-// TestSecretManagerIamPolicyCLI exercises the secret IAM policy surface via
-// gcloud: add-iam-policy-binding (setIamPolicy after a getIamPolicy read)
-// then get-iam-policy reads the binding back.
 func TestSecretManagerIamPolicyCLI(t *testing.T) {
 	t.Parallel()
 	secretID := "cli-iam-secret"
@@ -104,7 +100,6 @@ func TestSecretManagerIamPolicyCLI(t *testing.T) {
 		runCLI(t, gcloudCLI("secrets", "delete", secretID, "--quiet"))
 	})
 
-	// add-iam-policy-binding does a get→modify→set round-trip under the hood.
 	out := runCLI(t, gcloudCLI("secrets", "add-iam-policy-binding", secretID,
 		"--member=user:alice@example.com",
 		"--role=roles/secretmanager.secretAccessor",
@@ -122,7 +117,6 @@ func TestSecretManagerIamPolicyCLI(t *testing.T) {
 	require.Equal(t, "roles/secretmanager.secretAccessor", policy.Bindings[0].Role)
 	require.Contains(t, policy.Bindings[0].Members, "user:alice@example.com")
 
-	// get-iam-policy reads the persisted binding back.
 	out = runCLI(t, gcloudCLI("secrets", "get-iam-policy", secretID, "--format=json"))
 	var got struct {
 		Bindings []struct {

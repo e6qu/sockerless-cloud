@@ -16,13 +16,10 @@ import (
 	"google.golang.org/grpc/codes"
 )
 
-// Cloud Run Admin v1 (Knative) jobs lifecycle, run and cancel, driven by the
-// canonical google.golang.org/api/run/v1 client. The Knative jobs surface
-// writes and reads the same records the v2 collection owns and drives the same
-// container execution, so these tests assert on real container outcomes, not
-// on record bookkeeping alone.
+// The Knative jobs surface reads and writes the records the v2 collection owns
+// and drives the same container execution, so these tests assert on container
+// outcomes.
 
-// waitCloudRunV1ExecutionDone polls the Knative execution until it completes.
 func waitCloudRunV1ExecutionDone(t *testing.T, svc *run.APIService, executionID string) *run.Execution {
 	t.Helper()
 	var execution *run.Execution
@@ -119,8 +116,7 @@ func TestCloudRunV1_JobsLifecycle(t *testing.T) {
 	require.Error(t, err)
 }
 
-// TestCloudRunV1_JobRunPropagatesNonZeroExit runs a REAL container image
-// through the Knative run method and asserts the container's non-zero exit
+// TestCloudRunV1_JobRunPropagatesNonZeroExit: the container's non-zero exit
 // reaches the execution's failedCount and the task's lastAttemptResult.
 func TestCloudRunV1_JobRunPropagatesNonZeroExit(t *testing.T) {
 	t.Parallel()
@@ -132,8 +128,7 @@ func TestCloudRunV1_JobRunPropagatesNonZeroExit(t *testing.T) {
 		Metadata: &run.ObjectMeta{Name: id},
 		Spec: &run.JobSpec{Template: &run.ExecutionTemplateSpec{
 			Spec: &run.ExecutionSpec{Template: &run.TaskTemplateSpec{Spec: &run.TaskSpec{
-				// The arithmetic evaluator exits non-zero on a malformed
-				// expression — a real process failure, not a simulated one.
+				// The evaluator exits non-zero on a malformed expression.
 				Containers:     []*run.Container{{Image: evalImageName, Args: []string{"3 +"}}},
 				TimeoutSeconds: 30,
 			}}},
@@ -178,12 +173,10 @@ func TestCloudRunV1_JobRunPropagatesNonZeroExit(t *testing.T) {
 	assert.Equal(t, int64(1), job.Status.ExecutionCount)
 }
 
-// TestCloudRunV1_ExecutionCancelStopsTheContainer cancels a running execution
-// through the Knative surface and proves the workload container really
-// stopped: its task settles with the exit code the container's SIGTERM handler
-// returned, and the handler's line is the last the container logged. A cancel
-// that only rewrote the execution record would leave the container ticking and
-// its task unsettled.
+// TestCloudRunV1_ExecutionCancelStopsTheContainer: the task settles with the
+// exit code of the container's SIGTERM handler, whose line is the last the
+// container logged. A cancel that only rewrote the record would leave the
+// container ticking.
 func TestCloudRunV1_ExecutionCancelStopsTheContainer(t *testing.T) {
 	t.Parallel()
 	svc := newRunV1(t)
@@ -252,9 +245,8 @@ func TestCloudRunV1_ExecutionCancelStopsTheContainer(t *testing.T) {
 	assert.Equal(t, 1, strings.Count(strings.Join(container, "\n"), "stopping"))
 }
 
-// waitCloudRunV1TaskDone polls the execution's single task until it reports a
-// completion time. The Knative task resource has no watch, so its status is
-// what a client reads.
+// waitCloudRunV1TaskDone polls the task's status: the Knative task resource
+// has no watch.
 func waitCloudRunV1TaskDone(t *testing.T, svc *run.APIService, executionID string) *run.Task {
 	t.Helper()
 	var task *run.Task
@@ -278,8 +270,6 @@ func conditionReasons(conditions []*run.GoogleCloudRunV1Condition) []string {
 	return reasons
 }
 
-// TestCloudRunV1_JobRunOverrides drives the Knative run method's per-run
-// overrides against a real container and shows the job resource is untouched.
 func TestCloudRunV1_JobRunOverrides(t *testing.T) {
 	t.Parallel()
 	svc := newRunV1(t)
@@ -331,8 +321,8 @@ func TestCloudRunV1_JobRunOverrides(t *testing.T) {
 	assert.Equal(t, int64(1), job.Spec.Template.Spec.TaskCount)
 }
 
-// TestCloudRunV1_JobsDryRun pins that a Knative job dry run validates without
-// persisting, and that an unsupported dryRun value is rejected.
+// TestCloudRunV1_JobsDryRun: a dry run validates without persisting, and an
+// unsupported dryRun value is refused.
 func TestCloudRunV1_JobsDryRun(t *testing.T) {
 	t.Parallel()
 	svc := newRunV1(t)
@@ -358,8 +348,6 @@ func TestCloudRunV1_JobsDryRun(t *testing.T) {
 	require.Error(t, err, "an unsupported dryRun value is rejected, never silently ignored")
 }
 
-// TestCloudRunV1_ExecutionDeleteRemovesItsTasks pins the Knative execution
-// delete: the execution and the tasks it owns both go.
 func TestCloudRunV1_ExecutionDeleteRemovesItsTasks(t *testing.T) {
 	t.Parallel()
 	svc := newRunV1(t)
@@ -384,9 +372,8 @@ func TestCloudRunV1_ExecutionDeleteRemovesItsTasks(t *testing.T) {
 	require.Error(t, err, "deleting an execution removes the tasks it owns")
 }
 
-// TestCloudRunV2_JobSetIamPolicyDoesNotRunTheJob pins the v2 jobs colon-verb
-// fan-in: setIamPolicy sets a policy. It must never fall through to RunJob and
-// start a container.
+// TestCloudRunV2_JobSetIamPolicyDoesNotRunTheJob: setIamPolicy shares the v2
+// jobs colon-verb route with run and must never start a container.
 func TestCloudRunV2_JobSetIamPolicyDoesNotRunTheJob(t *testing.T) {
 	t.Parallel()
 	id := uniquename.New("v2-iam-not-run")
@@ -414,8 +401,6 @@ func TestCloudRunV2_JobSetIamPolicyDoesNotRunTheJob(t *testing.T) {
 	assert.Empty(t, list, "an IAM verb must not start an execution")
 }
 
-// TestCloudRunV2_JobRunValidateOnly pins that a validate-only RunJob starts no
-// execution and reports no resource it did not create.
 func TestCloudRunV2_JobRunValidateOnly(t *testing.T) {
 	t.Parallel()
 	id := uniquename.New("v2-run-validate-only")

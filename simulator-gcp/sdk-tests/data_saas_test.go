@@ -116,9 +116,9 @@ func TestFirestore_DocumentCommitBatchGetRunQuery(t *testing.T) {
 	require.NoError(t, err)
 
 	// batchGet answers one BatchGetDocumentsResponse per requested name, in
-	// request order: a stored document comes back under `found`, an absent one
-	// under `missing`. Decoding the array is what separates the two — a
-	// substring check over the body passes on any echo of the request.
+	// request order, with a stored document under `found` and an absent one under
+	// `missing`; decode the array, since a substring check passes on any echo of
+	// the request.
 	missingName := collection + "/missing"
 	batchResp, err := http.Post(baseURL+"/v1/projects/test-project/databases/(default)/documents:batchGet",
 		"application/json",
@@ -146,9 +146,8 @@ func TestFirestore_DocumentCommitBatchGetRunQuery(t *testing.T) {
 	assert.Equal(t, missingName, batch[1].Missing)
 	assertProtoJSONTimestamp(t, batch[1].ReadTime)
 
-	// runQuery answers one RunQueryResponse per matching document. The
-	// collection now holds two documents and the filter selects one, so a
-	// response carrying both would mean the `where` clause was dropped.
+	// runQuery answers one RunQueryResponse per matching document; the filter
+	// selects one of the collection's two.
 	queryResp, err := http.Post(baseURL+"/v1/projects/test-project/databases/(default)/documents:runQuery",
 		"application/json",
 		strings.NewReader(`{"structuredQuery":{"from":[{"collectionId":"sdk-users"}],"where":{"fieldFilter":{"field":{"fieldPath":"team"},"op":"EQUAL","value":{"stringValue":"platform"}}}}}`))

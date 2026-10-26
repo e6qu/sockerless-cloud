@@ -10,19 +10,10 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// TestGCPOperationsAreRecordedComplete pins the invariant the standard
-// CancelOperation handler rests on: the services minted here record their
-// operations complete, because the work each one's LRO wraps runs inside the
-// request that returns the operation. Cancelling such an operation is the late
-// cancel AIP-151 describes — "the operation completed despite cancellation" —
-// and handleGCPCancelOperation leaves the recorded result alone.
-//
-// A service that starts recording an operation before its work finishes fails
-// here, which is the signal that cancel has to grow a branch that stops that
-// work rather than silently no-opping on it. Cloud Run's RunJob has that
-// branch (gcpCancelOperationWork cancels the execution), and Cloud Build's
-// build operations are projections of the build record, not rows in these
-// stores, whose cancel terminates the running build steps.
+// TestGCPOperationsAreRecordedComplete pins the invariant CancelOperation
+// rests on: these services record operations complete, since their work runs
+// inside the request. A service that records one before its work finishes
+// fails here, the signal that cancel must stop that work.
 func TestGCPOperationsAreRecordedComplete(t *testing.T) {
 	t.Setenv("SIM_RUNTIME", "process")
 	srv, err := buildSimulator(sim.Config{Provider: "gcp", ListenAddr: ":0", LogLevel: "error"})
@@ -48,10 +39,8 @@ func TestGCPOperationsAreRecordedComplete(t *testing.T) {
 		return rec
 	}
 
-	// Mint an operation into each store the standard cancel resolves against,
-	// through the real create methods, so the assertion below is over records
-	// that actually exist. A store left empty would make this test pass
-	// vacuously.
+	// Mint an operation into each store through the real create methods; an empty
+	// store would pass vacuously.
 	post("apigateway.googleapis.com",
 		"/v1/projects/test-project/locations/global/apis?apiId=invariant-api",
 		`{"displayName":"invariant"}`)

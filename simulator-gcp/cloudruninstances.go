@@ -8,12 +8,6 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// Cloud Run v2 Instances slice. An Instance is a single long-lived Cloud
-// Run instance (the v2 resource the SDK reaches via
-// run.NewInstancesRESTClient and `/v2/projects/{project}/locations/{location}/instances`).
-//
-// Real API: https://cloud.google.com/run/docs/reference/rest/v2/projects.locations.instances
-
 // InstanceV2 mirrors google.cloud.run.v2.Instance (proto-JSON shape).
 type InstanceV2 struct {
 	Name                          string                                      `json:"name"`
@@ -58,10 +52,8 @@ type InstanceLifecycleRequest struct {
 	ValidateOnly bool   `json:"validateOnly,omitempty"`
 }
 
-// crv2Instances is the Cloud Run instances store. The Cloud Run Admin v1 IAM
-// aliases address the same resource under a different API version and reach it
-// from the shared `/v1/projects/{p}/locations/{l}/instances/…` prefix, so the
-// store is package-scoped rather than closed over by the v2 handlers alone.
+// The Cloud Run Admin v1 IAM aliases reach crv2Instances from the shared
+// `/v1/projects/{p}/locations/{l}/instances/…` prefix.
 var crv2Instances sim.Store[InstanceV2]
 
 func registerCloudRunInstancesV2(srv *sim.Server) {
@@ -73,7 +65,6 @@ func registerCloudRunInstancesV2(srv *sim.Server) {
 
 	const instType = cloudRunInstanceType
 
-	// CreateInstance: POST .../instances?instanceId=<id>
 	srv.HandleFunc("POST /v2/projects/{project}/locations/{location}/instances", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		location := sim.PathParam(r, "location")
@@ -100,13 +91,11 @@ func registerCloudRunInstancesV2(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, currentCloudRunOperation(op))
 	})
 
-	// GetInstance (the {instance} wildcard also carries the GET-side
-	// `{instance}:getIamPolicy` verb).
+	// {instance} also carries the GET verb `{instance}:getIamPolicy`.
 	srv.HandleFunc("GET /v2/projects/{project}/locations/{location}/instances/{instance}", func(w http.ResponseWriter, r *http.Request) {
 		cloudRunGetWithIAM(w, r, instances, "instance", "instances", "instance", instanceIAM)
 	})
 
-	// ListInstances
 	srv.HandleFunc("GET /v2/projects/{project}/locations/{location}/instances", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		location := sim.PathParam(r, "location")
@@ -114,7 +103,6 @@ func registerCloudRunInstancesV2(srv *sim.Server) {
 		gcpWritePage(w, r, instances, prefix, "instances", func(v InstanceV2) string { return v.Name })
 	})
 
-	// UpdateInstance (PATCH, honoring updateMask).
 	srv.HandleFunc("PATCH /v2/projects/{project}/locations/{location}/instances/{instance}", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		location := sim.PathParam(r, "location")
@@ -130,13 +118,12 @@ func registerCloudRunInstancesV2(srv *sim.Server) {
 			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
-		// The etag is read off the request as sent, before any mask merge
-		// rewrites the body.
+		// Read the etag as sent, before the mask merge rewrites the body.
 		if !cloudRunEtagOK(w, "instance", existing.Name, existing.Etag, update.Etag) {
 			return
 		}
-		// A mask naming an unknown or output-only field is rejected with
-		// 400 INVALID_ARGUMENT, matching real Cloud Run v2.
+		// Cloud Run v2 answers 400 INVALID_ARGUMENT for a mask naming an unknown or
+		// output-only field.
 		if mask := r.URL.Query().Get("updateMask"); mask != "" {
 			merged, err := applyInstanceUpdateMask(existing, update, mask)
 			if err != nil {
@@ -163,7 +150,6 @@ func registerCloudRunInstancesV2(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, currentCloudRunOperation(op))
 	})
 
-	// DeleteInstance
 	srv.HandleFunc("DELETE /v2/projects/{project}/locations/{location}/instances/{instance}", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		location := sim.PathParam(r, "location")
@@ -202,8 +188,6 @@ func registerCloudRunInstancesV2(srv *sim.Server) {
 			return
 		case "start", "stop":
 			name := fmt.Sprintf("projects/%s/locations/%s/instances/%s", project, location, id)
-			// StartInstanceRequest and StopInstanceRequest carry the same two
-			// members, so one shape decodes both.
 			var request InstanceLifecycleRequest
 			if err := sim.ReadJSON(r, &request); err != nil {
 				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
@@ -218,8 +202,8 @@ func registerCloudRunInstancesV2(srv *sim.Server) {
 				return
 			}
 			if request.ValidateOnly {
-				// The request validated and nothing changed, so the operation
-				// carries no resource.
+				// The request validated and nothing changed, so the operation carries no
+				// resource.
 				lro := cloudRunLRO(project, location, nil, instType)
 				sim.WriteJSON(w, http.StatusOK, lro)
 				return
@@ -280,13 +264,10 @@ func startCloudRunInstanceOperation(project, location, name string) Operation {
 }
 
 // cloudRunAdminV1InstanceIAM serves the Cloud Run Admin v1 instances IAM
-// aliases (run.projects.locations.instances.{get,set,test}IamPolicy). They ride
-// the `/v1/projects/{p}/locations/{l}/instances/{id}:{verb}` path that
-// Memorystore for Redis also publishes, so the shared prefix resolves the
-// owning service first (see endpoint_hosts.go). Both API versions address one
-// resource, so the policy is stored under the v2 resource name and a policy
-// written through either version reads back through the other — the same rule
-// the worker-pool v1/v2 aliases follow.
+// aliases on the `/v1/projects/{p}/locations/{l}/instances/{id}:{verb}` path
+// Memorystore for Redis also publishes (endpoint_hosts.go resolves the owner).
+// The policy lives under the v2 resource name, so either API version reads
+// what the other wrote.
 func cloudRunAdminV1InstanceIAM(w http.ResponseWriter, r *http.Request, id, action string) {
 	if !cloudRunAdminV1InstanceIAMVerbs[r.Method][action] {
 		// The IAM triple is the whole of the Cloud Run Admin v1 instances
