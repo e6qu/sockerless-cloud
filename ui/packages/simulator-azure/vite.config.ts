@@ -31,9 +31,15 @@ export default defineConfig({
     },
   },
   server: {
+    // Serve the bundle under /ui/ and forward the rest of the portal's origin
+    // to the simulator: /ui/config.json, the auth layer and federation broker
+    // under /auth/, and Azure Resource Manager, Microsoft Graph and Log
+    // Analytics, which the portal reaches at its own origin when their
+    // coordinates are empty. The Blob service is the storage account's own
+    // endpoint, which the browser reaches directly.
     proxy: {
-      "/health": "http://localhost:4568",
-      "/sim": "http://localhost:4568",
+      "/ui/config.json": "http://localhost:4568",
+      "^/(?!ui(?:/|$))": "http://localhost:4568",
     },
   },
 });

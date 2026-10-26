@@ -1,12 +1,12 @@
 # Sockerless Cloud web interfaces
 
-Bun + Turborepo workspace holding the simulator console SPAs. All packages
-share a single design system + API client from `core`; the per-simulator apps
-are thin shells over it.
+Bun + Turborepo workspace holding the simulator console SPAs. The consoles
+share design tokens, the theme hook, the error boundary and the browser-suite
+harness from `core`; each reads its cloud's real APIs through its own client.
 
 | Package | Purpose |
 |---|---|
-| `core` | Shared design system, API client, table/query plumbing, e2e harness (`core/e2e/run-tests.sh`). |
+| `core` | Design tokens, `useTheme`, `ErrorBoundary`, e2e harness (`core/e2e/run-tests.sh`). |
 | `simulator-aws` | AWS console-style UI served by `simulator-aws` at `/ui/` (Cloudscape design system). |
 | `simulator-gcp` | Google Cloud console-style UI served by `simulator-gcp` at `/ui/`. |
 | `simulator-azure` | Azure portal-style UI served by `simulator-azure` at `/ui/`. |
@@ -49,17 +49,8 @@ make simulator-aws/embed && make simulator-aws/build
 The bundle is a build output and stays out of git (see
 [`AGENTS.md § No built artifacts in git`](../AGENTS.md#no-built-artifacts-in-git)).
 
-## Held dependency versions
+## Dependency versions
 
-One pin is deliberately behind its newest release. It is held because the
-newer version breaks something here, not because nobody looked — so before
-running `bun update --latest`, read this and put back what it moves.
-
-- **`@tanstack/react-table` — held on 8.x.** v9 is an API redesign, not a
-  version bump: `createColumnHelper` takes feature generics, and the table is
-  constructed through a feature set. Adopting it is a migration of every
-  console's tables, which is work to schedule rather than a dependency to take.
-
-Everything else tracks its newest release published more than 24 hours ago,
+Every dependency tracks its newest release published more than 24 hours ago,
 which is the same adoption quarantine `scripts/check-latest-deps.sh` applies to
 the Go, Terraform and GitHub Actions dependencies.

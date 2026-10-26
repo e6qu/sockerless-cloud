@@ -39,8 +39,8 @@ names.
 
 ## Development
 
-- `bun run dev` — the Vite dev server on `:5173`.
-- `bun run build` — the production bundle in `dist/`.
+- `bun run dev` — Vite dev server (`:5173`). It serves the bundle under `/ui/` and forwards every other path of the portal's origin — `/ui/config.json`, the auth layer and federation broker under `/auth/`, and Azure Resource Manager, Microsoft Graph and Log Analytics — to a running simulator on `:4568`, which leaves the cloud coordinates empty so the portal reads them at its own origin. The browser reaches a storage account's Blob service at the account's own endpoint.
+- `bun run build` — production bundle into `dist/`.
 - `bun run preview` — serve the built bundle.
 - `bun run test` — Vitest.
 - `bun run test:e2e` — the Playwright suite.
@@ -51,5 +51,5 @@ The package `Makefile` wraps these as `make build` / `run` / `preview` /
 
 ## See also
 
-- [Workspace README](../../README.md) — workspace commands, embedding, and held dependency versions.
-- [`@sockerless/ui-core`](../core/README.md) — shared components, hooks, tokens.
+- [Workspace README](../../README.md) — workspace commands, embedding, and dependency versions.
+- [`@sockerless/ui-core`](../core/README.md) — design tokens, theme hook, error boundary, browser-suite harness.

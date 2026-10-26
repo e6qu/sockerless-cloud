@@ -1,36 +1,48 @@
 # @sockerless/ui-core
 
-Shared design system, API client, hooks and shells for the simulator console packages.
+Design tokens, the theme hook, the error boundary and the browser-suite harness
+the simulator consoles share. Each console reads its cloud's real APIs through
+its own client; this package holds no API client.
 
 ## Exports
 
-### Components
-- **Layout / shell** — `AppShell`, `NavLinkButton`, `BackendApp`, `SimulatorApp`, `PageHeading`, `BackendInfoCard`.
-- **Data** — `DataTable` (TanStack Table; row-click → detail modal pattern), `MetricsCard`, `StatusBadge`, `LogViewer`.
-- **Feedback** — `ErrorBoundary` (catastrophic), `Toast` + `ToastProvider` + `useToast` + `useReportError` + `useToastQueryErrors` (transient), `InlineError` (in-page).
-- **Interaction** — `Button`, `RefreshButton`, `Modal`, `ContainerDetailModal`, `Spinner`.
-- **Theming** — `ThemeToggle` (lives in `AppShell`'s footer; flips the `dark` class via `useTheme`).
+- `@sockerless/ui-core/components` — `ErrorBoundary`, the catastrophic-failure
+  boundary each console wraps its routes in.
+- `@sockerless/ui-core/hooks` — `useTheme`, which resolves the theme from
+  localStorage, then `prefers-color-scheme`, then the caller's default, and
+  flips the `dark` class on `<html>`.
+- `@sockerless/ui-core/styles` — `src/styles/tokens.css`, the design tokens and
+  base styles every console's `index.css` imports after `@import "tailwindcss";`,
+  including the `.sl-skip-link` skip link.
 
-### Shauth product-UI contract
+## Shauth product-UI contract
 
-Authenticated application shells expose `data-shauth-user="<exact username>"`
-on the visible account control and `data-shauth-sign-out` on the real sign-out control. These
-stable hooks let the post-deployment browser qualification exercise the same
-identity and logout controls that a user sees; they do not replace accessible
-names, semantic elements, or application-local authorization checks.
+Authenticated console shells expose `data-shauth-user="<exact username>"` on
+the visible account control and `data-shauth-sign-out` on the real sign-out
+control. These stable hooks let the post-deployment browser qualification
+exercise the same identity and logout controls that a user sees; they do not
+replace accessible names, semantic elements, or application-local authorization
+checks.
 
-### Hooks
-- **API** — `ApiClientProvider`, `useApiClient`, `useHealth`, `useStatus`, `useContainers`, `useMetrics`, `useResources`, `useCheck`, `useInfo` (TanStack Query wrappers; auto-poll 5–10s).
-- **Theme** — `useTheme` (localStorage + prefers-color-scheme + dark default).
+## Browser-suite harness
 
-### Styles
-- `src/styles/tokens.css` — design tokens consumed by every app's `index.css` after `@import "tailwindcss";`.
+`e2e/` holds what each console's Playwright suite runs on:
+
+- `run-tests.sh` — the `test:e2e` entry point.
+- `start-backend.sh` — Playwright's `webServer`: builds and starts the
+  simulator under test and the identity simulator, and provisions
+  `SIMULATOR_SETUP` through `setup-cloud.sh`.
+- `setup-cloud.sh` — provisions cloud resources through the cloud's own APIs.
+- `chromium.ts` and `isolated-chromium.sh` — launch Chromium in a network
+  namespace of its own on Linux.
 
 ## Development
 
-- `bun run dev` — no dev server (this is a library); run a console package's dev server instead.
 - `bun run test` — vitest run.
 - `bun run typecheck` — `tsc --noEmit`.
+
+Run a console package's dev server to see these in a page; this package has
+none.
 
 ## Test environment notes
 
