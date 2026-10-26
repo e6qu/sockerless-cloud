@@ -1,22 +1,11 @@
 # Makefile standard
 
-Every independently buildable module in this repository has its own Makefile
-with one target surface. The top-level Makefile delegates to those leaf
-Makefiles and owns only fan-out targets, path delegation and the cross-cutting
-Docker harnesses.
-
-## Why
-
-Per-module Makefiles keep build and run details beside the code they belong
-to:
-
-- Anyone working in `simulator-azure/` runs `make build` from inside that
-  directory, and the Makefile there documents how that one simulator builds,
-  embeds its console and runs.
-- The top-level Makefile is an explicit module list, a fan-out helper and a
-  path-delegation rule, and nothing else.
-- A new module adds a leaf Makefile plus one list entry in the top-level
-  Makefile.
+The target surface every module's Makefile implements, and how the top-level
+Makefile reaches it. Each independently buildable module keeps its build and
+run details in a leaf Makefile of its own, so `make build` inside
+`simulator-azure/` builds that one simulator. The top-level Makefile owns only
+the module lists, fan-out, path delegation and the cross-cutting harnesses; a
+new module adds a leaf Makefile and one list entry there.
 
 ## Inventory
 
@@ -34,7 +23,7 @@ to:
 |---|---|
 | `sim` | the framework the three simulators are built on |
 | `ui-auth` | the consoles' OpenID Connect session layer and the application-monitoring endpoint |
-| `testutil` | test-only helpers: simulator readiness (`simready`), port picking (`freeports`), base-image acquisition (`baseimage`), a scratch image (`scratchimage`), unique resource names (`uniquename`), the Caddy HTTPS gateway (`httpsgateway`), a git HTTP server (`githttp`), registry trust material (`registrytrust`) and a SAML identity provider (`samlidp`) |
+| `testutil` | test-only helpers: simulator readiness (`simready`), port picking (`freeports`), base-image acquisition (`baseimage`), a scratch image (`scratchimage`), unique resource names (`uniquename`), the Caddy HTTPS gateway (`httpsgateway`), loopback TLS certificates (`loopbacktls`), a Git smart-HTTP server (`githttp`), registry trust material (`registrytrust`), a SAML identity provider (`samlidp`) and the Google Cloud bootstrap service account's key (`gcpbootstrap`) |
 
 ### UI packages (4)
 

@@ -1,6 +1,6 @@
 ---
 name: silent-error-swallow-scan
-description: Specialist scan for the silent-error-swallow pattern that has produced BUGS 1016 / 1017 / 1018 / 1019 / 1025 / 1033 — code that ignores errors from json.Unmarshal, io.Copy, json.NewDecoder.Decode, or pktline encoder writes and continues with assumptions about success. Codifies the project's "no fallbacks / no silent shims" rule as an automated grep + classification pass. Use before merging any Go change and periodically across the codebase.
+description: Specialist scan for the silent-error-swallow pattern — code that ignores errors from json.Unmarshal, io.Copy, json.NewDecoder.Decode, or pktline encoder writes and continues with assumptions about success. Codifies the project's "no fallbacks / no silent shims" rule as an automated grep + classification pass. Use before merging any Go change and periodically across the codebase.
 ---
 
 # Silent-error-swallow scan

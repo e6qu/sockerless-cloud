@@ -1,11 +1,10 @@
 # Configuration
 
-Every simulator reads the same `SIM_*` variables through `sim.ConfigFromEnv`.
-Cloud-specific variables are listed in each simulator's README:
-[AWS](../simulator-aws/README.md), [Google Cloud](../simulator-gcp/README.md),
-[Azure](../simulator-azure/README.md). No variable changes a cloud API's
-behaviour; they set where the simulator listens, keeps state and runs
-workloads.
+The variables every simulator reads, through `sim.ConfigFromEnv` and the
+framework. They set where a simulator listens, keeps state and runs workloads;
+none changes a cloud API's behaviour. Each simulator's README lists its own
+variables: [AWS](../simulator-aws/README.md),
+[Google Cloud](../simulator-gcp/README.md), [Azure](../simulator-azure/README.md).
 
 ## Listening
 
@@ -24,7 +23,7 @@ Service Bus's AMQP listener is `SIM_SERVICEBUS_AMQP_LISTEN_ADDR`.
 
 | Variable | Default | Effect |
 |---|---|---|
-| `SIM_PERSIST` | `false` | `true` keeps resources, object contents and running workloads across restarts, in SQLite. [Architecture → State](architecture.md#state) |
+| `SIM_PERSIST` | `false` | `true` (or `1`) keeps resources, object contents and running workloads across restarts, in SQLite. [Architecture → State](architecture.md#state) |
 | `SIM_DATA_DIR` | a temporary directory (`/tmp/sockerless-sim-<cloud>` with persistence) | The database (`simulator.db`) and the bulk-data directories. It is also the simulator's identity to the container sweep. |
 
 ## Workloads

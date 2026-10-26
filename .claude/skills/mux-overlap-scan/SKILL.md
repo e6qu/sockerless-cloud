@@ -1,6 +1,6 @@
 ---
 name: mux-overlap-scan
-description: Enumerate every `mux.HandleFunc(...)` + `srv.HandleFunc(...)` route registered across `simulator-<cloud>/*.go` and flag patterns where one wildcard registration shadows another service's literal path. Distilled from a class of bugs where the collapsed-port sim model means every service's routes share a single `http.ServeMux`, and the sim doesn't have DNS-level service isolation real clouds have. When a wildcard pattern like `POST /{bucket}/{key...}` claims a path another service's handler should own, the wrong handler responds with a plausible-looking error and SDK-level wire-shape probes don't catch it. Use whenever adding a new sim handler that registers a route, and run periodically via `scripts/scan-mux-overlap.sh`.
+description: Enumerate every `mux.HandleFunc(...)` + `srv.HandleFunc(...)` route registered across `simulator-<cloud>/*.go` and flag patterns where one wildcard registration shadows another service's literal path. Every service's routes share one `http.ServeMux` on one port, without the DNS-level service isolation real clouds have. When a wildcard pattern like `POST /{bucket}/{key...}` claims a path another service's handler should own, the wrong handler responds with a plausible-looking error and SDK-level wire-shape probes don't catch it. Use whenever adding a new sim handler that registers a route, and run periodically via `scripts/scan-mux-overlap.sh`.
 ---
 
 # Mux-overlap invariant

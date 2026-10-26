@@ -1,6 +1,6 @@
 ---
 name: sim-emitted-url-roundtrip
-description: Verify that every URL a sim handler emits in a response body (advertised endpoints, presigned URLs, LRO operation links, callback URLs, selfLink fields) actually resolves to a non-404 handler when followed. Catches the BUG-1103 shape — the Azure sim advertised `https://{account}.blob.localhost:4568/` in its storage-account ARM response but had no Blob data-plane handler to service it. Use when adding or editing a sim handler that returns any URL field, and when reviewing PRs that touch sim response shapes.
+description: Verify that every URL a sim handler emits in a response body (advertised endpoints, presigned URLs, LRO operation links, callback URLs, selfLink fields) actually resolves to a non-404 handler when followed. Catches the shape where the Azure sim advertised `https://{account}.blob.localhost:4568/` in its storage-account ARM response but had no Blob data-plane handler to service it. Use when adding or editing a sim handler that returns any URL field, and when reviewing PRs that touch sim response shapes.
 ---
 
 # Sim emitted-URL round-trip invariant

@@ -15,7 +15,8 @@ publishes — Smithy for AWS, Discovery for Google Cloud, OpenAPI for Azure. Whi
 services a slice covers is this project's choice; nothing downstream defines it.
 
 Consumers install a simulator with
-`go install github.com/e6qu/sockerless-cloud/simulator-<cloud>@version`.
+`go install github.com/e6qu/sockerless-cloud/simulator-<cloud>@<release-commit>`
+(see Releases below), or run its release image.
 
 ## Continuity files — read before, update after, write timeless and in past tense
 

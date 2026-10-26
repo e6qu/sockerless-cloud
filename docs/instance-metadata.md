@@ -5,8 +5,8 @@ its identity from an endpoint inside its own network: the Amazon EC2 Instance
 Metadata Service, the Amazon ECS task metadata and container credentials
 endpoints, the Google Cloud metadata server, the Azure Instance Metadata
 Service, and the managed-identity endpoint App Service, Azure Functions and
-Azure Container Apps give their workloads. This page describes what each one
-serves, where each answer comes from, and what it does not model.
+Azure Container Apps give their workloads. This page lists what each one
+serves, where each answer comes from, and what it leaves out.
 
 Every handler named here registers on the cloud's single `sim.Server` mux. The
 handler decides who is asking from the request's source address, never from
@@ -100,9 +100,8 @@ flowchart LR
 The fixed link-local addresses do not answer. A workload that dials
 `169.254.169.254`, `169.254.170.2` or `168.63.129.16` gets no route: a bridge
 network carries one subnet, and routing a link-local address inside the
-workload needs a capability. This is BUGS.md row **3485**
-(`specs/SIMULATOR_EXECUTION.md` calls it "a recorded gap"). The simulators
-hand each workload the sidecar's address through an environment variable
+workload needs a capability ([Limits](#limits)). The simulators hand each
+workload the sidecar's address through an environment variable
 instead:
 
 | Workload | Variables set | Set by |
@@ -137,12 +136,11 @@ or the endpoint's link-local address, so this is the form it takes.
 
 On a node agent's microVM backend, a guest is a Firecracker machine bridged
 onto the same engine network through a tap. It reaches the same sidecar at the
-same address (`specs/SIMULATOR_REAL_EXECUTION.md`, "Guests"). That backend is
-no `placement.Forwarding`, so a grant there names the sidecar itself:
+same address. That backend is no `placement.Forwarding`, so a grant there names the sidecar itself:
 `AWS_CONTAINER_CREDENTIALS_FULL_URI=http://<sidecar>/v2/credentials/<id>`.
 The AWS SDKs' provider refuses that URI, and so it does for a host-mode ECS
 task, whose URI names the simulator's callback address. Only a client that
-reads the endpoint itself holds the role there (BUG-3485).
+reads the endpoint itself holds the role there.
 
 ## Amazon EC2 and Amazon ECS
 
@@ -169,7 +167,7 @@ and refuses anything else with **400**. It answers a token `AQ` followed by
 
 `HttpPutResponseHopLimit` round-trips through RunInstances, launch templates,
 `ModifyInstanceMetadataOptions` and DescribeInstances, but the service does
-not enforce it as the response's IP TTL (BUG-3528).
+not enforce it as the response's IP TTL.
 
 All leaves answer `text/plain`, JSON documents included, as IMDS does. The
 "Source" column names the vendored page under `specs/cloud-api/aws/`;
@@ -201,7 +199,7 @@ All leaves answer `text/plain`, JSON documents included, as IMDS does. The
 
 Not served: `/latest/user-data`, `instance-identity/signature`, `pkcs7` and
 `rsa2048`, `identity-credentials/ec2/*`, `events/maintenance/*`, `spot/`,
-`history`, and the IPv6 endpoint (BUG-3528). An instance gets its user data
+`history`, and the IPv6 endpoint. An instance gets its user data
 through cloud-init instead: `ec2InstanceSpec`
 (`simulator-aws/ec2_instance_launch.go`) decodes `UserData` from base64 and
 seeds it for the image's cloud-init with the `DataSourceEc2Local` datasource
@@ -269,7 +267,7 @@ execution role's session to the function in `AWS_ACCESS_KEY_ID`,
 retires the execution environment before the session lapses
 (`env.expires`), so a function never holds an expired session. It also sets
 `AWS_ENDPOINT_URL` to its callback address unless the function's own
-environment names one. The vendored `lambda-runtime-environment.md.gz` says
+environment names one, which AWS does not do ([Limits](#limits)). The vendored `lambda-runtime-environment.md.gz` says
 the environment shares credentials with extensions; it does not list the
 variables.
 
@@ -625,7 +623,7 @@ reaches the Instance Metadata Service, which answers virtual machines only.
 
 Errors are `{"statusCode","message","correlationId"}`. Only the
 "Unable to load…" text is App Service's documented answer; the other statuses
-and messages are the simulator's own (BUG-3391). Selectors are `client_id`,
+and messages are the simulator's own. Selectors are `client_id`,
 `principal_id` or `object_id`, and `mi_res_id`. The token has the same claims
 and the same 24-hour lifetime as the IMDS token.
 
@@ -699,6 +697,7 @@ curl -s -H "X-IDENTITY-HEADER: $IDENTITY_HEADER" \
 | 3537 | A Cloud Run or Cloud Build caller's `instance/name` and `instance/hostname`, a Cloud Build step's `instance/zone`, and its `instance/id`, are fixed values. |
 | 3391 | The App Service identity endpoint's 401 and 400 bodies are the simulator's own. |
 | 3650 | A Container Apps job replica gets the identity endpoint but none of the job, execution or replica variables Container Apps sets. |
+| 3741 | AWS Lambda and AWS CodeBuild set `AWS_ENDPOINT_URL` in a workload's environment, which AWS does not. |
 | 3530 | An AWS Glue Python shell job's session name `GlueJobRunnerSession` is unsourced. |
 | 3565 | A Cloud Run instance's first request, and so its first metadata read, can wait behind a Compute Engine image import. |
 

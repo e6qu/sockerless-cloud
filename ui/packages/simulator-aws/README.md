@@ -2,7 +2,7 @@
 
 The AWS Management Console this simulator serves: a Cloudscape shell
 (`src/console/`) with per-service pages under `src/pages/`, routed in
-`src/main.tsx` (React Router 7).
+`src/main.tsx` (React Router).
 
 ## How it reads AWS
 
@@ -77,7 +77,7 @@ and serves at `/ui/`. A plain build embeds none and serves the bundle
 
 ## Development
 
-- `bun run dev` — Vite dev server (`:5173`), proxying to a running simulator on `:4566`.
+- `bun run dev` — the Vite dev server on `:5173`; its proxy forwards only `/health` and `/sim` to a simulator on `:4566`.
 - `bun run build` — production bundle into `dist/`.
 - `bun run preview` — serve the built bundle.
 - `bun run test` — Vitest unit suite (`src/__tests__/`).

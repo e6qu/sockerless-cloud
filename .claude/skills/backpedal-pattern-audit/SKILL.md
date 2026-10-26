@@ -1,6 +1,6 @@
 ---
 name: backpedal-pattern-audit
-description: Meta-skill that surfaces bug shapes that were filed and fixed repeatedly — read from the resolved bugs in git history — so each repeat group becomes a candidate for a new specialist skill or a rule in WHAT_WE_DID.md. Run periodically (every ~10 PRs) or when the user asks "what blind spots do we have." Distilled from the silent-error-swallow and dead-code-silencer shapes, which recurred often enough to justify the dedicated `silent-error-swallow-scan` and `dead-code-silencer-scan` skills.
+description: Meta-skill that surfaces bug shapes that were filed and fixed repeatedly — read from the resolved bugs in git history — so each repeat group becomes a candidate for a new specialist skill or a rule in WHAT_WE_DID.md. Run periodically (every ~10 PRs) or when the user asks "what blind spots do we have."
 ---
 
 # Backpedal-pattern audit

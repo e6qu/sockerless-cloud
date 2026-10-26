@@ -1,15 +1,11 @@
 # Specifications
 
-Every cloud publishes its API as a machine-readable specification, and the
-cloud's SDKs are generated from it. This project treats those files as the
-contract:
+Every cloud publishes its API as a machine-readable specification and
+generates its SDKs from it. This project treats those files as the contract:
 - it vendors them, pinned and never edited;
 - it chooses its service slices by vendoring;
 - it generates the tables a handler would otherwise get wrong by hand;
 - it checks every route, every operation and every response against them.
-
-This page covers where each specification comes from, what is generated from
-it, how coverage is checked and how to add or refresh one.
 
 ```mermaid
 flowchart LR
@@ -142,7 +138,7 @@ doesn't.
   routes.
 - **Google Cloud: by Discovery document.** Every method must reach a route
   that serves it, or that answers a declared `501`. The per-document floor
-  records the honest served count. Compute Engine's 2,000-odd methods are far
+  records the honest served count. Compute Engine's thousand-odd methods are far
   from all served, and the floor shows it.
 - **Azure: by Swagger document.** A resource provider enters with its
   documents at one API version. Every operation is served or answers a

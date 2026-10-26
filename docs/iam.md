@@ -243,7 +243,7 @@ s3:CreateBucket	implicitDeny
 
 ### Limits
 
-These limits come from reading the code. Those marked "observed" were also reproduced against the running simulator. "Not filed" means `BUGS.md` has no row for the limit yet.
+Each limit has a `BUGS.md` row. Those marked "observed" were reproduced against the running simulator.
 
 | Limit | Detail | Bug |
 |---|---|---|

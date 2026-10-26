@@ -30,7 +30,7 @@ Pages read the real Google Cloud APIs at the console's configured cloud coordina
 
 ## Development
 
-- `bun run dev` — Vite dev server (`:5173`), proxying to a running simulator on `:4567`.
+- `bun run dev` — the Vite dev server on `:5173`; its proxy forwards only `/health` and `/sim` to a simulator on `:4567`.
 - `bun run build` — production bundle into `dist/`.
 - `bun run typecheck` — `tsc --noEmit`.
 - `bun run test` — vitest.

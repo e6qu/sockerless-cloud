@@ -1,10 +1,9 @@
 # Architecture
 
-This page shows how the simulators are built: the modules, the path a request
-takes, how state is kept and recovered, and how workloads, networks and data
-planes run. [`specifications.md`](specifications.md) covers where each API's
-shape comes from, and [`maintaining.md`](maintaining.md) covers how the code is
-tested and released.
+How the simulators are built: the modules, a request's path, state and its
+recovery, workloads, networks and the shared mechanisms. Where each API's shape
+comes from is in [`specifications.md`](specifications.md); how the code is
+tested and released is in [`maintaining.md`](maintaining.md).
 
 ## Modules
 
@@ -37,7 +36,7 @@ flowchart LR
 | `simulator-aws`, `simulator-gcp`, `simulator-azure` | `simulator-<cloud>/` | One binary per cloud. Every service slice of that cloud registers on one `sim.Server` mux. No `replace` directives, so `go install` works. |
 | `sim` | `sim/` | The cloud-neutral framework: server, configuration, state, container engine, placement, networks and the shared service mechanisms. [`sim/README.md`](../sim/README.md) lists every file and package. |
 | `ui-auth` | `ui-auth/` | The consoles' OpenID Connect layer and `GET /monitoring/observation`. |
-| `testutil` | `testutil/` | Helpers the nine test suites share: `simready`, `freeports`, `baseimage`, `scratchimage`, `uniquename`, `httpsgateway`, `registrytrust`, `samlidp`, `githttp`. |
+| `testutil` | `testutil/` | Helpers the nine test suites share: `simready`, `freeports`, `baseimage`, `scratchimage`, `uniquename`, `httpsgateway`, `loopbacktls`, `registrytrust`, `samlidp`, `githttp`, `gcpbootstrap`. |
 | Test suites | `simulator-<cloud>/{sdk,cli,terraform}-tests/` | Each `TestMain` builds the simulator, starts it and waits for its `Listening on` line. The suites drive it with the cloud's own SDK for Go, CLI and Terraform provider. |
 | Consoles | `ui/packages/simulator-<cloud>` | Each console reads only the cloud's real APIs at a configured base URL. |
 
@@ -55,7 +54,7 @@ flowchart TB
   wrap --> inflight["In-flight registry<br/>(/debug/inflight)"]
   inflight --> sidecar["SidecarTrust<br/>(attributes a sidecar's request to its workload)"]
   sidecar --> auth["Credential and identity extraction"]
-  auth --> rewrite["Config.RewriteRequest<br/>(S3 virtual-hosted addressing, ARM case folding)"]
+  auth --> rewrite["Config.RewriteRequest<br/>(S3 directory-bucket zonal addressing, ARM case folding)"]
   rewrite --> mux["http.ServeMux"]
   mux --> router["Protocol router<br/>AWS JSON: X-Amz-Target · AWS Query: Action<br/>REST: path patterns"]
   router --> handler["Service handler"]
@@ -72,8 +71,11 @@ flowchart TB
   `X-Amz-Target` (`AWSRouter`) and AWS Query requests on `Action`
   (`AWSQueryRouter`). REST services, all of Google Cloud and all of Azure
   register path patterns on the mux. A data plane addressed by host name,
-  such as an Amazon S3 virtual-hosted bucket or an Azure storage account,
-  claims its requests in a `WrapHandler` layer before the mux sees them.
+  such as an AWS Lambda function URL or an Azure storage account, claims its
+  requests in a `WrapHandler` layer before the mux sees them. Amazon S3
+  directory buckets, addressed at their zonal endpoints, and Azure Resource
+  Manager's case-insensitive paths reach the router through
+  `Config.RewriteRequest` instead.
 - **What stays with the cloud.** Error shapes, protocol routers, sandbox
   profiles, registry behaviour, DNS visibility and console coordinates live in
   each cloud's module. They reach `sim` through hooks, never through a
@@ -129,8 +131,8 @@ other's containers.
 ## Workloads
 
 Every service that runs user code places it through one interface,
-`placement.Backend`: `Place`, `PlaceMember`, `Adopt`, `Find`, `Console` and
-`Capture`, returning a `Handle` with wait, stop, exec, address, published port
+`placement.Backend`: `Place`, `PlaceMember`, `Adopt`, `Restart`, `Remove`,
+`Find`, `Console` and `Capture`, returning a `Handle` with wait, stop, exec, address, published port
 and ingress. Two backends implement it:
 
 | Backend | What it runs | Chosen by |
@@ -142,12 +144,12 @@ The service names `SIM_PLACEMENT` takes:
 
 | Cloud | Names |
 |---|---|
-| AWS | `ec2` (Amazon EC2), `ecs` with the launch type as qualifier (Amazon ECS), `lambda` (AWS Lambda), `batch` (AWS Batch) |
+| AWS | `ec2` (Amazon EC2), `ecs` with the launch type as qualifier (Amazon ECS), `lambda` (AWS Lambda), `batch` (AWS Batch), `elasticache` (Amazon ElastiCache) |
 | Google Cloud | `compute` (Compute Engine), `run` (Cloud Run and Cloud Run functions), `redis` (Memorystore for Redis), `cloudbuild` (Cloud Build) |
-| Azure | `virtualmachines` (Azure Virtual Machines), `containerapps` (Azure Container Apps), `containerinstances` (Azure Container Instances), `web` (Azure App Service and Azure Functions) |
+| Azure | `virtualmachines` (Azure Virtual Machines), `containerapps` (Azure Container Apps), `containerinstances` (Azure Container Instances), `web` (Azure App Service and Azure Functions), `redis` (Azure Cache for Redis) |
 
 The relational engines of Amazon RDS, Cloud SQL and Azure Database for
-PostgreSQL and MySQL run on the container backend through `sim/dbengine`.
+PostgreSQL run on the container backend through `sim/dbengine`.
 - **Machine images** are OCI images. An AMI, a Compute Engine image or an Azure Marketplace image names a pinned image from the simulator's catalog. `sim/vminstance` runs the image's cloud-init over the instance's user data.
 - **Real configuration drives the lifecycle.** A Cloud Run job honours its task `timeout`, an Azure Container Apps job its `replicaTimeout`, an Amazon ECS container its `stopTimeout`. Amazon ECS has no execution timeout, so a task runs until its process exits or `StopTask`.
 - **Logs** stream into the cloud's own sink while the workload runs:
@@ -171,8 +173,10 @@ holds no capability, engine socket, host network or host mount either, even
 when the cloud lets a workload ask for one; what that rules out is a recorded
 gap. No workload runs as a host process: every SDK suite's
 `host_dispatch_test.go` fails on any `os/exec` call in production code
-outside a short allow list, whose entries are the reaper and the docker-CLI
-build steps.
+outside a short allow list. None of its entries runs a workload on the host:
+they are the container reaper, the docker-CLI image build, the Podman
+host-address probe, the process-liveness check, and the node agent's own
+programs, which run inside the agent container.
 
 ### Node agents
 
@@ -235,7 +239,7 @@ The same mechanism serves the same idea in every cloud:
 | Run-to-completion jobs | `sim/jobrun` | Cloud Run jobs, Container Apps jobs |
 | Function execution environments | `sim/funcrt` | AWS Lambda pools, concurrency, provisioned concurrency, event-source pollers |
 | Replica sets and probes | `sim/replicas`, `sim/revisions` | Cloud Run services and worker pools, Container Apps revisions |
-| Relational engines | `sim/dbengine`, `pgwire`, `mysqlwire` | Amazon RDS, Cloud SQL, Azure Database for PostgreSQL and MySQL |
+| Relational engines | `sim/dbengine` with its `pgwire` and `mysqlwire` | Amazon RDS, Cloud SQL, Azure Database for PostgreSQL |
 | Cache engines | `sim/cacheengine` | Amazon ElastiCache, Memorystore for Redis, Azure Cache for Redis |
 | Object contents | `sim/blobstore`, `sim/sparse` | Amazon S3, Cloud Storage, Azure Blob Storage and Files, Amazon EBS snapshots |
 | Lists, filters and page tokens | `sim/listq` | Every list operation with a filter or order grammar |

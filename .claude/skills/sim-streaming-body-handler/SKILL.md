@@ -1,6 +1,6 @@
 ---
 name: sim-streaming-body-handler
-description: Verify that a sim handler reading a request body inspects and handles streaming-envelope sentinel headers (`Content-Encoding: aws-chunked`, `x-amz-content-sha256: STREAMING-*`, `x-amz-decoded-content-length`, Azure SSE-C, GCS SSE-C, multipart boundaries). Catches the BUG-1099 shape — `handleS3PutObject` did `io.ReadAll(r.Body)` straight to the object store, storing the chunk-encoding envelope verbatim. Use when writing or editing any sim handler that reads a request body.
+description: Verify that a sim handler reading a request body inspects and handles streaming-envelope sentinel headers (`Content-Encoding: aws-chunked`, `x-amz-content-sha256: STREAMING-*`, `x-amz-decoded-content-length`, Azure SSE-C, GCS SSE-C, multipart boundaries). Catches the shape where `handleS3PutObject` did `io.ReadAll(r.Body)` straight to the object store, storing the chunk-encoding envelope verbatim. Use when writing or editing any sim handler that reads a request body.
 ---
 
 # Sim streaming-body sentinel-header invariant
