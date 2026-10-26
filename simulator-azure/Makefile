@@ -16,23 +16,17 @@ RUN_ENV        := SIM_LISTEN_ADDR=:4568
 RUN_FLAGS      :=
 
 # go-test deadline for the CLI suite. Each `az` invocation carries ~0.5-2s of
-# Python interpreter startup, so the wall-clock grows with the test count as the
-# sim's coverage ratchets up; keep generous headroom over the current runtime.
-#
-# Measured on a CI runner at 171 tests: 680s, with nothing hanging — the slowest
-# are 15-30s of real `az` work and 180 subtests had already passed when the old
-# 600s deadline fired. 13m matches the SDK suite and is the most this can be:
-# the CI step allows 14 minutes and the job 15, so a larger inner deadline would
-# surface as an opaque step kill instead of a named Go stack. That headroom is
-# thin and this suite roughly doubled in one pass; BUG-41 tracks sharding it the
-# way the AWS CLI suite is sharded.
+# Python interpreter startup, so the wall-clock grows with the test count.
+# 13m matches the SDK suite and is the most this can be: the CI step allows
+# 14 minutes and the job 15, so a larger inner deadline would surface as an
+# opaque step kill instead of a named Go stack; CI shards the suite to stay
+# under it.
 CLI_TEST_TIMEOUT ?= 13m
 
 REPO_ROOT_REL  := ..
 
 include $(REPO_ROOT_REL)/make/go-app.mk
 
-# ── Domain-specific test targets ────────────────────────────────────
 # Each sub-tree (sdk-tests, cli-tests, terraform-tests) is a
 # separate Go module; the CI calls these directly.
 
@@ -47,10 +41,8 @@ unit-test: ## go test the simulator module's own package-internal tests (fast; n
 	$(GO_ENV) go test -count=1 -timeout $(UNIT_TEST_TIMEOUT) ./...
 
 # The same tests under the race detector. Separate from unit-test because the
-# detector needs cgo, which unit-test deliberately does not have. The AWS
-# module's header records why this target exists: asynchronous simulator work
-# that nothing tracked outlived the test that started it and read stores the
-# next test was replacing, 144 times over.
+# detector needs cgo, which unit-test deliberately does not have; the AWS
+# module's Makefile records why this target exists.
 RACE_TEST_TIMEOUT ?= 20m
 RACE_TEST_PKGS ?= ./...
 
@@ -99,7 +91,6 @@ terraform-test: build-api ## go test the terraform-driven sim tests (apply+destr
 .PHONY: test-all
 test-all: unit-test sdk-test cli-test terraform-test ## run every test category
 
-# ── Docker targets ──────────────────────────────────────────────────
 .PHONY: docker-build docker-run docker-test docker-test-build
 
 IMAGE := sockerless-simulator-azure
@@ -156,9 +147,8 @@ docker-test: docker-test-build ## run all tests inside docker
 		$(DOCKER_SPEC_VALIDATION_FLAGS) \
 		$(DOCKER_TEST_IMAGE) make test-all
 
-# The shard filter and the deadline travel into the container: without them
-# the inner make ran the whole suite against the default deadline whatever the
-# caller asked for, so a sharded or long-budget local run was neither.
+# The shard filter and the deadline travel into the container, so a sharded
+# or long-budget local run is what the caller asked for.
 docker-sdk-test: docker-test-build ## run SDK tests inside the Linux real-network docker harness
 	docker run --rm --network host \
 		--security-opt label=disable \

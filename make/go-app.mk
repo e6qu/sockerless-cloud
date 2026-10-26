@@ -1,8 +1,8 @@
 # go-app.mk — standardized recipes for Go-binary apps.
 #
 # Required variables (set by the leaf Makefile *before* including):
-#   APP_NAME     : output binary name (e.g. sockerless-backend-ecs)
-#   GO_PACKAGE   : Go package path to build (e.g. ./cmd/sockerless-backend-ecs)
+#   APP_NAME     : output binary name (e.g. simulator-aws)
+#   GO_PACKAGE   : Go package path to build (e.g. .)
 #
 # Optional — for apps that embed a UI bundle:
 #   UI_PACKAGE   : ui/packages/<name> directory basename (e.g. simulator-aws)
@@ -14,18 +14,15 @@
 #   DEFAULT_PORT : if set, gets exposed in `make run` echo banner
 #   RUN_FLAGS    : flags appended to `./<binary> <RUN_FLAGS>` on `make run`
 #   RUN_ENV      : env vars exported before `make run` (e.g.
-#                  RUN_ENV := SOCKERLESS_ENDPOINT_URL=http://localhost:4566)
+#                  RUN_ENV := SIM_LISTEN_ADDR=:4566)
 #
 # Optional — for non-workspace builds:
 #   GO_BUILD_FLAGS   : extra `go build` flags
 #   GO_ENV           : env prepended to every go invocation (e.g. GOWORK=off)
-#   FAAS_SMOKE_TESTS : regexp for the backend's sim-backed FaaS smoke tests
+#   FAAS_SMOKE_TESTS : regexp for the sim-backed FaaS smoke tests
 #
-# Convention: this file lives at <repo>/make/go-app.mk. Leaf Makefiles
-# discover the repo root by counting up from $(CURDIR) — but to keep
-# leaves dead-simple, we accept a REPO_ROOT_REL var the leaf Makefile
-# may set. Default: ../.. (works for backends/<x>/, simulator-<x>/,
-# cmd/<x>/ and agent/).
+# REPO_ROOT_REL is the path from the leaf Makefile to the repository root:
+# ../.. unless the leaf sets it, and ".." in a simulator-<cloud>/ leaf.
 
 REPO_ROOT_REL ?= ../..
 REPO_ROOT     := $(abspath $(CURDIR)/$(REPO_ROOT_REL))
@@ -34,8 +31,6 @@ LOCAL_DIST    := $(CURDIR)/dist
 
 include $(REPO_ROOT)/make/help.mk
 include $(REPO_ROOT)/make/colors.mk
-
-# ── Standardized targets ────────────────────────────────────────────
 
 .PHONY: install build build-api embed run dev test test-integration test-faas-smoke lint clean
 

@@ -4,9 +4,7 @@
 # holds a branch to the specification rows that branch touched. Rows it left
 # exactly as main recorded them are reported as INHERITED there, because
 # upstream moving during a branch's life says nothing about the change under
-# review — one unrelated branch was made red three times in forty-two minutes
-# by three different upstreams, and one of those drifts could not be satisfied
-# from the author's machine at all.
+# review.
 #
 # Inherited drift is relocated here, not forgiven. This workflow runs against
 # main with no baseline, so every pin behind its upstream fails, and it fails

@@ -1,7 +1,4 @@
-# Build and publish the simulator container images. Currently pushes to
-# ghcr.io/e6qu/<image>; the workflow can later be extended to publish
-# to other registries (Docker Hub, GAR, ACR) by adding matrix entries
-# or per-registry login steps.
+# Build and publish the simulator container images to ghcr.io/e6qu/<image>.
 #
 # Every main commit publishes exactly one immutable short-SHA manifest and its
 # two native architecture images. No mutable branch or latest tags are emitted.
@@ -17,13 +14,10 @@ name: Publish container images
 on:
   push:
     branches: [main]
-  # A commit can also be published by hand. Cancelled publishes left six main
-  # commits with no image at all — `36a81145`, `b52cc80e`, `c06550c5`,
-  # `b9d651f1`, `b01a8e29`, `418e0c84` — and a consumer pinning any of them
-  # meets a bare 404 in the registry. The concurrency key below stops that
-  # happening again, but it cannot produce the images that were never built,
-  # and no push event can be replayed for a commit already in main's history.
-  # Naming the commit here builds exactly what that commit would have built.
+  # A commit can also be published by hand: no push event can be replayed for
+  # a commit already in main's history, so naming the commit here builds
+  # exactly what that commit would have built, for one a cancelled publish
+  # left with no image.
   workflow_dispatch:
     inputs:
       commit:
@@ -35,18 +29,17 @@ on:
 
 # Keyed by commit, never by branch. This workflow's product is the immutable
 # short-SHA image for one commit, and no later commit can produce it: grouping
-# every main push under `main` and cancelling in progress meant each merge
-# killed its predecessor's build, leaving that commit with no image at all and
-# a pull by commit answering 404. A per-commit group has exactly one member, so
-# nothing here is ever superseded — publishes for adjacent merges run side by
-# side, each pushing its own tags.
+# every main push under `main` and cancelling in progress would let each merge
+# kill its predecessor's build, leaving that commit with no image. A per-commit
+# group has exactly one member, so nothing here is ever superseded — publishes
+# for adjacent merges run side by side, each pushing its own tags.
 #
 # Registry retention is a separate workflow, triggered by this one's completion.
 # That separation keeps two prunes from racing each other; it does NOT keep a
 # prune away from a publish, because the publish that triggers it is rarely the
 # only one running. A publish between its two per-arch pushes looks like an
-# obsolete remnant to the selector, and was deleted as one — so the pruner
-# spares anything younger than its grace window (scripts/prune-ghcr-images.sh).
+# obsolete remnant to the selector, so the pruner spares anything younger than
+# its grace window (scripts/prune-ghcr-images.sh).
 concurrency:
   group: ${{ github.workflow }}-${{ github.repository }}-${{ inputs.commit || github.sha }}
   cancel-in-progress: false

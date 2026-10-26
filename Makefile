@@ -31,10 +31,9 @@ define docker_build_local
 	fi
 endef
 
-# ── Apps — explicit lists (not glob) ────────────────────────────────
-#
-# When a new app lands, add it to one of these lists. The fan-out and
-# delegation rules below pick it up automatically.
+# Apps, as explicit lists rather than a glob: when a new app lands, add it
+# to one of these lists, and the fan-out and delegation rules below pick it
+# up.
 
 # Go binaries with embedded console UI (3).
 GO_UI_APPS := \
@@ -63,8 +62,6 @@ TEST_DIRS := \
   simulator-azure/sdk-tests simulator-azure/cli-tests simulator-azure/terraform-tests
 
 ALL_APPS := $(GO_UI_APPS) $(GO_APPS) $(UI_APPS)
-
-# ── Standard fan-out targets ────────────────────────────────────────
 
 .PHONY: install build build-api test test-integration lint lint-ui lint-all clean upgrade-deps work-sum check-deps check-workflow-timeouts check-workflow-concurrency hooks
 
@@ -133,8 +130,6 @@ _fanout:
 	  fi; \
 	done
 
-# ── Per-app delegation via path ─────────────────────────────────────
-#
 # `make simulator-aws/build` → `$(MAKE) -C simulator-aws build`.
 # Works for any standardized target. `$*` is the path; `$@` carries
 # the full target with the suffix appended.
@@ -147,8 +142,6 @@ FORCE:
 
 %/install %/build %/build-api %/embed %/run %/dev %/test %/test-integration %/lint %/clean %/preview %/help %/docker-test %/docker-test-build %/unit-test %/sdk-test %/cli-test %/terraform-test %/terraform-https-test: FORCE
 	@$(MAKE) -s -C $* $(notdir $@)
-
-# ── Simulator Docker test harness ───────────────────────────────────
 
 SIMULATOR_APPS := simulator-aws simulator-gcp simulator-azure
 

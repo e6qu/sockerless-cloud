@@ -7,12 +7,9 @@
 #
 # The adoption quarantine makes that inevitable rather than occasional: a
 # version becomes drift exactly 86400s after it is published, whether or not
-# anybody pushed. Over one day on main that turned five of six consecutive runs
-# red — docker/setup-buildx-action v4.3.0, google.golang.org/grpc v1.83.1,
-# aws-sdk-go-v2/service/organizations v1.54.0 — none of them touched by the
-# commits they failed. A main that is red by default is not a gate; it is noise
-# that hides the run which matters, and it destroys the one signal an operator
-# uses to choose a deployable commit.
+# anybody pushed, and a main that is red by default is noise that hides the
+# run which matters and the one signal an operator uses to choose a
+# deployable commit.
 #
 # Inherited drift is relocated here, not forgiven. This workflow runs against
 # main with no baseline, so every pin behind its newest adoptable version fails,

@@ -19,7 +19,6 @@ REPO_ROOT_REL  := ..
 
 include $(REPO_ROOT_REL)/make/go-app.mk
 
-# ── Domain-specific test targets ────────────────────────────────────
 # Each sub-tree (sdk-tests, cli-tests, terraform-tests) is a
 # separate Go module; the CI calls these directly.
 
@@ -34,10 +33,8 @@ unit-test: ## go test the simulator module's own package-internal tests (fast; n
 	$(GO_ENV) go test -count=1 -timeout $(UNIT_TEST_TIMEOUT) ./...
 
 # The same tests under the race detector. Separate from unit-test because the
-# detector needs cgo, which unit-test deliberately does not have. The AWS
-# module's header records why this target exists: asynchronous simulator work
-# that nothing tracked outlived the test that started it and read stores the
-# next test was replacing, 144 times over.
+# detector needs cgo, which unit-test deliberately does not have; the AWS
+# module's Makefile records why this target exists.
 RACE_TEST_TIMEOUT ?= 20m
 RACE_TEST_PKGS ?= ./...
 
@@ -82,7 +79,6 @@ terraform-https-test: ## go test terraform via the optional Caddy HTTPS gateway
 .PHONY: test-all
 test-all: unit-test sdk-test cli-test terraform-test ## run every test category
 
-# ── Docker targets ──────────────────────────────────────────────────
 .PHONY: docker-build docker-run docker-test docker-test-build
 
 IMAGE := sockerless-simulator-gcp
@@ -99,8 +95,7 @@ DOCKER_TEST_ENV := -e HOME=/tmp/sockerless-home -e USER=sockerless -e SOCKERLESS
 # container. Without a directory mounted into the container at its own host path
 # and made the simulator's temporary directory, every workload bind-mounts an
 # empty directory the engine created for itself and reads none of the files it
-# was given. Two Azure tests failed exactly that way until that harness gained
-# one.
+# was given.
 #
 # It sits under /var/tmp rather than /tmp on purpose: /tmp on a container-engine
 # host is commonly memory-backed, which a build tree or a volume seed would fill.
