@@ -45,8 +45,8 @@ interface PortalConfig {
   federationTokenEndpoint?: string;
   // The Microsoft Entra directory tenant this deployment federates into.
   // Display-only: CLI usage samples (e.g. the app registration blade's
-  // `az login --tenant`) show it; the exchange itself no longer needs it
-  // client-side.
+  // `az login --tenant`) show it; the exchange itself needs it only at the
+  // broker.
   federationTenant?: string;
 }
 
@@ -76,11 +76,10 @@ async function portalConfig(): Promise<PortalConfig> {
 // decision, with no implicit default: federationTokenEndpoint is the sole
 // signal that this deployment intends to federate the operator into Azure.
 // The server only ever sets it alongside identityEndpoint (see
-// simulator-azure/shared/server.go's RegisterUI), so there is no partial
-// state to reject here the way there was when the browser held the tenant
-// and client ID itself — a console auth layer with no cloud identity
-// configured is a supported deployment shape (unauthenticated reads), not a
-// broken one.
+// simulator-azure/federation_broker.go's azureConsoleOptions), so there is
+// no partial state to reject here — a console auth layer with no cloud
+// identity configured is a supported deployment shape (unauthenticated
+// reads), not a broken one.
 function resolveFederation(config: PortalConfig): string | null {
   return config.federationTokenEndpoint || null;
 }

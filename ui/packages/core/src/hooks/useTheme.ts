@@ -8,10 +8,8 @@ function readInitialTheme(fallback: Theme): Theme {
   if (typeof window === "undefined") return fallback;
   const stored = window.localStorage.getItem(STORAGE_KEY);
   if (stored === "light" || stored === "dark") return stored;
-  // Honour an explicit OS preference in either direction; only when the
-  // OS expresses none do we use the caller's fallback. Operator tools pass
-  // "dark" (the brutalist design-system default); bleephub passes "light"
-  // to match GitHub's own light-first default.
+  // Honour an explicit OS preference in either direction; only when the OS
+  // expresses none use the caller's fallback ("dark" for the operator tools).
   if (window.matchMedia("(prefers-color-scheme: light)").matches) return "light";
   if (window.matchMedia("(prefers-color-scheme: dark)").matches) return "dark";
   return fallback;
@@ -29,9 +27,9 @@ function applyTheme(theme: Theme) {
  * useTheme reads the current theme + lets callers flip it.
  *
  * Resolution order on first mount: localStorage → prefers-color-scheme
- * media query → `defaultTheme` (caller-supplied; "dark" for operator
- * tools, "light" for bleephub). Once the user picks a theme it persists
- * until they pick the other one.
+ * media query → `defaultTheme` (caller-supplied; "dark" for the operator
+ * tools). Once the user picks a theme it persists until they pick the
+ * other one.
  */
 export function useTheme(
   defaultTheme: Theme = "dark",

@@ -78,8 +78,8 @@ test.describe("Console shell", () => {
     await expect(page.getByRole("heading", { level: 1, name: "Console Home" })).toBeVisible();
   });
 
-  // A control taller than the header used to spill below it, where the
-  // breadcrumb bar painted over it and clicks landed on the breadcrumbs.
+  // A control taller than the header would spill below it, where the
+  // breadcrumb bar paints over it and clicks land on the breadcrumbs.
   test("contains every header control within the header itself", async ({ page }) => {
     await page.goto("/ui/");
     await expect(page.getByRole("button", { name: /^Account menu:/ })).toBeVisible();

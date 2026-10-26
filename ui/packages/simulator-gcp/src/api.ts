@@ -569,9 +569,7 @@ export const waitCrmOperation = async (operation: CrmOperation): Promise<CrmOper
   return current;
 };
 
-// ---------------------------------------------------------------------------
 // Compute Engine (compute.googleapis.com/v1)
-// ---------------------------------------------------------------------------
 
 // authorizedJSONPut sends a full-resource write to a real Google Cloud API
 // path. Pub/Sub's topics.create and subscriptions.create are PUT-on-the-
@@ -749,9 +747,7 @@ export const fetchComputeSubnetworks = async (project: string, region: string): 
 export const fetchComputeFirewalls = async (project: string): Promise<ComputeFirewall[]> =>
   (await authorizedJSON<{ items?: ComputeFirewall[] }>(`${computeParent(project)}/global/firewalls`)).items ?? [];
 
-// ---------------------------------------------------------------------------
 // Cloud Load Balancing (compute.googleapis.com/v1 global load-balancing)
-// ---------------------------------------------------------------------------
 
 export interface ComputeBackendService {
   name: string;
@@ -815,9 +811,7 @@ export const fetchTargetHttpProxies = async (project: string): Promise<ComputeTa
   (await authorizedJSON<{ items?: ComputeTargetHttpProxy[] }>(`${computeParent(project)}/global/targetHttpProxies`))
     .items ?? [];
 
-// ---------------------------------------------------------------------------
 // Cloud DNS (dns.googleapis.com/v1)
-// ---------------------------------------------------------------------------
 
 export interface DnsManagedZone {
   name: string;
@@ -859,9 +853,7 @@ export const createDnsZone = (
 export const deleteDnsZone = (project: string, zone: string): Promise<void> =>
   authorizedJSONDelete<void>(`${dnsParent(project)}/managedZones/${zone}`);
 
-// ---------------------------------------------------------------------------
 // Serverless VPC Access (vpcaccess.googleapis.com/v1)
-// ---------------------------------------------------------------------------
 
 export interface VpcAccessConnector {
   name: string;
@@ -888,9 +880,7 @@ export const fetchVpcConnectors = async (project: string): Promise<VpcAccessConn
 export const deleteVpcConnector = (project: string, name: string): Promise<CrmOperation> =>
   authorizedJSONDelete<CrmOperation>(`/v1/projects/${project}/locations/${CONSOLE_REGION}/connectors/${name}`);
 
-// ---------------------------------------------------------------------------
 // Cloud SQL (sqladmin.googleapis.com/v1)
-// ---------------------------------------------------------------------------
 
 export interface SqlInstance {
   name: string;
@@ -982,9 +972,7 @@ export const deleteSqlInstance = (project: string, name: string): Promise<SqlOpe
 export const createSqlDatabase = (project: string, instance: string, name: string): Promise<SqlOperation> =>
   authorizedJSONPost<SqlOperation>(`${sqlParent(project)}/${instance}/databases`, { name, instance, project });
 
-// ---------------------------------------------------------------------------
 // Firestore (firestore.googleapis.com/v1)
-// ---------------------------------------------------------------------------
 
 export interface FirestoreDatabase {
   name: string;
@@ -1012,9 +1000,7 @@ export const createFirestoreDatabase = (
     config,
   );
 
-// ---------------------------------------------------------------------------
 // Spanner (spanner.googleapis.com/v1)
-// ---------------------------------------------------------------------------
 
 export interface SpannerInstance {
   name: string;
@@ -1083,9 +1069,7 @@ export const waitSpannerOperation = async (operation: CrmOperation): Promise<Crm
   return current;
 };
 
-// ---------------------------------------------------------------------------
 // Bigtable (bigtableadmin.googleapis.com/v2)
-// ---------------------------------------------------------------------------
 
 export interface BigtableInstance {
   name: string;
@@ -1147,9 +1131,7 @@ export const createBigtableInstance = (
 export const deleteBigtableInstance = (project: string, name: string): Promise<unknown> =>
   authorizedJSONDelete(`${bigtableParent(project)}/${name}`);
 
-// ---------------------------------------------------------------------------
 // Memorystore for Redis (redis.googleapis.com/v1)
-// ---------------------------------------------------------------------------
 
 export interface RedisInstance {
   name: string;
@@ -1184,9 +1166,7 @@ export const createRedisInstance = (
 export const deleteRedisInstance = (project: string, name: string): Promise<CrmOperation> =>
   authorizedJSONDelete<CrmOperation>(`${redisParent(project)}/${name}`);
 
-// ---------------------------------------------------------------------------
 // BigQuery (bigquery.googleapis.com/v2)
-// ---------------------------------------------------------------------------
 
 export interface BigQueryDatasetRef {
   projectId?: string;
@@ -1253,9 +1233,7 @@ export const createBigQueryDataset = (
 export const deleteBigQueryDataset = (project: string, dataset: string): Promise<void> =>
   authorizedJSONDelete<void>(`${bigqueryParent(project)}/datasets/${dataset}?deleteContents=true`);
 
-// ---------------------------------------------------------------------------
 // Pub/Sub (pubsub.googleapis.com/v1)
-// ---------------------------------------------------------------------------
 
 export interface PubSubTopic {
   name: string;
@@ -1292,9 +1270,7 @@ export const deletePubSubTopic = (project: string, topic: string): Promise<unkno
 export const deletePubSubSubscription = (project: string, subscription: string): Promise<unknown> =>
   authorizedJSONDelete(`${pubsubParent(project)}/subscriptions/${subscription}`);
 
-// ---------------------------------------------------------------------------
 // Dataflow (dataflow.googleapis.com/v1b3)
-// ---------------------------------------------------------------------------
 
 export interface DataflowJob {
   id: string;
@@ -1334,9 +1310,7 @@ export const fetchDataflowJobMessages = async (project: string, id: string): Pro
 export const updateDataflowJobState = (project: string, id: string, requestedState: string): Promise<DataflowJob> =>
   authorizedJSONPut<DataflowJob>(`${dataflowParent(project)}/${id}`, { requestedState });
 
-// ---------------------------------------------------------------------------
 // Cloud Build (cloudbuild.googleapis.com/v1)
-// ---------------------------------------------------------------------------
 
 export interface CloudBuildStep {
   name?: string;
@@ -1389,9 +1363,7 @@ export const cancelCloudBuild = (project: string, id: string): Promise<CloudBuil
 export const retryCloudBuild = (project: string, id: string): Promise<CrmOperation> =>
   authorizedJSONPost<CrmOperation>(`/v1/projects/${project}/builds/${id}:retry`, {});
 
-// ---------------------------------------------------------------------------
 // Eventarc (eventarc.googleapis.com/v1)
-// ---------------------------------------------------------------------------
 
 export interface EventarcTrigger {
   name: string;
@@ -1427,9 +1399,7 @@ export const fetchEventarcProviders = async (project: string): Promise<EventarcP
 export const deleteEventarcTrigger = (project: string, name: string): Promise<CrmOperation> =>
   authorizedJSONDelete<CrmOperation>(`${eventarcParent(project)}/triggers/${name}`);
 
-// ---------------------------------------------------------------------------
 // API Gateway (apigateway.googleapis.com/v1)
-// ---------------------------------------------------------------------------
 
 export interface ApiGatewayApi {
   name: string;
@@ -1465,9 +1435,7 @@ export const fetchApiGatewayGateways = async (project: string): Promise<ApiGatew
 export const deleteApiGatewayApi = (project: string, name: string): Promise<CrmOperation> =>
   authorizedJSONDelete<CrmOperation>(`/v1/projects/${project}/locations/global/apis/${name}`);
 
-// ---------------------------------------------------------------------------
 // Service Usage (serviceusage.googleapis.com/v1)
-// ---------------------------------------------------------------------------
 
 export interface EnabledService {
   name: string;
@@ -1487,9 +1455,7 @@ export const enableService = (project: string, service: string): Promise<CrmOper
 export const disableService = (project: string, service: string): Promise<CrmOperation> =>
   authorizedJSONPost<CrmOperation>(`/v1/projects/${project}/services/${service}:disable`, {});
 
-// ---------------------------------------------------------------------------
 // Cloud KMS (cloudkms.googleapis.com/v1)
-// ---------------------------------------------------------------------------
 
 export interface KmsKeyRing {
   name: string;
@@ -1558,9 +1524,7 @@ export const createKmsCryptoKey = (
     { purpose },
   );
 
-// ---------------------------------------------------------------------------
 // Secret Manager (secretmanager.googleapis.com/v1)
-// ---------------------------------------------------------------------------
 
 export interface SecretResource {
   name: string;
@@ -1597,9 +1561,7 @@ export const addSecretVersion = (project: string, secret: string, value: string)
     payload: { data: encodeBase64(value) },
   });
 
-// ---------------------------------------------------------------------------
 // Cloud IAM — the project's allow policy (cloudresourcemanager v3)
-// ---------------------------------------------------------------------------
 
 export interface IamBinding {
   role: string;
@@ -1649,9 +1611,7 @@ export const sendRequest = <T>(request: ApiRequest): Promise<T> =>
       ? authorizedJSONPut<T>(request.path, request.body)
       : authorizedJSONPatch<T>(request.path, request.body);
 
-// ---------------------------------------------------------------------------
 // Cloud Audit Logs, Cloud Resource Manager projects.get
-// ---------------------------------------------------------------------------
 
 // The Cloud Audit Logs payload (google.cloud.audit.AuditLog) an Admin Activity
 // entry carries in protoPayload.
@@ -1672,9 +1632,7 @@ export const fetchActivity = (project: string): Promise<LogEntry[]> =>
 export const fetchProject = (projectId: string): Promise<CrmProject> =>
   authorizedJSON<CrmProject>(`/v3/projects/${projectId}`);
 
-// ---------------------------------------------------------------------------
 // Cloud Run services (run.googleapis.com/v2)
-// ---------------------------------------------------------------------------
 
 // google.longrunning WaitOperation on Cloud Run's operation collection: the
 // call blocks until the operation is done or the timeout passes.
@@ -1778,9 +1736,7 @@ export const cloudRunServiceRequest = (
   },
 });
 
-// ---------------------------------------------------------------------------
 // Compute Engine: the catalog the Create an instance page offers, and writes
-// ---------------------------------------------------------------------------
 
 export interface ComputeZone {
   name: string;
@@ -1861,9 +1817,7 @@ export const computeInstanceRequest = (project: string, config: ComputeInstanceC
 export const deleteComputeDisk = (project: string, zone: string, name: string): Promise<ComputeOperation> =>
   authorizedJSONDelete<ComputeOperation>(`${computeParent(project)}/zones/${zone}/disks/${name}`);
 
-// ---------------------------------------------------------------------------
 // Cloud Storage: Create a bucket, and the Objects tab
-// ---------------------------------------------------------------------------
 
 export interface GCSBucketConfig {
   name: string;
@@ -1916,10 +1870,8 @@ export const downloadGCSObject = async (bucket: string, name: string): Promise<B
 export const fetchBucketIamPolicy = (bucket: string): Promise<IamPolicy> =>
   authorizedJSON<IamPolicy>(`/storage/v1/b/${bucket}/iam`);
 
-// ---------------------------------------------------------------------------
 // Pub/Sub messaging: publish to a topic, pull from and acknowledge on a
 // subscription
-// ---------------------------------------------------------------------------
 
 export interface PubSubReceivedMessage {
   ackId: string;
@@ -1960,9 +1912,7 @@ export const pullPubSubMessages = async (
 export const acknowledgePubSubMessages = (project: string, subscription: string, ackIds: string[]): Promise<unknown> =>
   authorizedJSONPost(`${pubsubParent(project)}/subscriptions/${subscription}:acknowledge`, { ackIds });
 
-// ---------------------------------------------------------------------------
 // Secret Manager: create with a replication policy, read and act on versions
-// ---------------------------------------------------------------------------
 
 export interface SecretCreateConfig {
   secretId: string;
@@ -1997,9 +1947,7 @@ export const changeSecretVersionState = (
 ): Promise<SecretVersion> =>
   authorizedJSONPost<SecretVersion>(`${secretsParent(project)}/${secret}/versions/${version}:${action}`, {});
 
-// ---------------------------------------------------------------------------
 // Workforce Identity Federation (iam.googleapis.com/v1)
-// ---------------------------------------------------------------------------
 
 export interface WorkforcePool {
   name: string;
@@ -2032,9 +1980,7 @@ export const fetchWorkforcePoolProviders = async (pool: string): Promise<Workfor
   (await authorizedJSON<{ workforcePoolProviders?: WorkforcePoolProvider[] }>(`/v1/${pool}/providers`))
     .workforcePoolProviders ?? [];
 
-// ---------------------------------------------------------------------------
 // VPC networks: create and delete
-// ---------------------------------------------------------------------------
 
 export interface VpcNetworkConfig {
   name: string;
@@ -2132,9 +2078,7 @@ export const pubsubSubscriptionRequest = (
   },
 });
 
-// ---------------------------------------------------------------------------
 // Cloud Scheduler (cloudscheduler.googleapis.com/v1)
-// ---------------------------------------------------------------------------
 
 export interface SchedulerJob {
   name: string;

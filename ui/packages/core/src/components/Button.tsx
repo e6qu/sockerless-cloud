@@ -9,7 +9,7 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 }
 
 /**
- * Sharp, monospace button. Three voices:
+ * Sharp, monospace button. Four voices:
  *
  * - primary  — accent fill, bold. Reserved for the one most-important
  *              action on a screen.

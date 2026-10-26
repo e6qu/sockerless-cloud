@@ -12,16 +12,13 @@ import type { ECSTask } from "../api.js";
 
 /**
  * The Amazon ECS, AWS Lambda, Amazon ECR, Amazon S3, and CloudWatch Logs
- * pages used to render an enabled "View details" and "Delete" header action
- * with no handler — a fake affordance (BUG-2637). Each page now passes
- * AwsTable its own `actions`, so the inert defaults never render. "View
- * details" is now a real, initially-disabled action that navigates to the
- * resource's detail route once exactly one row is selected, alongside the
+ * pages pass AwsTable their own `actions`, so no inert default header action
+ * renders. "View details" is a real, initially-disabled action that navigates
+ * to the resource's detail route once exactly one row is selected, beside the
  * real Stop/Delete mutation that goes out over the same federated wire the
  * reads use. These tests drive the full read → select → confirm → mutate
- * round trip against a mocked federated fetch, the way ContainersPage.test.tsx
- * drives admin's mutation flows, rather than reaching into the mutation
- * internals.
+ * round trip against a mocked federated fetch rather than reaching into the
+ * mutation internals.
  */
 
 const mockFetch = vi.fn();

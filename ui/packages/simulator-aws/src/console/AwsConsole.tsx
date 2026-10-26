@@ -337,11 +337,9 @@ export function AwsStatus({ status, kind: explicitKind }: { status: string; kind
 }
 
 /**
- * A resource's key-value property block — Cloudscape's own `KeyValuePairs`,
- * replacing the hand-built `<dl>` every detail page used to draw. Callers
- * build a flat list of `{label, value}` pairs (skipping any conditional
- * field simply by not including it), the same shape the JSX `<dt>`/`<dd>`
- * pairs held before.
+ * A resource's key-value property block — Cloudscape's own `KeyValuePairs`.
+ * Callers build a flat list of `{label, value}` pairs, skipping a conditional
+ * field simply by not including it.
  */
 export function AwsKeyValue({
   items,
@@ -378,9 +376,9 @@ export function AwsErrorAlert({
 }
 
 /**
- * A resource's empty or loading placeholder, replacing the hand-built
- * `.aws-empty` block. `role="status"` while loading lets assistive tech pick
- * up the change without the operator having to go looking for it.
+ * A resource's empty or loading placeholder. `role="status"` while loading
+ * lets assistive tech pick up the change without the operator having to go
+ * looking for it.
  */
 export function AwsEmptyState({
   title,

@@ -6,9 +6,9 @@ afterEach(() => {
   cleanup();
 });
 
-// LogViewer line numbers are zero-padded to 3 chars in the editorial-
-// brutalist redesign. Tests use textContent matching instead of strict
-// getByText so the format is decoupled from the assertion.
+// LogViewer zero-pads line numbers to 3 chars. Tests match textContent
+// instead of a strict getByText so the format stays decoupled from the
+// assertion.
 function preText() {
   return document.querySelector("pre")?.textContent ?? "";
 }

@@ -7,14 +7,14 @@ import { LambdaFunctionDetailPage } from "../pages/LambdaFunctionDetailPage.js";
 import { S3BucketDetailPage } from "../pages/S3BucketDetailPage.js";
 
 /**
- * The AWS console's update, create, and lifecycle flows added in the console
- * full-parity pass — Lambda CreateFunction / UpdateFunctionConfiguration /
- * Invoke / TagResource, CloudWatch Logs PutRetentionPolicy /
- * DeleteRetentionPolicy, S3 PutBucketVersioning / PutBucketTagging, ECR
- * PutImageTagMutability / PutImageScanningConfiguration / TagResource, and ECS
- * RegisterTaskDefinition / RunTask — each drives the real operation over the
- * same federated fetch the reads use. These tests pin the request shaping of
- * every one of those operations against a mocked federated fetch, the same way
+ * The AWS console's update, create, and lifecycle flows — Lambda
+ * CreateFunction / UpdateFunctionConfiguration / Invoke / TagResource,
+ * CloudWatch Logs PutRetentionPolicy / DeleteRetentionPolicy, S3
+ * PutBucketVersioning / PutBucketTagging, ECR PutImageTagMutability /
+ * PutImageScanningConfiguration / TagResource, and ECS RegisterTaskDefinition
+ * / RunTask — each drive the real operation over the same federated fetch the
+ * reads use. These tests pin the request shaping of every one of those
+ * operations against a mocked federated fetch, the same way
  * ResourceHeaderActions.test.tsx pins the delete/stop flows.
  */
 

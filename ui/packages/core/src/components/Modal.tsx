@@ -21,7 +21,7 @@ const widths: Record<NonNullable<ModalProps["size"]>, number> = {
 };
 
 /**
- * Editorial-brutalist modal. Uses native <dialog> for focus trapping
+ * Modal on the native <dialog>, for focus trapping
  * + ESC dismissal + the platform's accessible-by-default modal
  * semantics. Backdrop click closes; X button closes; ESC closes.
  *

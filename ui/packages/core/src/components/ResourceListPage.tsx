@@ -18,7 +18,7 @@ type AnyColumns<T> = ColumnDef<T, any>[];
 export interface ResourceListPageProps<T> {
   /** Small uppercase label above the title, e.g. "aws · simulator · ecs". */
   kicker?: string;
-  /** Page title — rendered in the editorial italic display voice. */
+  /** Page title — rendered in the italic display voice. */
   title: ReactNode;
   /** Optional override for the meta line. Defaults to "{N} {countNoun}". */
   meta?: ReactNode;

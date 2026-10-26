@@ -91,8 +91,8 @@ describe("DataTable", () => {
     expect(onClick).toHaveBeenCalledTimes(1);
     expect(onClick).toHaveBeenCalledWith(expect.objectContaining({ name: expect.any(String) }));
 
-    // Cursor moved to inline style in the redesign so onRowClick rows
-    // get cursor: pointer regardless of class composition.
+    // Rows with onRowClick get cursor: pointer inline, regardless of class
+    // composition.
     expect((rows[0] as HTMLElement).style.cursor).toBe("pointer");
   });
 });

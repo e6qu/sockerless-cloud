@@ -7,16 +7,15 @@ import { CloudFunctionsPage } from "../pages/CloudFunctionsPage.js";
 import { ProjectProvider } from "../console/project.js";
 
 /**
- * Cloud Run jobs and Cloud Run functions were deferred as read-only-plus-delete
- * — the real console creates both, and Cloud Run jobs are executed on demand.
- * The jobs list now offers a real "Create job" action and a per-row "Run"
- * action, and the functions list a real "Create function" action, each wired to
- * the real projects.locations.jobs.create / jobs.run / functions.create
- * long-running operation. These tests drive the round trips against a mocked
- * fetch that answers unauthenticated but otherwise succeeds, asserting the
- * exact request each sends. Dialog structure/accessibility live in the
- * Playwright suite; the authenticated create-appears loop in the relying-party
- * suite.
+ * The real console creates Cloud Run jobs and Cloud Run functions, and runs
+ * Cloud Run jobs on demand: the jobs list offers a real "Create job" action
+ * and a per-row "Run" action, and the functions list a real "Create function"
+ * action, each wired to the real projects.locations.jobs.create / jobs.run /
+ * functions.create long-running operation. These tests drive the round trips
+ * against a mocked fetch that answers unauthenticated but otherwise
+ * succeeds, asserting the exact request each sends. Dialog
+ * structure/accessibility live in the Playwright suite; the authenticated
+ * create-appears loop in the relying-party suite.
  */
 
 const mockFetch = vi.fn();
