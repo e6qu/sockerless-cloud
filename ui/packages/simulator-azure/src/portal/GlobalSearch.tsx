@@ -181,7 +181,8 @@ export function GlobalSearch() {
           <div className="az-search-status" role="status">
             {loading ? (
               <>
-                <Spinner size="extra-tiny" /> Searching resources…
+                <Spinner size="extra-tiny" aria-labelledby={`${listboxId}-searching`} />
+                <span id={`${listboxId}-searching`}>Searching resources…</span>
               </>
             ) : results.length === 0 ? (
               "No results were found."
