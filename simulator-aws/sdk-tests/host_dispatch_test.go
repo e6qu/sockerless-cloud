@@ -14,7 +14,7 @@ import (
 // No sim handler may execute a workload as a process on the host. Container and
 // FaaS workloads run on a Docker host (StartContainerSync)
 // honouring the workload's Architecture field; VM-level resources run through
-// the placement backend described in specs/SIMULATOR_EXECUTION.md.
+// the placement backend described in docs/architecture.md.
 //
 // The gate looks for both ways a handler can reach the host: `os/exec` directly,
 // and a shared `sim.StartProcess` wrapper around it. Watching only for
@@ -95,7 +95,7 @@ func TestNoHostProcessDispatchOfWorkloads(t *testing.T) {
 	require.Greaterf(t, scanned, 200, "the gate read only %d files under %s", scanned, strings.Join(roots, ", "))
 
 	require.Emptyf(t, offenders,
-		"these files dispatch a process on the host — a workload must run on the Docker host, or through the placement backend (specs/SIMULATOR_EXECUTION.md): %s",
+		"these files dispatch a process on the host — a workload must run on the Docker host, or through the placement backend (docs/architecture.md): %s",
 		strings.Join(offenders, ", "))
 
 	// Every allowlist entry must still name a file that reaches the host, so a

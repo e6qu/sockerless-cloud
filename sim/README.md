@@ -1,17 +1,19 @@
 # sim
 
-The framework the three cloud simulators are built on: one HTTP server with
-graceful shutdown, health and console routes; a container-engine layer that
-runs every workload as a real container; durable state with a generation
-counter; the OCI Distribution data plane every registry slice mounts; request
-logging, tracing and diagnostics; and the parsing primitives that keep
-untrusted input bounds-safe.
+The cloud-neutral framework the three simulators are built on:
+- the HTTP server and the startup every binary runs;
+- configuration, and durable state on SQLite;
+- the container-engine layer and the placement backends;
+- cloud networks and their sidecars;
+- the mechanisms services share: queues, fan-out, delivery, jobs, function environments, replica sets, relational engines, object contents and lists;
+- the OCI Distribution data plane, and the bounds-safe parsing primitives.
 
 Each simulator imports it as `github.com/e6qu/sockerless-cloud/sim` and pins it
-by pseudo-version like the other support modules (see the module layout in
-[`AGENTS.md`](../AGENTS.md)). The framework is cloud-neutral: a cloud's own
-error shape, protocol router, sandbox profile and console coordinates live in
-that cloud's module and reach the framework through the hooks below.
+by pseudo-version ([Maintaining → Support-module pins](../docs/maintaining.md#support-module-pins)).
+A cloud's error shape, protocol router, sandbox profile and console coordinates
+live in that cloud's module and reach the framework through the hooks listed
+under [What stays with the cloud](#what-stays-with-the-cloud).
+[Architecture](../docs/architecture.md) shows how the pieces fit together.
 
 ## Files
 
@@ -98,24 +100,8 @@ that cloud's module and reach the framework through the hooks below.
 
 ## Configuration
 
-`ConfigFromEnv(provider, defaultPort)` reads:
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `SIM_<PROVIDER>_PORT` | — | Port to listen on, ahead of `SIM_LISTEN_ADDR` (`SIM_AWS_PORT`, `SIM_GCP_PORT`, `SIM_AZURE_PORT`) |
-| `SIM_LISTEN_ADDR` | `:<defaultPort>` | Listen address |
-| `SIM_TLS_CERT`, `SIM_TLS_KEY` | — | TLS certificate and key |
-| `SIM_LOG_LEVEL` | `info` | trace, debug, info, warn, error |
-| `SIM_RUNTIME` | `docker` | `process` starts API-only, with no container engine |
-| `SIM_PERSIST`, `SIM_DATA_DIR` | `false`, temp | SQLite persistence and its directory |
-| `SIM_PLACEMENT` | — | Per-service placement table, `service[:qualifier]=container\|microvm` |
-| `SIM_CALLBACK_LISTEN_ADDR` | free port | Plain-HTTP listener for workload callbacks when the API listener terminates TLS |
-| `SIM_UI_OIDC_ISSUER`, `SIM_UI_OIDC_CLIENT_ID`, `SIM_UI_OIDC_CLIENT_SECRET`, `SIM_UI_PUBLIC_URL`, `SIM_UI_SESSION_SECRET` | — | Console OpenID Connect layer; all or none |
-| `SIM_UI_INSECURE_COOKIES` | `false` | HTTP cookies for loopback integration tests only |
-| `APPLICATION_RELEASE_REVISION` | — | Immutable release revision the console and monitoring report |
-| `SIM_MONITORING_TOKEN` | — | Bearer for `GET /monitoring/observation` |
-| `SOCKERLESS_PARENT_PID` | — | The process the simulator must not outlive (set by every test harness) |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | — | Enables OpenTelemetry trace, metric and log export |
+`ConfigFromEnv(provider, defaultPort)` reads the `SIM_*` variables that
+[`docs/configuration.md`](../docs/configuration.md) lists.
 
 ## Usage
 
