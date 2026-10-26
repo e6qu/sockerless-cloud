@@ -11,11 +11,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestEC2_VpcEndpointServiceRoundTrip exercises the PrivateLink endpoint-service
-// control plane: CreateVpcEndpointServiceConfiguration, Describe…Configurations,
-// Modify…Configuration, the allowed-principal permission set
-// (Modify/Describe…Permissions), payer responsibility, private-DNS verification,
-// DescribeVpcEndpointServices, and the tolerant delete unsuccessful set.
+// TestEC2_VpcEndpointServiceRoundTrip covers the AWS PrivateLink endpoint
+// service configuration, its allowed principals, payer responsibility,
+// private DNS verification, DescribeVpcEndpointServices and the delete's
+// unsuccessful set.
 func TestEC2_VpcEndpointServiceRoundTrip(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -41,7 +40,6 @@ func TestEC2_VpcEndpointServiceRoundTrip(t *testing.T) {
 	assert.Contains(t, cfg.NetworkLoadBalancerArns, nlbArn)
 	assert.Equal(t, "svc.example.com", aws.ToString(cfg.PrivateDnsName))
 
-	// Describe by id.
 	desc, err := c.DescribeVpcEndpointServiceConfigurations(ctx, &ec2.DescribeVpcEndpointServiceConfigurationsInput{
 		ServiceIds: []string{svcID},
 	})
@@ -49,7 +47,6 @@ func TestEC2_VpcEndpointServiceRoundTrip(t *testing.T) {
 	require.Len(t, desc.ServiceConfigurations, 1)
 	assert.Equal(t, svcID, aws.ToString(desc.ServiceConfigurations[0].ServiceId))
 
-	// Modify: flip AcceptanceRequired off.
 	_, err = c.ModifyVpcEndpointServiceConfiguration(ctx, &ec2.ModifyVpcEndpointServiceConfigurationInput{
 		ServiceId:          aws.String(svcID),
 		AcceptanceRequired: aws.Bool(false),
@@ -62,7 +59,6 @@ func TestEC2_VpcEndpointServiceRoundTrip(t *testing.T) {
 	require.Len(t, after.ServiceConfigurations, 1)
 	assert.False(t, aws.ToBool(after.ServiceConfigurations[0].AcceptanceRequired))
 
-	// Permissions: add a principal, read it back, remove it.
 	const principal = "arn:aws:iam::111122223333:root"
 	mp, err := c.ModifyVpcEndpointServicePermissions(ctx, &ec2.ModifyVpcEndpointServicePermissionsInput{
 		ServiceId:            aws.String(svcID),
@@ -90,7 +86,6 @@ func TestEC2_VpcEndpointServiceRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, permsGone.AllowedPrincipals)
 
-	// Payer responsibility + private-DNS verification.
 	_, err = c.ModifyVpcEndpointServicePayerResponsibility(ctx, &ec2.ModifyVpcEndpointServicePayerResponsibilityInput{
 		ServiceId:           aws.String(svcID),
 		PayerResponsibility: types.PayerResponsibilityServiceOwner,
@@ -101,7 +96,6 @@ func TestEC2_VpcEndpointServiceRoundTrip(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// DescribeVpcEndpointServices lists the configured service name + detail.
 	svcName := aws.ToString(cfg.ServiceName)
 	svcs, err := c.DescribeVpcEndpointServices(ctx, &ec2.DescribeVpcEndpointServicesInput{
 		ServiceNames: []string{svcName},
@@ -111,8 +105,8 @@ func TestEC2_VpcEndpointServiceRoundTrip(t *testing.T) {
 	require.NotEmpty(t, svcs.ServiceDetails)
 	assert.Equal(t, svcName, aws.ToString(svcs.ServiceDetails[0].ServiceName))
 
-	// Delete (tolerant): successful delete leaves an empty unsuccessful set; an
-	// unknown id lands in the unsuccessful set rather than erroring.
+	// A successful delete leaves the unsuccessful set empty; an unknown id lands
+	// in it rather than failing the call.
 	del, err := c.DeleteVpcEndpointServiceConfigurations(ctx, &ec2.DeleteVpcEndpointServiceConfigurationsInput{
 		ServiceIds: []string{svcID},
 	})
@@ -127,8 +121,6 @@ func TestEC2_VpcEndpointServiceRoundTrip(t *testing.T) {
 	assert.Equal(t, "vpce-svc-doesnotexist", aws.ToString(bad.Unsuccessful[0].ResourceId))
 }
 
-// TestEC2_VpcCidrBlockRoundTrip exercises AssociateVpcCidrBlock /
-// DisassociateVpcCidrBlock — adding and removing a secondary IPv4 CIDR on a VPC.
 func TestEC2_VpcCidrBlockRoundTrip(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -157,9 +149,6 @@ func TestEC2_VpcCidrBlockRoundTrip(t *testing.T) {
 	assert.Equal(t, assocID, aws.ToString(disassoc.CidrBlockAssociation.AssociationId))
 }
 
-// TestEC2_SubnetCidrRoundTrip exercises AssociateSubnetCidrBlock (IPv6),
-// DisassociateSubnetCidrBlock, and the subnet CIDR reservation ops
-// (Create/Get/Delete).
 func TestEC2_SubnetCidrRoundTrip(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -173,7 +162,7 @@ func TestEC2_SubnetCidrRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	subID := aws.ToString(sub.Subnet.SubnetId)
 
-	// A subnet takes a /64 of its VPC's IPv6 CIDR block, and only one.
+	// A subnet takes one /64 of its VPC's IPv6 CIDR block.
 	_, err = c.AssociateSubnetCidrBlock(ctx, &ec2.AssociateSubnetCidrBlockInput{
 		SubnetId: aws.String(subID), Ipv6CidrBlock: aws.String("2001:db8:1::/64"),
 	})
@@ -200,7 +189,6 @@ func TestEC2_SubnetCidrRoundTrip(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Subnet CIDR reservation.
 	res, err := c.CreateSubnetCidrReservation(ctx, &ec2.CreateSubnetCidrReservationInput{
 		SubnetId:        aws.String(subID),
 		Cidr:            aws.String("10.30.1.16/28"),
@@ -229,8 +217,6 @@ func TestEC2_SubnetCidrRoundTrip(t *testing.T) {
 	assert.Equal(t, resID, aws.ToString(del.DeletedSubnetCidrReservation.SubnetCidrReservationId))
 }
 
-// TestEC2_SecondaryNetworkRoundTrip exercises Create/Describe/Delete
-// SecondaryNetwork and its nested secondary subnets.
 func TestEC2_SecondaryNetworkRoundTrip(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -282,8 +268,8 @@ func TestEC2_SecondaryNetworkRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestEC2_SecurityGroupVpcRoundTrip exercises Associate/Disassociate/Describe
-// SecurityGroupVpc — attaching a security group to an additional VPC.
+// TestEC2_SecurityGroupVpcRoundTrip attaches a security group to an additional
+// VPC.
 func TestEC2_SecurityGroupVpcRoundTrip(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -325,8 +311,8 @@ func TestEC2_SecurityGroupVpcRoundTrip(t *testing.T) {
 	assert.Empty(t, gone.SecurityGroupVpcAssociations)
 }
 
-// TestEC2_VpcEncryptionControlRoundTrip exercises Create/Modify/Describe/Delete
-// VpcEncryptionControl — a per-VPC enforce/monitor mode with resource exclusions.
+// TestEC2_VpcEncryptionControlRoundTrip covers a VPC's enforce or monitor
+// encryption mode with resource exclusions.
 func TestEC2_VpcEncryptionControlRoundTrip(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -371,9 +357,8 @@ func TestEC2_VpcEncryptionControlRoundTrip(t *testing.T) {
 	assert.Equal(t, ctrlID, aws.ToString(del.VpcEncryptionControl.VpcEncryptionControlId))
 }
 
-// TestEC2_AccountVpcEncryptionAndEndpointPayerRoundTrip drives the account-level
-// Amazon VPC encryption policy and the per-endpoint AWS PrivateLink payer
-// lifecycle through the official Amazon EC2 SDK.
+// TestEC2_AccountVpcEncryptionAndEndpointPayerRoundTrip covers the account-level
+// Amazon VPC encryption policy and the per-endpoint AWS PrivateLink payer.
 func TestEC2_AccountVpcEncryptionAndEndpointPayerRoundTrip(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -396,8 +381,8 @@ func TestEC2_AccountVpcEncryptionAndEndpointPayerRoundTrip(t *testing.T) {
 	initial, err := c.DescribeAccountVpcEncryptionControl(ctx, &ec2.DescribeAccountVpcEncryptionControlInput{})
 	require.NoError(t, err)
 	require.NotNil(t, initial.AccountVpcEncryptionControl)
-	// An account whose control was reset to unmanaged reports the transition
-	// that reset it rather than its default state.
+	// An account whose control was reset to unmanaged reports the resetting
+	// transition rather than its default state.
 	assert.Contains(t, []types.AccountVpcEncryptionControlState{
 		types.AccountVpcEncryptionControlStateDefaultState,
 		types.AccountVpcEncryptionControlStateTransitionsSuccessful,

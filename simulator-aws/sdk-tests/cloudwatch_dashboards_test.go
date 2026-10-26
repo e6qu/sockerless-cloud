@@ -12,8 +12,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestCloudWatch_Dashboards covers PutDashboard / GetDashboard / ListDashboards /
-// DeleteDashboards (issue #608 — the API was unrouted → 404).
 func TestCloudWatch_Dashboards(t *testing.T) {
 	t.Parallel()
 	c := cloudwatchClient()
@@ -44,17 +42,15 @@ func TestCloudWatch_Dashboards(t *testing.T) {
 	require.NoError(t, err)
 	_, err = c.GetDashboard(ctx, &cloudwatch.GetDashboardInput{DashboardName: aws.String("ops")})
 	require.Error(t, err, "a deleted dashboard must not be gettable")
-	// The error must deserialize as a proper rpc-v2-cbor API error (it carries the
-	// Smithy-Protocol header + a cbor __type/message body) — not a protocol-header
-	// parse failure, which an awsJson-shaped error response would have produced.
+	// The error deserializes as an rpc-v2-cbor API error (Smithy-Protocol header,
+	// cbor __type and message), which an awsJson error would not.
 	var apiErr smithy.APIError
 	require.True(t, errors.As(err, &apiErr), "want a deserialized cbor API error, got: %v", err)
 	assert.Equal(t, "ResourceNotFound", apiErr.ErrorCode())
 }
 
-// TestCloudWatch_AlarmExtendedStatistic covers the percentile ExtendedStatistic
-// round-trip (issue #609 — it was dropped → terraform perpetual diff). A
-// percentile alarm returns ExtendedStatistic and no Statistic.
+// TestCloudWatch_AlarmExtendedStatistic expects a percentile alarm to return
+// ExtendedStatistic and no Statistic.
 func TestCloudWatch_AlarmExtendedStatistic(t *testing.T) {
 	t.Parallel()
 	c := cloudwatchClient()

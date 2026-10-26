@@ -16,12 +16,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestECSExpress_UnderlyingResourcesDescribeFaithfully creates an Express
-// service and follows the resources DescribeServiceRevisions reports Amazon
-// ECS manages for it — load balancer, HTTPS listener, listener rule, target
-// group, certificate, security groups, scalable target and scaling policy —
-// into the service that holds each, where it describes back with every field
-// a real aws-sdk-go-v2 / terraform client reads.
+// TestECSExpress_UnderlyingResourcesDescribeFaithfully follows each resource
+// DescribeServiceRevisions reports for an Express service (load balancer, HTTPS
+// listener, listener rule, target group, certificate, security groups, scalable
+// target, scaling policy) into its own service, where it describes back with
+// every field aws-sdk-go-v2 and terraform clients read.
 func TestECSExpress_UnderlyingResourcesDescribeFaithfully(t *testing.T) {
 	t.Parallel()
 	ecsc := ecsClient()
@@ -77,8 +76,8 @@ func TestECSExpress_UnderlyingResourcesDescribeFaithfully(t *testing.T) {
 	assert.Equal(t, "/healthz", aws.ToString(path.TargetGroups[0].HealthCheckPath))
 	assert.Equal(t, int32(8080), path.TargetGroups[0].Port)
 
-	// ---- ALB: DescribeLoadBalancers returns it with the full read-back shape,
-	// in the scheme, subnets and security groups the managed resource names. ----
+	// DescribeLoadBalancers returns the load balancer in the scheme, subnets and
+	// security groups the managed resource names.
 	albArn := aws.ToString(path.LoadBalancer.Arn)
 	byArn, err := elb.DescribeLoadBalancers(ctx, &elbv2.DescribeLoadBalancersInput{LoadBalancerArns: []string{albArn}})
 	require.NoError(t, err)
@@ -96,8 +95,8 @@ func TestECSExpress_UnderlyingResourcesDescribeFaithfully(t *testing.T) {
 	assert.ElementsMatch(t, path.LoadBalancer.SubnetIds, subnets)
 	assert.ElementsMatch(t, path.LoadBalancer.SecurityGroupIds, lb.SecurityGroups)
 
-	// ---- Listener: DescribeListeners(LoadBalancerArn) returns the HTTPS:443
-	// listener carrying the service's certificate. ----
+	// DescribeListeners returns the HTTPS:443 listener with the service's
+	// certificate.
 	ls, err := elb.DescribeListeners(ctx, &elbv2.DescribeListenersInput{LoadBalancerArn: aws.String(albArn)})
 	require.NoError(t, err)
 	require.Len(t, ls.Listeners, 1, "expected one HTTPS listener on the Express ALB")
@@ -113,8 +112,8 @@ func TestECSExpress_UnderlyingResourcesDescribeFaithfully(t *testing.T) {
 	}
 	assert.True(t, onListener, "the listener carries the service's certificate")
 
-	// ---- Rule: DescribeRules(ListenerArn) holds the service's host-header
-	// rule, forwarding the hostname to its target group. ----
+	// DescribeRules holds the service's host-header rule forwarding to its target
+	// group.
 	rules, err := elb.DescribeRules(ctx, &elbv2.DescribeRulesInput{ListenerArn: listener.ListenerArn})
 	require.NoError(t, err)
 	tgArn := aws.ToString(path.TargetGroups[0].Arn)
@@ -134,8 +133,8 @@ func TestECSExpress_UnderlyingResourcesDescribeFaithfully(t *testing.T) {
 	}
 	assert.True(t, routed, "the listener holds the service's rule")
 
-	// ---- Target group: DescribeTargetGroups returns ip target type, HTTP,
-	// the container port, health-check path, and the ALB that uses it. ----
+	// DescribeTargetGroups returns the ip target type, HTTP, the container port,
+	// the health check path and the load balancer.
 	tgs, err := elb.DescribeTargetGroups(ctx, &elbv2.DescribeTargetGroupsInput{TargetGroupArns: []string{tgArn}})
 	require.NoError(t, err)
 	require.Len(t, tgs.TargetGroups, 1)
@@ -146,8 +145,8 @@ func TestECSExpress_UnderlyingResourcesDescribeFaithfully(t *testing.T) {
 	assert.Equal(t, "/healthz", aws.ToString(tg.HealthCheckPath))
 	assert.Contains(t, tg.LoadBalancerArns, albArn)
 
-	// ---- Certificate: DescribeCertificate returns the managed cert ISSUED,
-	// AMAZON_ISSUED, for the service's hostname. ----
+	// DescribeCertificate returns the managed certificate ISSUED and AMAZON_ISSUED
+	// for the service's hostname.
 	dc, err := acmc.DescribeCertificate(ctx, &acm.DescribeCertificateInput{CertificateArn: aws.String(certArn)})
 	require.NoError(t, err)
 	require.NotNil(t, dc.Certificate)
@@ -156,8 +155,8 @@ func TestECSExpress_UnderlyingResourcesDescribeFaithfully(t *testing.T) {
 	assert.Equal(t, hostname, aws.ToString(dc.Certificate.DomainName))
 	assert.Equal(t, hostname, aws.ToString(path.Certificate.DomainName))
 
-	// ---- Security groups: the load balancer's and the tasks', each described
-	// by DescribeSecurityGroups with its VpcId and OwnerId. ----
+	// DescribeSecurityGroups describes the load balancer's group and the tasks',
+	// each with VpcId and OwnerId.
 	require.Len(t, path.LoadBalancerSecurityGroups, 1)
 	require.Len(t, managed.ServiceSecurityGroups, 1)
 	groupIDs := map[string]string{}
@@ -186,9 +185,8 @@ func TestECSExpress_UnderlyingResourcesDescribeFaithfully(t *testing.T) {
 	require.NotNil(t, backing.Services[0].NetworkConfiguration.AwsvpcConfiguration)
 	assert.Equal(t, []string{groupIDs["service"]}, backing.Services[0].NetworkConfiguration.AwsvpcConfiguration.SecurityGroups)
 
-	// ---- Scalable target: DescribeScalableTargets filtered by ResourceIds +
-	// ScalableDimension returns the ecs:service:DesiredCount target with the
-	// requested min/max capacity, which the managed resource repeats. ----
+	// DescribeScalableTargets returns the ecs:service:DesiredCount target with the
+	// requested capacity bounds, which the managed resource repeats.
 	require.NotNil(t, managed.AutoScaling)
 	require.NotNil(t, managed.AutoScaling.ScalableTarget)
 	assert.Equal(t, ecstypes.ManagedResourceStatusActive, managed.AutoScaling.ScalableTarget.Status)
@@ -209,9 +207,9 @@ func TestECSExpress_UnderlyingResourcesDescribeFaithfully(t *testing.T) {
 	assert.Equal(t, int32(7), aws.ToInt32(st.MaxCapacity))
 	assert.Equal(t, aws.ToString(managed.AutoScaling.ScalableTarget.Arn), aws.ToString(st.ScalableTargetARN))
 
-	// ---- Scaling policy: DescribeScalingPolicies filtered by ResourceId +
-	// ScalableDimension returns the target-tracking policy with its predefined
-	// metric + target value, and the alarms the managed resources list. ----
+	// DescribeScalingPolicies returns the target-tracking policy with its
+	// predefined metric and target value, and the alarms the managed resources
+	// list.
 	require.Len(t, managed.AutoScaling.ApplicationAutoScalingPolicies, 1)
 	managedPolicy := managed.AutoScaling.ApplicationAutoScalingPolicies[0]
 	assert.Equal(t, ecstypes.ManagedResourceStatusActive, managedPolicy.Status)

@@ -12,9 +12,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestGlue_DataQualityResultsV2_SDK publishes a result the way an external
-// data platform does, reads it back through the V2 reads, and finds an
-// evaluation run's result through the same reads.
+// TestGlue_DataQualityResultsV2_SDK publishes a result as an external data
+// platform does and reads it back through the V2 reads, as it does an
+// evaluation run's result.
 func TestGlue_DataQualityResultsV2_SDK(t *testing.T) {
 	t.Parallel()
 	c := glueClient()

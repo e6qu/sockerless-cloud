@@ -11,10 +11,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestCloudWatch_AlarmActionsAndState covers EnableAlarmActions /
-// DisableAlarmActions / SetAlarmState / DescribeAlarmHistory: a manual state set
-// via SetAlarmState shows through DescribeAlarms, action toggles persist, and
-// the state change is recorded in the alarm history.
+// TestCloudWatch_AlarmActionsAndState expects SetAlarmState to show through
+// DescribeAlarms and in the alarm history, and action toggles to persist.
 func TestCloudWatch_AlarmActionsAndState(t *testing.T) {
 	t.Parallel()
 	client := cloudwatchClient()
@@ -66,7 +64,6 @@ func TestCloudWatch_AlarmActionsAndState(t *testing.T) {
 	assert.Equal(t, name, aws.ToString(hist.AlarmHistoryItems[0].AlarmName))
 }
 
-// TestCloudWatch_DescribeAlarmsForMetric verifies the metric→alarm reverse lookup.
 func TestCloudWatch_DescribeAlarmsForMetric(t *testing.T) {
 	t.Parallel()
 	client := cloudwatchClient()
@@ -95,8 +92,6 @@ func TestCloudWatch_DescribeAlarmsForMetric(t *testing.T) {
 	assert.Equal(t, "sdk-reverse-alarm", aws.ToString(out.MetricAlarms[0].AlarmName))
 }
 
-// TestCloudWatch_CompositeAlarm covers PutCompositeAlarm + tag round-trip via the
-// cross-resource tagging API.
 func TestCloudWatch_CompositeAlarm(t *testing.T) {
 	t.Parallel()
 	client := cloudwatchClient()
@@ -122,8 +117,8 @@ func TestCloudWatch_CompositeAlarm(t *testing.T) {
 	assert.Equal(t, "team", aws.ToString(tags.Tags[0].Key))
 }
 
-// TestCloudWatch_MetricStreams covers the full stream lifecycle: put, get, list,
-// stop, start, delete — with the RUNNING/STOPPED state transitioning.
+// TestCloudWatch_MetricStreams covers the stream lifecycle through RUNNING and
+// STOPPED.
 func TestCloudWatch_MetricStreams(t *testing.T) {
 	t.Parallel()
 	client := cloudwatchClient()
@@ -173,8 +168,6 @@ func TestCloudWatch_MetricStreams(t *testing.T) {
 	assert.True(t, found, "stream appears in ListMetricStreams")
 }
 
-// TestCloudWatch_AnomalyDetector covers put / describe / delete of a
-// single-metric anomaly detector.
 func TestCloudWatch_AnomalyDetector(t *testing.T) {
 	t.Parallel()
 	client := cloudwatchClient()
@@ -213,7 +206,6 @@ func TestCloudWatch_AnomalyDetector(t *testing.T) {
 	assert.Empty(t, out.AnomalyDetectors)
 }
 
-// TestCloudWatch_InsightRules covers put / describe / disable / enable / delete.
 func TestCloudWatch_InsightRules(t *testing.T) {
 	t.Parallel()
 	client := cloudwatchClient()
@@ -253,9 +245,8 @@ func TestCloudWatch_InsightRules(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestCloudWatch_GetMetricData verifies GetMetricData evaluates MetricDataQueries
-// against recorded metrics — real datapoints, and an empty result for a metric
-// with no data (no fabricated points).
+// TestCloudWatch_GetMetricData evaluates MetricDataQueries against recorded
+// datapoints; a metric with no data yields none.
 func TestCloudWatch_GetMetricData(t *testing.T) {
 	t.Parallel()
 	client := cloudwatchClient()
@@ -288,7 +279,6 @@ func TestCloudWatch_GetMetricData(t *testing.T) {
 	require.Len(t, out.MetricDataResults[0].Values, 1)
 	assert.InDelta(t, 6, out.MetricDataResults[0].Values[0], 0.001, "Sum of 2 and 4")
 
-	// A metric with no data returns an empty value set, never a fabricated point.
 	empty, err := client.GetMetricData(ctx, &cloudwatch.GetMetricDataInput{
 		MetricDataQueries: []cwtypes.MetricDataQuery{{
 			Id: aws.String("q2"),
@@ -306,8 +296,8 @@ func TestCloudWatch_GetMetricData(t *testing.T) {
 	assert.Empty(t, empty.MetricDataResults[0].Values)
 }
 
-// TestCloudWatch_AlarmMuteRules covers put / get / list / delete of an alarm mute
-// rule, including the derived Status and the Rule/MuteTargets round-trip.
+// TestCloudWatch_AlarmMuteRules covers an alarm mute rule's derived Status and
+// the Rule and MuteTargets round-trip.
 func TestCloudWatch_AlarmMuteRules(t *testing.T) {
 	t.Parallel()
 	client := cloudwatchClient()
@@ -344,8 +334,6 @@ func TestCloudWatch_AlarmMuteRules(t *testing.T) {
 	require.Error(t, err, "deleted mute rule no longer exists")
 }
 
-// TestCloudWatch_TagResource covers the cross-resource tagging API over a metric
-// stream ARN: tag, list, untag.
 func TestCloudWatch_TagResource(t *testing.T) {
 	t.Parallel()
 	client := cloudwatchClient()

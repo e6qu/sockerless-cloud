@@ -9,27 +9,19 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Workload-dispatch invariant.
-//
-// No sim handler may execute a workload as a process on the host. Container and
-// FaaS workloads run on a Docker host (StartContainerSync)
-// honouring the workload's Architecture field; VM-level resources run through
-// the placement backend described in docs/architecture.md.
-//
-// The gate looks for both ways a handler can reach the host: `os/exec` directly,
-// and a shared `sim.StartProcess` wrapper around it. Watching only for
-// `os/exec` would miss a handler that dispatched through a wrapper, so a gate
-// that checked only the import could not fail whatever the handlers did.
-//
-// It walks the whole simulator module and the framework module `sim/` the
-// simulator is built on, because the container reaper lives there and is named
-// below; paths are repository-relative so both roots share one allow list.
+// TestNoHostProcessDispatchOfWorkloads holds that no handler runs a workload as
+// a host process: container and function workloads run on a Docker host
+// (StartContainerSync) honouring their Architecture, and VM-level resources
+// through the placement backend in docs/architecture.md. It looks for both
+// ways to reach the host, `os/exec` and the `sim.StartProcess` wrapper around
+// it, across the simulator module and the `sim/` framework, which holds the
+// container reaper; paths are repository-relative so both share one allow
+// list.
 func TestNoHostProcessDispatchOfWorkloads(t *testing.T) {
 	t.Parallel()
-	// Each entry is a file allowed to reach the host, with the reason. Nothing
-	// runs a workload as a host process: there is no process substrate, and
-	// SIM_RUNTIME=process means API-only — serving the API surface without a
-	// container engine, never executing a workload outside one.
+	// Each entry is a file allowed to reach the host, with the reason. No workload
+	// runs as a host process: SIM_RUNTIME=process means API-only, serving the API
+	// without a container engine.
 	allowList := map[string]string{
 		"sim/container_reaper.go":                    "reaps the sim's own containers through the docker CLI; not a workload",
 		"sim/workload/build.go":                      "drives the docker CLI's image build and push for a build step; the build runs on the Docker host",
@@ -91,16 +83,14 @@ func TestNoHostProcessDispatchOfWorkloads(t *testing.T) {
 		require.NoError(t, filepath.WalkDir(root, walk))
 	}
 
-	// A walk that reached nothing would report clean without having looked.
 	require.Greaterf(t, scanned, 200, "the gate read only %d files under %s", scanned, strings.Join(roots, ", "))
 
 	require.Emptyf(t, offenders,
 		"these files dispatch a process on the host — a workload must run on the Docker host, or through the placement backend (docs/architecture.md): %s",
 		strings.Join(offenders, ", "))
 
-	// Every allowlist entry must still name a file that reaches the host, so a
-	// dispatch removed from one of them drops off this list instead of
-	// silently licensing whatever the file becomes next.
+	// Each allow-list entry must still reach the host, so a removed dispatch drops
+	// off the list instead of licensing whatever the file becomes.
 	for relative := range allowList {
 		body, err := os.ReadFile(filepath.Join(repoRoot, relative))
 		require.NoErrorf(t, err, "allowlisted %s no longer exists — remove it from the list", relative)

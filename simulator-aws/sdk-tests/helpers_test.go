@@ -88,13 +88,10 @@ func lambdaDeploymentZip(t *testing.T) []byte {
 	return lambdaNodeDeploymentZip(t, "event")
 }
 
-// emptySHA256 is the hex SHA-256 of an empty body — the payload hash for a
-// signed GET request with no body (Lambda's REST list/get operations).
 // waiterMinDelay and waiterMaxDelay bound the gap an SDK waiter leaves between
-// its describe calls. The waiters' published defaults (5 to 60 seconds between
-// attempts, up to 120) are sized for resources that take minutes; the
-// resources these tests wait on settle within seconds, and a waiter left on
-// its defaults spends most of each test asleep past the transition.
+// describes. The published defaults (5 to 60 seconds, up to 120) suit
+// resources that take minutes; these settle in seconds, and default waiters
+// would sleep past the transition.
 const (
 	waiterMinDelay = 250 * time.Millisecond
 	waiterMaxDelay = 2 * time.Second
@@ -102,24 +99,19 @@ const (
 
 const emptySHA256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 
-// signRawSigV4 signs a hand-built HTTP request with SigV4 using the seed
-// credential every SDK/CLI/Terraform client already signs with (test/test,
-// us-east-1). Raw requests that hit a SigV4-gated chokepoint (the awsJson /
-// awsQuery control plane at POST /, the S3 REST data plane, and Lambda's REST
-// control plane) must present a valid signature exactly as the real cloud
-// front end requires; this is the same signature the aws-sdk-go-v2 client
-// computes for those requests. Set every signed header on req before calling.
-// payloadHash is the hex SHA-256 of the body (see signRawSigV4JSON) or a
+// signRawSigV4 signs a hand-built request with SigV4 under the test/test
+// us-east-1 credential every client signs with, as aws-sdk-go-v2 would: the
+// awsJson and awsQuery control plane at POST /, the S3 REST data plane and
+// Lambda's REST control plane require a valid signature. Set every signed
+// header on req before calling. payloadHash is the body's hex SHA-256 or a
 // streaming sentinel such as "STREAMING-AWS4-HMAC-SHA256-PAYLOAD".
 func signRawSigV4(t *testing.T, req *http.Request, service, payloadHash string) {
 	t.Helper()
 	signRawSigV4Creds(t, req, service, payloadHash, "test", "test")
 }
 
-// signRawSigV4Creds is signRawSigV4 with an explicit access key id and secret,
-// for tests that need to sign with a real-but-wrong secret (proving the
-// simulator rejects a well-formed signature that doesn't verify) rather than
-// the seed admin credential.
+// signRawSigV4Creds is signRawSigV4 with an explicit key, for signing a
+// well-formed request with a wrong secret.
 func signRawSigV4Creds(t *testing.T, req *http.Request, service, payloadHash, akid, secret string) {
 	t.Helper()
 	creds := aws.Credentials{AccessKeyID: akid, SecretAccessKey: secret}
@@ -128,25 +120,19 @@ func signRawSigV4Creds(t *testing.T, req *http.Request, service, payloadHash, ak
 	}
 }
 
-// signRawSigV4JSON signs a control-plane request whose payload hash is the
-// SHA-256 of body — the shape awsJson/awsQuery clients sign.
+// signRawSigV4JSON signs with the body's SHA-256 as payload hash, as awsJson and
+// awsQuery clients do.
 func signRawSigV4JSON(t *testing.T, req *http.Request, service string, body []byte) {
 	t.Helper()
 	sum := sha256.Sum256(body)
 	signRawSigV4(t, req, service, hex.EncodeToString(sum[:]))
 }
 
-// freeSimulatorPortPair reserves a simulator's HTTP coordinate and its Route 53
-// DNS coordinate as a pair that cannot be the same port.
-//
-// Selecting them with two independent probes is not enough. Each probe binds an
-// ephemeral port and releases it before returning the number, so the operating
-// system is free to hand the second probe the port the first just released. The
-// simulator then binds its Route 53 listener on the coordinate its HTTP server
-// needs and dies with "listen tcp :<port>: bind: address already in use", which
-// surfaces as a health-check timeout in whichever test launched it. Holding the
-// HTTP reservation open across the DNS probe removes the overlap: the DNS probe
-// binds TCP too, so it cannot be handed the held port.
+// freeSimulatorPortPair reserves a simulator's HTTP port and its Route 53 DNS
+// port as two different ports. Two independent probes can get the same port,
+// since each releases its port before returning, and the simulator would then
+// fail to bind its DNS listener. Holding the HTTP reservation open across the
+// DNS probe, which binds TCP too, rules that out.
 func freeSimulatorPortPair() (httpPort int, dnsPort int, err error) {
 	holder, err := net.Listen("tcp", ":0")
 	if err != nil {
@@ -194,40 +180,33 @@ func sdkConfig() aws.Config {
 	}
 }
 
-// simEndpoint returns the endpoint coordinate for one AWS service against the
-// simulator: the service's own hostname in the `.localhost` family on the
-// simulator's port. It has the same shape as the endpoint a real client
-// resolves (`servicediscovery.us-east-1.amazonaws.com`), so an operation that
-// carries a modeled endpoint host prefix — Cloud Map's `data-` on
-// DiscoverInstances/DiscoverInstancesRevision, Step Functions' `sync-` on
-// StartSyncExecution/TestState — builds and signs the real prefixed host
-// (`data-servicediscovery.localhost`) instead of a prefix glued onto an IP
-// literal. Only the endpoint coordinate differs from a real-cloud client; the
-// request the SDK builds and signs is byte-for-byte the one AWS receives.
+// simEndpoint returns one service's endpoint against the simulator: the
+// service's own hostname in the `.localhost` family on the simulator's port,
+// shaped like the endpoint a real client resolves
+// (`servicediscovery.us-east-1.amazonaws.com`). An operation with a modeled
+// endpoint host prefix (Cloud Map's `data-`, Step Functions' `sync-`) then
+// signs a real prefixed host such as `data-servicediscovery.localhost`; only
+// the coordinate differs from what AWS receives.
 func simEndpoint(service string) string {
 	return fmt.Sprintf("http://%s.localhost:%d", service, simPort)
 }
 
-// simHTTPClient is the SDK transport every client in this suite uses. It keeps
-// the SDK's own transport defaults and replaces only name resolution: a host in
-// the `.localhost` family resolves to the loopback address, which is what RFC
-// 6761 mandates and what glibc does on Linux but macOS's resolver does not.
-// Resolution is a coordinate, not a request property — the Host header, the
-// URL and the SigV4 signature the SDK produces are untouched, so a request to
-// `data-servicediscovery.localhost` carries and signs exactly that host.
+// simHTTPClient keeps the SDK's transport defaults and replaces only name
+// resolution: the `.localhost` family resolves to loopback, as RFC 6761
+// mandates and glibc does but macOS's resolver does not. The Host header, URL
+// and signature stay as the SDK made them.
 var simHTTPClient = awshttp.NewBuildableClient().WithTransportOptions(func(tr *http.Transport) {
 	tr.DialContext = simDialContext
 	tr.Proxy = simProxy
 })
 
-// sdkHTTPClient is simHTTPClient handing the transport each request body
-// without its io.WriterTo. smithy-go closes a request's body once the response
-// arrives, and the closed body's WriteTo answers io.EOF; net/http, still
-// probing the body for bytes past its Content-Length when a quick response
-// lands, takes that for a failed write and closes the connection the response
-// is being read from, which ends an event stream with "use of closed network
-// connection". A closed body's Read answers io.EOF too, which net/http takes
-// for the end of the body.
+// sdkHTTPClient hands the transport each request body without its io.WriterTo.
+// smithy-go closes a body once the response arrives, and the closed body's
+// WriteTo answers io.EOF, which net/http, still probing for bytes past
+// Content-Length, takes for a failed write: it closes the connection the
+// response is read from, ending an event stream with "use of closed network
+// connection". A closed body's Read answers io.EOF, which net/http takes for
+// the end of the body.
 var sdkHTTPClient aws.HTTPClient = readOnlyBodyClient{simHTTPClient}
 
 type readOnlyBodyClient struct{ next aws.HTTPClient }
@@ -255,35 +234,19 @@ func simDialContext(ctx context.Context, network, addr string) (net.Conn, error)
 		addr = net.JoinHostPort("127.0.0.1", strconv.Itoa(simPort))
 	case host == "127.0.0.1" || host == "::1":
 	default:
-		// Every client in this suite addresses the simulator. A host that is
-		// not the simulator is a test whose endpoint coordinate is wrong, and
-		// dialing it would send a request — signed with this suite's
-		// credentials — to the real cloud. Refusing here turns that into an
-		// error naming the host instead.
+		// A host that is not the simulator means a wrong endpoint coordinate, and
+		// dialing it would send a request signed with this suite's credentials to
+		// the real cloud.
 		return nil, fmt.Errorf("refusing to dial %q: this suite addresses the simulator, and that host is not it", host)
 	}
 	return simDialer.DialContext(ctx, network, addr)
 }
 
-// isS3ExpressName reports whether a hostname belongs to S3 Express One Zone —
-// the regional control endpoint `s3express-control.<region>.amazonaws.com` or a
-// directory bucket's zonal endpoint
-// `<bucket>.s3express-<zone-id>.<region>.amazonaws.com`.
-//
-// Those two hosts are a coordinate like any other, but they cannot be supplied
-// as a BaseEndpoint: the SDK derives which of them an operation uses from the
-// bucket's name, and an endpoint override collapses both onto one host and
-// takes the S3 Express auth branch even for CreateBucket, which against Amazon
-// S3 goes to the control endpoint with the caller's own credentials and no
-// session at all. So a client addressing a directory bucket is left to resolve
-// exactly what it resolves against AWS, and resolution — which changes neither
-// the URL, the Host header, nor the signature — points at the simulator.
-// isS3AccessPointName reports whether a hostname addresses an S3 access point
-// — `<name>-<account>.s3-accesspoint.<region>.amazonaws.com`, or an Object
-// Lambda access point at its own host. The SDK derives that host from the
-// access point ARN a caller passes as the bucket, so a client reaching an
-// access point resolves it exactly as it does against Amazon S3, and resolution
-// points at the simulator.
+// isS3AccessPointName reports whether a hostname addresses an S3 access point,
+// `<name>-<account>.s3-accesspoint.<region>.amazonaws.com`, or an Object Lambda
+// access point's host. The SDK derives the host from the access point ARN the
+// caller passes as the bucket, so name resolution alone points it at the
+// simulator.
 func isS3AccessPointName(host string) bool {
 	h := strings.ToLower(strings.TrimSuffix(host, "."))
 	return strings.Contains(h, ".s3-accesspoint.") || strings.Contains(h, ".s3-object-lambda.")
@@ -297,14 +260,22 @@ func isLambdaFunctionURLName(host string) bool {
 	return strings.Contains(h, ".lambda-url.") && strings.HasSuffix(h, ".on.aws")
 }
 
+// isS3ExpressName reports whether a hostname belongs to S3 Express One Zone: the
+// regional control endpoint `s3express-control.<region>.amazonaws.com` or a
+// directory bucket's zonal endpoint
+// `<bucket>.s3express-<zone-id>.<region>.amazonaws.com`. Neither can be a
+// BaseEndpoint: the SDK picks between them by bucket name, and an override
+// collapses both onto one host and takes the S3 Express auth branch even for
+// CreateBucket. So the client resolves exactly what it resolves against AWS,
+// and name resolution points it at the simulator.
 func isS3ExpressName(host string) bool {
 	h := strings.ToLower(strings.TrimSuffix(host, "."))
 	return strings.HasPrefix(h, "s3express-control.") || strings.Contains(h, ".s3express-")
 }
 
-// simProxy keeps the SDK's environment-driven proxy behaviour for every host
-// except the `.localhost` family, which resolves to loopback and must never be
-// routed through a proxy Go would otherwise apply to a non-`localhost` name.
+// simProxy keeps the SDK's environment-driven proxy for every host but the
+// `.localhost` family, which resolves to loopback and must not go through a
+// proxy Go would otherwise apply to a name other than `localhost`.
 func simProxy(req *http.Request) (*url.URL, error) {
 	if host := req.URL.Hostname(); isLocalhostName(host) || isS3ExpressName(host) || isS3AccessPointName(host) ||
 		isLambdaFunctionURLName(host) {
@@ -318,8 +289,6 @@ func isLocalhostName(host string) bool {
 	return h == "localhost" || strings.HasSuffix(h, ".localhost")
 }
 
-// capturedRequest holds the host and Authorization header of the request an
-// SDK client actually put on the wire.
 type capturedRequest struct {
 	host          string
 	authorization string
@@ -338,10 +307,9 @@ func (c capturedRequest) signedHeaders() []string {
 }
 
 // captureSignedRequest is an SDK API option that records the final request
-// after every Finalize middleware has run — the modeled endpoint host-prefix
-// mutation and the SigV4 signer included. A test uses it to assert the host the
-// SDK addressed and signed, which is the only way to prove an operation with a
-// modeled host prefix really exercised the prefixed host.
+// after every Finalize middleware, host-prefix mutation and SigV4 signing
+// included, proving an operation with a modeled host prefix used the prefixed
+// host.
 func captureSignedRequest(rec *capturedRequest) func(*middleware.Stack) error {
 	return func(stack *middleware.Stack) error {
 		return stack.Finalize.Add(middleware.FinalizeMiddlewareFunc("captureSignedRequest",
@@ -356,10 +324,9 @@ func captureSignedRequest(rec *capturedRequest) func(*middleware.Stack) error {
 }
 
 func TestMain(m *testing.M) {
-	// A simulator this process starts must not outlive it. The cleanup
-	// below stops each one, and a killed `go test` never reaches it — so
-	// the simulator watches this pid and exits when it goes. Set here
-	// rather than at each start: every one of them inherits os.Environ().
+	// A killed `go test` never reaches the cleanup that stops the simulators, so
+	// each one watches this pid and exits with it. Every simulator inherits
+	// os.Environ().
 	os.Setenv("SOCKERLESS_PARENT_PID", strconv.Itoa(os.Getpid()))
 	if configuredBinary := os.Getenv("SOCKERLESS_AWS_SIMULATOR_BINARY"); configuredBinary != "" {
 		var err error
@@ -373,10 +340,9 @@ func TestMain(m *testing.M) {
 			log.Fatalf("SOCKERLESS_AWS_SIMULATOR_BINARY is not an executable file: %s", binaryPath)
 		}
 	} else {
-		// Each suite builds the simulator it runs into a path of its own. The
-		// suites share one working tree, so a single `../simulator-aws` would
-		// have one suite's `go build -o` overwrite the binary another is
-		// executing the moment they run at the same time.
+		// Each suite builds its simulator into its own path: the suites share one
+		// working tree, so one suite's `go build -o` would overwrite the binary
+		// another runs.
 		binaryPath, _ = filepath.Abs("../.build/sdk-tests/simulator-aws")
 		if err := os.MkdirAll(filepath.Dir(binaryPath), 0o755); err != nil {
 			log.Fatalf("Failed to create simulator build dir: %v", err)
@@ -410,36 +376,30 @@ func TestMain(m *testing.M) {
 		log.Fatal(err)
 	}
 
-	// Pre-pull busybox up front (with retry) — it is the workload image for
-	// many ECS tests. Pulling
-	// it lazily at RunTask time made the registry fetch a flaky dependency
-	// of the task lifecycle: a transient throttle there surfaced as the task
-	// container "failing to start" (ExitCode -1) rather than a clear pull
-	// error. Fetching it once here removes that race from every test.
+	// Pull busybox, the workload image of many ECS tests, once with retries: a
+	// registry throttle at RunTask time would read as a container failing to start
+	// (ExitCode -1) rather than a pull error.
 	pullImageWithRetry("mirror.gcr.io/library/busybox:latest")
 	if testRunSelects("TestSFN_AmazonECSAndCodeBuildIntegrations_SDK") ||
 		testRunSelects("TestECS_TaskRoleCredentialsAuthorizeWorkloadAWSCLI") ||
 		testRunSelects("TestCodeBuild_BuildHoldsItsServiceRoleSession_SDK") ||
 		testRunSelects("TestBatch_JobHoldsItsJobRoleSession_SDK") {
-		// The integration's timeout measures the Step Functions execution,
-		// not registry transfer on a newly provisioned test host. These are the
-		// exact public images configured on the Amazon ECS task definition and
-		// AWS CodeBuild project; pulling them before m.Run still executes both
-		// real containers while keeping image acquisition outside the per-test
-		// lifecycle deadline.
+		// The integration's timeout measures the Step Functions execution, not a cold
+		// host's registry transfer, so pull the public images the Amazon ECS task
+		// definition and AWS CodeBuild project name before m.Run.
 		pullImageWithRetry("mirror.gcr.io/library/alpine:3.21")
 		pullImageWithRetry("mirror.gcr.io/amazon/aws-cli:2.27.49")
 	}
 	// An AWS Amplify job's wait measures the job, not the transfer of the
-	// managed build image, which is several hundred megabytes on a cold host.
+	// several-hundred-megabyte managed build image.
 	for _, name := range []string{"TestAmplifyJobLifecycle", "TestAmplifyRealBuildE2E", "TestAmplifyPrivateRepositoryPythonBuildE2E"} {
 		if testRunSelects(name) {
 			pullImageWithRetry("mirror.gcr.io/library/node:22-bookworm")
 			break
 		}
 	}
-	// An Amazon ElastiCache resource reports available once its engine
-	// answers, which on a cold host waits on the engine image's transfer.
+	// An ElastiCache resource reports available once its engine answers, which on
+	// a cold host waits on the engine image's transfer.
 	elastiCacheEngines := false
 	for _, name := range []string{
 		"TestElastiCache_ClusterLifecycle", "TestElastiCache_ReplicationGroupAndReboot", "TestElastiCache_EngineVersionDefault",
@@ -462,8 +422,8 @@ func TestMain(m *testing.M) {
 		buildTerraformAWSImage(workloadPlatform)
 	}
 
-	// Route 53 serves the same DNS coordinate over UDP and TCP, and it must not
-	// land on the port the HTTP server is about to take.
+	// Route 53 serves the DNS coordinate over UDP and TCP, on a port other than
+	// the HTTP server's.
 	port, dnsPortValue, err := freeSimulatorPortPair()
 	if err != nil {
 		log.Fatalf("Failed to reserve simulator ports: %v", err)
@@ -514,25 +474,18 @@ func shutdownSimulator(cmd *exec.Cmd) error {
 	}
 }
 
-// pullImageWithRetry pulls a public image up front with bounded exponential
-// backoff so a transient registry throttle doesn't flake a test that runs the
-// image. Mirrors the azure sdk-tests pattern. Fails the suite only after
-// exhausting retries — a genuinely unreachable image must fail loud.
+// pullImageWithRetry pulls a public image with bounded exponential backoff so
+// a transient registry throttle does not flake a test, and fails the suite
+// once the retries run out.
 func pullImageWithRetry(image string) {
 	if err := baseimage.Ensure(image); err != nil {
 		log.Fatalf("Failed to pull %s: %v", image, err)
 	}
 }
 
-// buildTerraformAWSImage prepares the exact Terraform workload used by the
-// Step Functions → Amazon ECS provider proof. A Fargate task in a private
-// subnet has no contractually implied route to registry.terraform.io, so the
-// provider is fetched before the task starts and committed into the workload
-// image as a filesystem mirror. The task itself therefore proves the AWS API
-// path without depending on undeclared internet egress.
-// hostEgressArgs hands the host's outbound proxy and the CA bundle that
-// proxy's certificates chain to into a container on the host network, so the
-// registry fetch takes the same egress path as the host's own.
+// hostEgressArgs hands the host's outbound proxy, and the CA bundle its
+// certificates chain to, to a container on the host network, so the registry
+// fetch takes the host's egress path.
 func hostEgressArgs() []string {
 	var args []string
 	for _, key := range []string{"HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "no_proxy"} {
@@ -546,6 +499,10 @@ func hostEgressArgs() []string {
 	return args
 }
 
+// buildTerraformAWSImage builds the Terraform workload of the Step Functions to
+// Amazon ECS provider test. A Fargate task in a private subnet has no route to
+// registry.terraform.io, so the image carries the provider as a filesystem
+// mirror and the task needs no internet egress.
 func buildTerraformAWSImage(platform string) {
 	pullImageWithRetry(terraformECSBaseImage)
 
@@ -622,7 +579,7 @@ func buildTerraformAWSImage(platform string) {
 		log.Fatalf("Failed to create Terraform AWS image staging container: %v\n%s", err, out)
 	}
 	containerID := strings.TrimSpace(string(out))
-	defer exec.Command("docker", "rm", "-f", containerID).Run() //nolint:errcheck
+	defer exec.Command("docker", "rm", "-f", containerID).Run()
 
 	for _, copySpec := range [][2]string{
 		{mirrorPath, containerID + ":/providers"},
@@ -639,10 +596,9 @@ func buildTerraformAWSImage(platform string) {
 	}
 }
 
-// testRunSelects reports whether Go's configured -test.run pattern selects the
-// named top-level test. CI also exports the same shard expression as SHARD_RUN;
-// accepting either source keeps pre-M.Run provisioning scoped to the shard
-// that actually executes the workload.
+// testRunSelects reports whether the -test.run pattern, or the SHARD_RUN
+// expression CI exports, selects the named top-level test, which scopes
+// provisioning before m.Run to the shard that runs the workload.
 func testRunSelects(name string) bool {
 	pattern := os.Getenv("SHARD_RUN")
 	if pattern == "" {
@@ -668,23 +624,14 @@ func testRunSelects(name string) bool {
 	return selected
 }
 
-// gluePythonShellImage is the interpreter an AWS Glue Python shell job run
-// executes in — the image the simulator's job runner starts a container from.
+// gluePythonShellImage is the image the simulator starts an AWS Glue Python
+// shell job run in.
 const gluePythonShellImage = "mirror.gcr.io/library/python:3.9"
 
-// ensureGluePythonShellImage puts the interpreter on the host before a Glue job
-// run is timed, and is called by the tests that start one.
-//
-// It is deliberately not in TestMain. A shard is a -run filter over this one
-// package, so TestMain runs for every shard — putting a gigabyte-scale pull
-// there made the compute, data and services shards download an interpreter
-// none of them uses, and a registry that refused it took all of them down
-// instead of the one test that needs it.
-//
-// Failing here fails the Glue test with the reason, which is what a missing
-// interpreter is: the job cannot run. That is a better answer than the
-// four-minute timeout the same condition produces when the download happens
-// inside the wait for the run to settle.
+// ensureGluePythonShellImage pulls the interpreter before a test times a Glue
+// job run, so a slow registry fails the test with the reason rather than as a
+// four-minute timeout. It stays out of TestMain, which runs for every shard, so
+// a registry refusal fails one test rather than every shard.
 func ensureGluePythonShellImage(t *testing.T) {
 	t.Helper()
 	if err := baseimage.Ensure(gluePythonShellImage); err != nil {
@@ -693,10 +640,9 @@ func ensureGluePythonShellImage(t *testing.T) {
 	}
 }
 
-// nativeLambdaArchitectures is the architecture the images these tests build
-// carry: the host's. AWS Lambda defaults a function to x86_64, so a function
-// running a host-built image on an arm64 machine has to say so, exactly as one
-// running an arm64 image on real Lambda does.
+// nativeLambdaArchitectures is the host's architecture, which the built images
+// carry. AWS Lambda defaults a function to x86_64, so on an arm64 host the
+// function says so, as an arm64 image on Lambda must.
 func nativeLambdaArchitectures() []lambdatypes.Architecture {
 	if runtime.GOARCH == "arm64" {
 		return []lambdatypes.Architecture{lambdatypes.ArchitectureArm64}
@@ -704,8 +650,6 @@ func nativeLambdaArchitectures() []lambdatypes.Architecture {
 	return []lambdatypes.Architecture{lambdatypes.ArchitectureX8664}
 }
 
-// serviceRole creates a uniquely named role whose trust policy lets the
-// service principal assume it, deleted when the test ends.
 func serviceRole(t *testing.T, principal string) string {
 	t.Helper()
 	return createWorkloadRole(t, uniquename.New(strings.SplitN(principal, ".", 2)[0]), principal)

@@ -26,12 +26,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestELBv2_TrustStoreLifecycle exercises the mutual-TLS trust store control
-// plane: CreateTrustStore, DescribeTrustStores, ModifyTrustStore,
-// GetTrustStoreCaCertificatesBundle, AddTrustStoreRevocations,
-// DescribeTrustStoreRevocations, GetTrustStoreRevocationContent,
-// RemoveTrustStoreRevocations, DescribeTrustStoreAssociations,
-// DeleteSharedTrustStoreAssociation, GetResourcePolicy, DeleteTrustStore.
+// TestELBv2_TrustStoreLifecycle covers CreateTrustStore, DescribeTrustStores,
+// ModifyTrustStore, GetTrustStoreCaCertificatesBundle,
+// AddTrustStoreRevocations, DescribeTrustStoreRevocations,
+// GetTrustStoreRevocationContent, RemoveTrustStoreRevocations,
+// DescribeTrustStoreAssociations, DeleteSharedTrustStoreAssociation,
+// GetResourcePolicy and DeleteTrustStore.
 func TestELBv2_TrustStoreLifecycle(t *testing.T) {
 	t.Parallel()
 	c := elbv2Client()
@@ -71,7 +71,6 @@ func TestELBv2_TrustStoreLifecycle(t *testing.T) {
 	assert.Equal(t, []elbtypes.Tag{{Key: aws.String("env"), Value: aws.String("test")}}, tags.TagDescriptions[0].Tags,
 		"the trust store keeps the tags CreateTrustStore carried")
 
-	// Describe by ARN and by Name.
 	descByArn, err := c.DescribeTrustStores(ctx, &elbv2.DescribeTrustStoresInput{
 		TrustStoreArns: []string{arn},
 	})
@@ -85,7 +84,6 @@ func TestELBv2_TrustStoreLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, descByName.TrustStores, 1)
 
-	// Modify the bundle reference.
 	modified, err := c.ModifyTrustStore(ctx, &elbv2.ModifyTrustStoreInput{
 		TrustStoreArn:                aws.String(arn),
 		CaCertificatesBundleS3Bucket: aws.String(caBucket),
@@ -95,14 +93,12 @@ func TestELBv2_TrustStoreLifecycle(t *testing.T) {
 	require.Len(t, modified.TrustStores, 1)
 	assert.Equal(t, int32(1), aws.ToInt32(modified.TrustStores[0].NumberOfCaCertificates))
 
-	// CA bundle location.
 	bundle, err := c.GetTrustStoreCaCertificatesBundle(ctx, &elbv2.GetTrustStoreCaCertificatesBundleInput{
 		TrustStoreArn: aws.String(arn),
 	})
 	require.NoError(t, err)
 	assert.NotEmpty(t, aws.ToString(bundle.Location))
 
-	// Add two revocation lists.
 	added, err := c.AddTrustStoreRevocations(ctx, &elbv2.AddTrustStoreRevocationsInput{
 		TrustStoreArn: aws.String(arn),
 		RevocationContents: []elbtypes.RevocationContent{
@@ -119,14 +115,12 @@ func TestELBv2_TrustStoreLifecycle(t *testing.T) {
 	assert.Equal(t, int64(5), aws.ToInt64(described.TrustStores[0].TotalRevokedEntries))
 	firstRevID := aws.ToInt64(added.TrustStoreRevocations[0].RevocationId)
 
-	// Describe revocations: both present.
 	revs, err := c.DescribeTrustStoreRevocations(ctx, &elbv2.DescribeTrustStoreRevocationsInput{
 		TrustStoreArn: aws.String(arn),
 	})
 	require.NoError(t, err)
 	assert.Len(t, revs.TrustStoreRevocations, 2)
 
-	// Revocation content location.
 	content, err := c.GetTrustStoreRevocationContent(ctx, &elbv2.GetTrustStoreRevocationContentInput{
 		TrustStoreArn: aws.String(arn),
 		RevocationId:  aws.Int64(firstRevID),
@@ -134,7 +128,6 @@ func TestELBv2_TrustStoreLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, aws.ToString(content.Location))
 
-	// Remove the first revocation; one remains.
 	_, err = c.RemoveTrustStoreRevocations(ctx, &elbv2.RemoveTrustStoreRevocationsInput{
 		TrustStoreArn: aws.String(arn),
 		RevocationIds: []int64{firstRevID},
@@ -146,21 +139,19 @@ func TestELBv2_TrustStoreLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, revs2.TrustStoreRevocations, 1)
 
-	// No associations yet.
 	assoc, err := c.DescribeTrustStoreAssociations(ctx, &elbv2.DescribeTrustStoreAssociationsInput{
 		TrustStoreArn: aws.String(arn),
 	})
 	require.NoError(t, err)
 	assert.Empty(t, assoc.TrustStoreAssociations)
 
-	// Resource policy for the (shareable) trust store.
 	pol, err := c.GetResourcePolicy(ctx, &elbv2.GetResourcePolicyInput{
 		ResourceArn: aws.String(arn),
 	})
 	require.NoError(t, err)
 	assert.NotEmpty(t, aws.ToString(pol.Policy))
 
-	// Delete a (nonexistent) shared association fails cleanly.
+	// Deleting a nonexistent shared association fails cleanly.
 	_, err = c.DeleteSharedTrustStoreAssociation(ctx, &elbv2.DeleteSharedTrustStoreAssociationInput{
 		TrustStoreArn: aws.String(arn),
 		ResourceArn:   aws.String("arn:aws:elasticloadbalancing:us-east-1:000000000000:listener/app/x/y/z"),
@@ -168,9 +159,9 @@ func TestELBv2_TrustStoreLifecycle(t *testing.T) {
 	assert.Error(t, err)
 }
 
-// TestELBv2_TrustStoreReadsItsBundleFromS3 refuses a CA bundle or a revocation
-// list Amazon S3 does not hold, and one that is not what it should be, and
-// reads the object version a trust store names rather than the current one.
+// TestELBv2_TrustStoreReadsItsBundleFromS3 refuses a CA bundle or revocation
+// list Amazon S3 does not hold or that is malformed, and reads the object
+// version a trust store names rather than the current one.
 func TestELBv2_TrustStoreReadsItsBundleFromS3(t *testing.T) {
 	t.Parallel()
 	c := elbv2Client()
@@ -272,7 +263,6 @@ func elbv2Download(t *testing.T, location string) string {
 	return string(body)
 }
 
-// elbv2TestCA makes a self-signed CA certificate.
 func elbv2TestCA(t *testing.T, name string) (*x509.Certificate, *ecdsa.PrivateKey) {
 	t.Helper()
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
@@ -311,9 +301,8 @@ func elbv2PEM(blockType string, der []byte) []byte {
 	return pem.EncodeToMemory(&pem.Block{Type: blockType, Bytes: der})
 }
 
-// TestELBv2_DescribeSSLPolicies verifies the predefined SSL security policy
-// catalog: the full set, a name-filtered lookup, and a load-balancer-type
-// filter — each policy carries real Ciphers and SslProtocols.
+// TestELBv2_DescribeSSLPolicies expects the full catalog, a name lookup and a
+// load-balancer-type filter, each policy with real Ciphers and SslProtocols.
 func TestELBv2_DescribeSSLPolicies(t *testing.T) {
 	t.Parallel()
 	c := elbv2Client()
@@ -342,8 +331,8 @@ func TestELBv2_DescribeSSLPolicies(t *testing.T) {
 	assert.NotEmpty(t, byType.SslPolicies)
 }
 
-// TestELBv2_ModifyCapacityReservationAndIpPools verifies ModifyCapacityReservation
-// records a configured minimum and ModifyIpPools assigns/removes an IPAM pool.
+// TestELBv2_ModifyCapacityReservationAndIpPools expects ModifyCapacityReservation
+// to record a minimum and ModifyIpPools to assign and remove an IPAM pool.
 func TestELBv2_ModifyCapacityReservationAndIpPools(t *testing.T) {
 	t.Parallel()
 	ec2c := ec2Client()
@@ -380,7 +369,6 @@ func TestELBv2_ModifyCapacityReservationAndIpPools(t *testing.T) {
 	require.NotNil(t, mod.MinimumLoadBalancerCapacity)
 	assert.Equal(t, int32(100), aws.ToInt32(mod.MinimumLoadBalancerCapacity.CapacityUnits))
 
-	// Reset clears the configured minimum.
 	reset, err := c.ModifyCapacityReservation(ctx, &elbv2.ModifyCapacityReservationInput{
 		LoadBalancerArn:          aws.String(arn),
 		ResetCapacityReservation: aws.Bool(true),

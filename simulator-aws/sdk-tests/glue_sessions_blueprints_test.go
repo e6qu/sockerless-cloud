@@ -12,10 +12,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestGlue_SessionAndStatements_SDK exercises the Interactive Sessions +
-// Statements families: CreateSession -> GetSession -> ListSessions ->
-// GetSessionEndpoint -> RunStatement -> GetStatement -> ListStatements ->
-// CancelStatement -> StopSession -> DeleteSession.
 func TestGlue_SessionAndStatements_SDK(t *testing.T) {
 	t.Parallel()
 	c := glueClient()
@@ -119,10 +115,6 @@ func TestGlue_SessionAndStatements_SDK(t *testing.T) {
 	assert.ErrorAs(t, err, &notFound)
 }
 
-// TestGlue_DevEndpointLifecycle_SDK exercises the Dev Endpoints family:
-// CreateDevEndpoint -> GetDevEndpoint -> GetDevEndpoints ->
-// BatchGetDevEndpoints -> ListDevEndpoints -> UpdateDevEndpoint ->
-// DeleteDevEndpoint.
 func TestGlue_DevEndpointLifecycle_SDK(t *testing.T) {
 	t.Parallel()
 	c := glueClient()
@@ -186,10 +178,6 @@ func TestGlue_DevEndpointLifecycle_SDK(t *testing.T) {
 	assert.Error(t, err, "GetDevEndpoint after delete should error")
 }
 
-// TestGlue_BlueprintLifecycle_SDK exercises the Blueprints family:
-// CreateBlueprint -> GetBlueprint -> BatchGetBlueprints -> ListBlueprints ->
-// UpdateBlueprint -> StartBlueprintRun -> GetBlueprintRun -> GetBlueprintRuns
-// -> DeleteBlueprint.
 func TestGlue_BlueprintLifecycle_SDK(t *testing.T) {
 	t.Parallel()
 	c := glueClient()

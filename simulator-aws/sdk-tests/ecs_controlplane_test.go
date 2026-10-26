@@ -85,9 +85,8 @@ func TestECS_ARecordServiceRegistryRejectsPort(t *testing.T) {
 	assert.Equal(t, validService, aws.ToString(created.Service.ServiceName))
 }
 
-// TestECS_CapacityProviderLifecycle exercises CreateCapacityProvider,
-// UpdateCapacityProvider, and DeleteCapacityProvider (DescribeCapacityProviders
-// already covered elsewhere) — the aws_ecs_capacity_provider control-plane CRUD.
+// TestECS_CapacityProviderLifecycle covers aws_ecs_capacity_provider's
+// create, update and delete.
 func TestECS_CapacityProviderLifecycle(t *testing.T) {
 	t.Parallel()
 	c := ecsClient()
@@ -129,9 +128,8 @@ func TestECS_CapacityProviderLifecycle(t *testing.T) {
 	assert.Equal(t, ecstypes.CapacityProviderStatusInactive, delOut.CapacityProvider.Status)
 }
 
-// TestECS_TaskSetLifecycle exercises CreateTaskSet, DescribeTaskSets,
-// UpdateTaskSet, UpdateServicePrimaryTaskSet and DeleteTaskSet — the
-// aws_ecs_task_set blue/green primitive on an EXTERNAL-controller service.
+// TestECS_TaskSetLifecycle covers aws_ecs_task_set, the blue/green primitive on
+// an EXTERNAL-controller service.
 func TestECS_TaskSetLifecycle(t *testing.T) {
 	t.Parallel()
 	family := uniquename.New("ts-task")
@@ -196,11 +194,6 @@ func TestECS_TaskSetLifecycle(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestECS_ContainerInstanceLifecycle exercises the container-instance + agent
-// surface: RegisterContainerInstance, DescribeContainerInstances,
-// ListContainerInstances, UpdateContainerInstancesState, UpdateContainerAgent,
-// DeregisterContainerInstance, plus the agent-poll ops SubmitContainerStateChange /
-// SubmitTaskStateChange / SubmitAttachmentStateChanges / DiscoverPollEndpoint.
 func TestECS_ContainerInstanceLifecycle(t *testing.T) {
 	t.Parallel()
 	c := ecsClient()
@@ -241,18 +234,14 @@ func TestECS_ContainerInstanceLifecycle(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// The agent's discovery call answers for a registered instance.
 	_, err = c.DiscoverPollEndpoint(ctx, &ecs.DiscoverPollEndpointInput{
 		Cluster: aws.String(cluster), ContainerInstance: aws.String(ciArn),
 	})
 	require.NoError(t, err)
 
-	// The state-change reports are applied, not acknowledged, so a report
-	// about something the control plane does not have is refused. This block
-	// used to send fabricated identifiers and assert only that each call
-	// returned — which the canned "ACK" satisfied without doing anything.
-	// TestECS_AgentStateChangesAreAppliedNotAcknowledged covers the applied
-	// path against a real task.
+	// The control plane applies state-change reports, so it refuses one about
+	// something it does not hold; TestECS_AgentStateChangesAreAppliedNotAcknowledged
+	// covers the applied path.
 	_, err = c.SubmitContainerStateChange(ctx, &ecs.SubmitContainerStateChangeInput{
 		Cluster: aws.String(cluster), Task: aws.String("task-1"),
 		ContainerName: aws.String("app"), Status: aws.String("RUNNING"),
@@ -274,8 +263,7 @@ func TestECS_ContainerInstanceLifecycle(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestECS_AccountSettings exercises PutAccountSetting, PutAccountSettingDefault,
-// ListAccountSettings and DeleteAccountSetting — aws_ecs_account_setting_default.
+// TestECS_AccountSettings covers aws_ecs_account_setting_default.
 func TestECS_AccountSettings(t *testing.T) {
 	c := ecsClient()
 
@@ -304,8 +292,7 @@ func TestECS_AccountSettings(t *testing.T) {
 	assert.Equal(t, ecstypes.SettingNameServiceLongArnFormat, delOut.Setting.Name)
 }
 
-// TestECS_Attributes exercises PutAttributes, ListAttributes and
-// DeleteAttributes — the placement-constraint label surface.
+// TestECS_Attributes covers the placement-constraint attribute operations.
 func TestECS_Attributes(t *testing.T) {
 	t.Parallel()
 	c := ecsClient()
@@ -344,8 +331,6 @@ func TestECS_Attributes(t *testing.T) {
 	assert.Empty(t, listOut2.Attributes)
 }
 
-// TestECS_TaskProtection exercises GetTaskProtection and UpdateTaskProtection
-// against a running task.
 func TestECS_TaskProtection(t *testing.T) {
 	t.Parallel()
 	c := ecsClient()
@@ -384,16 +369,14 @@ func TestECS_TaskProtection(t *testing.T) {
 	require.Len(t, getOut.ProtectedTasks, 1)
 	assert.True(t, getOut.ProtectedTasks[0].ProtectionEnabled)
 
-	// Disable protection.
 	_, err = c.UpdateTaskProtection(ctx, &ecs.UpdateTaskProtectionInput{
 		Cluster: aws.String(cluster), Tasks: []string{taskArn}, ProtectionEnabled: false,
 	})
 	require.NoError(t, err)
 }
 
-// TestECS_StartTask runs a task on a specific registered container instance.
-// The definition's privileged flag is accepted; the simulator grants no
-// privilege, so the command asks for none.
+// TestECS_StartTask runs a task on a named registered container instance. The
+// simulator grants no privilege, so the definition asks for none.
 func TestECS_StartTask(t *testing.T) {
 	t.Parallel()
 	c := ecsClient()
@@ -440,8 +423,8 @@ func TestECS_StartTask(t *testing.T) {
 	assert.Equal(t, ecstypes.LaunchTypeEc2, described.Tasks[0].LaunchType)
 }
 
-// TestECS_DeleteTaskDefinitions deletes a deregistered (INACTIVE) revision and
-// surfaces the ACTIVE-revision failure shape.
+// TestECS_DeleteTaskDefinitions deletes an INACTIVE revision and reports an
+// ACTIVE one as a failure.
 func TestECS_DeleteTaskDefinitions(t *testing.T) {
 	t.Parallel()
 	c := ecsClient()
@@ -452,7 +435,6 @@ func TestECS_DeleteTaskDefinitions(t *testing.T) {
 	require.NoError(t, err)
 	arn := aws.ToString(reg.TaskDefinition.TaskDefinitionArn)
 
-	// An ACTIVE revision cannot be deleted — it's a failure.
 	failOut, err := c.DeleteTaskDefinitions(ctx, &ecs.DeleteTaskDefinitionsInput{TaskDefinitions: []string{arn}})
 	require.NoError(t, err)
 	require.Len(t, failOut.Failures, 1)
@@ -466,9 +448,6 @@ func TestECS_DeleteTaskDefinitions(t *testing.T) {
 	assert.Empty(t, delOut.Failures)
 }
 
-// TestECS_DaemonLifecycle exercises the daemon control-plane: CreateDaemon,
-// DescribeDaemon, UpdateDaemon, ListDaemons, DeleteDaemon, the daemon-deployment
-// + daemon-revision read-backs, and the daemon-task-definition family.
 func TestECS_DaemonLifecycle(t *testing.T) {
 	t.Parallel()
 	c := ecsClient()
@@ -478,7 +457,6 @@ func TestECS_DaemonLifecycle(t *testing.T) {
 	clusterArn := aws.ToString(clOut.Cluster.ClusterArn)
 	t.Cleanup(func() { _, _ = c.DeleteCluster(ctx, &ecs.DeleteClusterInput{Cluster: aws.String(cluster)}) })
 
-	// Daemon task definition family.
 	regDtd, err := c.RegisterDaemonTaskDefinition(ctx, &ecs.RegisterDaemonTaskDefinitionInput{
 		Family: aws.String("daemon-td"),
 		ContainerDefinitions: []ecstypes.DaemonContainerDefinition{
@@ -501,7 +479,6 @@ func TestECS_DaemonLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, listDtd.DaemonTaskDefinitions)
 
-	// Daemon CRUD.
 	createOut, err := c.CreateDaemon(ctx, &ecs.CreateDaemonInput{
 		DaemonName:              aws.String("my-daemon"),
 		ClusterArn:              aws.String(clusterArn),
@@ -557,9 +534,6 @@ func TestECS_DaemonLifecycle(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestECS_ServiceDeployments exercises the rollout-tracking surface:
-// ListServiceDeployments, DescribeServiceDeployments, DescribeServiceRevisions,
-// StopServiceDeployment, ContinueServiceDeployment, and ListServicesByNamespace.
 func TestECS_ServiceDeployments(t *testing.T) {
 	t.Parallel()
 	c := ecsClient()
@@ -616,9 +590,8 @@ func TestECS_ServiceDeployments(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// hookId names the lifecycle hook to release, and it used to be ignored —
-	// so "hook-1", which this service never configured, was accepted here.
-	// This service declares no hooks, so no identifier can be valid for it.
+	// hookId names the lifecycle hook to release; this service declares none, so
+	// no identifier is valid.
 	_, err = c.ContinueServiceDeployment(ctx, &ecs.ContinueServiceDeploymentInput{
 		ServiceDeploymentArn: aws.String(depArn),
 		HookId:               aws.String("hook-1"),

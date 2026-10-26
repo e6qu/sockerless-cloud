@@ -10,8 +10,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// busyboxImage is a shell-bearing image (unlike the scratch eval image) so the
-// task can run a long-lived `sleep` and ECS exec can target a live container.
+// busyboxImage carries a shell, unlike the scratch eval image, so the task can
+// run a long `sleep` for ECS Exec to target.
 const busyboxImage = "mirror.gcr.io/library/busybox:latest"
 
 func runLongLivedECSTask(t *testing.T, client *ecs.Client, cluster, family string, enableExec bool) string {
@@ -61,8 +61,8 @@ func runLongLivedECSTaskIn(t *testing.T, client *ecs.Client, cluster, family str
 	return taskArn
 }
 
-// TestECS_ExecuteCommandOnRunningTask covers ECS ExecuteCommand against a live
-// RUNNING task started with enableExecuteCommand: it returns an SSM session.
+// TestECS_ExecuteCommandOnRunningTask expects ExecuteCommand on a RUNNING task
+// started with enableExecuteCommand to return a session.
 func TestECS_ExecuteCommandOnRunningTask(t *testing.T) {
 	t.Parallel()
 	client := ecsClient()
@@ -87,9 +87,9 @@ func TestECS_ExecuteCommandOnRunningTask(t *testing.T) {
 	assert.NotEmpty(t, aws.ToString(out.Session.TokenValue))
 }
 
-// TestECS_ExecuteCommandRejectedWhenNotEnabled covers the fidelity rule that
-// exec is rejected on a RUNNING task that was NOT started with
-// enableExecuteCommand (the SSM exec agent is only injected when enabled).
+// TestECS_ExecuteCommandRejectedWhenNotEnabled expects ExecuteCommand to be
+// rejected on a RUNNING task started without enableExecuteCommand, which alone
+// brings the exec agent.
 func TestECS_ExecuteCommandRejectedWhenNotEnabled(t *testing.T) {
 	t.Parallel()
 	client := ecsClient()

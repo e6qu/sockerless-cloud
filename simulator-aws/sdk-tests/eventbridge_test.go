@@ -106,8 +106,8 @@ func TestEventBridge_BusArchiveReplaySDK(t *testing.T) {
 	archives, err := eb.ListArchives(ctx, &eventbridge.ListArchivesInput{EventSourceArn: createBus.EventBusArn})
 	require.NoError(t, err)
 	require.Len(t, archives.Archives, 1)
-	// List entries are the summary Archive shape — identity + state only
-	// (ArchiveArn / Description / EventPattern ride DescribeArchive).
+	// List entries are the summary Archive shape, identity and state only;
+	// DescribeArchive carries ArchiveArn, Description and EventPattern.
 	assert.Equal(t, "eb-sdk-archive", aws.ToString(archives.Archives[0].ArchiveName))
 	assert.Equal(t, aws.ToString(createBus.EventBusArn), aws.ToString(archives.Archives[0].EventSourceArn))
 	assert.Equal(t, ebtypes.ArchiveStateEnabled, archives.Archives[0].State)
@@ -195,8 +195,8 @@ func TestEventBridge_BusArchiveReplaySDK(t *testing.T) {
 	replays, err := eb.ListReplays(ctx, &eventbridge.ListReplaysInput{EventSourceArn: createArchive.ArchiveArn})
 	require.NoError(t, err)
 	require.Len(t, replays.Replays, 1)
-	// List entries are the summary Replay shape — identity + state +
-	// timestamps only (ReplayArn / Description ride DescribeReplay).
+	// List entries are the summary Replay shape, identity, state and timestamps;
+	// DescribeReplay carries ReplayArn and Description.
 	assert.Equal(t, "eb-sdk-replay", aws.ToString(replays.Replays[0].ReplayName))
 	assert.Equal(t, aws.ToString(createArchive.ArchiveArn), aws.ToString(replays.Replays[0].EventSourceArn))
 	assert.Equal(t, ebtypes.ReplayStateCompleted, replays.Replays[0].State)
@@ -238,9 +238,8 @@ func TestEventBridge_RuleTargetPutEventsSDK(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, aws.ToString(putRule.RuleArn))
 
-	// EventBridge delivers as the events.amazonaws.com service on the rule's
-	// behalf; the target queue must grant that service sqs:SendMessage for this
-	// rule's ARN, exactly as required against real AWS.
+	// EventBridge delivers as events.amazonaws.com on the rule's behalf, so the
+	// queue grants that service sqs:SendMessage for the rule's ARN.
 	setEBQueuePolicy(t, sqsC, q.QueueUrl, queueARN, aws.ToString(putRule.RuleArn))
 	t.Cleanup(func() {
 		_, _ = eb.RemoveTargets(ctx, &eventbridge.RemoveTargetsInput{
@@ -341,10 +340,9 @@ func TestEventBridge_RuleTargetPutEventsSDK(t *testing.T) {
 		"sockerless.test", "example", map[string]any{"ok": true})
 }
 
-// TestEventBridge_TestEventPatternSDK exercises TestEventPattern over a
-// content-filtering pattern: a matching event returns Result=true and a
-// near-miss (right source, detail value out of range) returns Result=false,
-// using the same evaluator a live rule fires on.
+// TestEventBridge_TestEventPatternSDK expects TestEventPattern to share the
+// live rules' evaluator: a matching event is true, and one with the right
+// source but an out-of-range detail value false.
 func TestEventBridge_TestEventPatternSDK(t *testing.T) {
 	t.Parallel()
 	eb := eventbridgeClient()
@@ -365,8 +363,7 @@ func TestEventBridge_TestEventPatternSDK(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, noMatch.Result)
 
-	// A structurally invalid pattern (scalar value instead of an array) is
-	// rejected, matching real EventBridge.
+	// A pattern with a scalar where an array belongs is rejected.
 	_, err = eb.TestEventPattern(ctx, &eventbridge.TestEventPatternInput{
 		EventPattern: aws.String(`{"source":"sockerless.tep"}`),
 		Event:        aws.String(`{"id":"3","account":"000000000000","source":"sockerless.tep"}`),
@@ -374,9 +371,6 @@ func TestEventBridge_TestEventPatternSDK(t *testing.T) {
 	requireAWSErrorCode(t, err, "InvalidEventPatternException")
 }
 
-// TestEventBridge_ListRuleNamesByTargetSDK creates a rule with a target and
-// asserts ListRuleNamesByTarget returns that rule's name for the target ARN,
-// and nothing for an unrelated ARN.
 func TestEventBridge_ListRuleNamesByTargetSDK(t *testing.T) {
 	t.Parallel()
 	eb := eventbridgeClient()
@@ -416,9 +410,8 @@ func TestEventBridge_ListRuleNamesByTargetSDK(t *testing.T) {
 	assert.NotContains(t, none.RuleNames, "eb-sdk-lrnbt-rule")
 }
 
-// TestEventBridge_UpdateEventBusSDK creates a custom bus and asserts
-// UpdateEventBus mutates its Description and DeadLetterConfig, and that the
-// change is observable via DescribeEventBus.
+// TestEventBridge_UpdateEventBusSDK expects UpdateEventBus to change a custom
+// bus's Description and DeadLetterConfig, as DescribeEventBus shows.
 func TestEventBridge_UpdateEventBusSDK(t *testing.T) {
 	t.Parallel()
 	eb := eventbridgeClient()
@@ -450,11 +443,9 @@ func TestEventBridge_UpdateEventBusSDK(t *testing.T) {
 	assert.Equal(t, "updated description", aws.ToString(describe.Description))
 }
 
-// TestEventBridge_ContentFilterPatternSDK exercises the content-filtering event
-// pattern features beyond plain string-array equality: matching on the nested
-// "detail" object, the {"prefix":...} matcher, and the {"numeric":[...]} matcher.
-// It asserts a faithfully-matching event is delivered and a near-miss event
-// (right source, wrong detail) is correctly REJECTED.
+// TestEventBridge_ContentFilterPatternSDK matches the nested "detail" object
+// with the {"prefix":...} and {"numeric":[...]} matchers: a matching event is
+// delivered and one with the right source but wrong detail is not.
 func TestEventBridge_ContentFilterPatternSDK(t *testing.T) {
 	t.Parallel()
 	eb := eventbridgeClient()
@@ -471,8 +462,7 @@ func TestEventBridge_ContentFilterPatternSDK(t *testing.T) {
 	queueARN := attrs.Attributes["QueueArn"]
 	require.NotEmpty(t, queueARN)
 
-	// Pattern: source EXACT, detail.state PREFIX "run", detail.code NUMERIC > 200.
-	// Nested keys are ANDed; each value array is an OR of leaf matchers.
+	// Nested keys AND together; each value array ORs its matchers.
 	pattern := `{
 		"source": ["sockerless.content"],
 		"detail": {
@@ -502,10 +492,8 @@ func TestEventBridge_ContentFilterPatternSDK(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Matching event: state "running" (prefix run), code 500 (>200).
 	matchDetail := `{"state":"running","code":500}`
-	// Non-matching event: same source but state "queued" (no run prefix) AND
-	// code 100 (not >200) — must be rejected by the pattern.
+	// Same source, but neither the prefix nor the numeric matcher matches.
 	rejectDetail := `{"state":"queued","code":100}`
 
 	_, err = eb.PutEvents(ctx, &eventbridge.PutEventsInput{
@@ -524,7 +512,7 @@ func TestEventBridge_ContentFilterPatternSDK(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Drain the queue; exactly one message — the matching event — should arrive.
+	// Only the matching event arrives.
 	var bodies []string
 	out, err := sqsC.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{
 		QueueUrl:            q.QueueUrl,
@@ -545,10 +533,9 @@ func TestEventBridge_ContentFilterPatternSDK(t *testing.T) {
 		map[string]any{"state": "running", "code": float64(500)})
 }
 
-// setEBQueuePolicy attaches an SQS queue policy granting events.amazonaws.com
-// sqs:SendMessage on the queue, conditioned on aws:SourceArn == ruleArn — the
-// exact resource policy real AWS requires before EventBridge will deliver a
-// matched event to the queue.
+// setEBQueuePolicy grants events.amazonaws.com sqs:SendMessage on the queue
+// when aws:SourceArn is ruleArn, the policy AWS requires before EventBridge
+// delivers to a queue.
 func setEBQueuePolicy(t *testing.T, sqsC *sqs.Client, queueURL *string, queueARN, ruleArn string) {
 	t.Helper()
 	policy := fmt.Sprintf(`{
@@ -569,12 +556,10 @@ func setEBQueuePolicy(t *testing.T, sqsC *sqs.Client, queueURL *string, queueARN
 	require.NoError(t, err)
 }
 
-// TestEventBridge_SQSDeliveryAuthorizationSDK proves the resource-policy gate on
-// EventBridge → SQS delivery end-to-end: a queue whose policy admits
-// events.amazonaws.com for the matched rule's ARN receives the event, while a
-// queue with no policy (and a queue whose policy names the WRONG SourceArn)
-// receives nothing — matching real AWS, which silently drops an unauthorized
-// delivery rather than enqueuing it.
+// TestEventBridge_SQSDeliveryAuthorizationSDK expects a queue whose policy
+// admits events.amazonaws.com for the rule's ARN to receive the event, and a
+// queue without a policy or with one naming another SourceArn to receive
+// nothing: AWS drops an unauthorized delivery.
 func TestEventBridge_SQSDeliveryAuthorizationSDK(t *testing.T) {
 	t.Parallel()
 	eb := eventbridgeClient()
@@ -615,8 +600,7 @@ func TestEventBridge_SQSDeliveryAuthorizationSDK(t *testing.T) {
 		_, _ = eb.DeleteRule(ctx, &eventbridge.DeleteRuleInput{Name: aws.String("eb-auth-rule")})
 	})
 
-	// allowed: correct policy. nopolicy: no policy at all. wrong: a policy that
-	// names a different SourceArn, so the condition does not match this rule.
+	// The wrong policy names another SourceArn, so its condition fails.
 	setEBQueuePolicy(t, sqsC, allowedURL, allowedARN, ruleArn)
 	setEBQueuePolicy(t, sqsC, wrongURL, wrongARN, ruleArn+"-different")
 
@@ -639,7 +623,6 @@ func TestEventBridge_SQSDeliveryAuthorizationSDK(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// The authorized queue receives the event.
 	received, err := sqsC.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{
 		QueueUrl:            allowedURL,
 		MaxNumberOfMessages: 1,
@@ -650,8 +633,6 @@ func TestEventBridge_SQSDeliveryAuthorizationSDK(t *testing.T) {
 	assertEventBridgeSQSEnvelope(t, aws.ToString(received.Messages[0].Body),
 		"sockerless.auth", "example", map[string]any{"ok": true})
 
-	// The unauthorized queues receive nothing — neither the no-policy queue nor
-	// the wrong-SourceArn queue.
 	for name, url := range map[string]*string{"nopolicy": noPolicyURL, "wrong": wrongURL} {
 		out, err := sqsC.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{
 			QueueUrl:            url,

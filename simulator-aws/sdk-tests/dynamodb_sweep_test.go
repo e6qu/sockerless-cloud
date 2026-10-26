@@ -11,7 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// ddbSortTable creates a hash(pk:S)+range(sk:N) table.
 func ddbSortTable(t *testing.T, c *dynamodb.Client, name string) {
 	t.Helper()
 	_, err := c.CreateTable(ctx, &dynamodb.CreateTableInput{
@@ -30,8 +29,6 @@ func ddbSortTable(t *testing.T, c *dynamodb.Client, name string) {
 	t.Cleanup(func() { _, _ = c.DeleteTable(ctx, &dynamodb.DeleteTableInput{TableName: aws.String(name)}) })
 }
 
-// TestDDBQueryScanIndexForwardAndCount covers ScanIndexForward (descending) and
-// Select=COUNT.
 func TestDDBQueryScanIndexForwardAndCount(t *testing.T) {
 	t.Parallel()
 	c := ddbClient()
@@ -64,7 +61,8 @@ func TestDDBQueryScanIndexForwardAndCount(t *testing.T) {
 	assert.Empty(t, count.Items, "Select=COUNT omits Items")
 }
 
-// TestDDBNumericKeyCanonicalization — "01" and "1" address the same item.
+// TestDDBNumericKeyCanonicalization expects "01" and "1" to address the same
+// item.
 func TestDDBNumericKeyCanonicalization(t *testing.T) {
 	t.Parallel()
 	c := ddbClient()
@@ -80,7 +78,6 @@ func TestDDBNumericKeyCanonicalization(t *testing.T) {
 	assert.Equal(t, "first", got.Item["v"].(*ddbtypes.AttributeValueMemberS).Value)
 }
 
-// TestDDBNestedSetAndContains covers nested SET (map path) + contains() on a set.
 func TestDDBNestedSetAndContains(t *testing.T) {
 	t.Parallel()
 	c := ddbClient()
@@ -102,7 +99,6 @@ func TestDDBNestedSetAndContains(t *testing.T) {
 	require.True(t, ok, "nested SET must create the map: %#v", got.Item["profile"])
 	assert.Equal(t, "42", prof.Value["age"].(*ddbtypes.AttributeValueMemberN).Value)
 
-	// contains() over the SS we ADDed.
 	q, err := c.Scan(ctx, &dynamodb.ScanInput{
 		TableName:                 aws.String(tbl),
 		FilterExpression:          aws.String("contains(tags, :a)"),
@@ -112,13 +108,12 @@ func TestDDBNestedSetAndContains(t *testing.T) {
 	assert.Equal(t, int32(1), q.Count, "contains() must match set membership")
 }
 
-// TestDDBItemDepthLimit — an item nested past 32 levels is rejected.
+// TestDDBItemDepthLimit expects an item nested past 32 levels to be rejected.
 func TestDDBItemDepthLimit(t *testing.T) {
 	t.Parallel()
 	c := ddbClient()
 	tbl := "sweep-depth"
 	ddbSimpleTable(t, c, tbl)
-	// Build a 40-level nested map AttributeValue.
 	av := sS("leaf")
 	for i := 0; i < 40; i++ {
 		av = &ddbtypes.AttributeValueMemberM{Value: map[string]ddbtypes.AttributeValue{"n": av}}
@@ -129,7 +124,8 @@ func TestDDBItemDepthLimit(t *testing.T) {
 	assert.True(t, strings.Contains(err.Error(), "ValidationException") || strings.Contains(err.Error(), "nesting"))
 }
 
-// TestDDBParallelScanDisjoint — TotalSegments partitions the table with no overlap.
+// TestDDBParallelScanDisjoint expects TotalSegments to partition the table
+// without overlap.
 func TestDDBParallelScanDisjoint(t *testing.T) {
 	t.Parallel()
 	c := ddbClient()

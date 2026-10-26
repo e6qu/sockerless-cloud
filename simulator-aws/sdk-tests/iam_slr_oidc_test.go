@@ -19,7 +19,6 @@ func TestIAMServiceLinkedRoleLifecycle(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	// CreateServiceLinkedRole for CloudFront logger
 	suffix := "test" + time.Now().Format("150405")
 	createOut, err := c.CreateServiceLinkedRole(ctx, &iam.CreateServiceLinkedRoleInput{
 		AWSServiceName: aws.String("cloudfront.amazonaws.com"),
@@ -32,7 +31,6 @@ func TestIAMServiceLinkedRoleLifecycle(t *testing.T) {
 	assert.Equal(t, "AWSServiceRoleForCloudFrontLogger_"+suffix, roleName)
 	assert.Contains(t, aws.ToString(createOut.Role.Arn), ":role/aws-service-role/cloudfront.amazonaws.com/")
 
-	// DeleteServiceLinkedRole
 	delOut, err := c.DeleteServiceLinkedRole(ctx, &iam.DeleteServiceLinkedRoleInput{
 		RoleName: aws.String(roleName),
 	})
@@ -40,7 +38,6 @@ func TestIAMServiceLinkedRoleLifecycle(t *testing.T) {
 	taskID := aws.ToString(delOut.DeletionTaskId)
 	require.NotEmpty(t, taskID)
 
-	// GetServiceLinkedRoleDeletionStatus
 	statusOut, err := c.GetServiceLinkedRoleDeletionStatus(ctx, &iam.GetServiceLinkedRoleDeletionStatusInput{
 		DeletionTaskId: aws.String(taskID),
 	})
@@ -93,7 +90,6 @@ func TestIAMOpenIDConnectProviderLifecycle(t *testing.T) {
 	require.Len(t, getOut.ClientIDList, 1)
 	require.Len(t, getOut.ThumbprintList, 1)
 
-	// Add a client ID
 	_, err = c.AddClientIDToOpenIDConnectProvider(ctx, &iam.AddClientIDToOpenIDConnectProviderInput{
 		OpenIDConnectProviderArn: aws.String(arn),
 		ClientID:                 aws.String("system:serviceaccount:default:default"),
@@ -106,14 +102,12 @@ func TestIAMOpenIDConnectProviderLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, getOut2.ClientIDList, 2)
 
-	// Remove the client ID
 	_, err = c.RemoveClientIDFromOpenIDConnectProvider(ctx, &iam.RemoveClientIDFromOpenIDConnectProviderInput{
 		OpenIDConnectProviderArn: aws.String(arn),
 		ClientID:                 aws.String("system:serviceaccount:default:default"),
 	})
 	require.NoError(t, err)
 
-	// Update thumbprints
 	_, err = c.UpdateOpenIDConnectProviderThumbprint(ctx, &iam.UpdateOpenIDConnectProviderThumbprintInput{
 		OpenIDConnectProviderArn: aws.String(arn),
 		ThumbprintList:           []string{"deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"},
@@ -127,7 +121,6 @@ func TestIAMOpenIDConnectProviderLifecycle(t *testing.T) {
 	require.Len(t, getOut3.ThumbprintList, 1)
 	assert.Equal(t, "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef", getOut3.ThumbprintList[0])
 
-	// List should include ours
 	listOut, err := c.ListOpenIDConnectProviders(ctx, &iam.ListOpenIDConnectProvidersInput{})
 	require.NoError(t, err)
 	found := false
@@ -138,13 +131,11 @@ func TestIAMOpenIDConnectProviderLifecycle(t *testing.T) {
 	}
 	assert.True(t, found)
 
-	// Delete
 	_, err = c.DeleteOpenIDConnectProvider(ctx, &iam.DeleteOpenIDConnectProviderInput{
 		OpenIDConnectProviderArn: aws.String(arn),
 	})
 	require.NoError(t, err)
 
-	// Verify gone
 	_, err = c.GetOpenIDConnectProvider(ctx, &iam.GetOpenIDConnectProviderInput{
 		OpenIDConnectProviderArn: aws.String(arn),
 	})

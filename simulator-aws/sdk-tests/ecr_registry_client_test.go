@@ -16,39 +16,27 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The Amazon ECR private-registry credential contract, proven with a real
-// registry client doing a real push and a real pull.
-//
-// The client is go-containerregistry, the registry client behind crane, ko and
-// kaniko. It speaks the Docker Registry HTTP API v2 the way a Docker engine
-// does — it probes /v2/, follows the WWW-Authenticate challenge, and replays
-// the Basic credential a `docker login` would have stored — which is why the
-// refusal wording this file asserts is the wording that client reports against
-// real Amazon ECR: `unexpected status code 401 Unauthorized: Not Authorized`
+// The Amazon ECR private-registry credential contract, pushed and pulled with
+// go-containerregistry, the registry client behind crane, ko and kaniko. It
+// speaks the Docker Registry HTTP API v2 as a Docker engine does (probe /v2/,
+// follow WWW-Authenticate, replay the Basic credential `docker login` stores),
+// so its refusal wording matches what it reports against Amazon ECR:
+// `unexpected status code 401 Unauthorized: Not Authorized`
 // (google/go-containerregistry#861).
 //
-// It runs in the test process rather than in a container engine so that this
-// coverage holds on every host. A container engine living in its own virtual
-// machine — Podman on macOS — cannot dial the simulator's listener on this
-// host's loopback address, so an engine-driven test cannot run there at all.
-// An in-process client reaches the simulator's coordinate everywhere and
-// exercises the same credential and the same wire exchange.
-//
-// The engine path is covered too, and separately: `TestECRCLI_DockerLoginPushPull`
-// drives a real `docker login`, push and pull against the registry served over
-// TLS by the HTTPS gateway, which is what makes the engine's own login endpoint
-// workable. That test carries the platform gate this one does not need.
+// It runs in the test process so the coverage holds on every host: an engine in
+// its own virtual machine (Podman on macOS) cannot dial the simulator on this
+// host's loopback. `TestECRCLI_DockerLoginPushPull` covers the engine path,
+// with its platform gate, against the registry behind the HTTPS gateway.
 
-// ecrRegistryAuthenticator returns the credential a Docker client holds after
+// ecrRegistryAuthenticator returns what a Docker client holds after
 // `aws ecr get-login-password | docker login --username AWS --password-stdin`:
-// the user `AWS` and the password half of a real GetAuthorizationToken response.
+// the user `AWS` and a GetAuthorizationToken response's password half.
 func ecrRegistryAuthenticator(t *testing.T) authn.Authenticator {
 	t.Helper()
 	return &authn.Basic{Username: "AWS", Password: ecrRegistryPassword(t)}
 }
 
-// ecrRegistryTag builds the reference a client pushes to, on the registry
-// coordinate the simulator serves.
 func ecrRegistryTag(t *testing.T, repo, tag string) name.Tag {
 	t.Helper()
 	ref, err := name.NewTag(fmt.Sprintf("%s/%s:%s",
@@ -57,11 +45,10 @@ func ecrRegistryTag(t *testing.T, repo, tag string) name.Tag {
 	return ref
 }
 
-// TestECR_RegistryClientPushPullWithAuthorizationToken drives the whole
-// documented flow with a real registry client: the credential Amazon ECR's
-// control plane mints authenticates a push and the pull that follows it, while
-// a client with no credential, a wrong password, a user other than AWS, or a
-// credential it stopped presenting is refused.
+// TestECR_RegistryClientPushPullWithAuthorizationToken expects the control
+// plane's credential to authenticate a push and the pull after it, while no
+// credential, a wrong password, a user other than AWS, or a credential no
+// longer presented is refused.
 func TestECR_RegistryClientPushPullWithAuthorizationToken(t *testing.T) {
 	t.Parallel()
 	const repo = "ecr-registry-client/app"
@@ -75,37 +62,31 @@ func TestECR_RegistryClientPushPullWithAuthorizationToken(t *testing.T) {
 
 	ref := ecrRegistryTag(t, repo, fmt.Sprintf("v%d", time.Now().UnixNano()))
 
-	// An anonymous client cannot push. The client's first move is a manifest
-	// HEAD, so the refusal it reports is the status alone; the body is asserted
-	// on the pull below, where the client issues a GET.
+	// The client starts a push with a manifest HEAD, so its refusal carries the
+	// status alone; the pull below, a GET, carries the body.
 	err = remote.Write(ref, image, remote.WithContext(ctx), remote.WithAuth(authn.Anonymous))
 	require.Error(t, err, "an unauthenticated push must be refused")
 	assert.Contains(t, err.Error(), "401 Unauthorized")
 
-	// Neither can one holding the wrong password.
 	err = remote.Write(ref, image, remote.WithContext(ctx),
 		remote.WithAuth(&authn.Basic{Username: "AWS", Password: "not-the-password"}))
 	require.Error(t, err, "a push with the wrong password must be refused")
 	assert.Contains(t, err.Error(), "401 Unauthorized")
 
-	// Nor one presenting the right password under another user.
 	err = remote.Write(ref, image, remote.WithContext(ctx),
 		remote.WithAuth(&authn.Basic{Username: "root", Password: ecrRegistryPassword(t)}))
 	require.Error(t, err, "a push as a user other than AWS must be refused")
 	assert.Contains(t, err.Error(), "401 Unauthorized")
 
-	// The authorization token does push.
 	require.NoError(t, remote.Write(ref, image,
 		remote.WithContext(ctx), remote.WithAuth(ecrRegistryAuthenticator(t))))
 
-	// The ECR control plane sees what the data plane accepted.
 	described, err := client.DescribeImages(ctx, &ecr.DescribeImagesInput{
 		RepositoryName: aws.String(repo),
 	})
 	require.NoError(t, err)
 	require.NotEmpty(t, described.ImageDetails)
 
-	// And an independently issued token pulls the same bytes back.
 	pulled, err := remote.Image(ref, remote.WithContext(ctx), remote.WithAuth(ecrRegistryAuthenticator(t)))
 	require.NoError(t, err)
 	gotDigest, err := pulled.Digest()
@@ -115,8 +96,7 @@ func TestECR_RegistryClientPushPullWithAuthorizationToken(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, layers, 3)
 
-	// Dropping the credential — what `docker logout` does — takes the pull away
-	// again, so nothing the push stored is readable without one.
+	// Dropping the credential, as `docker logout` does, takes the pull away.
 	_, err = remote.Image(ref, remote.WithContext(ctx), remote.WithAuth(authn.Anonymous))
 	require.Error(t, err, "a pull without a credential must be refused")
 	assert.Contains(t, err.Error(), "401 Unauthorized")

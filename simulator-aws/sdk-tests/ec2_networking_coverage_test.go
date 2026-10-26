@@ -11,10 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// These tests backfill coverage for EC2 networking operations that had no SDK
-// or CLI test — the same untested-surface class that hid CloudWatch's broken
-// protocol. Each asserts a real round-trip (the mutation is reflected on the
-// matching Describe), so future drift fails loudly.
+// Each test asserts that a mutation shows on the matching Describe.
 
 func TestEC2_RouteTableAssociationLifecycle(t *testing.T) {
 	t.Parallel()
@@ -135,20 +132,17 @@ func TestEC2_RevokeSecurityGroupRules(t *testing.T) {
 	_, err = c.RevokeSecurityGroupIngress(ctx, &ec2.RevokeSecurityGroupIngressInput{GroupId: aws.String(sgID), IpPermissions: ingress})
 	require.NoError(t, err)
 
-	// Revoking the same rule a second time must fail with InvalidPermission.NotFound.
 	_, err = c.RevokeSecurityGroupIngress(ctx, &ec2.RevokeSecurityGroupIngressInput{GroupId: aws.String(sgID), IpPermissions: ingress})
 	require.Error(t, err)
 	requireSGErrorCode(t, err, "InvalidPermission.NotFound")
 
-	// VPC security groups are created with a default ALLOW ALL egress rule.
-	// Revoke it and confirm it's gone.
+	// Amazon EC2 creates a VPC security group with an allow-all egress rule.
 	egress := []ec2types.IpPermission{{
 		IpProtocol: aws.String("-1"), IpRanges: []ec2types.IpRange{{CidrIp: aws.String("0.0.0.0/0")}},
 	}}
 	_, err = c.RevokeSecurityGroupEgress(ctx, &ec2.RevokeSecurityGroupEgressInput{GroupId: aws.String(sgID), IpPermissions: egress})
 	require.NoError(t, err)
 
-	// Egress re-revoke must also fail with InvalidPermission.NotFound.
 	_, err = c.RevokeSecurityGroupEgress(ctx, &ec2.RevokeSecurityGroupEgressInput{GroupId: aws.String(sgID), IpPermissions: egress})
 	require.Error(t, err)
 	requireSGErrorCode(t, err, "InvalidPermission.NotFound")
@@ -169,7 +163,6 @@ func TestEC2_RevokeSecurityGroupRulesByID(t *testing.T) {
 	require.NoError(t, err)
 	sgID := aws.ToString(sg.GroupId)
 
-	// Authorize an ingress rule and capture its generated rule ID.
 	auth, err := c.AuthorizeSecurityGroupIngress(ctx, &ec2.AuthorizeSecurityGroupIngressInput{
 		GroupId: aws.String(sgID),
 		IpPermissions: []ec2types.IpPermission{{
@@ -182,13 +175,11 @@ func TestEC2_RevokeSecurityGroupRulesByID(t *testing.T) {
 	ingressRuleID := aws.ToString(auth.SecurityGroupRules[0].SecurityGroupRuleId)
 	require.NotEmpty(t, ingressRuleID)
 
-	// Revoke by rule ID must succeed.
 	_, err = c.RevokeSecurityGroupIngress(ctx, &ec2.RevokeSecurityGroupIngressInput{
 		GroupId: aws.String(sgID), SecurityGroupRuleIds: []string{ingressRuleID},
 	})
 	require.NoError(t, err)
 
-	// The rule row and legacy permission are gone.
 	desc, err := c.DescribeSecurityGroupRules(ctx, &ec2.DescribeSecurityGroupRulesInput{
 		SecurityGroupRuleIds: []string{ingressRuleID},
 	})
@@ -199,13 +190,12 @@ func TestEC2_RevokeSecurityGroupRulesByID(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, sgDesc.SecurityGroups[0].IpPermissions, "ingress permission removed after revoke-by-id")
 
-	// Revoking the same rule ID again is idempotent (success).
+	// Revoking the same rule ID again succeeds.
 	_, err = c.RevokeSecurityGroupIngress(ctx, &ec2.RevokeSecurityGroupIngressInput{
 		GroupId: aws.String(sgID), SecurityGroupRuleIds: []string{ingressRuleID},
 	})
 	require.NoError(t, err)
 
-	// The default egress rule is visible by ID and can be revoked by ID.
 	egressRules, err := c.DescribeSecurityGroupRules(ctx, &ec2.DescribeSecurityGroupRulesInput{
 		Filters: []ec2types.Filter{
 			{Name: aws.String("group-id"), Values: []string{sgID}},

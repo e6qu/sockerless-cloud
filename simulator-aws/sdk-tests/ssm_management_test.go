@@ -10,9 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestSSM_DocumentLifecycle pins the versioned-document control plane:
-// create, get content back, update to a new version, flip the default
-// version, list versions, and delete.
 func TestSSM_DocumentLifecycle(t *testing.T) {
 	t.Parallel()
 	c := ssmClient()
@@ -34,20 +31,17 @@ func TestSSM_DocumentLifecycle(t *testing.T) {
 		_, _ = c.DeleteDocument(ctx, &ssm.DeleteDocumentInput{Name: aws.String(name)})
 	})
 
-	// Get content back.
 	got, err := c.GetDocument(ctx, &ssm.GetDocumentInput{Name: aws.String(name)})
 	require.NoError(t, err)
 	assert.Equal(t, content1, *got.Content)
 	assert.Equal(t, "1", *got.DocumentVersion)
 
-	// Describe.
 	desc, err := c.DescribeDocument(ctx, &ssm.DescribeDocumentInput{Name: aws.String(name)})
 	require.NoError(t, err)
 	require.NotNil(t, desc.Document)
 	assert.Equal(t, ssmtypes.DocumentHashType("Sha256"), desc.Document.HashType)
 	assert.NotEmpty(t, *desc.Document.Hash)
 
-	// Update to version 2.
 	content2 := `{"schemaVersion":"2.2","mainSteps":[{"action":"aws:runShellScript","name":"step1","inputs":{"runCommand":["echo v2"]}}]}`
 	upd, err := c.UpdateDocument(ctx, &ssm.UpdateDocumentInput{
 		Name:    aws.String(name),
@@ -56,15 +50,13 @@ func TestSSM_DocumentLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "2", *upd.DocumentDescription.DocumentVersion)
 	assert.Equal(t, "2", *upd.DocumentDescription.LatestVersion)
-	// Default is still 1 until flipped.
+	// The default stays 1 until changed.
 	assert.Equal(t, "1", *upd.DocumentDescription.DefaultVersion)
 
-	// List versions: expect both 1 and 2.
 	lv, err := c.ListDocumentVersions(ctx, &ssm.ListDocumentVersionsInput{Name: aws.String(name)})
 	require.NoError(t, err)
 	require.Len(t, lv.DocumentVersions, 2)
 
-	// Flip default to 2.
 	_, err = c.UpdateDocumentDefaultVersion(ctx, &ssm.UpdateDocumentDefaultVersionInput{
 		Name:            aws.String(name),
 		DocumentVersion: aws.String("2"),
@@ -74,7 +66,6 @@ func TestSSM_DocumentLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "2", *desc2.Document.DefaultVersion)
 
-	// ListDocuments includes our doc.
 	ld, err := c.ListDocuments(ctx, &ssm.ListDocumentsInput{})
 	require.NoError(t, err)
 	found := false
@@ -86,8 +77,6 @@ func TestSSM_DocumentLifecycle(t *testing.T) {
 	assert.True(t, found, "ListDocuments must include created document")
 }
 
-// TestSSM_MaintenanceWindowLifecycle pins window CRUD plus target/task
-// registration and describe.
 func TestSSM_MaintenanceWindowLifecycle(t *testing.T) {
 	t.Parallel()
 	c := ssmClient()
@@ -107,7 +96,6 @@ func TestSSM_MaintenanceWindowLifecycle(t *testing.T) {
 		_, _ = c.DeleteMaintenanceWindow(ctx, &ssm.DeleteMaintenanceWindowInput{WindowId: aws.String(windowID)})
 	})
 
-	// Get it back.
 	gw, err := c.GetMaintenanceWindow(ctx, &ssm.GetMaintenanceWindowInput{WindowId: aws.String(windowID)})
 	require.NoError(t, err)
 	assert.Equal(t, "sockerless-mw-sdk", *gw.Name)
@@ -115,7 +103,6 @@ func TestSSM_MaintenanceWindowLifecycle(t *testing.T) {
 	assert.True(t, gw.Enabled)
 	assert.NotNil(t, gw.CreatedDate)
 
-	// Update.
 	_, err = c.UpdateMaintenanceWindow(ctx, &ssm.UpdateMaintenanceWindowInput{
 		WindowId: aws.String(windowID),
 		Enabled:  aws.Bool(false),
@@ -127,7 +114,6 @@ func TestSSM_MaintenanceWindowLifecycle(t *testing.T) {
 	assert.False(t, gw2.Enabled)
 	assert.Equal(t, int32(2), gw2.Cutoff)
 
-	// DescribeMaintenanceWindows includes it.
 	dw, err := c.DescribeMaintenanceWindows(ctx, &ssm.DescribeMaintenanceWindowsInput{})
 	require.NoError(t, err)
 	found := false
@@ -138,7 +124,6 @@ func TestSSM_MaintenanceWindowLifecycle(t *testing.T) {
 	}
 	assert.True(t, found)
 
-	// Register a target.
 	rt, err := c.RegisterTargetWithMaintenanceWindow(ctx, &ssm.RegisterTargetWithMaintenanceWindowInput{
 		WindowId:     aws.String(windowID),
 		ResourceType: ssmtypes.MaintenanceWindowResourceTypeInstance,
@@ -157,7 +142,6 @@ func TestSSM_MaintenanceWindowLifecycle(t *testing.T) {
 	require.Len(t, dt.Targets[0].Targets, 1)
 	assert.Equal(t, "tag:Env", *dt.Targets[0].Targets[0].Key)
 
-	// Register a task.
 	rtask, err := c.RegisterTaskWithMaintenanceWindow(ctx, &ssm.RegisterTaskWithMaintenanceWindowInput{
 		WindowId:       aws.String(windowID),
 		TaskArn:        aws.String("AWS-RunShellScript"),
@@ -179,7 +163,6 @@ func TestSSM_MaintenanceWindowLifecycle(t *testing.T) {
 	assert.Equal(t, "AWS-RunShellScript", *dtask.Tasks[0].TaskArn)
 	assert.Equal(t, ssmtypes.MaintenanceWindowTaskTypeRunCommand, dtask.Tasks[0].Type)
 
-	// Deregister both.
 	_, err = c.DeregisterTaskFromMaintenanceWindow(ctx, &ssm.DeregisterTaskFromMaintenanceWindowInput{
 		WindowId: aws.String(windowID), WindowTaskId: aws.String(taskID),
 	})
@@ -194,8 +177,6 @@ func TestSSM_MaintenanceWindowLifecycle(t *testing.T) {
 	assert.Empty(t, dt2.Targets)
 }
 
-// TestSSM_PatchBaselineLifecycle pins patch-baseline CRUD plus the
-// default-baseline registration.
 func TestSSM_PatchBaselineLifecycle(t *testing.T) {
 	t.Parallel()
 	c := ssmClient()
@@ -235,7 +216,6 @@ func TestSSM_PatchBaselineLifecycle(t *testing.T) {
 	require.Len(t, gb.ApprovalRules.PatchRules, 1)
 	assert.Equal(t, int32(7), *gb.ApprovalRules.PatchRules[0].ApproveAfterDays)
 
-	// Update name.
 	_, err = c.UpdatePatchBaseline(ctx, &ssm.UpdatePatchBaselineInput{
 		BaselineId: aws.String(baselineID),
 		Name:       aws.String("sockerless-pb-sdk-renamed"),
@@ -245,7 +225,6 @@ func TestSSM_PatchBaselineLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "sockerless-pb-sdk-renamed", *gb2.Name)
 
-	// Describe includes it.
 	db, err := c.DescribePatchBaselines(ctx, &ssm.DescribePatchBaselinesInput{})
 	require.NoError(t, err)
 	found := false
@@ -256,7 +235,6 @@ func TestSSM_PatchBaselineLifecycle(t *testing.T) {
 	}
 	assert.True(t, found)
 
-	// Register as default for Ubuntu, then GetDefaultPatchBaseline.
 	_, err = c.RegisterDefaultPatchBaseline(ctx, &ssm.RegisterDefaultPatchBaselineInput{BaselineId: aws.String(baselineID)})
 	require.NoError(t, err)
 	gd, err := c.GetDefaultPatchBaseline(ctx, &ssm.GetDefaultPatchBaselineInput{OperatingSystem: ssmtypes.OperatingSystemUbuntu})
@@ -264,13 +242,10 @@ func TestSSM_PatchBaselineLifecycle(t *testing.T) {
 	assert.Equal(t, baselineID, *gd.BaselineId)
 }
 
-// TestSSM_ServiceSetting pins the get/update/reset cycle for an
-// account-level service setting.
 func TestSSM_ServiceSetting(t *testing.T) {
 	c := ssmClient()
 	settingID := "/ssm/parameter-store/default-parameter-tier"
 
-	// Default first.
 	gs, err := c.GetServiceSetting(ctx, &ssm.GetServiceSettingInput{SettingId: aws.String(settingID)})
 	require.NoError(t, err)
 	require.NotNil(t, gs.ServiceSetting)
@@ -278,7 +253,6 @@ func TestSSM_ServiceSetting(t *testing.T) {
 	assert.Equal(t, "Standard", *gs.ServiceSetting.SettingValue)
 	assert.Equal(t, "Default", *gs.ServiceSetting.Status)
 
-	// Update.
 	_, err = c.UpdateServiceSetting(ctx, &ssm.UpdateServiceSettingInput{
 		SettingId:    aws.String(settingID),
 		SettingValue: aws.String("Advanced"),
@@ -293,7 +267,7 @@ func TestSSM_ServiceSetting(t *testing.T) {
 	assert.Equal(t, "Advanced", *gs2.ServiceSetting.SettingValue)
 	assert.Equal(t, "Customized", *gs2.ServiceSetting.Status)
 
-	// Reset returns the default value again.
+	// Reset restores the default.
 	rs, err := c.ResetServiceSetting(ctx, &ssm.ResetServiceSettingInput{SettingId: aws.String(settingID)})
 	require.NoError(t, err)
 	require.NotNil(t, rs.ServiceSetting)
@@ -301,7 +275,6 @@ func TestSSM_ServiceSetting(t *testing.T) {
 	assert.Equal(t, "Default", *rs.ServiceSetting.Status)
 }
 
-// TestSSM_ResourceDataSync pins create/list/update/delete of a sync.
 func TestSSM_ResourceDataSync(t *testing.T) {
 	t.Parallel()
 	c := ssmClient()
@@ -332,8 +305,7 @@ func TestSSM_ResourceDataSync(t *testing.T) {
 	}
 	assert.True(t, found, "ListResourceDataSync must include created sync")
 
-	// UpdateResourceDataSync changes the sync's source definition, and the
-	// change is what a later list returns.
+	// A later list returns the updated source.
 	_, err = c.UpdateResourceDataSync(ctx, &ssm.UpdateResourceDataSyncInput{
 		SyncName: aws.String(syncName),
 		SyncType: aws.String("SyncToDestination"),
@@ -356,7 +328,6 @@ func TestSSM_ResourceDataSync(t *testing.T) {
 	assert.Equal(t, "singleAccountMultiRegions", aws.ToString(source.SourceType))
 	assert.Equal(t, []string{"us-east-1", "us-west-2"}, source.SourceRegions)
 
-	// Delete and confirm gone.
 	_, err = c.DeleteResourceDataSync(ctx, &ssm.DeleteResourceDataSyncInput{SyncName: aws.String(syncName)})
 	require.NoError(t, err)
 	lr2, err := c.ListResourceDataSync(ctx, &ssm.ListResourceDataSyncInput{})

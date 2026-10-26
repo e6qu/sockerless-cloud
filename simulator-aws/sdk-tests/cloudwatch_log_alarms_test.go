@@ -13,8 +13,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// putLogAlarmInput builds a PutLogAlarm request over one log group, with the
-// M-out-of-N and threshold knobs the caller wants to exercise.
 func putLogAlarmInput(name, logGroupArn, aggregation string, threshold float64, op cwtypes.ComparisonOperator) *cloudwatch.PutLogAlarmInput {
 	return &cloudwatch.PutLogAlarmInput{
 		AlarmName:        aws.String(name),
@@ -38,8 +36,8 @@ func putLogAlarmInput(name, logGroupArn, aggregation string, threshold float64, 
 	}
 }
 
-// seedLogAlarmLogGroup creates a log group + stream and ingests messages, then
-// returns the group name. The log alarm's scheduled query runs over these.
+// seedLogAlarmLogGroup creates a log group and stream holding messages for the
+// log alarm's scheduled query to run over.
 func seedLogAlarmLogGroup(t *testing.T, logs *cloudwatchlogs.Client, group string, messages []string) string {
 	t.Helper()
 	_, err := logs.CreateLogGroup(ctx, &cloudwatchlogs.CreateLogGroupInput{LogGroupName: aws.String(group)})
@@ -70,10 +68,9 @@ func seedLogAlarmLogGroup(t *testing.T, logs *cloudwatchlogs.Client, group strin
 	return group
 }
 
-// TestCloudWatch_PutLogAlarm covers the log-alarm lifecycle: PutLogAlarm creates
-// the alarm and the service-managed scheduled query behind it, DescribeAlarms
-// reads it back under the LogAlarm alarm type with the state its scheduled
-// query's results imply, and DeleteAlarms removes both.
+// TestCloudWatch_PutLogAlarm expects PutLogAlarm to create the alarm and its
+// service-managed scheduled query, DescribeAlarms to return it as a LogAlarm
+// in the state the query results imply, and DeleteAlarms to remove both.
 func TestCloudWatch_PutLogAlarm(t *testing.T) {
 	t.Parallel()
 	client := cloudwatchClient()
@@ -89,7 +86,6 @@ func TestCloudWatch_PutLogAlarm(t *testing.T) {
 		_, _ = logs.DeleteLogGroup(ctx, &cloudwatchlogs.DeleteLogGroupInput{LogGroupName: aws.String(group)})
 	}()
 
-	// Two ERROR lines are in the window; a threshold of 1 is crossed.
 	_, err := client.PutLogAlarm(ctx, putLogAlarmInput(name, group, "count(*) as hits", 1,
 		cwtypes.ComparisonOperatorGreaterThanThreshold))
 	require.NoError(t, err)
@@ -110,8 +106,7 @@ func TestCloudWatch_PutLogAlarm(t *testing.T) {
 	require.Equal(t, "count(*) as hits", aws.ToString(la.ScheduledQueryConfiguration.AggregationExpression))
 	require.Equal(t, cwtypes.StateValueAlarm, la.StateValue)
 
-	// The QueryARN the alarm reports resolves to a real CloudWatch Logs
-	// scheduled query — PutLogAlarm provisions the service-managed resource.
+	// The QueryARN resolves to the scheduled query PutLogAlarm provisioned.
 	queryArn := aws.ToString(la.ScheduledQueryConfiguration.QueryARN)
 	require.NotEmpty(t, queryArn)
 	sq, err := logs.GetScheduledQuery(ctx, &cloudwatchlogs.GetScheduledQueryInput{
@@ -121,7 +116,6 @@ func TestCloudWatch_PutLogAlarm(t *testing.T) {
 	require.Equal(t, "rate(5 minutes)", aws.ToString(sq.ScheduleExpression))
 	require.Equal(t, []string{group}, sq.LogGroupIdentifiers)
 
-	// A threshold no window crosses puts the alarm back in OK.
 	_, err = client.PutLogAlarm(ctx, putLogAlarmInput(name, group, "count(*) as hits", 100,
 		cwtypes.ComparisonOperatorGreaterThanThreshold))
 	require.NoError(t, err)
@@ -133,7 +127,6 @@ func TestCloudWatch_PutLogAlarm(t *testing.T) {
 	require.Len(t, out.LogAlarms, 1)
 	require.Equal(t, cwtypes.StateValueOk, out.LogAlarms[0].StateValue)
 
-	// DeleteAlarms removes the log alarm and the query it provisioned.
 	_, err = client.DeleteAlarms(ctx, &cloudwatch.DeleteAlarmsInput{AlarmNames: []string{name}})
 	require.NoError(t, err)
 	out, err = client.DescribeAlarms(ctx, &cloudwatch.DescribeAlarmsInput{
@@ -146,9 +139,9 @@ func TestCloudWatch_PutLogAlarm(t *testing.T) {
 	require.Error(t, err, "the service-managed scheduled query must go with the alarm")
 }
 
-// TestCloudWatch_PutLogAlarmRejectsBadRequest pins the modeled validation:
-// QueryResultsToAlarm may not exceed QueryResultsToEvaluate, and a name already
-// held by a metric alarm conflicts.
+// TestCloudWatch_PutLogAlarmRejectsBadRequest expects QueryResultsToAlarm above
+// QueryResultsToEvaluate to be refused, and a name a metric alarm holds to
+// conflict.
 func TestCloudWatch_PutLogAlarmRejectsBadRequest(t *testing.T) {
 	t.Parallel()
 	client := cloudwatchClient()
@@ -164,7 +157,6 @@ func TestCloudWatch_PutLogAlarmRejectsBadRequest(t *testing.T) {
 	in.QueryResultsToEvaluate = aws.Int32(2)
 	in.QueryResultsToAlarm = aws.Int32(5)
 	_, err := client.PutLogAlarm(ctx, in)
-	// QueryResultsToAlarm exceeds QueryResultsToEvaluate.
 	requireAWSErrorCode(t, err, "InvalidParameterValue")
 
 	metricName := "sdk-log-alarm-conflict"

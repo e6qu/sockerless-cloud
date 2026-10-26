@@ -15,9 +15,9 @@ import (
 )
 
 // TestS3_RequestHeaderConditionKeysScopeTheGrant covers the keys that constrain
-// how an object is written rather than which object it is — the canonical S3
-// policy: refuse a public ACL, require server-side encryption, hold a caller to
-// one storage class. Each reads a header of the request, verbatim.
+// how an object is written, each read verbatim from a request header: the
+// canonical policy refuses a public ACL, requires server-side encryption and
+// holds a caller to one storage class.
 func TestS3_RequestHeaderConditionKeysScopeTheGrant(t *testing.T) {
 	t.Parallel()
 	bucket := "s3-request-header-bucket"
@@ -25,8 +25,6 @@ func TestS3_RequestHeaderConditionKeysScopeTheGrant(t *testing.T) {
 	_, err := admin.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String(bucket)})
 	require.NoError(t, err)
 
-	// Writes must be encrypted and must not be public — the shape an
-	// administrator actually writes.
 	akid, secret := restrictedCredential(t, "s3-encrypted-private-only",
 		`{"Version":"2012-10-17","Statement":[
 		  {"Effect":"Allow","Action":"s3:PutObject","Resource":"arn:aws:s3:::`+bucket+`/*",
@@ -64,8 +62,8 @@ func TestS3_RequestObjectTagConditionKeyScopesTheGrant(t *testing.T) {
 	_, err := admin.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String(bucket)})
 	require.NoError(t, err)
 
-	// A write that carries tags is also a PutObjectTagging, which is why the
-	// grant names both actions under the same condition.
+	// A write carrying tags is also a PutObjectTagging, so the grant names both
+	// actions under the condition.
 	akid, secret := restrictedCredential(t, "s3-must-label-writes",
 		`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:PutObject","s3:PutObjectTagging"],
 		  "Resource":"arn:aws:s3:::`+bucket+`/*",
@@ -87,7 +85,7 @@ func TestS3_RequestObjectTagConditionKeyScopesTheGrant(t *testing.T) {
 
 // TestLambda_FunctionUrlAuthTypeConditionKeyScopesTheGrant covers
 // lambda:FunctionUrlAuthType, which a policy pins so no function URL is left
-// reachable without authentication.
+// unauthenticated.
 func TestLambda_FunctionUrlAuthTypeConditionKeyScopesTheGrant(t *testing.T) {
 	t.Parallel()
 	admin := lambdaClient()
@@ -104,8 +102,8 @@ func TestLambda_FunctionUrlAuthTypeConditionKeyScopesTheGrant(t *testing.T) {
 		FunctionName: aws.String("cond-authtype-fn"), AuthType: lambdatypes.FunctionUrlAuthTypeAwsIam})
 	assert.NoError(t, err, "the URL requires the authentication the grant names")
 
-	// The URL exists now, so the second attempt needs a clear field: removing
-	// it is the administrator's call, not the restricted principal's.
+	// The URL exists, so clear it for the second attempt; removing it is the
+	// administrator's call.
 	_, err = admin.DeleteFunctionUrlConfig(ctx, &lambda.DeleteFunctionUrlConfigInput{
 		FunctionName: aws.String("cond-authtype-fn")})
 	require.NoError(t, err)

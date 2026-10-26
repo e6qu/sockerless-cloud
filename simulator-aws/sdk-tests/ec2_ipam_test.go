@@ -10,11 +10,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestEC2_IPAMLifecycleSDK exercises the IPAM control plane end-to-end: an IPAM
-// is created with its public + private default scopes and default resource
-// discovery, an extra scope is created/modified, and the IPAM is modified and
-// described before being torn down. It also covers the resource-discovery
-// association ops and the IPAM Organizations delegated-admin ops.
+// TestEC2_IPAMLifecycleSDK expects an IPAM to come with public and private
+// default scopes and a default resource discovery, and covers scopes, the
+// resource-discovery associations and the IPAM Organizations delegated admin.
 func TestEC2_IPAMLifecycleSDK(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -41,7 +39,6 @@ func TestEC2_IPAMLifecycleSDK(t *testing.T) {
 	assert.Equal(t, "create-complete", string(created.Ipam.State))
 	defer func() { _, _ = c.DeleteIpam(ctx, &ec2.DeleteIpamInput{IpamId: aws.String(ipamID)}) }()
 
-	// DescribeIpams read-back.
 	desc, err := c.DescribeIpams(ctx, &ec2.DescribeIpamsInput{IpamIds: []string{ipamID}})
 	require.NoError(t, err)
 	require.Len(t, desc.Ipams, 1)
@@ -56,7 +53,6 @@ func TestEC2_IPAMLifecycleSDK(t *testing.T) {
 	}
 	assert.Equal(t, "ipam-a", nameTag)
 
-	// ModifyIpam updates the description.
 	mod, err := c.ModifyIpam(ctx, &ec2.ModifyIpamInput{
 		IpamId:      aws.String(ipamID),
 		Description: aws.String("ipam-a-updated"),
@@ -64,7 +60,6 @@ func TestEC2_IPAMLifecycleSDK(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "ipam-a-updated", aws.ToString(mod.Ipam.Description))
 
-	// CreateIpamScope / Modify / Describe.
 	scope, err := c.CreateIpamScope(ctx, &ec2.CreateIpamScopeInput{
 		IpamId:      aws.String(ipamID),
 		Description: aws.String("scope-a"),
@@ -86,7 +81,6 @@ func TestEC2_IPAMLifecycleSDK(t *testing.T) {
 	require.Len(t, dscope.IpamScopes, 1)
 	assert.Equal(t, "scope-a-updated", aws.ToString(dscope.IpamScopes[0].Description))
 
-	// CreateIpamResourceDiscovery + Associate + Describe + Disassociate + Delete.
 	rd, err := c.CreateIpamResourceDiscovery(ctx, &ec2.CreateIpamResourceDiscoveryInput{
 		Description: aws.String("rd-a"),
 		OperatingRegions: []types.AddIpamOperatingRegion{
@@ -133,7 +127,6 @@ func TestEC2_IPAMLifecycleSDK(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// IPAM Organizations delegated admin.
 	_, err = c.EnableIpamOrganizationAdminAccount(ctx, &ec2.EnableIpamOrganizationAdminAccountInput{
 		DelegatedAdminAccountId: aws.String("210987654321"),
 	})
@@ -144,12 +137,6 @@ func TestEC2_IPAMLifecycleSDK(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestEC2_IPAMPoolAllocationSDK exercises the pool + CIDR + allocation surface:
-// CreateIpamPool, ProvisionIpamPoolCidr, GetIpamPoolCidrs read-back,
-// AllocateIpamPoolCidr (carving a sub-CIDR by netmask length),
-// GetIpamPoolAllocations / DescribeIpamPoolAllocations read-back,
-// ReleaseIpamPoolAllocation, DeprovisionIpamPoolCidr, ModifyIpamPool, and the
-// GetIpamResourceCidrs / GetIpamAddressHistory / ModifyIpamResourceCidr reads.
 func TestEC2_IPAMPoolAllocationSDK(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -183,7 +170,6 @@ func TestEC2_IPAMPoolAllocationSDK(t *testing.T) {
 	require.Len(t, dpool.IpamPools, 1)
 	assert.Equal(t, "pool-a", aws.ToString(dpool.IpamPools[0].Description))
 
-	// ProvisionIpamPoolCidr.
 	prov, err := c.ProvisionIpamPoolCidr(ctx, &ec2.ProvisionIpamPoolCidrInput{
 		IpamPoolId: aws.String(poolID),
 		Cidr:       aws.String("10.0.0.0/16"),
@@ -196,7 +182,6 @@ func TestEC2_IPAMPoolAllocationSDK(t *testing.T) {
 	require.Len(t, gcidrs.IpamPoolCidrs, 1)
 	assert.Equal(t, "10.0.0.0/16", aws.ToString(gcidrs.IpamPoolCidrs[0].Cidr))
 
-	// AllocateIpamPoolCidr by netmask length carves a sub-CIDR.
 	alloc, err := c.AllocateIpamPoolCidr(ctx, &ec2.AllocateIpamPoolCidrInput{
 		IpamPoolId:    aws.String(poolID),
 		NetmaskLength: aws.Int32(24),
@@ -208,7 +193,7 @@ func TestEC2_IPAMPoolAllocationSDK(t *testing.T) {
 	require.NotEmpty(t, allocID)
 	assert.Equal(t, "10.0.0.0/24", aws.ToString(alloc.IpamPoolAllocation.Cidr))
 
-	// A second carve must not overlap the first.
+	// A second carve does not overlap the first.
 	alloc2, err := c.AllocateIpamPoolCidr(ctx, &ec2.AllocateIpamPoolCidrInput{
 		IpamPoolId:    aws.String(poolID),
 		NetmaskLength: aws.Int32(24),
@@ -226,14 +211,12 @@ func TestEC2_IPAMPoolAllocationSDK(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, dalloc.IpamPoolAllocations, 1)
 
-	// ModifyIpamPool description update.
 	_, err = c.ModifyIpamPool(ctx, &ec2.ModifyIpamPoolInput{
 		IpamPoolId:  aws.String(poolID),
 		Description: aws.String("pool-a-updated"),
 	})
 	require.NoError(t, err)
 
-	// ReleaseIpamPoolAllocation frees the first allocation.
 	rel, err := c.ReleaseIpamPoolAllocation(ctx, &ec2.ReleaseIpamPoolAllocationInput{
 		IpamPoolId:           aws.String(poolID),
 		IpamPoolAllocationId: aws.String(allocID),
@@ -246,7 +229,7 @@ func TestEC2_IPAMPoolAllocationSDK(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, galloc2.IpamPoolAllocations, 1)
 
-	// Resource CIDR + address-history reads (empty allocations carry no resource).
+	// An empty allocation carries no resource.
 	_, err = c.GetIpamResourceCidrs(ctx, &ec2.GetIpamResourceCidrsInput{IpamScopeId: aws.String(scopeID)})
 	require.NoError(t, err)
 
@@ -266,7 +249,7 @@ func TestEC2_IPAMPoolAllocationSDK(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "vpc-12345678", aws.ToString(mrc.IpamResourceCidr.ResourceId))
 
-	// DeprovisionIpamPoolCidr (must release allocations first; release the second).
+	// Deprovisioning needs the allocations released first.
 	_, err = c.ReleaseIpamPoolAllocation(ctx, &ec2.ReleaseIpamPoolAllocationInput{
 		IpamPoolId:           aws.String(poolID),
 		IpamPoolAllocationId: alloc2.IpamPoolAllocation.IpamPoolAllocationId,

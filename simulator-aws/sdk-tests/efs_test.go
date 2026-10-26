@@ -32,7 +32,6 @@ func TestEFS_CreateAndDescribeFileSystem(t *testing.T) {
 	assert.Equal(t, efstypes.LifeCycleStateAvailable, createOut.LifeCycleState)
 	fsID := *createOut.FileSystemId
 
-	// Describe
 	descOut, err := client.DescribeFileSystems(ctx, &efs.DescribeFileSystemsInput{
 		FileSystemId: aws.String(fsID),
 	})
@@ -40,11 +39,10 @@ func TestEFS_CreateAndDescribeFileSystem(t *testing.T) {
 	require.Len(t, descOut.FileSystems, 1)
 	assert.Equal(t, fsID, *descOut.FileSystems[0].FileSystemId)
 	assert.Equal(t, "test-fs", *descOut.FileSystems[0].Name)
-	// CreationToken (a required FileSystemDescription member) must round-trip,
-	// else terraform aws_efs_file_system drifts/ForceNew.
+	// CreationToken, a required FileSystemDescription member, round-trips, or
+	// aws_efs_file_system drifts.
 	assert.Equal(t, "test-fs-token", aws.ToString(descOut.FileSystems[0].CreationToken))
 
-	// The CreationToken filter narrows the list to the matching file system.
 	byToken, err := client.DescribeFileSystems(ctx, &efs.DescribeFileSystemsInput{
 		CreationToken: aws.String("test-fs-token"),
 	})
@@ -52,13 +50,11 @@ func TestEFS_CreateAndDescribeFileSystem(t *testing.T) {
 	require.Len(t, byToken.FileSystems, 1)
 	assert.Equal(t, fsID, *byToken.FileSystems[0].FileSystemId)
 
-	// Cleanup
 	_, err = client.DeleteFileSystem(ctx, &efs.DeleteFileSystemInput{
 		FileSystemId: aws.String(fsID),
 	})
 	require.NoError(t, err)
 
-	// Verify deleted
 	descOut2, err := client.DescribeFileSystems(ctx, &efs.DescribeFileSystemsInput{
 		FileSystemId: aws.String(fsID),
 	})
@@ -70,14 +66,12 @@ func TestEFS_CreateAndDescribeMountTargets(t *testing.T) {
 	t.Parallel()
 	client := efsClient()
 
-	// Create file system first
 	createOut, err := client.CreateFileSystem(ctx, &efs.CreateFileSystemInput{
 		CreationToken: aws.String("mt-test-fs"),
 	})
 	require.NoError(t, err)
 	fsID := *createOut.FileSystemId
 
-	// Create mount target
 	mtOut, err := client.CreateMountTarget(ctx, &efs.CreateMountTargetInput{
 		FileSystemId:   aws.String(fsID),
 		SubnetId:       aws.String("subnet-0123456789abcdef0"),
@@ -89,7 +83,6 @@ func TestEFS_CreateAndDescribeMountTargets(t *testing.T) {
 	assert.Equal(t, efstypes.LifeCycleStateAvailable, mtOut.LifeCycleState)
 	mtID := *mtOut.MountTargetId
 
-	// Describe mount targets by filesystem
 	descOut, err := client.DescribeMountTargets(ctx, &efs.DescribeMountTargetsInput{
 		FileSystemId: aws.String(fsID),
 	})
@@ -97,7 +90,6 @@ func TestEFS_CreateAndDescribeMountTargets(t *testing.T) {
 	require.Len(t, descOut.MountTargets, 1)
 	assert.Equal(t, mtID, *descOut.MountTargets[0].MountTargetId)
 
-	// Verify file system now shows mount target count
 	fsDesc, err := client.DescribeFileSystems(ctx, &efs.DescribeFileSystemsInput{
 		FileSystemId: aws.String(fsID),
 	})
@@ -105,7 +97,6 @@ func TestEFS_CreateAndDescribeMountTargets(t *testing.T) {
 	require.Len(t, fsDesc.FileSystems, 1)
 	assert.Equal(t, int32(1), fsDesc.FileSystems[0].NumberOfMountTargets)
 
-	// Cleanup
 	_, err = client.DeleteMountTarget(ctx, &efs.DeleteMountTargetInput{
 		MountTargetId: aws.String(mtID),
 	})
@@ -121,14 +112,12 @@ func TestEFS_CreateAndDescribeAccessPoints(t *testing.T) {
 	t.Parallel()
 	client := efsClient()
 
-	// Create file system
 	createOut, err := client.CreateFileSystem(ctx, &efs.CreateFileSystemInput{
 		CreationToken: aws.String("ap-test-fs"),
 	})
 	require.NoError(t, err)
 	fsID := *createOut.FileSystemId
 
-	// Create access point
 	apOut, err := client.CreateAccessPoint(ctx, &efs.CreateAccessPointInput{
 		FileSystemId: aws.String(fsID),
 		PosixUser: &efstypes.PosixUser{
@@ -153,7 +142,6 @@ func TestEFS_CreateAndDescribeAccessPoints(t *testing.T) {
 	assert.Equal(t, efstypes.LifeCycleStateAvailable, apOut.LifeCycleState)
 	apID := *apOut.AccessPointId
 
-	// Describe access points by filesystem
 	descOut, err := client.DescribeAccessPoints(ctx, &efs.DescribeAccessPointsInput{
 		FileSystemId: aws.String(fsID),
 	})
@@ -163,13 +151,11 @@ func TestEFS_CreateAndDescribeAccessPoints(t *testing.T) {
 	assert.Equal(t, int64(1000), *descOut.AccessPoints[0].PosixUser.Uid)
 	assert.Equal(t, "/data", *descOut.AccessPoints[0].RootDirectory.Path)
 
-	// Cleanup: delete in reverse order
 	_, err = client.DeleteAccessPoint(ctx, &efs.DeleteAccessPointInput{
 		AccessPointId: aws.String(apID),
 	})
 	require.NoError(t, err)
 
-	// Verify deleted
 	descOut2, err := client.DescribeAccessPoints(ctx, &efs.DescribeAccessPointsInput{
 		FileSystemId: aws.String(fsID),
 	})
@@ -195,7 +181,7 @@ func TestEFS_PoliciesAndBackup(t *testing.T) {
 		_, _ = client.DeleteFileSystem(ctx, &efs.DeleteFileSystemInput{FileSystemId: aws.String(fsID)})
 	})
 
-	// File system policy: describe before put -> PolicyNotFound.
+	// Before a put, DescribeFileSystemPolicy answers PolicyNotFound.
 	_, err = client.DescribeFileSystemPolicy(ctx, &efs.DescribeFileSystemPolicyInput{
 		FileSystemId: aws.String(fsID),
 	})
@@ -225,7 +211,7 @@ func TestEFS_PoliciesAndBackup(t *testing.T) {
 	})
 	require.Error(t, err)
 
-	// Backup policy: default DISABLED, then enable, then read back.
+	// The backup policy defaults to DISABLED.
 	descBak, err := client.DescribeBackupPolicy(ctx, &efs.DescribeBackupPolicyInput{
 		FileSystemId: aws.String(fsID),
 	})
@@ -275,7 +261,6 @@ func TestEFS_Replication(t *testing.T) {
 		_, _ = client.DeleteFileSystem(ctx, &efs.DeleteFileSystemInput{FileSystemId: aws.String(destFsID)})
 	})
 
-	// Describe by source id.
 	descRepl, err := client.DescribeReplicationConfigurations(ctx, &efs.DescribeReplicationConfigurationsInput{
 		FileSystemId: aws.String(srcID),
 	})
@@ -289,7 +274,6 @@ func TestEFS_Replication(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// After deletion the source no longer has a replication configuration.
 	descRepl2, err := client.DescribeReplicationConfigurations(ctx, &efs.DescribeReplicationConfigurationsInput{
 		FileSystemId: aws.String(srcID),
 	})
@@ -301,7 +285,6 @@ func TestEFS_AccountPreferencesAndTagging(t *testing.T) {
 	t.Parallel()
 	client := efsClient()
 
-	// Account preferences round-trip.
 	putPref, err := client.PutAccountPreferences(ctx, &efs.PutAccountPreferencesInput{
 		ResourceIdType: efstypes.ResourceIdTypeLongId,
 	})
@@ -314,7 +297,6 @@ func TestEFS_AccountPreferencesAndTagging(t *testing.T) {
 	require.NotNil(t, descPref.ResourceIdPreference)
 	assert.Equal(t, efstypes.ResourceIdTypeLongId, descPref.ResourceIdPreference.ResourceIdType)
 
-	// Resource-ARN tagging API on a file system.
 	fsOut, err := client.CreateFileSystem(ctx, &efs.CreateFileSystemInput{
 		CreationToken: aws.String("tag-test-fs"),
 	})
@@ -362,8 +344,8 @@ func TestEFS_AccountPreferencesAndTagging(t *testing.T) {
 	_, hasTeam := got2["team"]
 	assert.False(t, hasTeam)
 
-	// A page token names the last tag key it returned, so removing a tag the
-	// caller already read skips nothing on the next page.
+	// A page token names the last tag key it returned, so removing a tag already
+	// read skips nothing on the next page.
 	_, err = client.TagResource(ctx, &efs.TagResourceInput{
 		ResourceId: aws.String(fsID),
 		Tags: []efstypes.Tag{
@@ -394,7 +376,6 @@ func TestEFS_FullLifecycle(t *testing.T) {
 	t.Parallel()
 	client := efsClient()
 
-	// Create file system
 	fsOut, err := client.CreateFileSystem(ctx, &efs.CreateFileSystemInput{
 		CreationToken: aws.String("lifecycle-test-fs"),
 		Tags: []efstypes.Tag{
@@ -404,7 +385,6 @@ func TestEFS_FullLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	fsID := *fsOut.FileSystemId
 
-	// Create mount target
 	mtOut, err := client.CreateMountTarget(ctx, &efs.CreateMountTargetInput{
 		FileSystemId: aws.String(fsID),
 		SubnetId:     aws.String("subnet-0123456789abcdef0"),
@@ -412,7 +392,6 @@ func TestEFS_FullLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	mtID := *mtOut.MountTargetId
 
-	// Create access point
 	apOut, err := client.CreateAccessPoint(ctx, &efs.CreateAccessPointInput{
 		FileSystemId: aws.String(fsID),
 		PosixUser: &efstypes.PosixUser{
@@ -426,7 +405,7 @@ func TestEFS_FullLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	apID := *apOut.AccessPointId
 
-	// Delete in correct order: access point, mount target, file system
+	// Delete access point, mount target, then file system.
 	_, err = client.DeleteAccessPoint(ctx, &efs.DeleteAccessPointInput{
 		AccessPointId: aws.String(apID),
 	})

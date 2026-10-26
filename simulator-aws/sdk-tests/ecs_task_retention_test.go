@@ -11,15 +11,10 @@ import (
 )
 
 // Amazon ECS stops returning a stopped task from ListTasks about an hour after
-// it stops. Retaining them forever is not merely untidy: the reported cluster
-// held 6,129 stopped tasks, the oldest a week old, so listing paged through
-// thousands of ARNs and the cluster read at a glance like a crash loop (GitHub
-// issue #908).
-//
-// This drives the real client to the point the simulator can observe — a task
-// that has just stopped is still listed — because a test cannot wait an hour
-// and moving the clock is not something a client can ask for. The aging itself
-// is pinned by the unit regressions next to the retention window.
+// it stops; retaining them leaves listings paging through thousands of ARNs.
+// A test cannot wait an hour or move the clock, so this covers what a client
+// can observe, a just-stopped task still listed; unit tests beside the
+// retention window cover the aging.
 func TestECS_ListTasks_StillReportsARecentlyStoppedTask(t *testing.T) {
 	t.Parallel()
 	client := ecsClient()

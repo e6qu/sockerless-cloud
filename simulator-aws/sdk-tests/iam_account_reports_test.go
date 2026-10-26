@@ -11,13 +11,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestIAM_AccountSummary drives GetAccountSummary and asserts the SummaryMap
-// reflects the real entity counts computed from the IAM stores.
+// TestIAM_AccountSummary expects SummaryMap to count the account's entities.
 func TestIAM_AccountSummary(t *testing.T) {
 	t.Parallel()
 	c := iamClient()
 
-	// Seed a user so the Users count is non-zero and deterministic-relative.
 	user := "acctsummary-user"
 	_, err := c.CreateUser(ctx, &iam.CreateUserInput{UserName: aws.String(user)})
 	require.NoError(t, err)
@@ -27,14 +25,13 @@ func TestIAM_AccountSummary(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, out.SummaryMap)
 	assert.GreaterOrEqual(t, out.SummaryMap["Users"], int32(1))
-	// Fixed quotas are present.
 	assert.Equal(t, int32(5000), out.SummaryMap["UsersQuota"])
 	assert.Contains(t, out.SummaryMap, "Policies")
 	assert.Contains(t, out.SummaryMap, "Roles")
 }
 
-// TestIAM_AccountAuthorizationDetails drives GetAccountAuthorizationDetails and
-// asserts the enumerated user carries its inline + attached managed policies.
+// TestIAM_AccountAuthorizationDetails expects the enumerated user to carry its
+// inline and attached managed policies.
 func TestIAM_AccountAuthorizationDetails(t *testing.T) {
 	t.Parallel()
 	c := iamClient()
@@ -69,8 +66,8 @@ func TestIAM_AccountAuthorizationDetails(t *testing.T) {
 	assert.Contains(t, aws.ToString(found.UserPolicyList[0].PolicyDocument), "s3")
 }
 
-// TestIAM_CredentialReport drives the GenerateCredentialReport →
-// GetCredentialReport flow and asserts the CSV report enumerates the real users.
+// TestIAM_CredentialReport expects the CSV report to enumerate the account's
+// users.
 func TestIAM_CredentialReport(t *testing.T) {
 	t.Parallel()
 	c := iamClient()
@@ -79,7 +76,7 @@ func TestIAM_CredentialReport(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { c.DeleteUser(ctx, &iam.DeleteUserInput{UserName: aws.String(user)}) })
 
-	// GenerateCredentialReport reports STARTED first, COMPLETE on the second call.
+	// GenerateCredentialReport reports STARTED, then COMPLETE on the second call.
 	gen, err := c.GenerateCredentialReport(ctx, &iam.GenerateCredentialReportInput{})
 	require.NoError(t, err)
 	assert.Contains(t, []types.ReportStateType{types.ReportStateTypeStarted, types.ReportStateTypeComplete}, gen.State)
@@ -90,15 +87,15 @@ func TestIAM_CredentialReport(t *testing.T) {
 	rep, err := c.GetCredentialReport(ctx, &iam.GetCredentialReportInput{})
 	require.NoError(t, err)
 	assert.Equal(t, types.ReportFormatTypeTextCsv, rep.ReportFormat)
-	csv := string(rep.Content) // SDK already base64-decodes Content.
+	csv := string(rep.Content) // the SDK base64-decodes Content
 	assert.Contains(t, csv, "user,arn,user_creation_time")
 	assert.Contains(t, csv, "<root_account>")
 	assert.Contains(t, csv, user)
 }
 
-// TestIAM_ServiceLastAccessed drives the GenerateServiceLastAccessedDetails →
-// GetServiceLastAccessedDetails(/WithEntities) flow plus the Organizations
-// access report. The rows are derived from the principal's policy namespaces.
+// TestIAM_ServiceLastAccessed covers the service-last-accessed reports and the
+// Organizations access report; the rows derive from the principal's policy
+// namespaces.
 func TestIAM_ServiceLastAccessed(t *testing.T) {
 	t.Parallel()
 	c := iamClient()
@@ -150,7 +147,7 @@ func TestIAM_ServiceLastAccessed(t *testing.T) {
 	require.NotEmpty(t, withEnt.EntityDetailsList)
 	assert.Equal(t, role, aws.ToString(withEnt.EntityDetailsList[0].EntityInfo.Name))
 
-	// Organizations access report — Generate returns a JobId, Get settles it.
+	// GenerateOrganizationsAccessReport returns a JobId that Get settles.
 	orgJob, err := c.GenerateOrganizationsAccessReport(ctx, &iam.GenerateOrganizationsAccessReportInput{
 		EntityPath: aws.String("o-abc123/r-root/000000000000"),
 	})
@@ -163,8 +160,8 @@ func TestIAM_ServiceLastAccessed(t *testing.T) {
 	assert.Equal(t, types.JobStatusTypeCompleted, orgRep.JobStatus)
 }
 
-// TestIAM_OrganizationsRoot drives the Organizations-root credential management
-// + sessions toggles and ListOrganizationsFeatures, plus the STS token-version
+// TestIAM_OrganizationsRoot covers the Organizations-root credential management
+// and sessions toggles, ListOrganizationsFeatures, the STS token-version
 // preference and the human-readable summary.
 func TestIAM_OrganizationsRoot(t *testing.T) {
 	c := iamClient()
@@ -189,7 +186,6 @@ func TestIAM_OrganizationsRoot(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotContains(t, dc.EnabledFeatures, types.FeatureTypeRootCredentialsManagement)
 
-	// STS preference + outbound web-identity federation.
 	_, err = c.SetSecurityTokenServicePreferences(ctx, &iam.SetSecurityTokenServicePreferencesInput{
 		GlobalEndpointTokenVersion: types.GlobalEndpointTokenVersionV2Token,
 	})
@@ -207,7 +203,6 @@ func TestIAM_OrganizationsRoot(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, info2.JwtVendingEnabled)
 
-	// GetHumanReadableSummary over a role's effective namespaces.
 	role := "summary-role"
 	_, err = c.CreateRole(ctx, &iam.CreateRoleInput{
 		RoleName:                 aws.String(role),
@@ -231,10 +226,8 @@ func TestIAM_OrganizationsRoot(t *testing.T) {
 	assert.Contains(t, strings.ToLower(aws.ToString(sum.SummaryContent)), "ec2")
 }
 
-// TestIAM_DelegationRequest drives the cross-account delegation lifecycle:
-// CreateDelegationRequest → GetDelegationRequest → ListDelegationRequests →
-// AssociateDelegationRequest → UpdateDelegationRequest → SendDelegationToken,
-// plus a second request that is rejected.
+// TestIAM_DelegationRequest walks a cross-account delegation request from
+// creation to SendDelegationToken, and rejects a second request.
 func TestIAM_DelegationRequest(t *testing.T) {
 	t.Parallel()
 	c := iamClient()
@@ -290,7 +283,6 @@ func TestIAM_DelegationRequest(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, types.StateTypeFinalized, fin.DelegationRequest.State)
 
-	// Accept on one request, reject on another.
 	created2, err := c.CreateDelegationRequest(ctx, &iam.CreateDelegationRequestInput{
 		OwnerAccountId:      aws.String("222222222222"),
 		Description:         aws.String("second"),

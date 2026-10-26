@@ -23,12 +23,12 @@ import (
 )
 
 // AWS Lambda reuses an execution environment that finished an invocation:
-// "When the function is invoked again, Lambda thaws the environment for
-// reuse ... Objects declared outside of the function's handler method remain
-// initialized" (lambda-runtime-environment.md.gz). It serves one invocation
-// at a time, so concurrent invocations scale out, and reserved concurrency
-// caps how far: "To intentionally throttle a function, set its reserved
-// concurrency to 0" (configuration-concurrency.md.gz).
+// "When the function is invoked again, Lambda thaws the environment for reuse
+// ... Objects declared outside of the function's handler method remain
+// initialized" (lambda-runtime-environment.md.gz). An environment serves one
+// invocation at a time, so concurrent invocations scale out, and reserved
+// concurrency caps them: "To intentionally throttle a function, set its
+// reserved concurrency to 0" (configuration-concurrency.md.gz).
 
 // createCountingFunction creates an image function on the test handler, whose
 // "count" action reports the invocations its execution environment served.
@@ -318,9 +318,8 @@ func TestLambda_ProvisionedConcurrencyWarmsEnvironments(t *testing.T) {
 	assert.True(t, errors.As(err, &invalid), "provisioned concurrency on $LATEST: %v", err)
 }
 
-// awaitProvisionedConcurrency reads the configuration until it is READY. The
-// API offers nothing to wait on, so this polls the Status field AWS documents
-// for the allocation.
+// awaitProvisionedConcurrency polls the configuration's documented Status until
+// READY: the API offers nothing to wait on.
 func awaitProvisionedConcurrency(t *testing.T, lc *lambda.Client, name, qualifier string) *lambda.GetProvisionedConcurrencyConfigOutput {
 	t.Helper()
 	deadline := time.Now().Add(3 * time.Minute)

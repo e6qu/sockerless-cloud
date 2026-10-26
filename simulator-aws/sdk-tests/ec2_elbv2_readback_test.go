@@ -13,11 +13,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestEC2_LaunchTemplateProvenanceTags verifies an instance launched via a
-// launch template carries the aws:ec2launchtemplate:{id,version} system tags
-// that terraform-provider-aws flattens into aws_instance.launch_template (the
-// Instance object itself has no launch-template field). Their absence forces a
-// destroy+create every plan. The image/type are also inherited from the template.
+// TestEC2_LaunchTemplateProvenanceTags expects an instance launched from a
+// launch template to carry the aws:ec2launchtemplate:{id,version} system tags
+// terraform-provider-aws flattens into aws_instance.launch_template (the
+// Instance has no launch-template field), and the template's image and type.
 func TestEC2_LaunchTemplateProvenanceTags(t *testing.T) {
 	t.Parallel()
 	ltName := uniquename.New("readback-lt")
@@ -50,13 +49,12 @@ func TestEC2_LaunchTemplateProvenanceTags(t *testing.T) {
 	}
 	assert.Equal(t, ltID, tags["aws:ec2launchtemplate:id"], "launch-template id tag must round-trip")
 	assert.NotEmpty(t, tags["aws:ec2launchtemplate:version"], "launch-template version tag must round-trip")
-	// image/type inherited from the template (not overridden in RunInstances).
 	assert.Equal(t, ec2AmazonLinuxAMI(t), aws.ToString(inst.ImageId))
 	assert.Equal(t, ec2types.InstanceTypeT3Nano, inst.InstanceType)
 }
 
-// TestEC2_RouteNetworkInterfaceId verifies a route created targeting an ENI
-// reports NetworkInterfaceId on DescribeRouteTables (else aws_route drifts).
+// TestEC2_RouteNetworkInterfaceId expects a route targeting an ENI to report
+// NetworkInterfaceId, or aws_route drifts.
 func TestEC2_RouteNetworkInterfaceId(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -88,8 +86,6 @@ func TestEC2_RouteNetworkInterfaceId(t *testing.T) {
 	require.True(t, found, "0.0.0.0/0 route present")
 }
 
-// TestEC2_SecurityGroupEgressIpv6Ranges verifies an egress rule created with
-// both IPv4 and IPv6 CIDRs reports Ipv6Ranges on DescribeSecurityGroups.
 func TestEC2_SecurityGroupEgressIpv6Ranges(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -99,8 +95,8 @@ func TestEC2_SecurityGroupEgressIpv6Ranges(t *testing.T) {
 		GroupName: aws.String("ipv6-egress-sg"), Description: aws.String("ipv6"), VpcId: vpc.Vpc.VpcId,
 	})
 	require.NoError(t, err)
-	// Revoke the default ALLOW ALL IPv4 egress rule so we can authorize a
-	// combined IPv4+IPv6 all-traffic rule without hitting InvalidPermission.Duplicate.
+	// Revoke the default allow-all IPv4 egress rule so the combined IPv4 and IPv6
+	// rule is no InvalidPermission.Duplicate.
 	_, err = c.RevokeSecurityGroupEgress(ctx, &ec2.RevokeSecurityGroupEgressInput{
 		GroupId: sg.GroupId,
 		IpPermissions: []ec2types.IpPermission{{
@@ -129,8 +125,8 @@ func TestEC2_SecurityGroupEgressIpv6Ranges(t *testing.T) {
 	assert.Equal(t, "0.0.0.0/0", aws.ToString(egress.IpRanges[0].CidrIp))
 }
 
-// TestELBv2_ListenerSslPolicy verifies an HTTPS listener created with an
-// SslPolicy reports it on DescribeListeners (else aws_lb_listener drifts).
+// TestELBv2_ListenerSslPolicy expects DescribeListeners to report the HTTPS
+// listener's SslPolicy, or aws_lb_listener drifts.
 func TestELBv2_ListenerSslPolicy(t *testing.T) {
 	t.Parallel()
 	tgName := uniquename.New("sslpolicy-tg")

@@ -14,16 +14,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestCloudWatch_PutMetricDataIsScopedByItsNamespaceCondition covers the way
-// AWS scopes an action whose resource the request never names.
-//
-// cloudwatch:PutMetricData declares no resource a caller can name — its only
-// resource type is "dataset", which no request identifies — so a policy scopes
-// it with the cloudwatch:namespace condition key instead, which is what AWS's
-// own service reference lists against the action. The simulator populated only
-// the global aws: keys, so that condition was evaluated against a context that
-// did not contain the key it tests: the allow never matched and the policy
-// denied the very writes it was written to permit.
+// TestCloudWatch_PutMetricDataIsScopedByItsNamespaceCondition: PutMetricData's
+// only resource type, "dataset", is one no request names, so a policy scopes
+// the action with the cloudwatch:namespace condition key, as the AWS service
+// reference lists for it. The request context must carry that key, or the
+// allow never matches.
 func TestCloudWatch_PutMetricDataIsScopedByItsNamespaceCondition(t *testing.T) {
 	t.Parallel()
 	iamc := iamClient()
@@ -33,7 +28,7 @@ func TestCloudWatch_PutMetricDataIsScopedByItsNamespaceCondition(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = iamc.DeleteUser(ctx, &iam.DeleteUserInput{UserName: aws.String(user)}) })
 
-	// The policy AWS documents for this: any namespace is refused but one.
+	// The policy AWS documents: every namespace refused but one.
 	_, err = iamc.PutUserPolicy(ctx, &iam.PutUserPolicyInput{
 		UserName:   aws.String(user),
 		PolicyName: aws.String("one-namespace"),
@@ -56,13 +51,11 @@ func TestCloudWatch_PutMetricDataIsScopedByItsNamespaceCondition(t *testing.T) {
 		Value:      aws.Float64(1),
 	}}
 
-	// The namespace the condition names is allowed.
 	_, err = restricted.PutMetricData(ctx, &cloudwatch.PutMetricDataInput{
 		Namespace: aws.String("Permitted"), MetricData: datum})
 	assert.NoError(t, err,
 		"the policy allows this namespace, so the condition key must be in the context for it to match")
 
-	// Any other namespace is not.
 	_, err = restricted.PutMetricData(ctx, &cloudwatch.PutMetricDataInput{
 		Namespace: aws.String("Other"), MetricData: datum})
 	require.Error(t, err, "a namespace the condition does not name is refused")

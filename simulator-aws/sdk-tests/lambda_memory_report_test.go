@@ -13,21 +13,17 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The REPORT entry closing an AWS Lambda invocation states what the execution
+// The REPORT entry closing an AWS Lambda invocation states what the
 // environment consumed:
 //
 //	REPORT RequestId: … Duration: … ms Billed Duration: … ms Memory Size: 2048 MB
 //	Max Memory Used: 466 MB
 //
-// Memory Size is the function's configuration; Max Memory Used is a
-// measurement, and the two are independent — two functions configured with the
-// same memory size report whatever each of them actually used. This drives that
-// difference: one function holds a large allocation for the whole invocation,
-// the other holds nothing, and their reports must differ by roughly the
-// allocation. A figure derived from the configured memory size could not.
+// Memory Size is configuration; Max Memory Used is a measurement. Two functions
+// with the same memory size, one holding a large allocation through the
+// invocation and one holding nothing, report figures about the allocation
+// apart, which a figure derived from the configuration could not.
 
-// lambdaReportMemoryMegabytes reads `Max Memory Used: <n> MB` out of a REPORT
-// entry.
 func lambdaReportMemoryMegabytes(t *testing.T, report string) int {
 	t.Helper()
 	match := regexp.MustCompile(`\tMax Memory Used: ([0-9]+) MB`).FindStringSubmatch(report)
@@ -38,8 +34,7 @@ func lambdaReportMemoryMegabytes(t *testing.T, report string) int {
 }
 
 // lambdaInvokeForMemoryReport creates a Node function with the given
-// module-level source, invokes it once, and returns the memory its REPORT
-// entry reported.
+// module-level source, invokes it once, and returns its REPORT's memory figure.
 func lambdaInvokeForMemoryReport(t *testing.T, name, source string, memorySize int32) int {
 	t.Helper()
 	lc := lambdaClient()
@@ -69,27 +64,23 @@ func lambdaInvokeForMemoryReport(t *testing.T, name, source string, memorySize i
 	return lambdaReportMemoryMegabytes(t, report)
 }
 
-// TestLambda_ReportMaxMemoryUsedIsMeasured proves the reported figure comes
-// from the execution environment rather than from the function's configuration:
-// two functions with an identical memory size, one holding a large allocation
-// for the whole invocation and one holding nothing, report memory that differs
-// by about that allocation.
+// TestLambda_ReportMaxMemoryUsedIsMeasured expects two functions with the same
+// memory size, one holding a large allocation and one nothing, to report memory
+// differing by about the allocation.
 func TestLambda_ReportMaxMemoryUsedIsMeasured(t *testing.T) {
 	t.Parallel()
-	// The configured memory size is far above what either function can reach,
-	// so a figure derived from it — the configured size, or a share of it —
-	// cannot be mistaken for either measurement.
+	// The configured memory size is far above what either function reaches, so a
+	// figure derived from it cannot pass for a measurement.
 	const memorySize int32 = 2048
 	const allocationMB = 384
 
 	idle := lambdaInvokeForMemoryReport(t, "memory-report-idle",
 		"exports.handler = async () => ({ held: 0 });\n", memorySize)
 
-	// The buffer is allocated at module level and referenced from the handler,
-	// so it is live for the whole invocation. It is filled with a non-zero byte
-	// so every page is written: a large zero-filled allocation is served by an
-	// untouched anonymous mapping, which the kernel charges to the cgroup only
-	// as its pages are faulted in.
+	// The module-level buffer, referenced from the handler, lives through the
+	// invocation. A non-zero fill writes every page: a zero-filled allocation is an
+	// untouched anonymous mapping the kernel charges to the cgroup only as pages
+	// fault in.
 	held := lambdaInvokeForMemoryReport(t, "memory-report-holding", fmt.Sprintf(
 		"const held = Buffer.alloc(%d * 1024 * 1024, 1);\n"+
 			"exports.handler = async () => ({ held: held.length });\n", allocationMB), memorySize)
@@ -99,9 +90,8 @@ func TestLambda_ReportMaxMemoryUsedIsMeasured(t *testing.T) {
 	require.Positive(t, idle, "an execution environment that ran used memory")
 	require.Positive(t, held, "an execution environment that ran used memory")
 
-	// What each figure must be, from what each environment did: the one holding
-	// the allocation used at least the allocation, the one holding nothing did
-	// not, and neither used more than its environment allows.
+	// The holding function used at least the allocation, the idle one did not, and
+	// neither exceeded its environment.
 	assert.GreaterOrEqual(t, held, allocationMB,
 		"an environment holding a %d MB allocation used at least that much (holding %d MB)",
 		allocationMB, held)
@@ -114,8 +104,8 @@ func TestLambda_ReportMaxMemoryUsedIsMeasured(t *testing.T) {
 	assert.Less(t, held, int(memorySize),
 		"a function cannot use more than the memory its environment is limited to")
 
-	// Neither figure is the configured memory size, nor a share of it: both sit
-	// far below the half a configuration-derived number would produce.
+	// Neither figure is the configured size or a share of it: both sit far below
+	// half of it.
 	assert.Less(t, idle, int(memorySize)/2,
 		"the reported memory must be a measurement, not a share of the configured memory size")
 	assert.Less(t, held, int(memorySize)/2,

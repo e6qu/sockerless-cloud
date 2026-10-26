@@ -14,11 +14,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestCloudWatch_EMFExtraction proves CloudWatch auto-extracts metrics from an
-// EMF-formatted log event: PutLogEvents writes a message carrying an
-// _aws.CloudWatchMetrics block, and the metric becomes queryable through the
-// ordinary metric APIs with no PutMetricData call (the standard
-// EMF-over-stdout → awslogs → CloudWatch Logs path).
+// TestCloudWatch_EMFExtraction puts an EMF log event (an _aws.CloudWatchMetrics
+// block), and the metric becomes queryable without PutMetricData: the
+// EMF-over-stdout, awslogs, CloudWatch Logs path.
 func TestCloudWatch_EMFExtraction(t *testing.T) {
 	t.Parallel()
 	logs := cwLogsClient()
@@ -46,7 +44,6 @@ func TestCloudWatch_EMFExtraction(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// The EMF-extracted metric is queryable via GetMetricData (no PutMetricData).
 	out, err := cw.GetMetricData(ctx, &cloudwatch.GetMetricDataInput{
 		StartTime: aws.Time(ts.Add(-time.Minute)),
 		EndTime:   aws.Time(ts.Add(time.Minute)),

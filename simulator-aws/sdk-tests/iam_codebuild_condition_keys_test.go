@@ -12,9 +12,8 @@ import (
 )
 
 // TestCodeBuild_RequestConditionKeysScopeTheGrant covers the AWS CodeBuild keys
-// that read what a request asks for: the policies AWS documents for them
-// restrict the VPC a project uses and refuse a build that overrides its
-// buildspec.
+// that read what a request asks for: the policies AWS documents restrict a
+// project's VPC and refuse a build that overrides its buildspec.
 func TestCodeBuild_RequestConditionKeysScopeTheGrant(t *testing.T) {
 	t.Parallel()
 	role := serviceRole(t, "codebuild.amazonaws.com")

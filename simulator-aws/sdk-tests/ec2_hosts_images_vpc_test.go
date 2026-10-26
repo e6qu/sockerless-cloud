@@ -10,11 +10,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestEC2_HostsLifecycleSDK exercises the Dedicated Host control plane:
-// AllocateHosts reserves hosts in an AZ for an instance family, DescribeHosts
-// reads them back (id / state / AZ / family), ModifyHosts flips auto-placement
-// + recovery, DescribeMacHosts filters mac-only hosts (empty here), and
-// ReleaseHosts decommissions them.
+// TestEC2_HostsLifecycleSDK expects AllocateHosts to reserve hosts for an
+// instance family that DescribeHosts reads back, ModifyHosts to change
+// auto-placement and recovery, DescribeMacHosts to return none, and
+// ReleaseHosts to release them.
 func TestEC2_HostsLifecycleSDK(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -44,7 +43,6 @@ func TestEC2_HostsLifecycleSDK(t *testing.T) {
 	assert.Equal(t, "us-east-1a", aws.ToString(h.AvailabilityZone))
 	require.NotNil(t, h.HostProperties)
 	assert.Equal(t, "m5", aws.ToString(h.HostProperties.InstanceFamily))
-	// Tag round-trips through DescribeHosts.
 	var foundTag bool
 	for _, tg := range h.Tags {
 		if aws.ToString(tg.Key) == "team" && aws.ToString(tg.Value) == "ci" {
@@ -66,7 +64,6 @@ func TestEC2_HostsLifecycleSDK(t *testing.T) {
 	require.Len(t, desc2.Hosts, 1)
 	assert.Equal(t, types.AutoPlacementOn, desc2.Hosts[0].AutoPlacement)
 
-	// DescribeMacHosts is a faithful empty list (no mac hosts allocated).
 	macs, err := c.DescribeMacHosts(ctx, &ec2.DescribeMacHostsInput{})
 	require.NoError(t, err)
 	assert.Empty(t, macs.MacHosts)
@@ -76,12 +73,10 @@ func TestEC2_HostsLifecycleSDK(t *testing.T) {
 	assert.Len(t, rel.Successful, 2)
 }
 
-// TestEC2_ImageAttrLifecycleSDK covers per-AMI attribute state: a private AMI
-// gets a launchPermission granting a second account + the "all" group (going
-// public), DescribeImageAttribute reads it back, the description attribute is
-// settable + readable, then ResetImageAttribute reverts launchPermission. Also
-// flips DisableImage/EnableImage state and runs the image import/export +
-// restore tasks.
+// TestEC2_ImageAttrLifecycleSDK grants a private AMI's launchPermission to a
+// second account and the "all" group, reads it back, sets the description,
+// resets launchPermission, disables and enables the image, and runs the
+// import, export and restore tasks.
 func TestEC2_ImageAttrLifecycleSDK(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -120,7 +115,6 @@ func TestEC2_ImageAttrLifecycleSDK(t *testing.T) {
 	assert.True(t, sawUser, "expected launch permission for user")
 	assert.True(t, sawGroup, "expected launch permission for all group")
 
-	// Description attribute round-trip.
 	_, err = c.ModifyImageAttribute(ctx, &ec2.ModifyImageAttributeInput{
 		ImageId:     aws.String(amiID),
 		Attribute:   aws.String("description"),
@@ -147,7 +141,6 @@ func TestEC2_ImageAttrLifecycleSDK(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, la2.LaunchPermissions)
 
-	// Disable/Enable flips state.
 	dis, err := c.DisableImage(ctx, &ec2.DisableImageInput{ImageId: aws.String(amiID)})
 	require.NoError(t, err)
 	assert.True(t, aws.ToBool(dis.Return))
@@ -155,8 +148,6 @@ func TestEC2_ImageAttrLifecycleSDK(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, aws.ToBool(en.Return))
 
-	// ExportImage / ImportImage / CreateRestoreImageTask /
-	// RestoreImageFromRecycleBin task ops.
 	exp, err := c.ExportImage(ctx, &ec2.ExportImageInput{
 		ImageId:         aws.String(amiID),
 		DiskImageFormat: types.DiskImageFormatVmdk,
@@ -168,7 +159,6 @@ func TestEC2_ImageAttrLifecycleSDK(t *testing.T) {
 	assert.NotEmpty(t, aws.ToString(exp.ExportImageTaskId))
 	assert.Equal(t, amiID, aws.ToString(exp.ImageId))
 
-	// An import names at least one disk image to read.
 	_, err = c.ImportImage(ctx, &ec2.ImportImageInput{
 		Architecture: aws.String("x86_64"),
 		Description:  aws.String("imported"),
@@ -188,8 +178,8 @@ func TestEC2_ImageAttrLifecycleSDK(t *testing.T) {
 	assert.True(t, aws.ToBool(rb.Return))
 }
 
-// TestEC2_SnapshotAttrLifecycleSDK covers per-snapshot createVolumePermission
-// state and the snapshot tier/lock/import ops over a real snapshot.
+// TestEC2_SnapshotAttrLifecycleSDK covers createVolumePermission and the
+// snapshot tier, lock and import operations.
 func TestEC2_SnapshotAttrLifecycleSDK(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -258,9 +248,6 @@ func TestEC2_SnapshotAttrLifecycleSDK(t *testing.T) {
 
 }
 
-// TestEC2_InstanceEventWindowLifecycleSDK covers the maintenance event window
-// CRUD: create with a weekly time range, describe, modify the name, associate
-// + disassociate an instance target, and delete.
 func TestEC2_InstanceEventWindowLifecycleSDK(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -333,8 +320,6 @@ func TestEC2_InstanceEventWindowLifecycleSDK(t *testing.T) {
 	assert.Equal(t, iewID, aws.ToString(del.InstanceEventWindowState.InstanceEventWindowId))
 }
 
-// TestEC2_VpcClassicLinkSDK covers the per-VPC ClassicLink + ClassicLink-DNS
-// flags through enable/describe/disable.
 func TestEC2_VpcClassicLinkSDK(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -377,9 +362,9 @@ func TestEC2_VpcClassicLinkSDK(t *testing.T) {
 	assert.False(t, aws.ToBool(desc2.Vpcs[0].ClassicLinkEnabled))
 }
 
-// TestEC2_VpcEndpointConnectionNotificationsSDK covers the connection
-// notification CRUD (the endpoint connection accept/reject ops are covered by
-// their empty-list happy path here too).
+// TestEC2_VpcEndpointConnectionNotificationsSDK covers connection
+// notifications, and the connection accept and reject operations on an empty
+// connection list.
 func TestEC2_VpcEndpointConnectionNotificationsSDK(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -413,14 +398,13 @@ func TestEC2_VpcEndpointConnectionNotificationsSDK(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// The service the notification watches has no endpoint connections.
 	conns, err := c.DescribeVpcEndpointConnections(ctx, &ec2.DescribeVpcEndpointConnectionsInput{
 		Filters: []types.Filter{{Name: aws.String("service-id"), Values: []string{"vpce-svc-0123456789abcdef0"}}},
 	})
 	require.NoError(t, err)
 	assert.Empty(t, conns.VpcEndpointConnections)
 
-	// Accept/Reject with no matching connection returns Unsuccessful entries.
+	// Accepting or rejecting no matching connection returns Unsuccessful entries.
 	acc, err := c.AcceptVpcEndpointConnections(ctx, &ec2.AcceptVpcEndpointConnectionsInput{
 		ServiceId:      aws.String("vpce-svc-0123456789abcdef0"),
 		VpcEndpointIds: []string{"vpce-missing"},
@@ -441,8 +425,6 @@ func TestEC2_VpcEndpointConnectionNotificationsSDK(t *testing.T) {
 	assert.Empty(t, del.Unsuccessful)
 }
 
-// TestEC2_VpcBlockPublicAccessSDK covers the account-level BPA options
-// (modify/describe) and the per-resource BPA exclusions CRUD.
 func TestEC2_VpcBlockPublicAccessSDK(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -500,10 +482,10 @@ func TestEC2_VpcBlockPublicAccessSDK(t *testing.T) {
 	require.NotNil(t, delEx.VpcBlockPublicAccessExclusion)
 }
 
-// TestEC2_DedicatedHostCapacitySDK allocates a Dedicated Host for one instance
-// type, reads its cores, vCPUs and per-type capacity as the Price List states
-// them for the family, places an instance on it with RunInstances, and sees
-// the placement take one slot and the host refuse a type it does not run.
+// TestEC2_DedicatedHostCapacitySDK reads a Dedicated Host's cores, vCPUs and
+// per-type capacity as the AWS Price List states them, places an instance with
+// RunInstances, and sees it take one slot and the host refuse a type it does
+// not run.
 func TestEC2_DedicatedHostCapacitySDK(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()

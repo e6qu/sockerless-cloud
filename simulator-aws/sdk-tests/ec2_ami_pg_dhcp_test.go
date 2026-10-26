@@ -12,12 +12,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestEC2_AMILifecycleSDK covers the user-AMI control plane: CreateImage from a
-// running instance, RegisterImage from a block device mapping, CopyImage, the
-// DescribeImages read-back of each, and DeregisterImage. A user-registered AMI
-// must round-trip through DescribeImages (id / name / state / architecture /
-// root device / backing snapshot), distinct from the synthesized vendor-AMI
-// lookup the sim keeps for `data.aws_ami`.
+// TestEC2_AMILifecycleSDK covers CreateImage from a running instance,
+// RegisterImage from a block device mapping, CopyImage and DeregisterImage,
+// each AMI read back through DescribeImages with its id, name, state,
+// architecture, root device and backing snapshot.
 func TestEC2_AMILifecycleSDK(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -35,7 +33,6 @@ func TestEC2_AMILifecycleSDK(t *testing.T) {
 	instID := aws.ToString(run.Instances[0].InstanceId)
 	waitForEC2InstanceRunning(t, c, instID)
 
-	// CreateImage from the instance.
 	img, err := c.CreateImage(ctx, &ec2.CreateImageInput{
 		InstanceId:  aws.String(instID),
 		Name:        aws.String("my-golden-ami"),
@@ -63,8 +60,7 @@ func TestEC2_AMILifecycleSDK(t *testing.T) {
 	require.NotNil(t, got.BlockDeviceMappings[0].Ebs)
 	assert.NotEmpty(t, aws.ToString(got.BlockDeviceMappings[0].Ebs.SnapshotId))
 	// The capture is an EBS snapshot the account owns: listed, described as
-	// CreateImage describes it, and refused to DeleteSnapshot while the image
-	// maps it.
+	// CreateImage describes it, and undeletable while the image maps it.
 	snapshotID := aws.ToString(got.BlockDeviceMappings[0].Ebs.SnapshotId)
 	snapshots, err := c.DescribeSnapshots(ctx, &ec2.DescribeSnapshotsInput{SnapshotIds: []string{snapshotID}})
 	require.NoError(t, err)
@@ -77,7 +73,6 @@ func TestEC2_AMILifecycleSDK(t *testing.T) {
 	assert.Contains(t, err.Error(), "InvalidSnapshot.InUse")
 	assert.Equal(t, aws.ToString(run.Instances[0].InstanceId), aws.ToString(got.SourceInstanceId))
 
-	// Filter by name + tag must scope to the registered AMI.
 	byName, err := c.DescribeImages(ctx, &ec2.DescribeImagesInput{
 		Filters: []types.Filter{
 			{Name: aws.String("name"), Values: []string{"my-golden-ami"}},
@@ -88,7 +83,6 @@ func TestEC2_AMILifecycleSDK(t *testing.T) {
 	require.Len(t, byName.Images, 1)
 	assert.Equal(t, amiID, aws.ToString(byName.Images[0].ImageId))
 
-	// RegisterImage from a block device mapping with an EBS snapshot.
 	reg, err := c.RegisterImage(ctx, &ec2.RegisterImageInput{
 		Name:           aws.String("registered-ami"),
 		Architecture:   types.ArchitectureValuesArm64,
@@ -107,8 +101,8 @@ func TestEC2_AMILifecycleSDK(t *testing.T) {
 	require.Len(t, gotReg.BlockDeviceMappings, 1)
 	assert.Equal(t, int32(16), aws.ToInt32(gotReg.BlockDeviceMappings[0].Ebs.VolumeSize))
 
-	// An AMI registered with ImdsSupport v2.0 reports it, and the instances
-	// launched from it require IMDSv2 tokens; no other value is accepted.
+	// An AMI registered with ImdsSupport v2.0 reports it, and its instances
+	// require IMDSv2 tokens; no other value is accepted.
 	v2, err := c.RegisterImage(ctx, &ec2.RegisterImageInput{
 		Name:           aws.String("registered-imdsv2-ami"),
 		RootDeviceName: aws.String("/dev/xvda"),
@@ -134,7 +128,7 @@ func TestEC2_AMILifecycleSDK(t *testing.T) {
 	})
 	requireAWSErrorCode(t, err, "InvalidSnapshot.NotFound")
 
-	// CopyImage gets its own id and preserves source metadata.
+	// CopyImage assigns its own id and keeps the source's metadata.
 	cp, err := c.CopyImage(ctx, &ec2.CopyImageInput{
 		SourceImageId: aws.String(amiID),
 		SourceRegion:  aws.String("us-east-1"),
@@ -147,12 +141,11 @@ func TestEC2_AMILifecycleSDK(t *testing.T) {
 	assert.Equal(t, "copied-ami", aws.ToString(gotCopy.Name))
 	assert.Equal(t, got.Architecture, gotCopy.Architecture, "copy inherits source architecture")
 
-	// DeregisterImage removes the AMI: DescribeImages no longer finds it.
 	_, err = c.DeregisterImage(ctx, &ec2.DeregisterImageInput{ImageId: aws.String(amiID)})
 	require.NoError(t, err)
 	_, err = c.DescribeImages(ctx, &ec2.DescribeImagesInput{ImageIds: []string{amiID}})
 	requireAWSErrorCode(t, err, "InvalidAMIID.NotFound")
-	// With the image gone its snapshot is the account's to delete.
+	// With the image gone, its snapshot is the account's to delete.
 	_, err = c.DeleteSnapshot(ctx, &ec2.DeleteSnapshotInput{SnapshotId: aws.String(snapshotID)})
 	require.NoError(t, err, "the snapshot outlives the image until it is deleted")
 	_, err = c.DeregisterImage(ctx, &ec2.DeregisterImageInput{ImageId: aws.String(amiID)})
@@ -167,9 +160,8 @@ func describeOneImage(t *testing.T, c *ec2.Client, id string) types.Image {
 	return out.Images[0]
 }
 
-// TestEC2_PlacementGroupSDK covers CreatePlacementGroup / DescribePlacementGroups
-// / DeletePlacementGroup, including the strategy + partition-count round-trip and
-// a strategy filter.
+// TestEC2_PlacementGroupSDK covers the strategy and partition-count round-trip
+// and a strategy filter.
 func TestEC2_PlacementGroupSDK(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -198,7 +190,6 @@ func TestEC2_PlacementGroupSDK(t *testing.T) {
 	assert.NotEmpty(t, aws.ToString(pg.GroupId))
 	assert.Contains(t, aws.ToString(pg.GroupArn), "placement-group/sdk-pg-partition")
 
-	// Strategy filter must scope to the partition group.
 	byStrategy, err := c.DescribePlacementGroups(ctx, &ec2.DescribePlacementGroupsInput{
 		Filters: []types.Filter{{Name: aws.String("strategy"), Values: []string{"partition"}}},
 	})
@@ -220,9 +211,8 @@ func TestEC2_PlacementGroupSDK(t *testing.T) {
 	}
 }
 
-// TestEC2_DhcpOptionsSDK covers CreateDhcpOptions / DescribeDhcpOptions /
-// AssociateDhcpOptions / DeleteDhcpOptions, including the dhcp-configuration
-// key/value round-trip and the VPC association that updates dhcpOptionsId.
+// TestEC2_DhcpOptionsSDK covers the dhcp-configuration key and value
+// round-trip and the VPC association that updates dhcpOptionsId.
 func TestEC2_DhcpOptionsSDK(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -250,7 +240,6 @@ func TestEC2_DhcpOptionsSDK(t *testing.T) {
 	require.Contains(t, cfg, "domain-name-servers")
 	assert.Equal(t, []string{"10.0.0.2", "8.8.8.8"}, cfg["domain-name-servers"])
 
-	// Associate with a VPC → DescribeVpcs reflects the new dhcpOptionsId.
 	vpc, err := c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.141.0.0/16")})
 	require.NoError(t, err)
 	vpcID := aws.ToString(vpc.Vpc.VpcId)
@@ -263,11 +252,10 @@ func TestEC2_DhcpOptionsSDK(t *testing.T) {
 	require.Len(t, vout.Vpcs, 1)
 	assert.Equal(t, optsID, aws.ToString(vout.Vpcs[0].DhcpOptionsId), "VPC must reflect the associated DHCP options set")
 
-	// Deleting while associated must fail (DependencyViolation).
+	// A DHCP options set still associated fails with DependencyViolation.
 	_, err = c.DeleteDhcpOptions(ctx, &ec2.DeleteDhcpOptionsInput{DhcpOptionsId: aws.String(optsID)})
 	require.Error(t, err, "cannot delete a DHCP options set still associated with a VPC")
 
-	// Revert the VPC to the default set, then delete succeeds.
 	_, err = c.AssociateDhcpOptions(ctx, &ec2.AssociateDhcpOptionsInput{
 		DhcpOptionsId: aws.String("default"), VpcId: aws.String(vpcID),
 	})

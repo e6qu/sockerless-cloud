@@ -31,11 +31,9 @@ func describeRDSCapacityReservation(t *testing.T, c *rds.Client, id string) *rds
 	return &out.DBCapacityReservations[0]
 }
 
-// TestRDS_DBCapacityReservations reserves capacity for RDS for Oracle DB
-// instances in two Availability Zones, launches a DB instance into it, and
-// covers DescribeDBCapacityReservations, ModifyDBCapacityReservation and
-// CancelDBCapacityReservation along with the capacity the instance takes,
-// gives back when it stops and takes again when it starts.
+// TestRDS_DBCapacityReservations reserves RDS for Oracle capacity in two
+// Availability Zones, launches a DB instance into it, and covers the capacity
+// the instance takes, returns when it stops and takes again when it starts.
 func TestRDS_DBCapacityReservations(t *testing.T) {
 	t.Parallel()
 	c := rdsClient()
@@ -147,8 +145,8 @@ func TestRDS_DBCapacityReservations(t *testing.T) {
 	}
 	assert.Equal(t, []string{id}, listed)
 
-	// Every stop gives back the instance's unit; the instance keeps its
-	// reservation and takes a unit again when it starts.
+	// Each stop returns the instance's unit; the instance keeps its reservation and
+	// takes a unit again on start.
 	waitForRDSInstanceAvailable(t, c, ctx, instID)
 	_, err = c.StopDBInstance(ctx, &rds.StopDBInstanceInput{DBInstanceIdentifier: aws.String(instID)})
 	require.NoError(t, err)
@@ -174,9 +172,9 @@ func TestRDS_DBCapacityReservations(t *testing.T) {
 	assertAWSAPIErrorCode(t, err, "DBCapacityReservationNotFound")
 }
 
-// TestRDS_FutureDatedDBCapacityReservation creates a reservation that starts
-// later: Amazon RDS schedules it with its capacity commitment, and neither a
-// modification nor a cancellation reaches it before it starts.
+// TestRDS_FutureDatedDBCapacityReservation expects a later-starting reservation
+// scheduled with its capacity commitment, unreachable by modification or
+// cancellation before it starts.
 func TestRDS_FutureDatedDBCapacityReservation(t *testing.T) {
 	t.Parallel()
 	c := rdsClient()

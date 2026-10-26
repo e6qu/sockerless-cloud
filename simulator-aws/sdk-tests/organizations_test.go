@@ -17,9 +17,9 @@ func orgClient() *organizations.Client {
 	})
 }
 
-// TestOrganizations_DescribeAndList covers the Organizations slice that backs the
-// aws:PrincipalOrgID IAM condition key. The default organization (management
-// account + root) is materialized at startup.
+// TestOrganizations_DescribeAndList covers the organization behind the
+// aws:PrincipalOrgID IAM condition key; the management account and root exist
+// from startup.
 func TestOrganizations_DescribeAndList(t *testing.T) {
 	c := orgClient()
 
@@ -33,10 +33,8 @@ func TestOrganizations_DescribeAndList(t *testing.T) {
 	accts, err := c.ListAccounts(ctx, &organizations.ListAccountsInput{})
 	require.NoError(t, err)
 	require.NotEmpty(t, accts.Accounts)
-	// The management account is listed, but ListAccounts is ordered by account
-	// id (not management-account-first), so assert membership rather than
-	// position — other tests may have created accounts whose random ids sort
-	// before the management account's.
+	// ListAccounts orders by account id, and other tests' accounts may sort before
+	// the management account, so assert membership rather than position.
 	var ids []string
 	for _, a := range accts.Accounts {
 		ids = append(ids, aws.ToString(a.Id))
@@ -44,7 +42,6 @@ func TestOrganizations_DescribeAndList(t *testing.T) {
 	assert.Contains(t, ids, aws.ToString(org.Organization.MasterAccountId))
 }
 
-// TestOrganizations_Roots exercises ListRoots and the default FullAWSAccess SCP.
 func TestOrganizations_Roots(t *testing.T) {
 	c := orgClient()
 	roots, err := c.ListRoots(ctx, &organizations.ListRootsInput{})
@@ -61,10 +58,6 @@ func orgRootID(t *testing.T, c *organizations.Client) string {
 	return aws.ToString(roots.Roots[0].Id)
 }
 
-// TestOrganizations_OUTreeAndAccounts covers CreateOrganizationalUnit,
-// Describe/Update/List OUs, CreateAccount + status, DescribeAccount,
-// ListAccountsForParent, ListChildren, ListParents, MoveAccount, CloseAccount,
-// RemoveAccountFromOrganization, DeleteOrganizationalUnit.
 func TestOrganizations_OUTreeAndAccounts(t *testing.T) {
 	c := orgClient()
 	root := orgRootID(t, c)
@@ -101,7 +94,6 @@ func TestOrganizations_OUTreeAndAccounts(t *testing.T) {
 	}
 	assert.True(t, found, "created OU listed under root")
 
-	// CreateAccount → status SUCCEEDED → DescribeCreateAccountStatus + ListCreateAccountStatus.
 	ca, err := c.CreateAccount(ctx, &organizations.CreateAccountInput{
 		AccountName: aws.String("Sandbox"),
 		Email:       aws.String("sandbox@sim.invalid"),
@@ -127,7 +119,7 @@ func TestOrganizations_OUTreeAndAccounts(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "Sandbox", aws.ToString(da.Account.Name))
 
-	// Account starts under the root; move it into the OU.
+	// An account starts under the root.
 	_, err = c.MoveAccount(ctx, &organizations.MoveAccountInput{
 		AccountId:           aws.String(acctID),
 		SourceParentId:      aws.String(root),
@@ -150,7 +142,8 @@ func TestOrganizations_OUTreeAndAccounts(t *testing.T) {
 	require.Len(t, parents.Parents, 1)
 	assert.Equal(t, ouID, aws.ToString(parents.Parents[0].Id))
 
-	// CloseAccount suspends it; then move back to root and remove for clean teardown.
+	// CloseAccount suspends the account; moving it back to the root and removing
+	// it cleans up.
 	_, err = c.CloseAccount(ctx, &organizations.CloseAccountInput{AccountId: aws.String(acctID)})
 	require.NoError(t, err)
 	_, _ = c.MoveAccount(ctx, &organizations.MoveAccountInput{
@@ -162,9 +155,6 @@ func TestOrganizations_OUTreeAndAccounts(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestOrganizations_Policies covers CreatePolicy, Describe/Update/List,
-// Attach/Detach, ListPoliciesForTarget, ListTargetsForPolicy,
-// Enable/DisablePolicyType, DescribeEffectivePolicy, DeletePolicy.
 func TestOrganizations_Policies(t *testing.T) {
 	c := orgClient()
 	root := orgRootID(t, c)
@@ -192,10 +182,9 @@ func TestOrganizations_Policies(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, lp.Policies)
 
-	// A policy's ARN says who owns it, and the two owners take different
-	// shapes: a customer policy is scoped to the account and the organization,
-	// while an AWS-managed one belongs to neither and carries the literal
-	// "aws" in the account position.
+	// A policy's ARN names its owner: a customer policy is scoped to the account
+	// and organization, while an AWS managed one carries "aws" in the account
+	// position.
 	org, err := c.DescribeOrganization(ctx, &organizations.DescribeOrganizationInput{})
 	require.NoError(t, err)
 	var managed *orgtypes.PolicySummary
@@ -232,10 +221,8 @@ func TestOrganizations_Policies(t *testing.T) {
 	assert.Equal(t, root, aws.ToString(tfp.Targets[0].TargetId))
 	assert.Equal(t, orgtypes.TargetTypeRoot, tfp.Targets[0].Type)
 
-	// A service control policy has no effective form — EffectivePolicyType is a
-	// narrower enum than PolicyType, because an SCP is evaluated as an
-	// intersection along the path rather than merged into one document — so
-	// asking for one is a validation failure rather than a document.
+	// AWS evaluates an SCP as an intersection along the path rather than merging
+	// it, so EffectivePolicyType omits SCPs and the request fails validation.
 	_, err = c.DescribeEffectivePolicy(ctx, &organizations.DescribeEffectivePolicyInput{
 		PolicyType: orgtypes.EffectivePolicyType("SERVICE_CONTROL_POLICY"),
 		TargetId:   aws.String(root),
@@ -243,8 +230,8 @@ func TestOrganizations_Policies(t *testing.T) {
 	assert.Equal(t, "InvalidInputException", errCode(t, err),
 		"SERVICE_CONTROL_POLICY is not an EffectivePolicyType")
 
-	// A tag policy does have one, and it resolves to the content attached to
-	// this target rather than to any other policy in the organization.
+	// A tag policy has an effective form, resolved from the content attached to
+	// this target.
 	tagContent := `{"tags":{"CostCenter":{"tag_key":{"@@assign":"CostCenter"}}}}`
 	tagPolicy, err := c.CreatePolicy(ctx, &organizations.CreatePolicyInput{
 		Name:        aws.String("TagCostCenter"),
@@ -255,9 +242,9 @@ func TestOrganizations_Policies(t *testing.T) {
 	require.NoError(t, err)
 	tagPolicyID := aws.ToString(tagPolicy.Policy.PolicySummary.Id)
 
-	// A policy governs a target only once its type is enabled in the root.
-	// Service control policies are enabled in every root; a tag policy is not
-	// until someone enables it, and attaching one before that is refused.
+	// A policy governs a target only once its type is enabled in the root. SCPs
+	// are enabled in every root; a tag policy is not until enabled, so attaching
+	// one first is refused.
 	_, err = c.AttachPolicy(ctx, &organizations.AttachPolicyInput{
 		PolicyId: aws.String(tagPolicyID), TargetId: aws.String(root),
 	})
@@ -283,8 +270,8 @@ func TestOrganizations_Policies(t *testing.T) {
 	assert.Equal(t, root, aws.ToString(eff.EffectivePolicy.TargetId))
 	assert.Equal(t, orgtypes.EffectivePolicyTypeTagPolicy, eff.EffectivePolicy.PolicyType)
 
-	// Detached, the target has no effective tag policy at all, which the
-	// service reports as its own error rather than as an empty document.
+	// Detached, the target has no effective tag policy, which the service reports
+	// as its own error.
 	_, err = c.DetachPolicy(ctx, &organizations.DetachPolicyInput{
 		PolicyId: aws.String(tagPolicyID), TargetId: aws.String(root),
 	})
@@ -303,8 +290,7 @@ func TestOrganizations_Policies(t *testing.T) {
 	_, err = c.DeletePolicy(ctx, &organizations.DeletePolicyInput{PolicyId: aws.String(pid)})
 	require.NoError(t, err)
 
-	// The type enabled above comes back off the root, and the root reports it
-	// gone.
+	// Disabling the type takes it off the root.
 	_, err = c.DisablePolicyType(ctx, &organizations.DisablePolicyTypeInput{RootId: aws.String(root), PolicyType: orgtypes.PolicyTypeTagPolicy})
 	require.NoError(t, err)
 	roots, err := c.ListRoots(ctx, &organizations.ListRootsInput{})
@@ -316,7 +302,6 @@ func TestOrganizations_Policies(t *testing.T) {
 	}
 }
 
-// TestOrganizations_Handshakes covers Invite/Describe/List/Accept/Decline/Cancel.
 func TestOrganizations_Handshakes(t *testing.T) {
 	c := orgClient()
 
@@ -328,8 +313,8 @@ func TestOrganizations_Handshakes(t *testing.T) {
 	hid := aws.ToString(inv.Handshake.Id)
 	assert.True(t, strings.HasPrefix(hid, "h-"))
 	assert.Equal(t, orgtypes.HandshakeStateOpen, inv.Handshake.State)
-	// The ARN is the only place a handshake's purpose appears, so an
-	// invitation and an enable-all-features handshake must not read alike.
+	// Only the ARN shows a handshake's purpose, so an invitation and an
+	// enable-all-features handshake differ there.
 	assert.Contains(t, aws.ToString(inv.Handshake.Arn), "/invite/")
 
 	dh, err := c.DescribeHandshake(ctx, &organizations.DescribeHandshakeInput{HandshakeId: aws.String(hid)})
@@ -348,7 +333,6 @@ func TestOrganizations_Handshakes(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, orgtypes.HandshakeStateAccepted, acc.Handshake.State)
 
-	// A fresh invite for decline/cancel paths.
 	inv2, err := c.InviteAccountToOrganization(ctx, &organizations.InviteAccountToOrganizationInput{
 		Target: &orgtypes.HandshakeParty{Id: aws.String("111122223333"), Type: orgtypes.HandshakePartyTypeAccount},
 	})
@@ -367,14 +351,10 @@ func TestOrganizations_Handshakes(t *testing.T) {
 	assert.Equal(t, orgtypes.HandshakeStateCanceled, can.Handshake.State)
 }
 
-// TestOrganizations_DelegatedAdminAndServiceAccess covers
-// Register/Deregister/List delegated administrators, ListDelegatedServices,
-// Enable/Disable/List AWS service access.
 func TestOrganizations_DelegatedAdminAndServiceAccess(t *testing.T) {
 	c := orgClient()
 	sp := "config.amazonaws.com"
 
-	// A member account to delegate to.
 	ca, err := c.CreateAccount(ctx, &organizations.CreateAccountInput{
 		AccountName: aws.String("Audit"),
 		Email:       aws.String("audit@sim.invalid"),
@@ -421,7 +401,6 @@ func TestOrganizations_DelegatedAdminAndServiceAccess(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestOrganizations_ResourcePolicy covers Put/Describe/Delete resource policy.
 func TestOrganizations_ResourcePolicy(t *testing.T) {
 	c := orgClient()
 	content := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"AWS":"*"},"Action":"organizations:DescribeOrganization","Resource":"*"}]}`
@@ -443,7 +422,6 @@ func TestOrganizations_ResourcePolicy(t *testing.T) {
 	require.Error(t, err)
 }
 
-// TestOrganizations_Tags covers TagResource, ListTagsForResource, UntagResource.
 func TestOrganizations_Tags(t *testing.T) {
 	c := orgClient()
 	root := orgRootID(t, c)
@@ -478,10 +456,9 @@ func TestOrganizations_Tags(t *testing.T) {
 	assert.Equal(t, "env", aws.ToString(lt2.Tags[0].Key))
 }
 
-// TestOrganizations_CreateEnableAllFeatures covers EnableAllFeatures. CreateOrganization
-// and DeleteOrganization are exercised against a teardown-restore cycle in
-// TestOrganizations_CreateDeleteOrganization to avoid disturbing the default org
-// other tests rely on.
+// TestOrganizations_EnableAllFeatures covers EnableAllFeatures;
+// TestOrganizations_zzCreateDeleteOrganization covers the organization's
+// deletion and creation without disturbing the default one other tests use.
 func TestOrganizations_EnableAllFeatures(t *testing.T) {
 	c := orgClient()
 	out, err := c.EnableAllFeatures(ctx, &organizations.EnableAllFeaturesInput{})
@@ -491,22 +468,20 @@ func TestOrganizations_EnableAllFeatures(t *testing.T) {
 	assert.Contains(t, aws.ToString(out.Handshake.Arn), "/enable_all_features/")
 }
 
-// TestOrganizations_CreateDeleteOrganization deletes the default org then
-// recreates it, covering DeleteOrganization + CreateOrganization. It runs last
-// alphabetically-isolated state is restored before returning so other suites
-// (and reruns) still see the default org.
+// TestOrganizations_zzCreateDeleteOrganization deletes the default
+// organization and recreates it, restoring it for other suites and reruns; the
+// name sorts it last.
 func TestOrganizations_zzCreateDeleteOrganization(t *testing.T) {
 	c := orgClient()
 
-	// Deleting requires an org to exist (the default one does).
 	_, err := c.DeleteOrganization(ctx, &organizations.DeleteOrganizationInput{})
 	require.NoError(t, err)
 
-	// Now describing fails — the account is no longer in an org.
+	// The account belongs to no organization now.
 	_, err = c.DescribeOrganization(ctx, &organizations.DescribeOrganizationInput{})
 	require.Error(t, err)
 
-	// Recreate so the default org (and IAM PrincipalOrgID) is restored.
+	// Recreate the default organization, which aws:PrincipalOrgID needs.
 	created, err := c.CreateOrganization(ctx, &organizations.CreateOrganizationInput{FeatureSet: orgtypes.OrganizationFeatureSetAll})
 	require.NoError(t, err)
 	require.NotNil(t, created.Organization)

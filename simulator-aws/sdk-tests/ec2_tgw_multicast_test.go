@@ -10,10 +10,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// tgwMcastFixture builds a transit gateway, a multicast domain on it, a VPC +
-// subnet, and a VPC attachment — the shared scaffolding the multicast and
-// policy-table tests associate against. Returns (tgwID, domainID, attID,
-// subnetID) and registers tolerant cleanups.
+// tgwMcastFixture builds a transit gateway with a multicast domain and a VPC
+// attachment, and returns tgwID, domainID, attID and subnetID.
 func tgwMcastFixture(t *testing.T) (string, string, string, string) {
 	t.Helper()
 	client := ec2Client()
@@ -68,8 +66,6 @@ func tgwMcastFixture(t *testing.T) (string, string, string, string) {
 	return tgwID, domainID, attID, subnetID
 }
 
-// TestEC2_TGWMulticastDomainAssociations exercises associate/disassociate/accept/
-// reject of a multicast domain plus GetTransitGatewayMulticastDomainAssociations.
 func TestEC2_TGWMulticastDomainAssociations(t *testing.T) {
 	t.Parallel()
 	client := ec2Client()
@@ -112,7 +108,7 @@ func TestEC2_TGWMulticastDomainAssociations(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, attID, aws.ToString(disassoc.Associations.TransitGatewayAttachmentId))
 
-	// Re-associate so reject has something to act on.
+	// Associate again so reject has something to act on.
 	_, err = client.AssociateTransitGatewayMulticastDomain(ctx, &ec2.AssociateTransitGatewayMulticastDomainInput{
 		TransitGatewayMulticastDomainId: aws.String(domainID),
 		TransitGatewayAttachmentId:      aws.String(attID),
@@ -128,8 +124,6 @@ func TestEC2_TGWMulticastDomainAssociations(t *testing.T) {
 	assert.Equal(t, attID, aws.ToString(rejected.Associations.TransitGatewayAttachmentId))
 }
 
-// TestEC2_TGWMulticastGroups exercises register/deregister of multicast group
-// members and sources plus SearchTransitGatewayMulticastGroups.
 func TestEC2_TGWMulticastGroups(t *testing.T) {
 	t.Parallel()
 	client := ec2Client()
@@ -194,8 +188,6 @@ func TestEC2_TGWMulticastGroups(t *testing.T) {
 	assert.Contains(t, dsrc.DeregisteredMulticastGroupSources.DeregisteredNetworkInterfaceIds, sourceENI)
 }
 
-// TestEC2_TGWPolicyTable exercises the policy-table CRUD, association, and
-// entries read-back path.
 func TestEC2_TGWPolicyTable(t *testing.T) {
 	t.Parallel()
 	client := ec2Client()
@@ -255,11 +247,9 @@ func TestEC2_TGWPolicyTable(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestEC2_TGWPolicyTableEntries drives the policy-rule lifecycle a policy table
-// exists for: rules are created against a target route table, modified in
-// place, read back in rule-number order, and deleted. The entries read used to
-// answer with a fixed empty list because the API modelled no way to put a rule
-// in a table; it now reports what the table actually holds.
+// TestEC2_TGWPolicyTableEntries creates policy rules against a target route
+// table, modifies them in place, reads them back in rule-number order and
+// deletes them.
 func TestEC2_TGWPolicyTableEntries(t *testing.T) {
 	t.Parallel()
 	client := ec2Client()
@@ -276,7 +266,6 @@ func TestEC2_TGWPolicyTableEntries(t *testing.T) {
 		})
 	})
 
-	// The transit gateway's own default route table is the forwarding target.
 	rts, err := client.DescribeTransitGatewayRouteTables(ctx, &ec2.DescribeTransitGatewayRouteTablesInput{
 		Filters: []types.Filter{{Name: aws.String("transit-gateway-id"), Values: []string{tgwID}}},
 	})
@@ -308,8 +297,8 @@ func TestEC2_TGWPolicyTableEntries(t *testing.T) {
 	require.NotNil(t, created.TransitGatewayPolicyTableEntry.PolicyRule.MetaData)
 	assert.Equal(t, "prod", aws.ToString(created.TransitGatewayPolicyTableEntry.PolicyRule.MetaData.MetaDataValue))
 
-	// A second rule with a lower number, to prove read-back is ordered by rule
-	// number numerically rather than by insertion or string order.
+	// A lower-numbered second rule shows read-back ordered numerically, not by
+	// insertion or string order.
 	_, err = client.CreateTransitGatewayPolicyTableEntry(ctx, &ec2.CreateTransitGatewayPolicyTableEntryInput{
 		TransitGatewayPolicyTableId: aws.String(ptID),
 		PolicyRuleNumber:            aws.String("9"),
@@ -328,7 +317,7 @@ func TestEC2_TGWPolicyTableEntries(t *testing.T) {
 	assert.Equal(t, "9", aws.ToString(listed.TransitGatewayPolicyTableEntries[0].PolicyRuleNumber))
 	assert.Equal(t, "10", aws.ToString(listed.TransitGatewayPolicyTableEntries[1].PolicyRuleNumber))
 
-	// A duplicate rule number is rejected rather than silently replacing.
+	// A duplicate rule number is rejected rather than replacing the rule.
 	_, err = client.CreateTransitGatewayPolicyTableEntry(ctx, &ec2.CreateTransitGatewayPolicyTableEntryInput{
 		TransitGatewayPolicyTableId: aws.String(ptID),
 		PolicyRuleNumber:            aws.String("10"),
@@ -364,7 +353,7 @@ func TestEC2_TGWPolicyTableEntries(t *testing.T) {
 	require.Len(t, after.TransitGatewayPolicyTableEntries, 1)
 	assert.Equal(t, "9", aws.ToString(after.TransitGatewayPolicyTableEntries[0].PolicyRuleNumber))
 
-	// Deleting a rule that is gone is an error, not a silent success.
+	// Deleting a rule already gone is an error.
 	_, err = client.DeleteTransitGatewayPolicyTableEntry(ctx, &ec2.DeleteTransitGatewayPolicyTableEntryInput{
 		TransitGatewayPolicyTableId: aws.String(ptID),
 		PolicyRuleNumber:            aws.String("10"),
@@ -372,7 +361,6 @@ func TestEC2_TGWPolicyTableEntries(t *testing.T) {
 	require.Error(t, err)
 }
 
-// TestEC2_TGWMeteringPolicy exercises metering policy CRUD + entries.
 func TestEC2_TGWMeteringPolicy(t *testing.T) {
 	t.Parallel()
 	client := ec2Client()
@@ -435,14 +423,12 @@ func TestEC2_TGWMeteringPolicy(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestEC2_TGWRouteTableAnnouncement exercises the route table announcement
-// create/describe/delete path (needs a peering attachment).
+// TestEC2_TGWRouteTableAnnouncement needs a peering attachment.
 func TestEC2_TGWRouteTableAnnouncement(t *testing.T) {
 	t.Parallel()
 	client := ec2Client()
 	tgwID, _, _, _ := tgwMcastFixture(t)
 
-	// A second transit gateway + a peering attachment between them.
 	peerTGW, err := client.CreateTransitGateway(ctx, &ec2.CreateTransitGatewayInput{})
 	require.NoError(t, err)
 	peerTGWID := aws.ToString(peerTGW.TransitGateway.TransitGatewayId)

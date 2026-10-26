@@ -26,11 +26,9 @@ func TestBudgetsCRUDSDK(t *testing.T) {
 	c := budgetsClient()
 	const name = "sdk-budget-crud"
 
-	// Implicit AccountId path is what terraform-provider-aws uses with
-	// skip_requesting_account_id = true, but the aws-sdk-go-v2 client itself
-	// enforces AccountId as a required field, so we test the server-side
-	// fallback via a manual HTTP request and the SDK path with an explicit
-	// account ID.
+	// terraform-provider-aws with skip_requesting_account_id = true omits
+	// AccountId, which aws-sdk-go-v2 requires; the raw-request test below covers
+	// the omission, and this one passes it.
 	_, err := c.CreateBudget(ctx, &budgets.CreateBudgetInput{
 		AccountId: aws.String(budgetsAccountID),
 		Budget: &btypes.Budget{
@@ -147,9 +145,8 @@ func TestBudgetsCRUDSDK(t *testing.T) {
 func TestBudgetsCreateBudgetDerivesAccountId(t *testing.T) {
 	t.Parallel()
 	// terraform-provider-aws with skip_requesting_account_id = true sends
-	// CreateBudget without AccountId. The SDK validates it locally, so we
-	// exercise the server-side fallback through a raw HTTP POST with the
-	// awsJson1.1 envelope.
+	// CreateBudget without AccountId, which the SDK refuses locally, so post the
+	// awsJson1.1 envelope directly.
 	reqBody, err := json.Marshal(map[string]any{
 		"Budget": map[string]any{
 			"BudgetName": "sdk-budget-implicit-account",
@@ -192,9 +189,8 @@ func TestBudgetsCreateBudgetDerivesAccountId(t *testing.T) {
 
 func TestBudgetsDescribeAndDeleteDeriveAccountId(t *testing.T) {
 	t.Parallel()
-	// The SDK marks AccountId as required for DescribeBudget/DeleteBudget too,
-	// but the simulator should derive it from the configured account when it is
-	// omitted. Exercise those paths through raw HTTP calls matching the provider.
+	// The SDK requires AccountId on DescribeBudget and DeleteBudget too; the
+	// service takes the caller's account when it is omitted.
 	const name = "sdk-budget-implicit-describe-delete"
 	createBody, err := json.Marshal(map[string]any{
 		"AccountId": budgetsAccountID,

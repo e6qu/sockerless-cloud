@@ -11,11 +11,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestEC2_RunInstancesClientTokenIdempotency pins that a RunInstances retried
-// with the same ClientToken replays the original reservation instead of
-// launching a duplicate batch. The aws-sdk-go-v2 auto-fills ClientToken (Smithy
-// idempotencyToken trait) and re-sends it on every retry, so without server-side
-// dedup a transient retry doubles the instance count.
+// TestEC2_RunInstancesClientTokenIdempotency expects a RunInstances retried
+// with the same ClientToken to replay the original reservation. aws-sdk-go-v2
+// fills ClientToken (the Smithy idempotencyToken trait) and resends it on
+// every retry, so without deduplication a retry doubles the instances.
 func TestEC2_RunInstancesClientTokenIdempotency(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -55,13 +54,11 @@ func TestEC2_RunInstancesClientTokenIdempotency(t *testing.T) {
 	firstIDs := ids(first)
 	require.Len(t, firstIDs, 2)
 
-	// Re-issue with the same ClientToken — the retry path a loaded client takes.
 	second, err := c.RunInstances(ctx, in)
 	require.NoError(t, err)
 	assert.Equal(t, firstIDs, ids(second), "same ClientToken replays the original reservation")
 	assert.Equal(t, aws.ToString(first.ReservationId), aws.ToString(second.ReservationId), "same reservation id")
 
-	// And no duplicate instances exist under the tag.
 	desc, err := c.DescribeInstances(ctx, &ec2.DescribeInstancesInput{
 		Filters: []ec2types.Filter{{Name: aws.String("tag:idem-test"), Values: []string{"yes"}}},
 	})

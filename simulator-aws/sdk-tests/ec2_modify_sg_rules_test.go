@@ -10,9 +10,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestEC2_ModifySecurityGroupRules verifies an in-place update of a security
-// group rule's attributes (the path the AWS provider uses to change an existing
-// rule rather than revoke + re-authorize).
+// TestEC2_ModifySecurityGroupRules covers the in-place rule update
+// terraform-provider-aws uses instead of revoke and re-authorize.
 func TestEC2_ModifySecurityGroupRules(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -61,7 +60,6 @@ func TestEC2_ModifySecurityGroupRules(t *testing.T) {
 	assert.Equal(t, int32(443), aws.ToInt32(got.FromPort))
 	assert.Equal(t, "10.0.0.0/8", aws.ToString(got.CidrIpv4))
 
-	// Unknown rule id is rejected.
 	_, err = c.ModifySecurityGroupRules(ctx, &ec2.ModifySecurityGroupRulesInput{
 		GroupId: sg.GroupId,
 		SecurityGroupRules: []ec2types.SecurityGroupRuleUpdate{{

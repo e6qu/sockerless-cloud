@@ -25,9 +25,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// s3ControlRole registers a role the control plane can hand work to, and
-// returns its ARN. Several control-plane resources refuse to reference a role
-// that does not exist, so the tests create real ones.
+// s3ControlRole creates a role the control plane can hand work to and returns
+// its ARN; several control-plane resources refuse a role that does not exist.
 func s3ControlRole(t *testing.T, name string) string {
 	t.Helper()
 	ic := iam.NewFromConfig(sdkConfig(), func(o *iam.Options) { o.BaseEndpoint = aws.String(baseURL) })
@@ -42,8 +41,8 @@ func s3ControlRole(t *testing.T, name string) string {
 	return aws.ToString(out.Role.Arn)
 }
 
-// s3ControlCallerARN is the identity the suite's credentials resolve to, read
-// from STS the way any caller discovers its own principal.
+// s3ControlCallerARN is the suite's identity, read from STS as any caller
+// discovers its own principal.
 func s3ControlCallerARN(t *testing.T) string {
 	t.Helper()
 	stsClient := sts.NewFromConfig(sdkConfig(), func(o *sts.Options) {
@@ -54,9 +53,8 @@ func s3ControlCallerARN(t *testing.T) string {
 	return aws.ToString(out.Arn)
 }
 
-// TestS3Control_StorageLensConfiguration covers a Storage Lens dashboard: the
-// configuration comes back as it was written, its tags round-trip, and the
-// listing reports it.
+// TestS3Control_StorageLensConfiguration expects a Storage Lens configuration
+// back as written, its tags to round-trip, and the listing to hold it.
 func TestS3Control_StorageLensConfiguration(t *testing.T) {
 	t.Parallel()
 	sc := s3ControlClient()
@@ -115,8 +113,6 @@ func TestS3Control_StorageLensConfiguration(t *testing.T) {
 	require.Error(t, err)
 }
 
-// TestS3Control_StorageLensGroup covers a custom segment: create, read back
-// the filter as written, update it, list, delete.
 func TestS3Control_StorageLensGroup(t *testing.T) {
 	t.Parallel()
 	sc := s3ControlClient()
@@ -178,9 +174,8 @@ func TestS3Control_StorageLensGroup(t *testing.T) {
 	require.Error(t, err)
 }
 
-// TestS3Control_AccessGrants walks the whole Access Grants flow: an instance,
-// a location behind a real role, a grant inside it, and the credentials
-// GetDataAccess vends by assuming that role.
+// TestS3Control_AccessGrants covers an instance, a location behind a role, a
+// grant in it, and the credentials GetDataAccess vends by assuming the role.
 func TestS3Control_AccessGrants(t *testing.T) {
 	sc := s3ControlClient()
 	s3c := s3Client()
@@ -199,7 +194,7 @@ func TestS3Control_AccessGrants(t *testing.T) {
 			AccountId: aws.String(s3ObjectLambdaAccount)})
 	})
 
-	// A second instance in the same account is a conflict: there is one.
+	// An account has one Access Grants instance; a second is a conflict.
 	_, err = sc.CreateAccessGrantsInstance(ctx, &s3control.CreateAccessGrantsInstanceInput{
 		AccountId: aws.String(s3ObjectLambdaAccount)})
 	require.Error(t, err)
@@ -221,16 +216,15 @@ func TestS3Control_AccessGrants(t *testing.T) {
 			AccountId: aws.String(s3ObjectLambdaAccount), AccessGrantsLocationId: aws.String(locationID)})
 	})
 
-	// A location behind a role that does not exist is rejected: nothing could
-	// ever reach its data.
+	// A location behind a role that does not exist is refused.
 	_, err = sc.CreateAccessGrantsLocation(ctx, &s3control.CreateAccessGrantsLocationInput{
 		AccountId:     aws.String(s3ObjectLambdaAccount),
 		LocationScope: aws.String("s3://other/*"),
 		IAMRoleArn:    aws.String("arn:aws:iam::123456789012:role/never-created")})
 	require.Error(t, err)
 
-	// The grant is made to the identity the test calls as, because
-	// GetDataAccess redeems a grant on behalf of its caller.
+	// GetDataAccess redeems a grant on behalf of its caller, so the grant goes to
+	// the test's identity.
 	grantee := s3ControlCallerARN(t)
 	grant, err := sc.CreateAccessGrant(ctx, &s3control.CreateAccessGrantInput{
 		AccountId:              aws.String(s3ObjectLambdaAccount),
@@ -260,13 +254,11 @@ func TestS3Control_AccessGrants(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, grants.AccessGrantsList, 1)
 
-	// Filtering by a permission nothing was granted returns nothing.
 	writeGrants, err := sc.ListAccessGrants(ctx, &s3control.ListAccessGrantsInput{
 		AccountId: aws.String(s3ObjectLambdaAccount), Permission: s3ctypes.PermissionWrite})
 	require.NoError(t, err)
 	assert.Empty(t, writeGrants.AccessGrantsList)
 
-	// Redeeming the grant vends credentials for the location's role.
 	access, err := sc.GetDataAccess(ctx, &s3control.GetDataAccessInput{
 		AccountId:  aws.String(s3ObjectLambdaAccount),
 		Target:     aws.String(fmt.Sprintf("s3://%s/data/report.csv", bucket)),
@@ -278,7 +270,7 @@ func TestS3Control_AccessGrants(t *testing.T) {
 	assert.NotEmpty(t, aws.ToString(access.Credentials.SessionToken))
 	assert.Equal(t, scope, aws.ToString(access.MatchedGrantTarget))
 
-	// A target no grant covers is denied rather than served credentials.
+	// GetDataAccess for a target no grant covers is denied.
 	_, err = sc.GetDataAccess(ctx, &s3control.GetDataAccessInput{
 		AccountId:  aws.String(s3ObjectLambdaAccount),
 		Target:     aws.String(fmt.Sprintf("s3://%s/secrets/key.pem", bucket)),
@@ -286,8 +278,7 @@ func TestS3Control_AccessGrants(t *testing.T) {
 	})
 	require.Error(t, err)
 
-	// The instance owns its grants and locations, so it will not delete while
-	// they exist.
+	// The instance does not delete while it holds grants and locations.
 	_, err = sc.DeleteAccessGrantsInstance(ctx, &s3control.DeleteAccessGrantsInstanceInput{
 		AccountId: aws.String(s3ObjectLambdaAccount)})
 	require.Error(t, err)
@@ -303,9 +294,9 @@ func TestS3Control_AccessGrants(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestS3Control_MultiRegionAccessPoint covers the asynchronous endpoint: the
-// create returns a token whose poll reports what happened, the endpoint reads
-// back, and a routes update moves the traffic dials.
+// TestS3Control_MultiRegionAccessPoint expects the create to return a token
+// whose poll reports the outcome, the endpoint to read back, and a routes
+// update to move the traffic dials.
 func TestS3Control_MultiRegionAccessPoint(t *testing.T) {
 	t.Parallel()
 	sc := s3ControlClient()
@@ -401,9 +392,8 @@ func TestS3Control_MultiRegionAccessPoint(t *testing.T) {
 	require.NotEmpty(t, listed.AccessPoints)
 }
 
-// TestS3Control_MultiRegionAccessPointCreateReportsFailure holds the
-// asynchronous contract: a create that cannot succeed is still accepted, and
-// the poll is where the caller learns it failed.
+// TestS3Control_MultiRegionAccessPointCreateReportsFailure expects a create
+// that cannot succeed to be accepted, with the failure reported by the poll.
 func TestS3Control_MultiRegionAccessPointCreateReportsFailure(t *testing.T) {
 	t.Parallel()
 	sc := s3ControlClient()
@@ -414,15 +404,14 @@ func TestS3Control_MultiRegionAccessPointCreateReportsFailure(t *testing.T) {
 			Regions: []s3ctypes.Region{{Bucket: aws.String("bucket-that-was-never-created")}},
 		},
 	})
-	// A region naming a bucket that does not exist is rejected outright,
-	// because the request itself is not well formed.
+	// A region naming a bucket that does not exist makes the request malformed, so
+	// the create is refused outright.
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "bucket-that-was-never-created does not exist")
 	assert.Nil(t, created)
 }
 
-// TestS3Control_BatchJob runs a real batch job: the manifest lists objects,
-// the job tags each one, and the tags are readable afterwards.
+// TestS3Control_BatchJob expects a job to tag each object its manifest lists.
 func TestS3Control_BatchJob(t *testing.T) {
 	t.Parallel()
 	sc := s3ControlClient()
@@ -477,8 +466,8 @@ func TestS3Control_BatchJob(t *testing.T) {
 	jobID := aws.ToString(created.JobId)
 	require.NotEmpty(t, jobID)
 
-	// A job created awaiting confirmation is prepared — its manifest read —
-	// and then waits, running nothing, until the caller confirms it.
+	// A job created awaiting confirmation reads its manifest and then runs nothing
+	// until confirmed.
 	suspended := awaitS3BatchJob(t, sc, jobID, func(job *s3ctypes.JobDescriptor) bool {
 		return job.Status == s3ctypes.JobStatusSuspended
 	})
@@ -521,8 +510,6 @@ func TestS3Control_BatchJob(t *testing.T) {
 	require.Error(t, err, "a complete job cannot be cancelled")
 	assert.Contains(t, err.Error(), "JobStatusException")
 
-	// The job actually tagged the objects, which is what makes the progress
-	// report mean something.
 	for _, key := range []string{"one.txt", "two.txt"} {
 		tags, err := s3c.GetObjectTagging(ctx, &s3.GetObjectTaggingInput{
 			Bucket: aws.String(bucket), Key: aws.String(key)})
@@ -555,7 +542,7 @@ func TestS3Control_BatchJob(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, cleared.Tags)
 
-	// A finished job cannot be moved to another status; its work is done.
+	// A finished job cannot move to another status.
 	_, err = sc.UpdateJobStatus(ctx, &s3control.UpdateJobStatusInput{
 		AccountId: aws.String(s3ObjectLambdaAccount), JobId: aws.String(jobID),
 		RequestedJobStatus: s3ctypes.RequestedJobStatusCancelled})
@@ -568,8 +555,6 @@ func TestS3Control_BatchJob(t *testing.T) {
 	require.NotEmpty(t, listed.Jobs)
 }
 
-// TestS3Control_AccessPointScope covers narrowing an access point to a set of
-// prefixes and operations.
 func TestS3Control_AccessPointScope(t *testing.T) {
 	t.Parallel()
 	sc := s3ControlClient()
@@ -587,7 +572,7 @@ func TestS3Control_AccessPointScope(t *testing.T) {
 			AccountId: aws.String(s3ObjectLambdaAccount), Name: aws.String(apName)})
 	})
 
-	// A fresh access point has no scope, so it restricts nothing.
+	// A new access point has no scope and restricts nothing.
 	empty, err := sc.GetAccessPointScope(ctx, &s3control.GetAccessPointScopeInput{
 		AccountId: aws.String(s3ObjectLambdaAccount), Name: aws.String(apName)})
 	require.NoError(t, err)
@@ -624,8 +609,8 @@ func TestS3Control_AccessPointScope(t *testing.T) {
 	}
 }
 
-// TestS3Control_ListRegionalBuckets reports the account's regional buckets,
-// and reports nothing for an Outpost this simulator does not serve.
+// TestS3Control_ListRegionalBuckets expects the account's regional buckets,
+// and nothing for an Outpost the simulator does not serve.
 func TestS3Control_ListRegionalBuckets(t *testing.T) {
 	t.Parallel()
 	sc := s3ControlClient()
@@ -654,12 +639,9 @@ func TestS3Control_ListRegionalBuckets(t *testing.T) {
 		"the account has no buckets on that Outpost")
 }
 
-// TestS3Control_ResourceTagging covers the tagging trio the control plane
-// shares across its resources, against a Storage Lens group. The three
-// operations are one path under three methods:
-// "POST /v20180820/tags/{resourceArn...}",
-// "GET /v20180820/tags/{resourceArn...}" and
-// "DELETE /v20180820/tags/{resourceArn...}".
+// TestS3Control_ResourceTagging covers TagResource, ListTagsForResource and
+// UntagResource on a Storage Lens group: one path,
+// /v20180820/tags/{resourceArn...}, under POST, GET and DELETE.
 func TestS3Control_ResourceTagging(t *testing.T) {
 	t.Parallel()
 	sc := s3ControlClient()
@@ -704,8 +686,7 @@ func TestS3Control_ResourceTagging(t *testing.T) {
 	require.Len(t, remaining.Tags, 1)
 	assert.Equal(t, "team", aws.ToString(remaining.Tags[0].Key))
 
-	// Tagging something that does not exist is refused rather than recorded
-	// against an ARN nothing can read back.
+	// Tagging a resource that does not exist is refused.
 	_, err = sc.TagResource(ctx, &s3control.TagResourceInput{
 		AccountId: aws.String(s3ObjectLambdaAccount),
 		ResourceArn: aws.String(fmt.Sprintf(
@@ -716,11 +697,10 @@ func TestS3Control_ResourceTagging(t *testing.T) {
 	assert.Contains(t, err.Error(), "NotFoundException")
 }
 
-// TestS3Control_StorageLensConfigurationTagging covers a Storage Lens
-// configuration's tags, which its own tagging operations keep as the one tag
-// set: PutStorageLensConfigurationTagging replaces it and
-// DeleteStorageLensConfigurationTagging empties it. TagResource and
-// ListTagsForResource do not serve the configuration type and refuse its ARN.
+// TestS3Control_StorageLensConfigurationTagging expects a Storage Lens
+// configuration's tags to be one set that PutStorageLensConfigurationTagging
+// replaces and DeleteStorageLensConfigurationTagging empties; TagResource and
+// ListTagsForResource refuse the configuration's ARN.
 func TestS3Control_StorageLensConfigurationTagging(t *testing.T) {
 	t.Parallel()
 	sc := s3ControlClient()
@@ -1082,8 +1062,8 @@ func TestS3Control_BatchJobCancelledBeforeConfirmation(t *testing.T) {
 	assert.Contains(t, err.Error(), "JobStatusException")
 }
 
-// awaitS3BatchJob polls DescribeJob, the only view Amazon S3 Batch Operations
-// gives of a job's progress, until done accepts the job.
+// awaitS3BatchJob polls DescribeJob, the only view S3 Batch Operations gives of
+// a job's progress, until done accepts the job.
 func awaitS3BatchJob(t *testing.T, sc *s3control.Client, jobID string, done func(*s3ctypes.JobDescriptor) bool) *s3ctypes.JobDescriptor {
 	t.Helper()
 	var job *s3ctypes.JobDescriptor
@@ -1108,15 +1088,13 @@ func s3BatchJobSettled(job *s3ctypes.JobDescriptor) bool {
 	return false
 }
 
-// s3BatchReportResults is one results file of a completion report.
 type s3BatchReportResults struct {
 	status string
 	rows   []string
 }
 
 // s3BatchCompletionReport reads the completion report under base: its
-// manifest.json, and each results file it lists, whose MD5 checksum must
-// match.
+// manifest.json and each results file it lists, checking each file's MD5.
 func s3BatchCompletionReport(t *testing.T, s3c *s3.Client, bucket, base string) []s3BatchReportResults {
 	t.Helper()
 	read := func(key string) []byte {

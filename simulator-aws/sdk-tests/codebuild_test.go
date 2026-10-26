@@ -23,15 +23,12 @@ func codebuildClient() *codebuild.Client {
 	})
 }
 
-// cbBuildCompletionBudget bounds every wait for an AWS CodeBuild build to reach
-// a terminal state. A build is real container work — the build environment image
-// is created, the buildspec commands run inside it, and the build settles when
-// that container exits — so the budget is really a budget for the container
-// engine's create/start/wait/remove alongside whatever else is running on the
-// host, and it stretches by an order of magnitude when the engine is busy.
-// Real AWS CodeBuild builds take minutes; the API promises nothing faster, so a
-// ceiling of seconds would be asserting on host speed rather than on the
-// service's behavior.
+// cbBuildCompletionBudget bounds each wait for an AWS CodeBuild build to
+// finish. A build is real container work (create the environment image's
+// container, run the buildspec, wait for exit), so the budget covers the
+// container engine and whatever else shares the host, which stretches it
+// tenfold when busy. A ceiling of seconds would test host speed rather than
+// the service.
 const cbBuildCompletionBudget = 4 * time.Minute
 
 func TestCodeBuild_ProjectCRUD_SDK(t *testing.T) {
@@ -93,7 +90,6 @@ func TestCodeBuild_ProjectCRUD_SDK(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "updated", aws.ToString(get.Projects[0].Description))
 
-	// Tags are set on create and accessible via BatchGetProjects.
 	get, err = c.BatchGetProjects(ctx, &codebuild.BatchGetProjectsInput{
 		Names: []string{"cb-sdk-project"},
 	})
@@ -139,8 +135,8 @@ func TestCodeBuild_BuildLifecycle_SDK(t *testing.T) {
 	require.NotNil(t, startResp.Build)
 	buildID := aws.ToString(startResp.Build.Id)
 	assert.NotEmpty(t, buildID)
-	// CloudWatch Logs are enabled by default, in the project's group under
-	// a stream named by the build's id.
+	// CloudWatch Logs are on by default, in the project's group under a stream
+	// named by the build's id.
 	require.NotNil(t, startResp.Build.Logs)
 	require.NotNil(t, startResp.Build.Logs.CloudWatchLogs)
 	assert.Equal(t, cbtypes.LogsConfigStatusTypeEnabled, startResp.Build.Logs.CloudWatchLogs.Status)
@@ -159,13 +155,10 @@ func TestCodeBuild_BuildLifecycle_SDK(t *testing.T) {
 	}, cbBuildCompletionBudget, 100*time.Millisecond)
 	assert.Equal(t, buildID, aws.ToString(build.Id))
 	assert.NotEmpty(t, build.Phases)
-	// Log enablement is the real LogsLocation member cloudWatchLogs.status
-	// (the sim runs builds without a CloudWatch sink, so DISABLED).
 	require.NotNil(t, build.Logs)
 	require.NotNil(t, build.Logs.CloudWatchLogs)
 	assert.Equal(t, cbtypes.LogsConfigStatusTypeEnabled, build.Logs.CloudWatchLogs.Status)
 
-	// The build environment's output is in that stream.
 	logEvents, err := cwLogsClient().FilterLogEvents(ctx, &cloudwatchlogs.FilterLogEventsInput{
 		LogGroupName:   aws.String("/aws/codebuild/cb-sdk-build-project"),
 		LogStreamNames: []string{aws.ToString(build.Logs.StreamName)},
@@ -188,11 +181,9 @@ func TestCodeBuild_BuildLifecycle_SDK(t *testing.T) {
 	require.Contains(t, allBuilds.Ids, buildID)
 }
 
-// TestCodeBuild_PrivateGitSourceRealContainer_SDK proves that imported source
-// credentials are used by the real Git transport and that the checked-out
-// buildspec executes inside the configured image rather than on the simulator
-// host. The private repository, official AWS SDK, Git smart-HTTP server, and
-// Docker image are all independent boundaries.
+// TestCodeBuild_PrivateGitSourceRealContainer_SDK expects imported source
+// credentials to reach the Git transport, and the checked-out buildspec to run
+// inside the configured image rather than on the simulator host.
 func TestCodeBuild_PrivateGitSourceRealContainer_SDK(t *testing.T) {
 	t.Parallel()
 	c := codebuildClient()
@@ -314,10 +305,9 @@ phases:
 	}, cbBuildCompletionBudget, 100*time.Millisecond)
 }
 
-// TestCodeBuild_ListBuildsSortOrder_SDK pins that ListBuildsForProject honors
-// the sortOrder parameter: DESCENDING (the AWS default) returns most-recent
-// builds first, ASCENDING reverses it. The sim used to ignore sortOrder and
-// always sort alphabetically by build ID.
+// TestCodeBuild_ListBuildsSortOrder_SDK expects ListBuildsForProject to honour
+// sortOrder: DESCENDING (the default) lists the most recent builds first, and
+// ASCENDING reverses it.
 func TestCodeBuild_ListBuildsSortOrder_SDK(t *testing.T) {
 	t.Parallel()
 	c := codebuildClient()
@@ -345,7 +335,6 @@ func TestCodeBuild_ListBuildsSortOrder_SDK(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Len(t, desc.Ids, 3)
-	// DESCENDING = most-recent (last started) first.
 	assert.Equal(t, []string{ordered[2], ordered[1], ordered[0]}, desc.Ids)
 
 	asc, err := c.ListBuildsForProject(ctx, &codebuild.ListBuildsForProjectInput{
@@ -357,9 +346,8 @@ func TestCodeBuild_ListBuildsSortOrder_SDK(t *testing.T) {
 	assert.Equal(t, []string{ordered[0], ordered[1], ordered[2]}, asc.Ids)
 }
 
-// TestCodeBuild_FailedBuildPhaseContext_SDK pins where failure detail
-// lives on the Build shape: the BUILD phase's contexts (PhaseContext),
-// not the LogsLocation.
+// TestCodeBuild_FailedBuildPhaseContext_SDK expects failure detail in the BUILD
+// phase's contexts, not in LogsLocation.
 func TestCodeBuild_FailedBuildPhaseContext_SDK(t *testing.T) {
 	t.Parallel()
 	c := codebuildClient()
@@ -414,15 +402,15 @@ func TestCodeBuild_FailedBuildPhaseContext_SDK(t *testing.T) {
 	assert.Contains(t, aws.ToString(buildPhase.Contexts[0].Message), "status 7")
 }
 
-// TestCodeBuild_StopAndRetryBuild_SDK exercises StopBuild (a long-running build
-// settles to STOPPED) and RetryBuild (a new build of the same project).
+// TestCodeBuild_StopAndRetryBuild_SDK expects a stopped long-running build to
+// settle STOPPED, and RetryBuild to start a new build of the project.
 func TestCodeBuild_StopAndRetryBuild_SDK(t *testing.T) {
 	t.Parallel()
 	c := codebuildClient()
 	proj := "cb-sdk-stop-project"
 	_, err := c.CreateProject(ctx, &codebuild.CreateProjectInput{
 		Name: aws.String(proj),
-		// A short sleep keeps the build IN_PROGRESS long enough to stop it.
+		// The sleep keeps the build IN_PROGRESS long enough to stop it.
 		Source:      &cbtypes.ProjectSource{Type: cbtypes.SourceTypeNoSource, Buildspec: aws.String("version: 0.2\nphases:\n  build:\n    commands:\n      - sleep 5\n")},
 		Artifacts:   &cbtypes.ProjectArtifacts{Type: cbtypes.ArtifactsTypeNoArtifacts},
 		Environment: &cbtypes.ProjectEnvironment{Type: cbtypes.EnvironmentTypeLinuxContainer, Image: aws.String("mirror.gcr.io/library/alpine:3.21"), ComputeType: cbtypes.ComputeTypeBuildGeneral1Small},
@@ -447,11 +435,6 @@ func TestCodeBuild_StopAndRetryBuild_SDK(t *testing.T) {
 	assert.Equal(t, proj, aws.ToString(retry.Build.ProjectName))
 }
 
-// TestCodeBuild_ReportGroupsAndReports_SDK covers report-group CRUD plus the
-// reports a build produces when its buildspec references a report group:
-// CreateReportGroup, UpdateReportGroup, BatchGetReportGroups, ListReportGroups,
-// then ListReports / ListReportsForReportGroup / BatchGetReports, then
-// DeleteReportGroup.
 func TestCodeBuild_ReportGroupsAndReports_SDK(t *testing.T) {
 	t.Parallel()
 	c := codebuildClient()
@@ -488,11 +471,10 @@ func TestCodeBuild_ReportGroupsAndReports_SDK(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, lg.ReportGroups, rgArn)
 
-	// A build whose buildspec references the report group by ARN produces a
-	// Report in that group. Naming an existing group takes its ARN — a bare name
-	// would create "<project-name>-<report-group-name>" instead, which
+	// The buildspec names the existing report group by ARN; a bare name would
+	// create "<project-name>-<report-group-name>" instead, which
 	// TestCodeBuild_CodeCoverageReport_SDK covers. The build writes the JUnit XML
-	// the reports entry declares, so the report has raw data to settle from.
+	// the reports entry declares, so the report has raw data.
 	proj := "cb-sdk-report-project"
 	buildspec := cbReportBuildspec(
 		"  "+rgArn+":\n    files:\n      - '**/*'\n    base-directory: test-results\n",
@@ -544,9 +526,8 @@ func TestCodeBuild_ReportGroupsAndReports_SDK(t *testing.T) {
 	assert.Empty(t, br.ReportsNotFound)
 }
 
-// TestCodeBuild_SourceCredentials_SDK covers ImportSourceCredentials,
-// ListSourceCredentials, and DeleteSourceCredentials. The token is never echoed
-// back; only the ARN, serverType, and authType are readable.
+// TestCodeBuild_SourceCredentials_SDK expects the token never echoed back; only
+// the ARN, serverType and authType read back.
 func TestCodeBuild_SourceCredentials_SDK(t *testing.T) {
 	t.Parallel()
 	c := codebuildClient()

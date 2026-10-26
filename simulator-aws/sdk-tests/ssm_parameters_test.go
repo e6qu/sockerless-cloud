@@ -17,14 +17,10 @@ func ssmClient() *ssm.Client {
 	})
 }
 
-// TestSSMParameter_PutGetDelete pins the canonical Parameter Store
-// flow runner setups use: write a config value, fetch it from a
-// workflow step, delete it on tear-down.
 func TestSSMParameter_PutGetDelete(t *testing.T) {
 	t.Parallel()
 	c := ssmClient()
 
-	// PUT a String parameter.
 	put, err := c.PutParameter(ctx, &ssm.PutParameterInput{
 		Name:  aws.String("/runner/test-config"),
 		Type:  ssmtypes.ParameterTypeString,
@@ -33,7 +29,6 @@ func TestSSMParameter_PutGetDelete(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, int64(1), put.Version)
 
-	// GET it back.
 	got, err := c.GetParameter(ctx, &ssm.GetParameterInput{
 		Name: aws.String("/runner/test-config"),
 	})
@@ -46,7 +41,7 @@ func TestSSMParameter_PutGetDelete(t *testing.T) {
 	assert.Equal(t, "text", aws.ToString(got.Parameter.DataType))
 	assert.NotNil(t, got.Parameter.LastModifiedDate)
 
-	// PUT again without Overwrite=true must fail.
+	// A second put without Overwrite fails.
 	_, err = c.PutParameter(ctx, &ssm.PutParameterInput{
 		Name:  aws.String("/runner/test-config"),
 		Type:  ssmtypes.ParameterTypeString,
@@ -54,7 +49,7 @@ func TestSSMParameter_PutGetDelete(t *testing.T) {
 	})
 	require.Error(t, err, "second PUT without Overwrite must fail like real Parameter Store")
 
-	// PUT with Overwrite=true should succeed and bump Version.
+	// Overwrite succeeds and increments Version.
 	rotated, err := c.PutParameter(ctx, &ssm.PutParameterInput{
 		Name:      aws.String("/runner/test-config"),
 		Type:      ssmtypes.ParameterTypeString,
@@ -64,21 +59,18 @@ func TestSSMParameter_PutGetDelete(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, int64(2), rotated.Version)
 
-	// Cleanup.
 	_, err = c.DeleteParameter(ctx, &ssm.DeleteParameterInput{
 		Name: aws.String("/runner/test-config"),
 	})
 	require.NoError(t, err)
 }
 
-// TestSSMParameter_GetParametersByPath pins the hierarchy lookup that
-// terraform's `aws_ssm_parameters_by_path` data source and runner
-// bulk-fetch flows use.
+// TestSSMParameter_GetParametersByPath covers the hierarchy lookup behind
+// Terraform's aws_ssm_parameters_by_path data source.
 func TestSSMParameter_GetParametersByPath(t *testing.T) {
 	t.Parallel()
 	c := ssmClient()
 
-	// Seed: /env/prod/db, /env/prod/cache, /env/staging/db
 	for _, p := range []struct{ name, val string }{
 		{"/env/prod/db", "prod-db"},
 		{"/env/prod/cache", "prod-cache"},
@@ -93,7 +85,7 @@ func TestSSMParameter_GetParametersByPath(t *testing.T) {
 		defer c.DeleteParameter(ctx, &ssm.DeleteParameterInput{Name: aws.String(p.name)})
 	}
 
-	// Non-recursive: returns direct children of /env/prod only.
+	// Non-recursive returns the direct children of /env/prod only.
 	flat, err := c.GetParametersByPath(ctx, &ssm.GetParametersByPathInput{
 		Path:      aws.String("/env/prod"),
 		Recursive: aws.Bool(false),
@@ -107,7 +99,6 @@ func TestSSMParameter_GetParametersByPath(t *testing.T) {
 	assert.Equal(t, "prod-cache", names["/env/prod/cache"])
 	assert.NotContains(t, names, "/env/staging/db", "Non-recursive must skip staging branch")
 
-	// Recursive: returns all under /env.
 	deep, err := c.GetParametersByPath(ctx, &ssm.GetParametersByPathInput{
 		Path:      aws.String("/env"),
 		Recursive: aws.Bool(true),
@@ -134,8 +125,8 @@ func TestSSMParameter_Describe(t *testing.T) {
 	for _, p := range out.Parameters {
 		if p.Name != nil && *p.Name == "/desc/p1" {
 			found = true
-			// Tier is a ParameterMetadata member — it rides
-			// DescribeParameters, not the Get* Parameter shape.
+			// Tier is a ParameterMetadata member, read through DescribeParameters, not the
+			// Get* Parameter shape.
 			assert.Equal(t, ssmtypes.ParameterTierStandard, p.Tier)
 		}
 	}
@@ -218,11 +209,9 @@ func TestSSMParameter_GetParametersAndRemoveTags(t *testing.T) {
 	assert.NotContains(t, tagMap, "team")
 }
 
-// TestSSMParameter_ListTagsForResource verifies the ListTagsForResource round
-// trip. terraform-provider-aws calls this after PutParameter to populate the
-// resource's `tags` attribute; an absent TagList (instead of []) causes the
-// provider to treat the parameter as untagged and removes the tags on the next
-// plan, causing perpetual drift.
+// TestSSMParameter_ListTagsForResource expects an empty TagList, not an absent
+// one, for an untagged parameter: terraform-provider-aws reads it after
+// PutParameter, and an absent list makes it drop the tags on the next plan.
 func TestSSMParameter_ListTagsForResource(t *testing.T) {
 	t.Parallel()
 	c := ssmClient()
@@ -236,7 +225,6 @@ func TestSSMParameter_ListTagsForResource(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = c.DeleteParameter(ctx, &ssm.DeleteParameterInput{Name: aws.String(paramName)}) })
 
-	// No tags yet — must return an empty (non-nil) TagList.
 	emptyOut, err := c.ListTagsForResource(ctx, &ssm.ListTagsForResourceInput{
 		ResourceType: ssmtypes.ResourceTypeForTaggingParameter,
 		ResourceId:   aws.String(paramName),
@@ -245,7 +233,6 @@ func TestSSMParameter_ListTagsForResource(t *testing.T) {
 	assert.NotNil(t, emptyOut.TagList, "TagList must be non-nil (empty slice) when no tags are set")
 	assert.Empty(t, emptyOut.TagList)
 
-	// Attach tags via AddTagsToResource.
 	_, err = c.AddTagsToResource(ctx, &ssm.AddTagsToResourceInput{
 		ResourceType: ssmtypes.ResourceTypeForTaggingParameter,
 		ResourceId:   aws.String(paramName),
@@ -256,7 +243,6 @@ func TestSSMParameter_ListTagsForResource(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// ListTagsForResource must return exactly the attached tags.
 	tagOut, err := c.ListTagsForResource(ctx, &ssm.ListTagsForResourceInput{
 		ResourceType: ssmtypes.ResourceTypeForTaggingParameter,
 		ResourceId:   aws.String(paramName),

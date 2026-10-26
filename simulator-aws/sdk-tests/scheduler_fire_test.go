@@ -12,10 +12,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestScheduler_FiresECSTarget covers the Scheduler target contract: a schedule
-// whose expression becomes due must actually invoke its target. Uses a one-time
-// at() expression a few seconds in the future so the firing loop launches the
-// ECS task, which then appears in ListTasks.
+// TestScheduler_FiresECSTarget expects a schedule that comes due to invoke its
+// target: a one-time at() expression a few seconds out launches the Amazon ECS
+// task, which then appears in ListTasks.
 func TestScheduler_FiresECSTarget(t *testing.T) {
 	t.Parallel()
 	ecsc := ecsClient()

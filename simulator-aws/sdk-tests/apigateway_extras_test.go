@@ -10,9 +10,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// apigwNewRestAPIWithStage creates a REST API with a stage backed by a real
-// deployment, returning the api id and stage name — the fixture GetExport /
-// GetSdk and the documentation/gateway-response ops attach to.
+// apigwNewRestAPIWithStage creates a REST API with a stage on a real
+// deployment, which GetExport, GetSdk, documentation and gateway responses
+// attach to.
 func apigwNewRestAPIWithStage(t *testing.T, c *apigateway.Client, name string) (string, string) {
 	t.Helper()
 	api, err := c.CreateRestApi(ctx, &apigateway.CreateRestApiInput{Name: aws.String(name)})
@@ -21,7 +21,7 @@ func apigwNewRestAPIWithStage(t *testing.T, c *apigateway.Client, name string) (
 	t.Cleanup(func() {
 		_, _ = c.DeleteRestApi(ctx, &apigateway.DeleteRestApiInput{RestApiId: aws.String(apiID)})
 	})
-	// Add a GET method on the root resource so the export carries a path.
+	// A GET method on the root gives the export a path.
 	_, err = c.PutMethod(ctx, &apigateway.PutMethodInput{
 		RestApiId:         aws.String(apiID),
 		ResourceId:        api.RootResourceId,
@@ -43,9 +43,6 @@ func apigwNewRestAPIWithStage(t *testing.T, c *apigateway.Client, name string) (
 	return apiID, "prod"
 }
 
-// TestAPIGateway_BasePathMappings exercises the base-path-mapping CRUD cycle
-// under a custom domain name: CreateBasePathMapping → GetBasePathMappings →
-// GetBasePathMapping → UpdateBasePathMapping → DeleteBasePathMapping.
 func TestAPIGateway_BasePathMappings(t *testing.T) {
 	t.Parallel()
 	c := apigwClient()
@@ -90,9 +87,8 @@ func TestAPIGateway_BasePathMappings(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestAPIGateway_ClientCertificates exercises GenerateClientCertificate →
-// GetClientCertificates → GetClientCertificate → UpdateClientCertificate →
-// DeleteClientCertificate, asserting the generated PEM is real-shaped.
+// TestAPIGateway_ClientCertificates expects GenerateClientCertificate to
+// return a real PEM certificate.
 func TestAPIGateway_ClientCertificates(t *testing.T) {
 	t.Parallel()
 	c := apigwClient()
@@ -134,11 +130,6 @@ func TestAPIGateway_ClientCertificates(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestAPIGateway_Documentation exercises documentation parts and versions:
-// CreateDocumentationPart → GetDocumentationParts → GetDocumentationPart →
-// UpdateDocumentationPart → ImportDocumentationParts →
-// CreateDocumentationVersion → GetDocumentationVersions →
-// GetDocumentationVersion → UpdateDocumentationVersion → Delete{Part,Version}.
 func TestAPIGateway_Documentation(t *testing.T) {
 	t.Parallel()
 	c := apigwClient()
@@ -223,9 +214,7 @@ func TestAPIGateway_Documentation(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestAPIGateway_GatewayResponses exercises the gateway-response slice with
-// its seeded defaults: GetGatewayResponses → PutGatewayResponse →
-// GetGatewayResponse → UpdateGatewayResponse → DeleteGatewayResponse.
+// TestAPIGateway_GatewayResponses starts from the seeded default responses.
 func TestAPIGateway_GatewayResponses(t *testing.T) {
 	t.Parallel()
 	c := apigwClient()
@@ -251,7 +240,6 @@ func TestAPIGateway_GatewayResponses(t *testing.T) {
 	assert.Equal(t, "444", aws.ToString(get.StatusCode))
 	assert.False(t, get.DefaultResponse)
 
-	// A type with no override reports defaultResponse=true.
 	getDefault, err := c.GetGatewayResponse(ctx, &apigateway.GetGatewayResponseInput{
 		RestApiId:    aws.String(apiID),
 		ResponseType: apigwtypes.GatewayResponseTypeUnauthorized,
@@ -276,9 +264,6 @@ func TestAPIGateway_GatewayResponses(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestAPIGateway_AccountAndMisc exercises GetAccount → UpdateAccount, the
-// request-validator and model-template reads, and the SDK-type catalog
-// (GetSdkTypes → GetSdkType).
 func TestAPIGateway_AccountAndMisc(t *testing.T) {
 	c := apigwClient()
 
@@ -303,7 +288,6 @@ func TestAPIGateway_AccountAndMisc(t *testing.T) {
 	assert.Equal(t, "java", aws.ToString(sdkType.Id))
 	assert.NotEmpty(t, sdkType.ConfigurationProperties)
 
-	// Request validator round-trip via GetRequestValidator.
 	apiID, _ := apigwNewRestAPIWithStage(t, c, "rv-api")
 	rv, err := c.CreateRequestValidator(ctx, &apigateway.CreateRequestValidatorInput{
 		RestApiId:           aws.String(apiID),
@@ -318,7 +302,6 @@ func TestAPIGateway_AccountAndMisc(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, getRV.ValidateRequestBody)
 
-	// Model default template via GetModelTemplate.
 	model, err := c.CreateModel(ctx, &apigateway.CreateModelInput{
 		RestApiId:   aws.String(apiID),
 		Name:        aws.String("Pet"),
@@ -334,9 +317,6 @@ func TestAPIGateway_AccountAndMisc(t *testing.T) {
 	assert.Contains(t, aws.ToString(tmpl.Value), "Pet")
 }
 
-// TestAPIGateway_ExportSdkUsageTags exercises GetExport → GetSdk against a
-// deployed stage, GetUsage off a usage plan, and GetTags off a stored
-// resource ARN.
 func TestAPIGateway_ExportSdkUsageTags(t *testing.T) {
 	t.Parallel()
 	c := apigwClient()
@@ -358,7 +338,6 @@ func TestAPIGateway_ExportSdkUsageTags(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, sdk.Body)
 
-	// Usage plan with the api stage, then GetUsage.
 	up, err := c.CreateUsagePlan(ctx, &apigateway.CreateUsagePlanInput{
 		Name: aws.String("export-plan"),
 		ApiStages: []apigwtypes.ApiStage{
@@ -379,7 +358,6 @@ func TestAPIGateway_ExportSdkUsageTags(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, upID, aws.ToString(usage.UsagePlanId))
 
-	// GetTags off the REST API ARN.
 	arn := "arn:aws:apigateway:us-east-1::/restapis/" + apiID
 	tags, err := c.GetTags(ctx, &apigateway.GetTagsInput{ResourceArn: aws.String(arn)})
 	require.NoError(t, err)

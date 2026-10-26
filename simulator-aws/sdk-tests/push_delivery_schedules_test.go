@@ -51,9 +51,9 @@ func messageAttribute(m sqstypes.Message, name string) string {
 	return ""
 }
 
-// TestEventBridge_TargetDeadLetterConfigSDK proves a target EventBridge cannot
-// deliver to sends the event to the target's DeadLetterConfig queue with the
-// RULE_ARN, TARGET_ARN and ERROR_CODE attributes.
+// TestEventBridge_TargetDeadLetterConfigSDK expects an event a target cannot
+// take to go to the target's DeadLetterConfig queue with the RULE_ARN,
+// TARGET_ARN and ERROR_CODE attributes.
 func TestEventBridge_TargetDeadLetterConfigSDK(t *testing.T) {
 	t.Parallel()
 	eb := eventbridgeClient()
@@ -99,8 +99,8 @@ func TestEventBridge_TargetDeadLetterConfigSDK(t *testing.T) {
 	assert.Equal(t, "undeliverable", event["detail-type"])
 }
 
-// TestEventBridge_ScheduledRuleValidationSDK pins the PutRule rules for
-// ScheduleExpression: a schedule only on the default bus, and a rate() whose
+// TestEventBridge_ScheduledRuleValidationSDK covers PutRule's rules for
+// ScheduleExpression: schedules only on the default bus, and a rate() whose
 // unit agrees with its value.
 func TestEventBridge_ScheduledRuleValidationSDK(t *testing.T) {
 	t.Parallel()
@@ -130,9 +130,9 @@ func TestEventBridge_ScheduledRuleValidationSDK(t *testing.T) {
 	t.Cleanup(func() { _, _ = eb.DeleteRule(ctx, &eventbridge.DeleteRuleInput{Name: aws.String("eb-sdk-schedule")}) })
 }
 
-// TestScheduler_ExpressionTimezoneValidationSDK proves CreateSchedule reads
-// ScheduleExpressionTimezone: an IANA zone round-trips, an unknown one and a
-// cron() naming both day fields are refused.
+// TestScheduler_ExpressionTimezoneValidationSDK expects an IANA
+// ScheduleExpressionTimezone to round-trip, and an unknown zone or a cron()
+// naming both day fields to be refused.
 func TestScheduler_ExpressionTimezoneValidationSDK(t *testing.T) {
 	t.Parallel()
 	c := schedulerClient()
@@ -162,9 +162,9 @@ func TestScheduler_ExpressionTimezoneValidationSDK(t *testing.T) {
 	assert.Equal(t, "Asia/Tokyo", aws.ToString(got.ScheduleExpressionTimezone))
 }
 
-// TestSNS_HTTPDeliveryPolicyAndRedrivePolicySDK proves an HTTP subscription's
-// DeliveryPolicy governs its retries — numRetries after the first attempt —
-// and that the message then reaches the RedrivePolicy dead-letter queue.
+// TestSNS_HTTPDeliveryPolicyAndRedrivePolicySDK expects an HTTP subscription's
+// DeliveryPolicy to set its retries (numRetries after the first attempt), and
+// the message then to reach the RedrivePolicy dead-letter queue.
 func TestSNS_HTTPDeliveryPolicyAndRedrivePolicySDK(t *testing.T) {
 	t.Parallel()
 	var notifications atomic.Int32
@@ -235,9 +235,8 @@ func TestSNS_HTTPDeliveryPolicyAndRedrivePolicySDK(t *testing.T) {
 	require.Error(t, err, "a minDelayTarget above maxDelayTarget is refused")
 }
 
-// TestApplicationAutoScaling_ScheduledActionRunsSDK proves a scheduled action
-// takes effect at its time: an at() action a few seconds out sets the
-// scalable target's MinCapacity and MaxCapacity.
+// TestApplicationAutoScaling_ScheduledActionRunsSDK expects an at() action a
+// few seconds out to set the scalable target's capacity bounds at its time.
 func TestApplicationAutoScaling_ScheduledActionRunsSDK(t *testing.T) {
 	t.Parallel()
 	c := appAutoScalingClient()

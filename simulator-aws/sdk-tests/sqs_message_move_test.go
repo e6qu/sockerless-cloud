@@ -13,8 +13,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// sqsRedrivePolicyJSON builds the RedrivePolicy attribute string SQS stores on a
-// source queue to wire it to a dead-letter queue.
+// sqsRedrivePolicyJSON builds the RedrivePolicy that ties a source queue to a
+// dead-letter queue.
 func sqsRedrivePolicyJSON(t *testing.T, dlqARN string) string {
 	t.Helper()
 	b, err := json.Marshal(map[string]string{
@@ -25,7 +25,6 @@ func sqsRedrivePolicyJSON(t *testing.T, dlqARN string) string {
 	return string(b)
 }
 
-// sqsQueueARNFor reads the QueueArn attribute the way a real DLQ wiring flow does.
 func sqsQueueARNFor(t *testing.T, client *sqs.Client, url string) string {
 	t.Helper()
 	attrs, err := client.GetQueueAttributes(ctx, &sqs.GetQueueAttributesInput{
@@ -38,8 +37,6 @@ func sqsQueueARNFor(t *testing.T, client *sqs.Client, url string) string {
 	return arn
 }
 
-// TestSQS_DeadLetterSourceQueues asserts ListDeadLetterSourceQueues returns the
-// source queues whose RedrivePolicy targets a given dead-letter queue.
 func TestSQS_DeadLetterSourceQueues(t *testing.T) {
 	t.Parallel()
 	client := sqsClient()
@@ -58,7 +55,7 @@ func TestSQS_DeadLetterSourceQueues(t *testing.T) {
 	srcURL := aws.ToString(src.QueueUrl)
 	t.Cleanup(func() { _, _ = client.DeleteQueue(ctx, &sqs.DeleteQueueInput{QueueUrl: src.QueueUrl}) })
 
-	// A queue with no RedrivePolicy must NOT be listed.
+	// A queue without a RedrivePolicy is not listed.
 	other, err := client.CreateQueue(ctx, &sqs.CreateQueueInput{QueueName: aws.String("dls-other")})
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = client.DeleteQueue(ctx, &sqs.DeleteQueueInput{QueueUrl: other.QueueUrl}) })
@@ -70,10 +67,9 @@ func TestSQS_DeadLetterSourceQueues(t *testing.T) {
 	assert.Equal(t, []string{srcURL}, list.QueueUrls)
 }
 
-// TestSQS_MessageMoveTask exercises the full DLQ-redrive lifecycle: a message
-// landed in a dead-letter queue is redriven back to its source queue via a
-// message-move task, then the task is listed and its already-settled state is
-// reported. It also asserts that cancelling a COMPLETED task is rejected.
+// TestSQS_MessageMoveTask expects a message-move task to return a message from
+// the dead-letter queue to its source, the listing to report the settled task,
+// and a COMPLETED task to refuse cancellation.
 func TestSQS_MessageMoveTask(t *testing.T) {
 	t.Parallel()
 	client := sqsClient()
@@ -92,23 +88,21 @@ func TestSQS_MessageMoveTask(t *testing.T) {
 	srcURL := aws.ToString(src.QueueUrl)
 	t.Cleanup(func() { _, _ = client.DeleteQueue(ctx, &sqs.DeleteQueueInput{QueueUrl: src.QueueUrl}) })
 
-	// Simulate a message that has landed in the DLQ (e.g. after exceeding
-	// maxReceiveCount on the source queue).
+	// A message on the dead-letter queue, as after maxReceiveCount receives.
 	sent, err := client.SendMessage(ctx, &sqs.SendMessageInput{
 		QueueUrl:    aws.String(dlqURL),
 		MessageBody: aws.String("poisoned"),
 	})
 	require.NoError(t, err)
 
-	// Start a move task with no DestinationArn — messages redrive back to the
-	// original source queue derived from the RedrivePolicy.
+	// Without a DestinationArn, messages return to the source queue the
+	// RedrivePolicy names.
 	start, err := client.StartMessageMoveTask(ctx, &sqs.StartMessageMoveTaskInput{
 		SourceArn: aws.String(dlqARN),
 	})
 	require.NoError(t, err)
 	require.NotEmpty(t, aws.ToString(start.TaskHandle))
 
-	// The message is now receivable on the source queue.
 	recv, err := client.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{
 		QueueUrl:            aws.String(srcURL),
 		MaxNumberOfMessages: 10,
@@ -123,7 +117,6 @@ func TestSQS_MessageMoveTask(t *testing.T) {
 		"Amazon SQS redrive assigns a new message ID")
 	assert.NotEmpty(t, recv.Messages[0].Attributes["SentTimestamp"])
 
-	// The DLQ is now empty.
 	drained, err := client.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{
 		QueueUrl:            aws.String(dlqURL),
 		MaxNumberOfMessages: 10,
@@ -131,7 +124,6 @@ func TestSQS_MessageMoveTask(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, drained.Messages)
 
-	// ListMessageMoveTasks reports the settled task for the source ARN.
 	tasks, err := client.ListMessageMoveTasks(ctx, &sqs.ListMessageMoveTasksInput{
 		SourceArn: aws.String(dlqARN),
 	})
@@ -141,7 +133,6 @@ func TestSQS_MessageMoveTask(t *testing.T) {
 	assert.Equal(t, dlqARN, aws.ToString(tasks.Results[0].SourceArn))
 	assert.Equal(t, int64(1), tasks.Results[0].ApproximateNumberOfMessagesMoved)
 
-	// A COMPLETED task can't be cancelled.
 	_, err = client.CancelMessageMoveTask(ctx, &sqs.CancelMessageMoveTaskInput{
 		TaskHandle: start.TaskHandle,
 	})

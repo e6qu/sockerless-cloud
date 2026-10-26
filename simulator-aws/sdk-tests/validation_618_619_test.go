@@ -13,13 +13,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestECS_RequestValidation covers issue #618 — three documented ECS request
-// constraints the sim previously under-validated.
+// TestECS_RequestValidation covers three documented Amazon ECS request
+// constraints.
 func TestECS_RequestValidation(t *testing.T) {
 	t.Parallel()
 	c := ecsClient()
 
-	// Case 1: Fargate task def without task-level cpu/memory → ClientException.
+	// A Fargate task definition without task-level cpu and memory is a
+	// ClientException.
 	_, err := c.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{
 		Family:                  aws.String("probe-fargate-nocpu"),
 		RequiresCompatibilities: []ecstypes.Compatibility{ecstypes.CompatibilityFargate},
@@ -30,7 +31,7 @@ func TestECS_RequestValidation(t *testing.T) {
 	})
 	assert.Equal(t, "ClientException", errCode(t, err))
 
-	// Control: the same with cpu+memory is accepted.
+	// With cpu and memory it registers.
 	reg, err := c.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{
 		Family:                  aws.String("probe-fargate-ok"),
 		RequiresCompatibilities: []ecstypes.Compatibility{ecstypes.CompatibilityFargate},
@@ -43,20 +44,20 @@ func TestECS_RequestValidation(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Case 2: RunTask count > 10 → InvalidParameterException.
+	// RunTask with count over 10 is an InvalidParameterException.
 	_, err = c.RunTask(ctx, &ecs.RunTaskInput{
 		TaskDefinition: reg.TaskDefinition.TaskDefinitionArn,
 		Count:          aws.Int32(11),
 	})
 	assert.Equal(t, "InvalidParameterException", errCode(t, err))
 
-	// Case 3: DescribeTasks with an empty tasks list → InvalidParameterException.
+	// DescribeTasks with an empty list is an InvalidParameterException.
 	_, err = c.DescribeTasks(ctx, &ecs.DescribeTasksInput{Tasks: []string{}})
 	assert.Equal(t, "InvalidParameterException", errCode(t, err))
 }
 
-// TestScheduler_ExpressionValidation covers issue #619 — CreateSchedule must
-// reject a ScheduleExpression that isn't a valid at()/rate()/cron() form.
+// TestScheduler_ExpressionValidation expects CreateSchedule to refuse an
+// expression that is not an at(), rate() or cron() form.
 func TestScheduler_ExpressionValidation(t *testing.T) {
 	t.Parallel()
 	c := schedulerClient()
@@ -73,7 +74,6 @@ func TestScheduler_ExpressionValidation(t *testing.T) {
 		return err
 	}
 	assert.Equal(t, "ValidationException", errCode(t, mk("probe-badexpr", "not-a-valid-expression")))
-	// Valid forms are accepted.
 	for _, expr := range []string{"rate(5 minutes)", "cron(0 12 * * ? *)", "at(2030-01-01T00:00:00)"} {
 		require.NoError(t, mk(uniquename.New("probe-ok"), expr), "expr %q should be valid", expr)
 	}

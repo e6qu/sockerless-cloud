@@ -12,18 +12,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// cfTestPublicKeyPEM is a placeholder RSA public key in PEM form used to seed a
-// CloudFront public key that an FLE profile references.
+// cfTestPublicKeyPEM seeds the CloudFront public key an FLE profile
+// references.
 const cfTestPublicKeyPEM = "-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAtest\n-----END PUBLIC KEY-----\n"
 
-// caller returns a unique CallerReference for an SDK round-trip.
 func cfExtras2Caller() string {
 	return "sdk-extras2-" + time.Now().Format("150405.000000000")
 }
 
-// TestCloudFront_FieldLevelEncryption_Lifecycle exercises the field-level
-// encryption config CRUD (create → get → get-config → update → list → delete),
-// asserting the ETag round-trips as the If-Match precondition.
+// TestCloudFront_FieldLevelEncryption_Lifecycle expects the ETag to work as the
+// If-Match precondition.
 func TestCloudFront_FieldLevelEncryption_Lifecycle(t *testing.T) {
 	t.Parallel()
 	c := cfClient()
@@ -77,7 +75,6 @@ func TestCloudFront_FieldLevelEncryption_Lifecycle(t *testing.T) {
 	assert.Equal(t, "sdk fle config updated", aws.ToString(upd.FieldLevelEncryption.FieldLevelEncryptionConfig.Comment))
 	newETag := aws.ToString(upd.ETag)
 
-	// Stale If-Match must fail the precondition.
 	_, err = c.DeleteFieldLevelEncryptionConfig(ctx, &cloudfront.DeleteFieldLevelEncryptionConfigInput{Id: aws.String(id), IfMatch: aws.String(etag)})
 	require.Error(t, err)
 
@@ -96,15 +93,13 @@ func TestCloudFront_FieldLevelEncryption_Lifecycle(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestCloudFront_FieldLevelEncryptionProfile_Lifecycle exercises the FLE
-// profile CRUD round-trip.
 func TestCloudFront_FieldLevelEncryptionProfile_Lifecycle(t *testing.T) {
 	t.Parallel()
 	c := cfClient()
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
-	// A profile references a public key; create one first.
+	// A profile references a public key.
 	pkCaller := cfExtras2Caller()
 	pk, err := c.CreatePublicKey(ctx, &cloudfront.CreatePublicKeyInput{
 		PublicKeyConfig: &cftypes.PublicKeyConfig{
@@ -199,7 +194,6 @@ func TestCloudFront_FieldLevelEncryptionProfile_Lifecycle(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestCloudFront_KeyValueStore_Lifecycle exercises the key value store CRUD.
 func TestCloudFront_KeyValueStore_Lifecycle(t *testing.T) {
 	t.Parallel()
 	c := cfClient()
@@ -254,9 +248,8 @@ func TestCloudFront_KeyValueStore_Lifecycle(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestCloudFront_RealtimeLogConfig_Lifecycle exercises the real-time log
-// configuration CRUD. These ops identify the resource by Name or ARN in the
-// request body rather than a path label.
+// TestCloudFront_RealtimeLogConfig_Lifecycle: these operations name the
+// resource by Name or ARN in the request body rather than a path label.
 func TestCloudFront_RealtimeLogConfig_Lifecycle(t *testing.T) {
 	t.Parallel()
 	c := cfClient()
@@ -291,7 +284,6 @@ func TestCloudFront_RealtimeLogConfig_Lifecycle(t *testing.T) {
 	assert.EqualValues(t, 50, aws.ToInt64(get.RealtimeLogConfig.SamplingRate))
 	assert.Len(t, get.RealtimeLogConfig.Fields, 2)
 
-	// Look up by ARN too.
 	getByARN, err := c.GetRealtimeLogConfig(ctx, &cloudfront.GetRealtimeLogConfigInput{ARN: aws.String(arn)})
 	require.NoError(t, err)
 	assert.Equal(t, name, aws.ToString(getByARN.RealtimeLogConfig.Name))
@@ -320,8 +312,6 @@ func TestCloudFront_RealtimeLogConfig_Lifecycle(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestCloudFront_StreamingDistribution_Lifecycle exercises the streaming
-// distribution CRUD round-trip.
 func TestCloudFront_StreamingDistribution_Lifecycle(t *testing.T) {
 	t.Parallel()
 	c := cfClient()
@@ -392,7 +382,6 @@ func TestCloudFront_StreamingDistribution_Lifecycle(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestCloudFront_VpcOrigin_Lifecycle exercises the VPC origin CRUD round-trip.
 func TestCloudFront_VpcOrigin_Lifecycle(t *testing.T) {
 	t.Parallel()
 	c := cfClient()
@@ -452,8 +441,8 @@ func TestCloudFront_VpcOrigin_Lifecycle(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestCloudFront_AnycastIpList_Lifecycle exercises the Anycast IP list CRUD
-// (no update op exists for this resource).
+// TestCloudFront_AnycastIpList_Lifecycle has no update step, as the API has
+// none.
 func TestCloudFront_AnycastIpList_Lifecycle(t *testing.T) {
 	t.Parallel()
 	c := cfClient()

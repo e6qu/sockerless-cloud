@@ -10,9 +10,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestEC2_TransitGatewayCore exercises the transit gateway, its route tables,
-// VPC attachments, and the association/propagation/route plumbing — the core
-// CRUD path a typical aws_ec2_transit_gateway Terraform stack relies on.
+// TestEC2_TransitGatewayCore covers the transit gateway, route table, VPC
+// attachment, association, propagation and route path a typical
+// aws_ec2_transit_gateway stack uses.
 func TestEC2_TransitGatewayCore(t *testing.T) {
 	t.Parallel()
 	client := ec2Client()
@@ -38,11 +38,10 @@ func TestEC2_TransitGatewayCore(t *testing.T) {
 	assert.Contains(t, aws.ToString(tgw.TransitGatewayArn), "transit-gateway/")
 	require.NotNil(t, tgw.Options)
 	assert.Equal(t, int64(64513), aws.ToInt64(tgw.Options.AmazonSideAsn))
-	// Default route tables auto-created.
+	// The gateway creates its default route tables.
 	assocRT := aws.ToString(tgw.Options.AssociationDefaultRouteTableId)
 	require.NotEmpty(t, assocRT)
 
-	// Describe + Modify.
 	desc, err := client.DescribeTransitGateways(ctx, &ec2.DescribeTransitGatewaysInput{
 		TransitGatewayIds: []string{tgwID},
 	})
@@ -118,14 +117,13 @@ func TestEC2_TransitGatewayCore(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// AcceptTransitGatewayVpcAttachment + Reject are valid no-op transitions
-	// here (we own the gateway so it is already available).
+	// Accept and Reject are valid on an attachment the account's own gateway
+	// already made available.
 	_, err = client.AcceptTransitGatewayVpcAttachment(ctx, &ec2.AcceptTransitGatewayVpcAttachmentInput{
 		TransitGatewayAttachmentId: aws.String(attID),
 	})
 	require.NoError(t, err)
 
-	// Cross-type attachment listing.
 	allAtt, err := client.DescribeTransitGatewayAttachments(ctx, &ec2.DescribeTransitGatewayAttachmentsInput{
 		Filters: []types.Filter{{Name: aws.String("transit-gateway-id"), Values: []string{tgwID}}},
 	})
@@ -167,9 +165,8 @@ func TestEC2_TransitGatewayCore(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, getProp.TransitGatewayRouteTablePropagations, 1)
 
-	// The attachment auto-propagated to the gateway's default propagation route
-	// table at create time, and now also to rtID via the explicit Enable above,
-	// so its propagation set spans both route tables.
+	// The attachment propagates to the gateway's default propagation route table
+	// at creation and to rtID by the explicit enable above.
 	attProp, err := client.GetTransitGatewayAttachmentPropagations(ctx, &ec2.GetTransitGatewayAttachmentPropagationsInput{
 		TransitGatewayAttachmentId: aws.String(attID),
 	})
@@ -239,8 +236,6 @@ func TestEC2_TransitGatewayCore(t *testing.T) {
 	})
 }
 
-// TestEC2_TransitGatewayPrefixListPeeringConnectMulticast covers prefix-list
-// references, peering attachments, connect attachments, and multicast domains.
 func TestEC2_TransitGatewayPrefixListPeeringConnectMulticast(t *testing.T) {
 	t.Parallel()
 	client := ec2Client()
@@ -359,7 +354,6 @@ func TestEC2_TransitGatewayPrefixListPeeringConnectMulticast(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, types.TransitGatewayAttachmentStateAvailable, accepted.TransitGatewayPeeringAttachment.State)
 
-	// RejectTransitGatewayPeeringAttachment is a valid transition target too.
 	_, err = client.RejectTransitGatewayPeeringAttachment(ctx, &ec2.RejectTransitGatewayPeeringAttachmentInput{
 		TransitGatewayAttachmentId: aws.String(peerID),
 	})

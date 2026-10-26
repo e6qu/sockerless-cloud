@@ -11,8 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// appASRegisterTarget registers a scalable target for the extended-op tests and
-// schedules its deregistration.
 func appASRegisterTarget(t *testing.T, c *applicationautoscaling.Client, ns aastypes.ServiceNamespace, resourceID string, dim aastypes.ScalableDimension) {
 	t.Helper()
 	_, err := c.RegisterScalableTarget(ctx, &applicationautoscaling.RegisterScalableTargetInput{
@@ -109,8 +107,7 @@ func TestApplicationAutoScaling_DescribeScalingActivities(t *testing.T) {
 	)
 	appASRegisterTarget(t, c, ns, resourceID, dim)
 
-	// No real capacity change has occurred, so the activity log is empty —
-	// faithful to AWS, not fabricated.
+	// No capacity changed, so the activity log is empty.
 	out, err := c.DescribeScalingActivities(ctx, &applicationautoscaling.DescribeScalingActivitiesInput{
 		ServiceNamespace:  ns,
 		ResourceId:        aws.String(resourceID),
@@ -141,8 +138,8 @@ func TestApplicationAutoScaling_GetPredictiveScalingForecast(t *testing.T) {
 		EndTime:           aws.Time(start.Add(24 * time.Hour)),
 	})
 	require.NoError(t, err)
-	// No historical data to forecast from: empty load/capacity curves with an
-	// UpdateTime, matching a freshly-created target.
+	// With no history to forecast from, the load and capacity curves are empty,
+	// with an UpdateTime.
 	assert.Empty(t, out.LoadForecast)
 	require.NotNil(t, out.UpdateTime)
 }

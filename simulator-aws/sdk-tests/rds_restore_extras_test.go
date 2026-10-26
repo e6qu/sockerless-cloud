@@ -12,11 +12,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestRDS_RestoreFamily exercises the cluster/instance restore
-// operations: a stored cluster snapshot restores into a new cluster, a
-// point-in-time restore clones an existing cluster, an S3 restore
-// creates a fresh cluster, an instance point-in-time restore creates a new
-// instance, and both S3 restores refuse a bucket that does not exist.
+// TestRDS_RestoreFamily expects a cluster snapshot and a point in time each to
+// restore into a new cluster, an instance to restore to a point in time, and
+// both restores from Amazon S3 to refuse a bucket that does not exist.
 func TestRDS_RestoreFamily(t *testing.T) {
 	t.Parallel()
 	c := rdsClient()
@@ -46,7 +44,6 @@ func TestRDS_RestoreFamily(t *testing.T) {
 	})
 	waitForRDSClusterSnapshotAvailable(t, c, ctx, snapID)
 
-	// RestoreDBClusterFromSnapshot
 	restored := "rext-restored-from-snap"
 	rOut, err := c.RestoreDBClusterFromSnapshot(ctx, &rds.RestoreDBClusterFromSnapshotInput{
 		DBClusterIdentifier: aws.String(restored),
@@ -63,7 +60,6 @@ func TestRDS_RestoreFamily(t *testing.T) {
 	})
 	waitForRDSClusterAvailable(t, c, ctx, restored)
 
-	// RestoreDBClusterToPointInTime
 	pit := "rext-cluster-pit"
 	pitOut, err := c.RestoreDBClusterToPointInTime(ctx, &rds.RestoreDBClusterToPointInTimeInput{
 		DBClusterIdentifier:       aws.String(pit),
@@ -93,7 +89,6 @@ func TestRDS_RestoreFamily(t *testing.T) {
 	})
 	assertAWSAPIErrorCode(t, err, "InvalidS3BucketFault")
 
-	// Instance restores
 	srcInst := "rext-src-instance"
 	_, err = c.CreateDBInstance(ctx, &rds.CreateDBInstanceInput{
 		DBInstanceIdentifier: aws.String(srcInst),
@@ -113,7 +108,6 @@ func TestRDS_RestoreFamily(t *testing.T) {
 		o.MaxDelay = waiterMaxDelay
 	}).Wait(ctx, &rds.DescribeDBInstancesInput{DBInstanceIdentifier: aws.String(srcInst)}, 3*time.Minute))
 
-	// RestoreDBInstanceToPointInTime
 	instPIT := "rext-instance-pit"
 	ipOut, err := c.RestoreDBInstanceToPointInTime(ctx, &rds.RestoreDBInstanceToPointInTimeInput{
 		SourceDBInstanceIdentifier: aws.String(srcInst),
@@ -149,8 +143,6 @@ func TestRDS_RestoreFamily(t *testing.T) {
 	assertAWSAPIErrorCode(t, err, "InvalidS3BucketFault")
 }
 
-// TestRDS_ReservedInstances covers the reserved-instance catalog and
-// purchase flow.
 func TestRDS_ReservedInstances(t *testing.T) {
 	t.Parallel()
 	c := rdsClient()
@@ -180,7 +172,6 @@ func TestRDS_ReservedInstances(t *testing.T) {
 	assert.Equal(t, offeringID, aws.ToString(dOut.ReservedDBInstances[0].ReservedDBInstancesOfferingId))
 }
 
-// TestRDS_Integrations covers the zero-ETL integration CRUD family.
 func TestRDS_Integrations(t *testing.T) {
 	t.Parallel()
 	c := rdsClient()
@@ -218,7 +209,6 @@ func TestRDS_Integrations(t *testing.T) {
 	assert.Equal(t, rdstypes.IntegrationStatusActive, mOut.Status)
 }
 
-// TestRDS_TenantDatabases covers the tenant-database CRUD family.
 func TestRDS_TenantDatabases(t *testing.T) {
 	t.Parallel()
 	c := rdsClient()
@@ -272,7 +262,6 @@ func TestRDS_TenantDatabases(t *testing.T) {
 	})
 }
 
-// TestRDS_ShardGroups covers the Aurora Limitless shard-group family.
 func TestRDS_ShardGroups(t *testing.T) {
 	t.Parallel()
 	c := rdsClient()
@@ -325,8 +314,6 @@ func TestRDS_ShardGroups(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestRDS_ActivityStreams covers the per-cluster database activity
-// stream toggle.
 func TestRDS_ActivityStreams(t *testing.T) {
 	t.Parallel()
 	c := rdsClient()
@@ -353,7 +340,6 @@ func TestRDS_ActivityStreams(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestRDS_Backtrack covers Aurora backtrack record + describe.
 func TestRDS_Backtrack(t *testing.T) {
 	t.Parallel()
 	c := rdsClient()
@@ -387,7 +373,6 @@ func TestRDS_Backtrack(t *testing.T) {
 	assert.Equal(t, "COMPLETED", aws.ToString(dOut.DBClusterBacktracks[0].Status))
 }
 
-// TestRDS_ExportTasks covers the snapshot-export task family.
 func TestRDS_ExportTasks(t *testing.T) {
 	t.Parallel()
 	c := rdsClient()
@@ -418,9 +403,6 @@ func TestRDS_ExportTasks(t *testing.T) {
 	assert.Equal(t, "CANCELING", aws.ToString(cOut.Status))
 }
 
-// TestRDS_ClusterOps covers the assorted cluster operations: reboot,
-// reset cluster param group, modify cluster endpoint, global-cluster
-// failover/remove, promote replica cluster, and HTTP-endpoint toggle.
 func TestRDS_ClusterOps(t *testing.T) {
 	t.Parallel()
 	c := rdsClient()
@@ -449,7 +431,6 @@ func TestRDS_ClusterOps(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, clusterID, aws.ToString(rbOut.DBCluster.DBClusterIdentifier))
 
-	// Reset cluster parameter group.
 	pgName := "rext-cluster-pg"
 	_, err = c.CreateDBClusterParameterGroup(ctx, &rds.CreateDBClusterParameterGroupInput{
 		DBClusterParameterGroupName: aws.String(pgName),
@@ -468,7 +449,6 @@ func TestRDS_ClusterOps(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, pgName, aws.ToString(resetOut.DBClusterParameterGroupName))
 
-	// Modify cluster endpoint.
 	epID := "rext-custom-ep"
 	_, err = c.CreateDBClusterEndpoint(ctx, &rds.CreateDBClusterEndpointInput{
 		DBClusterIdentifier:         aws.String(clusterID),
@@ -487,14 +467,13 @@ func TestRDS_ClusterOps(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, epID, aws.ToString(meOut.DBClusterEndpointIdentifier))
 
-	// PromoteReadReplicaDBCluster.
 	prOut, err := c.PromoteReadReplicaDBCluster(ctx, &rds.PromoteReadReplicaDBClusterInput{
 		DBClusterIdentifier: aws.String(clusterID),
 	})
 	require.NoError(t, err)
 	assert.Equal(t, clusterID, aws.ToString(prOut.DBCluster.DBClusterIdentifier))
 
-	// Enable/Disable HTTP endpoint (Aurora Serverless v1 Data API).
+	// The HTTP endpoint is the Aurora Serverless v1 Data API.
 	enOut, err := c.EnableHttpEndpoint(ctx, &rds.EnableHttpEndpointInput{
 		ResourceArn: aws.String(clusterArn),
 	})
@@ -506,7 +485,6 @@ func TestRDS_ClusterOps(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, aws.ToBool(diOut.HttpEndpointEnabled))
 
-	// Global cluster failover/remove.
 	gcID := "rext-global-cluster"
 	_, err = c.CreateGlobalCluster(ctx, &rds.CreateGlobalClusterInput{
 		GlobalClusterIdentifier:   aws.String(gcID),
@@ -534,8 +512,6 @@ func TestRDS_ClusterOps(t *testing.T) {
 	assert.Empty(t, rmOut.GlobalCluster.GlobalClusterMembers)
 }
 
-// TestRDS_SnapshotAttributesAndModify covers cluster-snapshot
-// attributes and ModifyDBSnapshot.
 func TestRDS_SnapshotAttributesAndModify(t *testing.T) {
 	t.Parallel()
 	c := rdsClient()
@@ -580,7 +556,7 @@ func TestRDS_SnapshotAttributesAndModify(t *testing.T) {
 	assert.ElementsMatch(t, []string{"123456789012", "all"},
 		daOut.DBClusterSnapshotAttributesResult.DBClusterSnapshotAttributes[0].AttributeValues)
 
-	// ModifyDBSnapshot needs an instance snapshot.
+	// ModifyDBSnapshot takes an instance snapshot.
 	instID := "rext-snapmod-instance"
 	_, err = c.CreateDBInstance(ctx, &rds.CreateDBInstanceInput{
 		DBInstanceIdentifier: aws.String(instID),
@@ -615,7 +591,6 @@ func TestRDS_SnapshotAttributesAndModify(t *testing.T) {
 	assert.Equal(t, "16.15", aws.ToString(msOut.DBSnapshot.EngineVersion))
 }
 
-// TestRDS_StaticDescribes covers the catalog/default describe ops.
 func TestRDS_StaticDescribes(t *testing.T) {
 	t.Parallel()
 	c := rdsClient()

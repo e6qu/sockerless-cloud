@@ -60,10 +60,9 @@ func TestECR_GetAuthorizationToken(t *testing.T) {
 	require.Len(t, out.AuthorizationData, 1)
 	data := out.AuthorizationData[0]
 
-	// The token is the credential `docker login` replays as Basic auth, so it
-	// has to decode to `AWS:<password>` — the wire form the Amazon ECR API
-	// Reference documents for AuthorizationData.authorizationToken, and the one
-	// the registry's own authenticator parses.
+	// `docker login` replays the token as Basic auth, so it decodes to
+	// `AWS:<password>`, the form the Amazon ECR API Reference documents for
+	// AuthorizationData.authorizationToken.
 	decoded, err := base64.StdEncoding.DecodeString(aws.ToString(data.AuthorizationToken))
 	require.NoError(t, err, "the authorization token must be base64")
 	user, password, ok := strings.Cut(string(decoded), ":")
@@ -71,14 +70,13 @@ func TestECR_GetAuthorizationToken(t *testing.T) {
 	assert.Equal(t, "AWS", user)
 	assert.NotEmpty(t, password)
 
-	// The proxy endpoint names this account's login server, and the token
-	// expires twelve hours out, which is the service's documented lifetime.
+	// The proxy endpoint names this account's login server, and the token expires
+	// in twelve hours, the documented lifetime.
 	assert.Regexp(t, `^https://\d{12}\.dkr\.ecr\.us-east-1\.amazonaws\.com$`, aws.ToString(data.ProxyEndpoint))
 	require.NotNil(t, data.ExpiresAt)
 	assert.WithinDuration(t, time.Now().Add(12*time.Hour), *data.ExpiresAt, 5*time.Minute)
 
-	// A second call issues a different password, so a client that cached the
-	// first cannot be what a later request is accepted on.
+	// A second call issues a different password.
 	again, err := client.GetAuthorizationToken(ctx, &ecr.GetAuthorizationTokenInput{})
 	require.NoError(t, err)
 	require.Len(t, again.AuthorizationData, 1)
@@ -116,10 +114,8 @@ func TestECR_PutImageDigestIsContentAddressed(t *testing.T) {
 	assert.Equal(t, wantDigest, aws.ToString(out2.Image.ImageId.ImageDigest))
 }
 
-// TestECR_PullThroughCacheCreate verifies the simulator accepts a
-// pull-through-cache rule via the official ECR SDK, which is the path
-// sockerless's image resolver and terraform's
-// aws_ecr_pull_through_cache_rule both take.
+// TestECR_PullThroughCacheCreate covers the path sockerless's image resolver
+// and terraform's aws_ecr_pull_through_cache_rule take.
 func TestECR_PullThroughCacheCreate(t *testing.T) {
 	t.Parallel()
 	prefix := uniquename.New("docker-hub")
@@ -134,8 +130,8 @@ func TestECR_PullThroughCacheCreate(t *testing.T) {
 	assert.Equal(t, "registry-1.docker.io", aws.ToString(out.UpstreamRegistryUrl))
 }
 
-// TestECR_PullThroughCacheCreateAlreadyExists verifies the simulator
-// returns the same error shape AWS does when a prefix is reused.
+// TestECR_PullThroughCacheCreateAlreadyExists expects AWS's error shape for a
+// reused prefix.
 func TestECR_PullThroughCacheCreateAlreadyExists(t *testing.T) {
 	t.Parallel()
 	prefix := uniquename.New("already-exists")
@@ -156,8 +152,6 @@ func TestECR_PullThroughCacheCreateAlreadyExists(t *testing.T) {
 	assert.Contains(t, err.Error(), "PullThroughCacheRuleAlreadyExists")
 }
 
-// TestECR_PullThroughCacheDescribe verifies list-all and filtered list
-// paths both round-trip.
 func TestECR_PullThroughCacheDescribe(t *testing.T) {
 	t.Parallel()
 	prefix := uniquename.New("describe-ptc")
@@ -169,7 +163,6 @@ func TestECR_PullThroughCacheDescribe(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Filtered
 	filtered, err := client.DescribePullThroughCacheRules(ctx, &ecr.DescribePullThroughCacheRulesInput{
 		EcrRepositoryPrefixes: []string{prefix},
 	})
@@ -177,7 +170,6 @@ func TestECR_PullThroughCacheDescribe(t *testing.T) {
 	require.Len(t, filtered.PullThroughCacheRules, 1)
 	assert.Equal(t, prefix, aws.ToString(filtered.PullThroughCacheRules[0].EcrRepositoryPrefix))
 
-	// All (at least our entry must appear)
 	all, err := client.DescribePullThroughCacheRules(ctx, &ecr.DescribePullThroughCacheRulesInput{})
 	require.NoError(t, err)
 	var found bool
@@ -190,8 +182,6 @@ func TestECR_PullThroughCacheDescribe(t *testing.T) {
 	assert.True(t, found, "listed rules should include the created rule")
 }
 
-// TestECR_PullThroughCacheDelete verifies delete removes the rule and
-// that re-deleting produces the not-found error shape.
 func TestECR_PullThroughCacheDelete(t *testing.T) {
 	t.Parallel()
 	client := ecrClient()
@@ -210,7 +200,6 @@ func TestECR_PullThroughCacheDelete(t *testing.T) {
 	assert.Equal(t, "registry-1.docker.io", aws.ToString(out.UpstreamRegistryUrl))
 	assert.NotNil(t, out.CreatedAt)
 
-	// Second delete should fail with not-found.
 	_, err = client.DeletePullThroughCacheRule(ctx, &ecr.DeletePullThroughCacheRuleInput{
 		EcrRepositoryPrefix: aws.String("delete-prefix"),
 	})
@@ -272,10 +261,9 @@ func TestECR_DescribeRepositories_Pagination(t *testing.T) {
 	}
 }
 
-// TestECR_DeleteRepositoryRefusesANonEmptyRepositoryWithoutForce deletes a
-// repository holding an image: Amazon ECR refuses the delete unless the
-// request sets force, keeps the repository and its image, and deletes both once
-// force is set.
+// TestECR_DeleteRepositoryRefusesANonEmptyRepositoryWithoutForce expects Amazon
+// ECR to refuse deleting a repository holding an image unless force is set,
+// keeping both, and to delete both with force.
 func TestECR_DeleteRepositoryRefusesANonEmptyRepositoryWithoutForce(t *testing.T) {
 	t.Parallel()
 	repo := uniquename.New("not-empty-repo")
@@ -307,8 +295,8 @@ func TestECR_DeleteRepositoryRefusesANonEmptyRepositoryWithoutForce(t *testing.T
 	require.ErrorAs(t, err, &missing)
 }
 
-// TestECR_DeleteRepositoryDeletesAnEmptyRepositoryWithoutForce deletes a
-// repository whose images were all removed: an empty repository needs no force.
+// TestECR_DeleteRepositoryDeletesAnEmptyRepositoryWithoutForce expects an
+// emptied repository to delete without force.
 func TestECR_DeleteRepositoryDeletesAnEmptyRepositoryWithoutForce(t *testing.T) {
 	t.Parallel()
 	repo := uniquename.New("emptied-repo")

@@ -11,22 +11,19 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestEC2_LocalGateway drives the full AWS Outposts local gateway control
-// plane over the SDK: it discovers the seeded local gateway, then exercises
-// route-table, virtual-interface-group, virtual-interface, VPC-association, and
-// virtual-interface-group-association CRUD round-trips.
+// TestEC2_LocalGateway discovers the AWS Outposts local gateway the account
+// holds and round-trips its route table, virtual interface group, virtual
+// interface and associations.
 func TestEC2_LocalGateway(t *testing.T) {
 	t.Parallel()
 	client := ec2Client()
 
-	// Discover the seeded local gateway.
 	lgws, err := client.DescribeLocalGateways(ctx, &ec2.DescribeLocalGatewaysInput{})
 	require.NoError(t, err)
 	require.NotEmpty(t, lgws.LocalGateways, "expected a seeded local gateway")
 	lgwID := aws.ToString(lgws.LocalGateways[0].LocalGatewayId)
 	assert.Equal(t, "available", aws.ToString(lgws.LocalGateways[0].State))
 
-	// Route table.
 	rtOut, err := client.CreateLocalGatewayRouteTable(ctx, &ec2.CreateLocalGatewayRouteTableInput{
 		LocalGatewayId: aws.String(lgwID),
 		Mode:           types.LocalGatewayRouteTableModeDirectVpcRouting,
@@ -50,7 +47,6 @@ func TestEC2_LocalGateway(t *testing.T) {
 	require.Len(t, descRT.LocalGatewayRouteTables, 1)
 	assert.Equal(t, rtID, aws.ToString(descRT.LocalGatewayRouteTables[0].LocalGatewayRouteTableId))
 
-	// Virtual interface group.
 	vigOut, err := client.CreateLocalGatewayVirtualInterfaceGroup(ctx, &ec2.CreateLocalGatewayVirtualInterfaceGroupInput{
 		LocalGatewayId: aws.String(lgwID),
 		LocalBgpAsn:    aws.Int32(65000),
@@ -62,7 +58,6 @@ func TestEC2_LocalGateway(t *testing.T) {
 		_, _ = client.DeleteLocalGatewayVirtualInterfaceGroup(ctx, &ec2.DeleteLocalGatewayVirtualInterfaceGroupInput{LocalGatewayVirtualInterfaceGroupId: aws.String(vigID)})
 	})
 
-	// Virtual interface (attached to the group).
 	vifOut, err := client.CreateLocalGatewayVirtualInterface(ctx, &ec2.CreateLocalGatewayVirtualInterfaceInput{
 		LocalGatewayVirtualInterfaceGroupId: aws.String(vigID),
 		OutpostLagId:                        aws.String("ola-sim00000000000000"),
@@ -93,7 +88,6 @@ func TestEC2_LocalGateway(t *testing.T) {
 	require.Len(t, descVig.LocalGatewayVirtualInterfaceGroups, 1)
 	assert.Contains(t, descVig.LocalGatewayVirtualInterfaceGroups[0].LocalGatewayVirtualInterfaceIds, vifID)
 
-	// VPC association.
 	vpc, err := client.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.80.0.0/16")})
 	require.NoError(t, err)
 	vpcID := aws.ToString(vpc.Vpc.VpcId)
@@ -118,7 +112,6 @@ func TestEC2_LocalGateway(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Virtual interface group association.
 	vigAssocOut, err := client.CreateLocalGatewayRouteTableVirtualInterfaceGroupAssociation(ctx, &ec2.CreateLocalGatewayRouteTableVirtualInterfaceGroupAssociationInput{
 		LocalGatewayRouteTableId:            aws.String(rtID),
 		LocalGatewayVirtualInterfaceGroupId: aws.String(vigID),
@@ -138,9 +131,9 @@ func TestEC2_LocalGateway(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestEC2_CapacityManager drives the Amazon EC2 Capacity Manager enable/disable
-// lifecycle, monitored-tag-key updates, data-export CRUD, and the metric reads
-// computed from the underlying capacity-reservation store.
+// TestEC2_CapacityManager covers enabling and disabling Amazon EC2 Capacity
+// Manager, monitored tag keys, data exports, and metric reads computed from the
+// capacity reservations.
 func TestEC2_CapacityManager(t *testing.T) {
 	t.Parallel()
 	client := ec2Client()
@@ -157,7 +150,6 @@ func TestEC2_CapacityManager(t *testing.T) {
 	assert.Equal(t, types.CapacityManagerStatusEnabled, attrs.CapacityManagerStatus)
 	assert.Equal(t, types.IngestionStatusIngestionComplete, attrs.IngestionStatus)
 
-	// Monitored tag keys.
 	tagOut, err := client.UpdateCapacityManagerMonitoredTagKeys(ctx, &ec2.UpdateCapacityManagerMonitoredTagKeysInput{
 		ActivateTagKeys: []string{"team", "cost-center"},
 	})
@@ -177,14 +169,12 @@ func TestEC2_CapacityManager(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Organizations access toggle.
 	orgOut, err := client.UpdateCapacityManagerOrganizationsAccess(ctx, &ec2.UpdateCapacityManagerOrganizationsAccessInput{
 		OrganizationsAccess: aws.Bool(false),
 	})
 	require.NoError(t, err)
 	assert.False(t, aws.ToBool(orgOut.OrganizationsAccess))
 
-	// Data export to S3.
 	expOut, err := client.CreateCapacityManagerDataExport(ctx, &ec2.CreateCapacityManagerDataExportInput{
 		S3BucketName:   aws.String("my-cm-export-bucket"),
 		S3BucketPrefix: aws.String("exports/"),
@@ -208,8 +198,7 @@ func TestEC2_CapacityManager(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Metric reads — honest values derived from the reservation store. Create a
-	// reservation so the dimension/metric sets are non-empty.
+	// A reservation gives the metric reads dimensions and metrics.
 	crOut, err := client.CreateCapacityReservation(ctx, &ec2.CreateCapacityReservationInput{
 		InstanceType:          aws.String("m5.large"),
 		InstancePlatform:      types.CapacityReservationInstancePlatformLinuxUnix,
@@ -254,8 +243,6 @@ func TestEC2_CapacityManager(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestEC2_DeclarativePolicies drives the declarative-policies report lifecycle:
-// start → describe (running → complete) → summary, plus the cancel path.
 func TestEC2_DeclarativePolicies(t *testing.T) {
 	t.Parallel()
 	client := ec2Client()
@@ -285,7 +272,6 @@ func TestEC2_DeclarativePolicies(t *testing.T) {
 	assert.EqualValues(t, 1, aws.ToInt32(summary.NumberOfAccounts))
 	assert.NotEmpty(t, summary.AttributeSummaries)
 
-	// Cancel path on a second report.
 	start2, err := client.StartDeclarativePoliciesReport(ctx, &ec2.StartDeclarativePoliciesReportInput{
 		S3Bucket: aws.String("my-dp-report-bucket"),
 		TargetId: aws.String("ou-1234"),
@@ -298,8 +284,6 @@ func TestEC2_DeclarativePolicies(t *testing.T) {
 	assert.True(t, aws.ToBool(cancelOut.Return))
 }
 
-// TestEC2_NetworkPerformance drives the AWS Network Performance metric
-// subscription lifecycle and GetAwsNetworkPerformanceData metric-point read.
 func TestEC2_NetworkPerformance(t *testing.T) {
 	t.Parallel()
 	client := ec2Client()

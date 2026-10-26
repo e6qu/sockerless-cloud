@@ -19,16 +19,14 @@ func describeOneVolume(t *testing.T, c *ec2.Client, id string) types.Volume {
 	return out.Volumes[0]
 }
 
-// TestEC2_EBSVolumeFidelitySDK covers the EBS Volume/Snapshot response fields
-// (iops/throughput/kms/encrypted) and DescribeVolumesModifications — all
-// previously dropped, so aws_ebs_volume drifted on non-default configs and
-// volume resize updates errored (UnknownOperation).
+// TestEC2_EBSVolumeFidelitySDK covers the iops, throughput, kms and encrypted
+// fields aws_ebs_volume reads back, and DescribeVolumesModifications.
 func TestEC2_EBSVolumeFidelitySDK(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
 	env := uniquename.New("prod")
 
-	// gp3 with no iops/throughput → AWS returns the defaults 3000/125.
+	// gp3 without iops or throughput defaults to 3000 and 125.
 	gp3, err := c.CreateVolume(ctx, &ec2.CreateVolumeInput{
 		AvailabilityZone: aws.String("us-east-1a"), Size: aws.Int32(20), VolumeType: types.VolumeTypeGp3,
 	})
@@ -37,7 +35,6 @@ func TestEC2_EBSVolumeFidelitySDK(t *testing.T) {
 	assert.Equal(t, int32(3000), aws.ToInt32(got.Iops), "gp3 iops defaults to 3000")
 	assert.Equal(t, int32(125), aws.ToInt32(got.Throughput), "gp3 throughput defaults to 125")
 
-	// io1 with explicit iops + encryption with a CMK.
 	io1, err := c.CreateVolume(ctx, &ec2.CreateVolumeInput{
 		AvailabilityZone: aws.String("us-east-1a"), Size: aws.Int32(10), VolumeType: types.VolumeTypeIo1,
 		Iops:      aws.Int32(1000),
@@ -55,7 +52,6 @@ func TestEC2_EBSVolumeFidelitySDK(t *testing.T) {
 	assert.True(t, aws.ToBool(got.Encrypted))
 	assert.Contains(t, aws.ToString(got.KmsKeyId), "key/abc")
 
-	// DescribeVolumes filter by volume-type + tag.
 	byType, err := c.DescribeVolumes(ctx, &ec2.DescribeVolumesInput{
 		Filters: []types.Filter{
 			{Name: aws.String("volume-type"), Values: []string{"io1"}},
@@ -66,7 +62,6 @@ func TestEC2_EBSVolumeFidelitySDK(t *testing.T) {
 	require.Len(t, byType.Volumes, 1, "type+tag filter must scope to the one io1 prod volume")
 	assert.Equal(t, io1ID, aws.ToString(byType.Volumes[0].VolumeId))
 
-	// ModifyVolume → DescribeVolumesModifications returns the completed modification.
 	_, err = c.ModifyVolume(ctx, &ec2.ModifyVolumeInput{
 		VolumeId: aws.String(io1ID), Size: aws.Int32(40), Iops: aws.Int32(2000),
 	})
@@ -81,8 +76,8 @@ func TestEC2_EBSVolumeFidelitySDK(t *testing.T) {
 	assert.Equal(t, int32(10), aws.ToInt32(m.OriginalSize), "the io1 volume started at 10 GiB")
 }
 
-// TestEC2_EBSSnapshotFidelitySDK covers Snapshot.Encrypted/KmsKeyId (inherited
-// from the source volume) and DescribeSnapshots filtering.
+// TestEC2_EBSSnapshotFidelitySDK expects a snapshot to inherit Encrypted and
+// KmsKeyId from its volume, and DescribeSnapshots to filter.
 func TestEC2_EBSSnapshotFidelitySDK(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -107,9 +102,9 @@ func TestEC2_EBSSnapshotFidelitySDK(t *testing.T) {
 	assert.Contains(t, aws.ToString(out.Snapshots[0].KmsKeyId), "key/snap")
 }
 
-// TestEC2_CopySnapshotFidelitySDK covers CopySnapshot — the cross-region EBS DR
-// primitive: a copy gets a fresh snapshot id, inherits the source's size +
-// encryption, takes the supplied description, and lists via DescribeSnapshots.
+// TestEC2_CopySnapshotFidelitySDK covers CopySnapshot, the cross-Region EBS
+// disaster-recovery primitive: a fresh id, the source's size and encryption,
+// the supplied description.
 func TestEC2_CopySnapshotFidelitySDK(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()

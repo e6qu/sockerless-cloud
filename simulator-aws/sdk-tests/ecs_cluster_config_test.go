@@ -10,9 +10,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestECS_ClusterSettingsAndConfiguration covers containerInsights
-// settings and the executeCommand KMS configuration round-trip through
-// DescribeClusters --include SETTINGS CONFIGURATIONS, and are omitted otherwise.
+// TestECS_ClusterSettingsAndConfiguration expects containerInsights and the
+// executeCommand KMS configuration from DescribeClusters --include SETTINGS
+// CONFIGURATIONS, and omitted otherwise.
 func TestECS_ClusterSettingsAndConfiguration(t *testing.T) {
 	t.Parallel()
 	c := ecsClient()
@@ -47,7 +47,6 @@ func TestECS_ClusterSettingsAndConfiguration(t *testing.T) {
 	assert.Equal(t, "arn:aws:kms:us-east-1:123456789012:key/test-key",
 		aws.ToString(cl.Configuration.ExecuteCommandConfiguration.KmsKeyId))
 
-	// Without include, settings/configuration are not surfaced.
 	noInclude, err := c.DescribeClusters(ctx, &ecs.DescribeClustersInput{Clusters: []string{name}})
 	require.NoError(t, err)
 	require.Len(t, noInclude.Clusters, 1)

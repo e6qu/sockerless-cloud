@@ -11,9 +11,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestCloudTrail_LookupEventsTimeWindowSDK proves StartTime/EndTime scope the
-// returned events to a [start, end] window. The sim used to ignore both bounds
-// and return all matching events regardless of time.
+// TestCloudTrail_LookupEventsTimeWindowSDK expects StartTime and EndTime to
+// bound the returned events.
 func TestCloudTrail_LookupEventsTimeWindowSDK(t *testing.T) {
 	t.Parallel()
 	ct := cloudTrailClient()
@@ -26,14 +25,12 @@ func TestCloudTrail_LookupEventsTimeWindowSDK(t *testing.T) {
 	require.NoError(t, err)
 	after := time.Now().Add(1 * time.Minute)
 
-	// Window covering "now" returns events.
 	inWindow, err := ct.LookupEvents(ctx, &cloudtrail.LookupEventsInput{
 		StartTime: aws.Time(before), EndTime: aws.Time(after),
 	})
 	require.NoError(t, err)
 	assert.NotEmpty(t, inWindow.Events, "events created now must fall in [before, after]")
 
-	// A window entirely in the future returns nothing.
 	futureStart := time.Now().Add(1 * time.Hour)
 	futureEnd := time.Now().Add(2 * time.Hour)
 	future, err := ct.LookupEvents(ctx, &cloudtrail.LookupEventsInput{
@@ -43,18 +40,15 @@ func TestCloudTrail_LookupEventsTimeWindowSDK(t *testing.T) {
 	assert.Empty(t, future.Events, "no events should fall in a future-only window")
 }
 
-// TestCloudTrail_LookupEventsPaginationStableCursorSDK proves the LookupEvents
-// NextToken is a stable cursor, not an absolute offset: an event ingested
-// mid-pagination (head-insertion) must not cause a previously-returned EventId
-// to reappear on a later page. With the old offset token, the prepend shifted
-// every offset and page 2 overlapped page 1; the cursor resumes after the
-// last-seen (EventTime, EventId) key, so each event is returned exactly once.
+// TestCloudTrail_LookupEventsPaginationStableCursorSDK holds NextToken to a
+// cursor after the last-seen (EventTime, EventId): an event ingested at the
+// head mid-pagination must not bring an earlier page's EventId back on a later
+// page, as an absolute offset would.
 func TestCloudTrail_LookupEventsPaginationStableCursorSDK(t *testing.T) {
 	t.Parallel()
 	ct := cloudTrailClient()
 	ec2c := ec2Client()
 
-	// Seed several recorded events at the head of the trail.
 	for i := 0; i < 8; i++ {
 		_, err := ec2c.CreateVolume(ctx, &ec2.CreateVolumeInput{
 			AvailabilityZone: aws.String("us-east-1a"), Size: aws.Int32(1),
@@ -76,8 +70,7 @@ func TestCloudTrail_LookupEventsPaginationStableCursorSDK(t *testing.T) {
 		}
 		pages++
 
-		// Inject one head-insertion after the first page — the exact race the
-		// old absolute-offset token mishandled.
+		// Insert one event at the head after the first page.
 		if pages == 1 {
 			_, err := ec2c.CreateVolume(ctx, &ec2.CreateVolumeInput{
 				AvailabilityZone: aws.String("us-east-1a"), Size: aws.Int32(1),

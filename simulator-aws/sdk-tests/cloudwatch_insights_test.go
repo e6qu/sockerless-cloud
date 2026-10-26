@@ -12,8 +12,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestCloudWatchLogs_InsightsQuery covers StartQuery / GetQueryResults: the
-// Insights query language runs over the log events and returns rows.
 func TestCloudWatchLogs_InsightsQuery(t *testing.T) {
 	t.Parallel()
 	cw := cwLogsClient()
@@ -57,7 +55,6 @@ func TestCloudWatchLogs_InsightsQuery(t *testing.T) {
 		}
 	}
 
-	// stats aggregation by group.
 	agg, err := cw.StartQuery(ctx, &cloudwatchlogs.StartQueryInput{
 		LogGroupName: aws.String(group),
 		QueryString:  aws.String(`stats count() as n by level`),
@@ -83,7 +80,6 @@ func TestCloudWatchLogs_InsightsQuery(t *testing.T) {
 	assert.Equal(t, "2", counts["ERROR"], fmt.Sprintf("stats count by level: %v", counts))
 	assert.Equal(t, "1", counts["INFO"])
 
-	// DescribeQueries surfaces the runs; StopQuery is accepted.
 	dq, err := cw.DescribeQueries(ctx, &cloudwatchlogs.DescribeQueriesInput{LogGroupName: aws.String(group)})
 	require.NoError(t, err)
 	assert.GreaterOrEqual(t, len(dq.Queries), 1, "DescribeQueries must list this group's queries")

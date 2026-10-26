@@ -30,7 +30,6 @@ import (
 // process hands them over: the session an AWS SDK in the workload signs with.
 var exportDefaultChainCredentials = []string{"aws", "configure", "export-credentials", "--format", "process"}
 
-// awsCLIImage is the image the AWS CLI runs from in a workload.
 const awsCLIImage = "mirror.gcr.io/amazon/aws-cli:2.27.49"
 
 // createWorkloadRole creates a role the service principal may assume.

@@ -25,12 +25,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestELBv2_HTTPSListenerTerminatesTLS proves an Application Load Balancer
-// HTTPS listener terminates the listener's ACM certificate (real TLS handshake
-// on the wire) and forwards the decrypted request over plain HTTP to the
-// target — the path a real HTTPS-fronted ALB takes. A client connects over TLS
-// (verifying the handshake completes against the cert), and the target
-// receives a plain-HTTP request, proving termination + forwarding.
+// TestELBv2_HTTPSListenerTerminatesTLS expects an HTTPS listener to complete a
+// TLS handshake with its ACM certificate and forward the decrypted request
+// over plain HTTP to the target.
 func TestELBv2_HTTPSListenerTerminatesTLS(t *testing.T) {
 	t.Parallel()
 	lbName := uniquename.New("alb-tls")
@@ -56,15 +53,14 @@ func TestELBv2_HTTPSListenerTerminatesTLS(t *testing.T) {
 	require.NoError(t, err)
 	subnet2ID := aws.ToString(sn2.Subnet.SubnetId)
 
-	// Plain-HTTP backend target. Real ALB HTTPS listeners front HTTP targets.
+	// An HTTPS listener fronts plain-HTTP targets.
 	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/healthz" {
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte("ok"))
 			return
 		}
-		// Echo that the request reached the target over plain HTTP (r.TLS is nil
-		// for a plain-HTTP request), proving the listener terminated TLS.
+		// The target sees a plain-HTTP request, so the listener terminated TLS.
 		_, _ = w.Write([]byte("https-terminated"))
 	}))
 	defer target.Close()
@@ -75,8 +71,8 @@ func TestELBv2_HTTPSListenerTerminatesTLS(t *testing.T) {
 	targetPort, err := strconv.Atoi(targetPortText)
 	require.NoError(t, err)
 
-	// Issue a DNS-validated cert and drive it to ISSUED so its PEM + key are
-	// available for the listener to load.
+	// Drive a DNS-validated certificate to ISSUED so the listener can load its PEM
+	// and key.
 	reqOut, err := acmC.RequestCertificate(ctx, &acm.RequestCertificateInput{
 		DomainName:       aws.String(domain),
 		ValidationMethod: acmtypes.ValidationMethodDns,
@@ -119,8 +115,8 @@ func TestELBv2_HTTPSListenerTerminatesTLS(t *testing.T) {
 
 	waitForACMCertificateIssued(t, acmC, certArn)
 
-	// Create an Application Load Balancer (internet-facing) — internet-facing so
-	// the sim records the AWS-shaped DNS name a real client resolves.
+	// An internet-facing load balancer gets the AWS-shaped DNS name a client
+	// resolves.
 	alb, err := elb.CreateLoadBalancer(ctx, &elbv2.CreateLoadBalancerInput{
 		Name: aws.String(lbName), Type: elbtypes.LoadBalancerTypeEnumApplication, Subnets: []string{subnetID, subnet2ID},
 	})
@@ -128,7 +124,6 @@ func TestELBv2_HTTPSListenerTerminatesTLS(t *testing.T) {
 	lbArn := aws.ToString(alb.LoadBalancers[0].LoadBalancerArn)
 	defer elb.DeleteLoadBalancer(ctx, &elbv2.DeleteLoadBalancerInput{LoadBalancerArn: aws.String(lbArn)})
 
-	// HTTP target group pointing at the plain-HTTP backend.
 	tg, err := elb.CreateTargetGroup(ctx, &elbv2.CreateTargetGroupInput{
 		Name: aws.String(tgName), Protocol: elbtypes.ProtocolEnumHttp, Port: aws.Int32(int32(targetPort)),
 		VpcId: aws.String(vpcID), TargetType: elbtypes.TargetTypeEnumIp,
@@ -143,7 +138,6 @@ func TestELBv2_HTTPSListenerTerminatesTLS(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// HTTPS listener on a high port (8443) carrying the issued ACM cert.
 	const listenerPort = 8443
 	listenerOut, err := elb.CreateListener(ctx, &elbv2.CreateListenerInput{
 		LoadBalancerArn: aws.String(lbArn),
@@ -155,8 +149,6 @@ func TestELBv2_HTTPSListenerTerminatesTLS(t *testing.T) {
 	require.NoError(t, err)
 	listenerArn := aws.ToString(listenerOut.Listeners[0].ListenerArn)
 
-	// Resolve the load balancer's DNS name through the resolver, then connect
-	// on the listener port over TLS.
 	lbDesc, err := elb.DescribeLoadBalancers(ctx, &elbv2.DescribeLoadBalancersInput{LoadBalancerArns: []string{lbArn}})
 	require.NoError(t, err)
 	dnsName := aws.ToString(lbDesc.LoadBalancers[0].DNSName)
@@ -164,9 +156,8 @@ func TestELBv2_HTTPSListenerTerminatesTLS(t *testing.T) {
 	lbHost, _ := dnsResolveA(t, dnsName)
 	endpoint := net.JoinHostPort(lbHost, strconv.Itoa(listenerPort))
 
-	// An HTTPS client that skips verification (the cert is self-signed in the
-	// sim, which has no real CA) but proves a real TLS handshake completes
-	// against the listener's ACM certificate before any HTTP bytes flow.
+	// The simulator's ACM signs with a CA no system trusts, so skip verification;
+	// the handshake still completes against the listener's certificate.
 	client := &http.Client{
 		Timeout: 10 * time.Second,
 		Transport: &http.Transport{
@@ -174,8 +165,7 @@ func TestELBv2_HTTPSListenerTerminatesTLS(t *testing.T) {
 		},
 	}
 
-	// The listener forwards only to a target the health checker has put in
-	// service.
+	// The listener forwards only to a target in service.
 	waitForELBv2TargetHealth(t, tgArn,
 		elbtypes.TargetDescription{Id: aws.String(targetHost), Port: aws.Int32(int32(targetPort))},
 		elbtypes.TargetHealthStateEnumHealthy)
@@ -188,8 +178,8 @@ func TestELBv2_HTTPSListenerTerminatesTLS(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "https-terminated", string(body), "HTTPS listener must terminate TLS and forward plain HTTP to the target")
 
-	// AWS Certificate Manager names the load balancer as the certificate's
-	// user, and will not delete a certificate in use.
+	// ACM lists the load balancer as the certificate's user and will not delete a
+	// certificate in use.
 	inUse, err := acmC.DescribeCertificate(ctx, &acm.DescribeCertificateInput{CertificateArn: aws.String(certArn)})
 	require.NoError(t, err)
 	assert.Equal(t, []string{lbArn}, inUse.Certificate.InUseBy)
@@ -197,8 +187,8 @@ func TestELBv2_HTTPSListenerTerminatesTLS(t *testing.T) {
 	var refused *acmtypes.ResourceInUseException
 	require.ErrorAs(t, err, &refused)
 
-	// A certificate added to the running listener is presented to a client
-	// that names its domain.
+	// A certificate added to the running listener is presented to a client naming
+	// its domain.
 	const second = "www.elb-tls.test"
 	secondOut, err := acmC.RequestCertificate(ctx, &acm.RequestCertificateInput{
 		DomainName: aws.String(second), ValidationMethod: acmtypes.ValidationMethodDns,
@@ -234,12 +224,9 @@ func TestELBv2_HTTPSListenerTerminatesTLS(t *testing.T) {
 	assert.Contains(t, presented, second, "the running listener presents the certificate added to it")
 }
 
-// TestELBv2_NLBTLSListenerTerminatesTLS proves a Network Load Balancer TLS
-// listener terminates the listener's ACM certificate and forwards the decrypted
-// byte stream to a raw-TCP target — the path a TLS-fronted NLB takes. The
-// target is a raw-TCP responder (not HTTP); the client connects over TLS, the
-// handshake completes against the cert, and the decrypted line round-trips to
-// the target.
+// TestELBv2_NLBTLSListenerTerminatesTLS expects a Network Load Balancer TLS
+// listener to terminate with its ACM certificate and forward the decrypted
+// byte stream to a raw-TCP target.
 func TestELBv2_NLBTLSListenerTerminatesTLS(t *testing.T) {
 	t.Parallel()
 	lbName := uniquename.New("nlb-tls")
@@ -260,7 +247,7 @@ func TestELBv2_NLBTLSListenerTerminatesTLS(t *testing.T) {
 	require.NoError(t, err)
 	subnetID := aws.ToString(sn.Subnet.SubnetId)
 
-	// A raw-TCP echo backend (NOT HTTP): reads a line, writes "tls-echo:<line>".
+	// A raw-TCP echo backend: reads a line, writes "tls-echo:<line>".
 	backend, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	defer backend.Close()
@@ -290,7 +277,6 @@ func TestELBv2_NLBTLSListenerTerminatesTLS(t *testing.T) {
 	backendPort, err := strconv.Atoi(backendPortText)
 	require.NoError(t, err)
 
-	// Issue + drive to ISSUED the TLS listener's certificate.
 	reqOut, err := acmC.RequestCertificate(ctx, &acm.RequestCertificateInput{
 		DomainName:       aws.String(domain),
 		ValidationMethod: acmtypes.ValidationMethodDns,
@@ -349,8 +335,6 @@ func TestELBv2_NLBTLSListenerTerminatesTLS(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// A TLS listener on the NLB (port 8444). A real NLB TLS listener
-	// terminates the cert at the LB and forwards decrypted TCP to the target.
 	const listenerPort = 8444
 	_, err = elb.CreateListener(ctx, &elbv2.CreateListenerInput{
 		LoadBalancerArn: aws.String(lbArn),
@@ -367,15 +351,13 @@ func TestELBv2_NLBTLSListenerTerminatesTLS(t *testing.T) {
 	lbHost, _ := dnsResolveA(t, dnsName)
 	endpoint := net.JoinHostPort(lbHost, strconv.Itoa(listenerPort))
 
-	// The listener forwards only to a target the health checker has put in
-	// service, so wait for the registration to pass its first health check.
+	// The listener forwards only to a target in service.
 	waitForELBv2TargetHealth(t, tgArn,
 		elbtypes.TargetDescription{Id: aws.String(backendHost), Port: aws.Int32(int32(backendPort))},
 		elbtypes.TargetHealthStateEnumHealthy)
 
-	// Dial over TLS — the handshake must complete against the listener's cert
-	// (proving termination), then the decrypted byte stream round-trips to the
-	// raw-TCP target.
+	// The handshake completes against the listener's certificate, then the
+	// decrypted stream round-trips to the target.
 	tlsDialer := &tls.Dialer{Config: &tls.Config{InsecureSkipVerify: true}}
 	c, err := tlsDialer.DialContext(ctx, "tcp", endpoint)
 	require.NoError(t, err, "TLS handshake to NLB TLS listener must complete")

@@ -11,9 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestAPIGatewayV2_IntegrationResponsesSDK exercises the integration-response
-// child surface: CreateIntegrationResponse, GetIntegrationResponse,
-// GetIntegrationResponses, UpdateIntegrationResponse, DeleteIntegrationResponse.
 func TestAPIGatewayV2_IntegrationResponsesSDK(t *testing.T) {
 	t.Parallel()
 	c := apigwv2Client()
@@ -75,9 +72,6 @@ func TestAPIGatewayV2_IntegrationResponsesSDK(t *testing.T) {
 	require.Error(t, err, "deleted integration response must 404")
 }
 
-// TestAPIGatewayV2_RouteResponsesSDK exercises the route-response child surface:
-// CreateRouteResponse, GetRouteResponse, GetRouteResponses, UpdateRouteResponse,
-// DeleteRouteResponse.
 func TestAPIGatewayV2_RouteResponsesSDK(t *testing.T) {
 	t.Parallel()
 	c := apigwv2Client()
@@ -134,8 +128,6 @@ func TestAPIGatewayV2_RouteResponsesSDK(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestAPIGatewayV2_ImportExportTagsTemplateSDK exercises ImportApi, ReimportApi,
-// ExportApi, GetModelTemplate, and GetTags.
 func TestAPIGatewayV2_ImportExportTagsTemplateSDK(t *testing.T) {
 	t.Parallel()
 	c := apigwv2Client()
@@ -166,7 +158,6 @@ func TestAPIGatewayV2_ImportExportTagsTemplateSDK(t *testing.T) {
 	require.NotEmpty(t, exp.Body)
 	assert.Contains(t, string(exp.Body), "openapi")
 
-	// GetModelTemplate: create a model first.
 	model, err := c.CreateModel(ctx, &apigatewayv2.CreateModelInput{
 		ApiId:       aws.String(apiId),
 		Name:        aws.String("Pet"),
@@ -180,7 +171,6 @@ func TestAPIGatewayV2_ImportExportTagsTemplateSDK(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, aws.ToString(tmpl.Value), "object")
 
-	// GetTags against the API ARN — tags come from the tagged API.
 	tagged, err := c.CreateApi(ctx, &apigatewayv2.CreateApiInput{
 		Name:         aws.String("tagged-api"),
 		ProtocolType: apigwv2types.ProtocolTypeHttp,
@@ -197,9 +187,6 @@ func TestAPIGatewayV2_ImportExportTagsTemplateSDK(t *testing.T) {
 	assert.Equal(t, "test", gt.Tags["env"])
 }
 
-// TestAPIGatewayV2_ConfigDeletesSDK exercises the per-stage / per-api config
-// deletes: DeleteAccessLogSettings, DeleteCorsConfiguration,
-// DeleteRouteRequestParameter, DeleteRouteSettings.
 func TestAPIGatewayV2_ConfigDeletesSDK(t *testing.T) {
 	t.Parallel()
 	c := apigwv2Client()

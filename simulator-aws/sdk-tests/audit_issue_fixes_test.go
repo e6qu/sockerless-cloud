@@ -10,8 +10,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Issue #591: CreateVolume requires AvailabilityZone — real EC2 rejects a
-// request without it (MissingParameter) rather than defaulting the AZ.
+// TestEC2_CreateVolumeRequiresAZ expects MissingParameter rather than a
+// defaulted Availability Zone.
 func TestEC2_CreateVolumeRequiresAZ(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -24,9 +24,9 @@ func TestEC2_CreateVolumeRequiresAZ(t *testing.T) {
 	require.NoError(t, err, "with an AvailabilityZone the request succeeds")
 }
 
-// Issue #592: cluster-scoped ECS operations raise ClusterNotFoundException for
-// an unknown cluster (so a deleted/unknown cluster is distinguishable from an
-// empty cluster or a missing task).
+// TestECS_UnknownClusterRaisesClusterNotFound expects ClusterNotFoundException
+// from cluster-scoped operations, which tells an unknown cluster from an empty
+// one or a missing task.
 func TestECS_UnknownClusterRaisesClusterNotFound(t *testing.T) {
 	t.Parallel()
 	c := ecsClient()
@@ -47,8 +47,8 @@ func TestECS_UnknownClusterRaisesClusterNotFound(t *testing.T) {
 	assertAWSAPIErrorCode(t, err, "ClusterNotFoundException")
 }
 
-// Issue #590: DescribeSnapshots honors MaxResults and returns a NextToken when
-// results remain; the remainder is retrievable via the token.
+// TestEC2_DescribeSnapshotsPagination expects MaxResults to cap the page and a
+// NextToken to retrieve the rest.
 func TestEC2_DescribeSnapshotsPagination(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()

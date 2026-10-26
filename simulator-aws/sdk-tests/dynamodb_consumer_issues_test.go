@@ -11,8 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// ddbSimpleTable creates a single-hash-key (S) table named pk and registers
-// cleanup. Returns the table name.
 func ddbSimpleTable(t *testing.T, c *dynamodb.Client, name string) {
 	t.Helper()
 	_, err := c.CreateTable(ctx, &dynamodb.CreateTableInput{
@@ -30,9 +28,8 @@ func ddbSimpleTable(t *testing.T, c *dynamodb.Client, name string) {
 func sN(v string) ddbtypes.AttributeValue { return &ddbtypes.AttributeValueMemberN{Value: v} }
 func sS(v string) ddbtypes.AttributeValue { return &ddbtypes.AttributeValueMemberS{Value: v} }
 
-// TestDDBIssue641_TransactWriteUpdateApplies — the Update action in a
-// TransactWriteItems must mutate AND evaluate its ConditionExpression (it was
-// silently dropped). Runs the atomic-counter-with-cap repro.
+// TestDDBIssue641_TransactWriteUpdateApplies runs an atomic counter with a cap:
+// a TransactWriteItems Update applies and evaluates its ConditionExpression.
 func TestDDBIssue641_TransactWriteUpdateApplies(t *testing.T) {
 	t.Parallel()
 	c := ddbClient()
@@ -60,7 +57,6 @@ func TestDDBIssue641_TransactWriteUpdateApplies(t *testing.T) {
 			cancelled++
 		}
 	}
-	// The Update's condition (count < 3) must be enforced: 3 succeed, 4 cancel.
 	assert.Equal(t, 3, ok, "exactly 3 transactions should commit (cap enforced)")
 	assert.Equal(t, 4, cancelled, "the rest cancel on the condition")
 
@@ -72,14 +68,13 @@ func TestDDBIssue641_TransactWriteUpdateApplies(t *testing.T) {
 	assert.Equal(t, "3", got.Item["count"].(*ddbtypes.AttributeValueMemberN).Value)
 }
 
-// TestDDBIssue642_CancellationReasons — a cancelled transaction must carry the
-// per-item CancellationReasons array.
+// TestDDBIssue642_CancellationReasons expects a cancelled transaction to carry
+// per-item CancellationReasons.
 func TestDDBIssue642_CancellationReasons(t *testing.T) {
 	t.Parallel()
 	c := ddbClient()
 	tbl := "tx-reasons-642"
 	ddbSimpleTable(t, c, tbl)
-	// Seed the row item[1] will condition-fail on.
 	_, err := c.PutItem(ctx, &dynamodb.PutItemInput{TableName: aws.String(tbl), Item: map[string]ddbtypes.AttributeValue{"pk": sS("exists")}})
 	require.NoError(t, err)
 
@@ -87,7 +82,7 @@ func TestDDBIssue642_CancellationReasons(t *testing.T) {
 		TransactItems: []ddbtypes.TransactWriteItem{
 			{Put: &ddbtypes.Put{TableName: aws.String(tbl), Item: map[string]ddbtypes.AttributeValue{"pk": sS("new")}}},
 			{Put: &ddbtypes.Put{TableName: aws.String(tbl), Item: map[string]ddbtypes.AttributeValue{"pk": sS("exists")},
-				ConditionExpression: aws.String("attribute_not_exists(pk)")}}, // fails: already exists
+				ConditionExpression: aws.String("attribute_not_exists(pk)")}},
 		},
 	})
 	require.Error(t, err)
@@ -98,15 +93,14 @@ func TestDDBIssue642_CancellationReasons(t *testing.T) {
 	assert.Equal(t, "ConditionalCheckFailed", aws.ToString(tce.CancellationReasons[1].Code))
 }
 
-// TestDDBIssue643_IfNotExistsArithmetic — SET with an if_not_exists() operand in
-// arithmetic must compute, not store null.
+// TestDDBIssue643_IfNotExistsArithmetic expects SET arithmetic with an
+// if_not_exists() operand to compute rather than store null.
 func TestDDBIssue643_IfNotExistsArithmetic(t *testing.T) {
 	t.Parallel()
 	c := ddbClient()
 	tbl := "ine-arith-643"
 	ddbSimpleTable(t, c, tbl)
 
-	// Decrement a fresh item: if_not_exists(c,:0) - :1 = -1.
 	_, err := c.UpdateItem(ctx, &dynamodb.UpdateItemInput{
 		TableName:                 aws.String(tbl),
 		Key:                       map[string]ddbtypes.AttributeValue{"pk": sS("dec")},
@@ -121,7 +115,6 @@ func TestDDBIssue643_IfNotExistsArithmetic(t *testing.T) {
 	require.True(t, ok, "c must be a number, not null: %#v", got.Item["c"])
 	assert.Equal(t, "-1", cv.Value)
 
-	// Increment a fresh item: if_not_exists(c,:0) + :1 = 1.
 	_, err = c.UpdateItem(ctx, &dynamodb.UpdateItemInput{
 		TableName:                 aws.String(tbl),
 		Key:                       map[string]ddbtypes.AttributeValue{"pk": sS("inc")},
@@ -134,16 +127,15 @@ func TestDDBIssue643_IfNotExistsArithmetic(t *testing.T) {
 	assert.Equal(t, "1", got2.Item["c"].(*ddbtypes.AttributeValueMemberN).Value)
 }
 
-// TestDDBIssue648_ParenthesizedSetRHS — a fully-enclosed SET RHS must be stripped
-// of its parentheses and evaluate as the unparenthesized form (ElectroDB always
-// wraps the arithmetic RHS of .subtract()/.add() in parens).
+// TestDDBIssue648_ParenthesizedSetRHS expects a fully parenthesized SET RHS to
+// evaluate as the bare form; ElectroDB wraps the arithmetic RHS of
+// .subtract() and .add() in parentheses.
 func TestDDBIssue648_ParenthesizedSetRHS(t *testing.T) {
 	t.Parallel()
 	c := ddbClient()
 	tbl := "paren-rhs-648"
 	ddbSimpleTable(t, c, tbl)
 
-	// (if_not_exists(c,:z) - :v) on a fresh item = -1.
 	_, err := c.UpdateItem(ctx, &dynamodb.UpdateItemInput{
 		TableName:                 aws.String(tbl),
 		Key:                       map[string]ddbtypes.AttributeValue{"pk": sS("dec")},
@@ -157,7 +149,6 @@ func TestDDBIssue648_ParenthesizedSetRHS(t *testing.T) {
 	require.True(t, ok, "c must be a number, not null: %#v", got.Item["c"])
 	assert.Equal(t, "-1", cv.Value)
 
-	// A plain parenthesized value (:z) must also resolve.
 	_, err = c.UpdateItem(ctx, &dynamodb.UpdateItemInput{
 		TableName:                 aws.String(tbl),
 		Key:                       map[string]ddbtypes.AttributeValue{"pk": sS("plain")},
@@ -170,7 +161,8 @@ func TestDDBIssue648_ParenthesizedSetRHS(t *testing.T) {
 	assert.Equal(t, "7", got2.Item["c"].(*ddbtypes.AttributeValueMemberN).Value)
 }
 
-// TestDDBIssue644_DeleteTablePurgesItems — items must not survive a drop+recreate.
+// TestDDBIssue644_DeleteTablePurgesItems expects no item to survive a drop and
+// recreate.
 func TestDDBIssue644_DeleteTablePurgesItems(t *testing.T) {
 	t.Parallel()
 	c := ddbClient()
@@ -181,14 +173,13 @@ func TestDDBIssue644_DeleteTablePurgesItems(t *testing.T) {
 
 	_, err = c.DeleteTable(ctx, &dynamodb.DeleteTableInput{TableName: aws.String(tbl)})
 	require.NoError(t, err)
-	ddbSimpleTable(t, c, tbl) // recreate same name
+	ddbSimpleTable(t, c, tbl)
 
 	scan, err := c.Scan(ctx, &dynamodb.ScanInput{TableName: aws.String(tbl)})
 	require.NoError(t, err)
 	assert.Equal(t, int32(0), scan.Count, "recreated table must be empty (items purged on delete)")
 }
 
-// TestDDBListAppend — SET with list_append() concatenates lists (was unimplemented).
 func TestDDBListAppend(t *testing.T) {
 	t.Parallel()
 	c := ddbClient()

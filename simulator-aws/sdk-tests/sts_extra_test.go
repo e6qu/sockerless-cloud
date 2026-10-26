@@ -19,8 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestSTS_GetFederationToken mints credentials for a named federated user and
-// asserts the FederatedUser identity is returned alongside them.
+// TestSTS_GetFederationToken expects credentials and the FederatedUser identity.
 func TestSTS_GetFederationToken(t *testing.T) {
 	t.Parallel()
 	client := stsClient()
@@ -37,10 +36,10 @@ func TestSTS_GetFederationToken(t *testing.T) {
 	assert.Contains(t, aws.ToString(out.FederatedUser.FederatedUserId), ":Bob")
 }
 
-// TestSTS_AssumeRoleWithSAML federates a signed SAML response into temporary
-// credentials: the provider is registered from its metadata, the role trusts
-// it, and the response names the role, the provider and the session. Every
-// field AWS STS reports comes from the assertion.
+// TestSTS_AssumeRoleWithSAML federates a signed SAML response: the provider is
+// registered from its metadata, the role trusts it, and the response names the
+// role, provider and session. Every field AWS STS reports comes from the
+// assertion.
 func TestSTS_AssumeRoleWithSAML(t *testing.T) {
 	t.Parallel()
 	idp, err := samlidp.New("https://idp.example.test/saml")
@@ -105,8 +104,8 @@ func TestSTS_AssumeRoleWithSAML(t *testing.T) {
 	_, err = assume(tampered)
 	assert.Equal(t, "InvalidIdentityToken", code(err), "an assertion altered after signing is refused")
 
-	// Signature wrapping: an unsigned assertion naming someone else, placed
-	// ahead of the signed one, must not be the one read.
+	// Signature wrapping: an unsigned assertion naming someone else, ahead of the
+	// signed one, must not be read.
 	signedStart := strings.Index(string(raw), "<saml:Assertion")
 	require.GreaterOrEqual(t, signedStart, 0)
 	forged := strings.Replace(string(raw[signedStart:]), "alice@example.test", "mallory@example.test", 1)
@@ -134,9 +133,9 @@ func TestSTS_AssumeRoleWithSAML(t *testing.T) {
 }
 
 // TestSTS_GetWebIdentityToken enables IAM outbound identity federation and
-// verifies the issued JWT the way a relying party does: against the key set
-// the account issuer publishes at its own host. The HTTP client reaches that
-// host at the simulator's address, the one coordinate a relocated issuer has.
+// verifies the JWT as a relying party does, against the key set the account
+// issuer publishes at its own host, which the HTTP client reaches at the
+// simulator's address.
 func TestSTS_GetWebIdentityToken(t *testing.T) {
 	t.Parallel()
 	admin := iamClient()
@@ -201,8 +200,8 @@ func TestSTS_GetWebIdentityToken(t *testing.T) {
 	}
 }
 
-// TestSTS_GetDelegatedAccessToken trades a token in for temporary credentials
-// and asserts the assumed principal is returned.
+// TestSTS_GetDelegatedAccessToken expects credentials and the assumed
+// principal.
 func TestSTS_GetDelegatedAccessToken(t *testing.T) {
 	t.Parallel()
 	client := stsClient()
@@ -215,7 +214,6 @@ func TestSTS_GetDelegatedAccessToken(t *testing.T) {
 	assert.NotEmpty(t, aws.ToString(out.AssumedPrincipal))
 }
 
-// TestSTS_AssumeRoot mints credentials for a member account's root user.
 func TestSTS_AssumeRoot(t *testing.T) {
 	t.Parallel()
 	client := stsClient()
@@ -229,8 +227,6 @@ func TestSTS_AssumeRoot(t *testing.T) {
 	assert.Equal(t, "123456789012", aws.ToString(out.SourceIdentity))
 }
 
-// TestSTS_DecodeAuthorizationMessage decodes a base64 JSON authorization message
-// and asserts the decoded message round-trips.
 func TestSTS_DecodeAuthorizationMessage(t *testing.T) {
 	t.Parallel()
 	client := stsClient()
@@ -242,7 +238,6 @@ func TestSTS_DecodeAuthorizationMessage(t *testing.T) {
 	assert.Equal(t, original, aws.ToString(out.DecodedMessage))
 }
 
-// TestSTS_GetAccessKeyInfo resolves an access key id to its owning account.
 func TestSTS_GetAccessKeyInfo(t *testing.T) {
 	t.Parallel()
 	client := stsClient()

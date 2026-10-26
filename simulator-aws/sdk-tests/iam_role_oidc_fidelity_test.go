@@ -11,10 +11,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestIAM_RoleFidelitySDK proves the role attributes the provider reads back
-// round-trip (description / max_session_duration / permissions_boundary were
-// dropped, drifting aws_iam_role every plan), plus UpdateRole and TagRole/
-// UntagRole (post-create attribute + tag changes were UnknownOperation).
+// TestIAM_RoleFidelitySDK expects description, max_session_duration and
+// permissions_boundary back as aws_iam_role reads them, and covers UpdateRole,
+// TagRole and UntagRole.
 func TestIAM_RoleFidelitySDK(t *testing.T) {
 	t.Parallel()
 	roleName := uniquename.New("fidelity-role")
@@ -49,7 +48,6 @@ func TestIAM_RoleFidelitySDK(t *testing.T) {
 	require.Len(t, role.Tags, 1)
 	assert.Equal(t, "platform", aws.ToString(role.Tags[0].Value))
 
-	// UpdateRole changes description + max-session-duration in place.
 	_, err = c.UpdateRole(ctx, &iam.UpdateRoleInput{
 		RoleName: aws.String(roleName), Description: aws.String("updated desc"), MaxSessionDuration: aws.Int32(3600),
 	})
@@ -59,7 +57,7 @@ func TestIAM_RoleFidelitySDK(t *testing.T) {
 	assert.Equal(t, "updated desc", aws.ToString(got2.Role.Description), "UpdateRole description must persist")
 	assert.Equal(t, int32(3600), aws.ToInt32(got2.Role.MaxSessionDuration), "UpdateRole max_session_duration must persist")
 
-	// TagRole adds a tag (upsert), UntagRole removes one.
+	// TagRole adds a tag and UntagRole removes one.
 	_, err = c.TagRole(ctx, &iam.TagRoleInput{
 		RoleName: aws.String(roleName),
 		Tags:     []iamtypes.Tag{{Key: aws.String("env"), Value: aws.String("ci")}, {Key: aws.String("team"), Value: aws.String("infra")}},
@@ -83,8 +81,8 @@ func TestIAM_RoleFidelitySDK(t *testing.T) {
 	}
 }
 
-// TestIAM_OIDCProviderTagsSDK proves the OIDC provider tags round-trip (they
-// were stored but GetOpenIDConnectProvider dropped them) plus Tag/Untag.
+// TestIAM_OIDCProviderTagsSDK expects GetOpenIDConnectProvider to return the
+// provider's tags.
 func TestIAM_OIDCProviderTagsSDK(t *testing.T) {
 	t.Parallel()
 	c := iamClient()

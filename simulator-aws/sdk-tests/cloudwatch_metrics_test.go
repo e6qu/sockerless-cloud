@@ -17,9 +17,8 @@ func cloudwatchClient() *cloudwatch.Client {
 	})
 }
 
-// TestCloudWatch_PutGetMetricDataRoundTrip verifies real metrics: data pushed
-// via PutMetricData is returned by GetMetricData, bucketed by Period and
-// reduced by the requested statistic (the real CloudWatch behaviour).
+// TestCloudWatch_PutGetMetricDataRoundTrip expects GetMetricData to return
+// pushed data bucketed by Period and reduced by the requested statistic.
 func TestCloudWatch_PutGetMetricDataRoundTrip(t *testing.T) {
 	t.Parallel()
 	client := cloudwatchClient()
@@ -62,9 +61,8 @@ func TestCloudWatch_PutGetMetricDataRoundTrip(t *testing.T) {
 	assert.Equal(t, []float64{3}, get("SampleCount"))
 }
 
-// TestCloudWatch_ECSMetricsServeStoredData proves ECS/ContainerInsights metrics
-// are no longer fabricated: with nothing pushed they report no datapoints, and
-// after PutMetricData they return the real pushed value.
+// TestCloudWatch_ECSMetricsServeStoredData expects ECS/ContainerInsights metrics
+// to have no datapoints until PutMetricData pushes one.
 func TestCloudWatch_ECSMetricsServeStoredData(t *testing.T) {
 	t.Parallel()
 	client := cloudwatchClient()

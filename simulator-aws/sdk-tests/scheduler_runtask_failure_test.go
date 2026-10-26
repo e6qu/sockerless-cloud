@@ -15,11 +15,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestScheduler_ECSRunTaskFailureSurfaced covers scheduler-fired RunTask error
-// reporting: when the target API rejects the request (here, a security group
-// that does not exist), it must NOT be recorded as a phantom success. Real
-// CloudTrail records the RunTask attempt WITH an errorCode, and — because
-// RunTask failed — no task is created and none ever transitions to STOPPED.
+// TestScheduler_ECSRunTaskFailureSurfaced expects a scheduled RunTask the
+// target API refuses (a security group that does not exist) to be recorded in
+// CloudTrail with an errorCode, not as a success, and no task to be created.
 func TestScheduler_ECSRunTaskFailureSurfaced(t *testing.T) {
 	t.Parallel()
 	ecsc := ecsClient()
@@ -62,7 +60,7 @@ func TestScheduler_ECSRunTaskFailureSurfaced(t *testing.T) {
 				NetworkConfiguration: &schedtypes.NetworkConfiguration{
 					AwsvpcConfiguration: &schedtypes.AwsVpcConfiguration{
 						Subnets:        []string{subnetID},
-						SecurityGroups: []string{"sg-doesnotexist0514"}, // not created in the sim
+						SecurityGroups: []string{"sg-doesnotexist0514"},
 					},
 				},
 			},
@@ -73,8 +71,6 @@ func TestScheduler_ECSRunTaskFailureSurfaced(t *testing.T) {
 		_, _ = sched.DeleteSchedule(ctx, &scheduler.DeleteScheduleInput{Name: aws.String(scheduleName)})
 	})
 
-	// The fire must record a RunTask CloudTrail event carrying an errorCode (not
-	// a clean success).
 	var runTaskErr *cttypes.Event
 	require.Eventually(t, func() bool {
 		evs, lerr := ct.LookupEvents(ctx, &cloudtrail.LookupEventsInput{
@@ -98,7 +94,6 @@ func TestScheduler_ECSRunTaskFailureSurfaced(t *testing.T) {
 	rec := aws.ToString(runTaskErr.CloudTrailEvent)
 	require.Contains(t, rec, "InvalidParameterException", "the errorCode must reflect the real RunTask rejection")
 
-	// And no task was created — certainly none transitioned to STOPPED.
 	stopped, err := ecsc.ListTasks(ctx, &ecs.ListTasksInput{
 		Cluster: aws.String(cluster), DesiredStatus: ecstypes.DesiredStatusStopped,
 	})

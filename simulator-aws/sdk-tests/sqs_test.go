@@ -21,11 +21,9 @@ func sqsClient() *sqs.Client {
 	})
 }
 
-// TestSQS_ReceiveMessageAttributeSubsetMD5 asserts that requesting a subset of
-// message attributes recomputes MD5OfMessageAttributes over exactly the returned
-// set. aws-sdk-go-v2's ValidateMessageChecksums middleware fails the call on a
-// digest mismatch, so a successful subset receive proves the recompute (the sim
-// previously re-emitted the stored full-set digest).
+// TestSQS_ReceiveMessageAttributeSubsetMD5 expects a receive of a subset of
+// message attributes to compute MD5OfMessageAttributes over that subset;
+// aws-sdk-go-v2's ValidateMessageChecksums fails the call on a mismatch.
 func TestSQS_ReceiveMessageAttributeSubsetMD5(t *testing.T) {
 	t.Parallel()
 	client := sqsClient()
@@ -54,13 +52,10 @@ func TestSQS_ReceiveMessageAttributeSubsetMD5(t *testing.T) {
 	assert.NotContains(t, recv.Messages[0].MessageAttributes, "beta")
 }
 
-// TestSQS_QueueLifecycle exercises the 90th-percentile produce-
-// consume-ack flow that real consumers run against SQS.
 func TestSQS_QueueLifecycle(t *testing.T) {
 	t.Parallel()
 	client := sqsClient()
 
-	// CreateQueue + GetQueueUrl round-trip.
 	create, err := client.CreateQueue(ctx, &sqs.CreateQueueInput{
 		QueueName: aws.String("life-q"),
 	})
@@ -77,14 +72,13 @@ func TestSQS_QueueLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, queueURL, aws.ToString(urlOut.QueueUrl))
 
-	// ListQueues + prefix filter.
 	list, err := client.ListQueues(ctx, &sqs.ListQueuesInput{
 		QueueNamePrefix: aws.String("life-"),
 	})
 	require.NoError(t, err)
 	assert.Contains(t, list.QueueUrls, queueURL)
 
-	// GetQueueAttributes — empty queue should report 0 messages.
+	// An empty queue reports 0 messages.
 	attrs, err := client.GetQueueAttributes(ctx, &sqs.GetQueueAttributesInput{
 		QueueUrl:       aws.String(queueURL),
 		AttributeNames: []sqstypes.QueueAttributeName{"All"},
@@ -107,7 +101,6 @@ func TestSQS_QueueLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "7", updatedAttrs.Attributes["VisibilityTimeout"])
 
-	// Send + Receive round-trip.
 	send, err := client.SendMessage(ctx, &sqs.SendMessageInput{
 		QueueUrl:    aws.String(queueURL),
 		MessageBody: aws.String("hello sqs"),
@@ -125,8 +118,7 @@ func TestSQS_QueueLifecycle(t *testing.T) {
 	receiptHandle := aws.ToString(recv.Messages[0].ReceiptHandle)
 	require.NotEmpty(t, receiptHandle)
 
-	// Visibility timeout: a second ReceiveMessage right away should
-	// see nothing (the message is in-flight under the receipt handle).
+	// The message is in flight, so a second receive sees nothing.
 	recv2, err := client.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{
 		QueueUrl: aws.String(queueURL),
 	})
@@ -134,14 +126,12 @@ func TestSQS_QueueLifecycle(t *testing.T) {
 	assert.Empty(t, recv2.Messages,
 		"message should be invisible during the visibility-timeout window")
 
-	// DeleteMessage acks it.
 	_, err = client.DeleteMessage(ctx, &sqs.DeleteMessageInput{
 		QueueUrl:      aws.String(queueURL),
 		ReceiptHandle: aws.String(receiptHandle),
 	})
 	require.NoError(t, err)
 
-	// Attributes should show 0 messages again (ack removed it).
 	attrsAfter, err := client.GetQueueAttributes(ctx, &sqs.GetQueueAttributesInput{
 		QueueUrl:       aws.String(queueURL),
 		AttributeNames: []sqstypes.QueueAttributeName{"All"},
@@ -150,7 +140,6 @@ func TestSQS_QueueLifecycle(t *testing.T) {
 	assert.Equal(t, "0", attrsAfter.Attributes["ApproximateNumberOfMessages"])
 }
 
-// TestSQS_TagQueueRoundTrip asserts tag CRUD per the SDK shape.
 func TestSQS_TagQueueRoundTrip(t *testing.T) {
 	t.Parallel()
 	client := sqsClient()
@@ -181,8 +170,6 @@ func TestSQS_TagQueueRoundTrip(t *testing.T) {
 	assert.False(t, untagged, "team tag should be removed")
 }
 
-// TestSQS_NonExistentQueue confirms the canonical error envelope
-// real callers handle on a missing queue.
 func TestSQS_NonExistentQueue(t *testing.T) {
 	t.Parallel()
 	client := sqsClient()
@@ -259,8 +246,8 @@ func TestSQS_ReceiveMessageRejectsInvalidWaitTimeSeconds(t *testing.T) {
 	assert.Contains(t, apiErr.ErrorMessage(), "must be between 0 and 20")
 }
 
-// TestSQS_VisibilityTimeoutExpiry asserts a message returns to
-// visible state after the per-receive timeout elapses.
+// TestSQS_VisibilityTimeoutExpiry expects a message visible again once its
+// visibility timeout ends.
 func TestSQS_VisibilityTimeoutExpiry(t *testing.T) {
 	t.Parallel()
 	client := sqsClient()
@@ -296,10 +283,8 @@ func TestSQS_VisibilityTimeoutExpiry(t *testing.T) {
 		"the message came back before its visibility timeout ended")
 }
 
-// TestSQS_ChangeMessageVisibility asserts that resetting an in-flight message's
-// visibility timeout to 0 makes it immediately receivable again. The message is
-// invisible right after the first receive (default 30s timeout); a
-// ChangeMessageVisibility to 0 returns it to the visible pool.
+// TestSQS_ChangeMessageVisibility expects a visibility timeout reset to 0 to
+// make an in-flight message receivable at once.
 func TestSQS_ChangeMessageVisibility(t *testing.T) {
 	t.Parallel()
 	client := sqsClient()
@@ -318,12 +303,11 @@ func TestSQS_ChangeMessageVisibility(t *testing.T) {
 	require.Len(t, recv.Messages, 1)
 	handle := aws.ToString(recv.Messages[0].ReceiptHandle)
 
-	// Invisible immediately (30s default timeout).
+	// Invisible under the 30-second default timeout.
 	recv2, err := client.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{QueueUrl: aws.String(url)})
 	require.NoError(t, err)
 	assert.Empty(t, recv2.Messages)
 
-	// Reset visibility to 0 → immediately visible again.
 	_, err = client.ChangeMessageVisibility(ctx, &sqs.ChangeMessageVisibilityInput{
 		QueueUrl:          aws.String(url),
 		ReceiptHandle:     aws.String(handle),
@@ -348,9 +332,8 @@ func TestSQS_ChangeMessageVisibility(t *testing.T) {
 	assert.Equal(t, "ReceiptHandleIsInvalid", apiErr.ErrorCode())
 }
 
-// TestSQS_ChangeMessageVisibilityBatch asserts per-entry success/failure for a
-// batch visibility change: a valid in-flight handle succeeds, an unknown handle
-// fails with ReceiptHandleIsInvalid.
+// TestSQS_ChangeMessageVisibilityBatch expects a valid in-flight handle to
+// succeed and an unknown one to fail with ReceiptHandleIsInvalid.
 func TestSQS_ChangeMessageVisibilityBatch(t *testing.T) {
 	t.Parallel()
 	client := sqsClient()
@@ -382,14 +365,12 @@ func TestSQS_ChangeMessageVisibilityBatch(t *testing.T) {
 	assert.Equal(t, "bad", aws.ToString(out.Failed[0].Id))
 	assert.Equal(t, "ReceiptHandleIsInvalid", aws.ToString(out.Failed[0].Code))
 
-	// The "ok" entry reset visibility to 0 → b1 is receivable again.
+	// The successful entry made b1 receivable again.
 	recv2, err := client.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{QueueUrl: aws.String(url)})
 	require.NoError(t, err)
 	require.Len(t, recv2.Messages, 1)
 }
 
-// TestSQS_DeleteMessageBatch asserts batch delete by receipt handle: two
-// messages received then batch-deleted leave the queue empty.
 func TestSQS_DeleteMessageBatch(t *testing.T) {
 	t.Parallel()
 	client := sqsClient()
@@ -417,7 +398,7 @@ func TestSQS_DeleteMessageBatch(t *testing.T) {
 			ReceiptHandle: m.ReceiptHandle,
 		})
 	}
-	// Append a bogus entry to exercise the Failed path.
+	// An unknown handle goes to Failed.
 	entries = append(entries, sqstypes.DeleteMessageBatchRequestEntry{
 		Id: aws.String("bad"), ReceiptHandle: aws.String("nope"),
 	})
@@ -429,7 +410,7 @@ func TestSQS_DeleteMessageBatch(t *testing.T) {
 	require.Len(t, out.Failed, 1)
 	assert.Equal(t, "bad", aws.ToString(out.Failed[0].Id))
 
-	// Make the in-flight messages visible again to confirm they're gone.
+	// Make the in-flight messages visible again to show they are gone.
 	for _, m := range recv.Messages {
 		_, _ = client.ChangeMessageVisibility(ctx, &sqs.ChangeMessageVisibilityInput{
 			QueueUrl: aws.String(url), ReceiptHandle: m.ReceiptHandle, VisibilityTimeout: 0,
@@ -443,9 +424,8 @@ func TestSQS_DeleteMessageBatch(t *testing.T) {
 	assert.Equal(t, "0", attrs.Attributes["ApproximateNumberOfMessages"])
 }
 
-// TestSQS_AddRemovePermission asserts AddPermission writes a labelled Allow
-// statement into the queue's Policy attribute (readable via GetQueueAttributes)
-// and RemovePermission strips it back out.
+// TestSQS_AddRemovePermission expects AddPermission to add a labelled Allow
+// statement to the queue's Policy attribute and RemovePermission to remove it.
 func TestSQS_AddRemovePermission(t *testing.T) {
 	t.Parallel()
 	client := sqsClient()
@@ -473,7 +453,6 @@ func TestSQS_AddRemovePermission(t *testing.T) {
 	assert.Contains(t, policy, "arn:aws:iam::123456789012:root")
 	assert.Contains(t, policy, "SQS:SendMessage")
 
-	// A duplicate label is rejected.
 	_, err = client.AddPermission(ctx, &sqs.AddPermissionInput{
 		QueueUrl:      aws.String(url),
 		Label:         aws.String("grant-send"),
@@ -498,7 +477,6 @@ func TestSQS_AddRemovePermission(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, attrs2.Attributes["Policy"], "RemovePermission must clear the last statement")
 
-	// Removing a non-existent label is rejected.
 	_, err = client.RemovePermission(ctx, &sqs.RemovePermissionInput{
 		QueueUrl: aws.String(url),
 		Label:    aws.String("does-not-exist"),

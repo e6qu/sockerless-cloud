@@ -11,10 +11,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// ListCertificateDomainValidations is the paginated read AWS added beside
-// DescribeCertificate, which carries the same validations inline. The two
-// views answer from one record, so this asserts they agree rather than
-// asserting a shape of their own.
+// ListCertificateDomainValidations pages the validations DescribeCertificate
+// carries inline; both answer from one record, so they agree.
 func TestACMListCertificateDomainValidationsMatchesDescribe(t *testing.T) {
 	t.Parallel()
 	acmC := acmClient()
@@ -50,20 +48,20 @@ func TestACMListCertificateDomainValidationsMatchesDescribe(t *testing.T) {
 		require.NotNil(t, summary.RequestedValidationConfiguration, "%s carries no requested configuration", name)
 		require.Equal(t, dvo.ValidationMethod, summary.RequestedValidationConfiguration.ValidationMethod)
 		require.Equal(t, dvo.ValidationStatus, summary.RequestedValidationConfiguration.ValidationStatus)
-		// The configuration in force is the one the request asked for until a
-		// caller changes the method, which nothing here does.
+		// The configuration in force is the requested one until a caller changes the
+		// method.
 		require.Equal(t, summary.RequestedValidationConfiguration.ValidationMethod,
 			summary.ActiveValidationConfiguration.ValidationMethod)
-		// The challenge is a tagged union; a DNS validation carries the
-		// record the caller must publish.
+		// The challenge is a tagged union; a DNS validation carries the record the
+		// caller publishes.
 		dnsChallenge, ok := summary.RequestedValidationConfiguration.ValidationChallenge.(*acmtypes.ValidationChallengeMemberDnsValidationChallenge)
 		require.True(t, ok, "%s did not carry a DNS validation challenge", name)
 		require.Equal(t, aws.ToString(dvo.ResourceRecord.Name),
 			aws.ToString(dnsChallenge.Value.ResourceRecord.Name))
 	}
 
-	// A page smaller than the validation set carries a continuation token, and
-	// the pages together cover the whole set exactly once.
+	// A page smaller than the validation set carries a continuation token, and the
+	// pages cover the set exactly once.
 	first, err := acmC.ListCertificateDomainValidations(ctx, &acm.ListCertificateDomainValidationsInput{
 		CertificateArn: aws.String(arn), MaxItems: aws.Int32(1),
 	})

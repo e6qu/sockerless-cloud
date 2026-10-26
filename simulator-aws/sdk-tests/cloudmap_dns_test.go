@@ -55,9 +55,9 @@ func zoneRecordSets(t *testing.T, r53 *route53.Client, zoneID string) []r53types
 	return out.ResourceRecordSets
 }
 
-// A private DNS namespace owns a private hosted zone, created by Cloud Map and
-// associated with the namespace's VPC, into which every registered instance
-// writes a multivalue record set; deleting the namespace deletes the zone.
+// A private DNS namespace owns a private hosted zone Cloud Map creates and
+// associates with the namespace's VPC; each registered instance writes a
+// multivalue record set into it, and deleting the namespace deletes the zone.
 func TestCloudMap_PrivateNamespaceOwnsItsHostedZone(t *testing.T) {
 	t.Parallel()
 	cm, r53 := cmClient(), r53Client()
@@ -219,9 +219,9 @@ func TestCloudMap_PublicNamespaceAnswersDNS(t *testing.T) {
 	assert.Equal(t, "198.51.100.20", net.IP(hostA.A[:]).String())
 }
 
-// An instance of a service with a custom health check keeps answering for 30
-// seconds after it is reported UNHEALTHY, then drops out of the multivalue
-// answer while a healthy instance remains; its record set stays in the zone.
+// A custom-health instance keeps answering for 30 seconds after it is reported
+// UNHEALTHY, then leaves the multivalue answer while a healthy instance
+// remains; its record set stays in the zone.
 func TestCloudMap_CustomHealthStopsRoutingAfterThirtySeconds(t *testing.T) {
 	t.Parallel()
 	cm, r53 := cmClient(), r53Client()

@@ -10,8 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestGlue_MLTransformLifecycle_SDK exercises the full ML transform CRUD family:
-// Create -> Get -> GetMLTransforms -> ListMLTransforms -> Update -> Delete.
 func TestGlue_MLTransformLifecycle_SDK(t *testing.T) {
 	t.Parallel()
 	c := glueClient()
@@ -73,8 +71,6 @@ func TestGlue_MLTransformLifecycle_SDK(t *testing.T) {
 	assert.Error(t, err, "deleted transform should not be found")
 }
 
-// TestGlue_DataQualityLifecycle_SDK exercises the Data Quality ruleset family
-// plus evaluation/recommendation runs and the results they settle into.
 func TestGlue_DataQualityLifecycle_SDK(t *testing.T) {
 	t.Parallel()
 	c := glueClient()
@@ -120,7 +116,7 @@ func TestGlue_DataQualityLifecycle_SDK(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Evaluation run settles SUCCEEDED synchronously and produces a result.
+	// The evaluation run settles SUCCEEDED before returning and produces a result.
 	start, err := c.StartDataQualityRulesetEvaluationRun(ctx, &glue.StartDataQualityRulesetEvaluationRunInput{
 		DataSource: &gluetypes.DataSource{
 			GlueTable: &gluetypes.GlueTable{
@@ -154,17 +150,16 @@ func TestGlue_DataQualityLifecycle_SDK(t *testing.T) {
 	_, err = c.CancelDataQualityRulesetEvaluationRun(ctx, &glue.CancelDataQualityRulesetEvaluationRunInput{RunId: aws.String(runID)})
 	require.NoError(t, err)
 
-	// The result row is empty/zero-but-shaped over no real data.
+	// Over no real data the result is zero-valued but complete.
 	res, err := c.GetDataQualityResult(ctx, &glue.GetDataQualityResultInput{ResultId: aws.String(resultID)})
 	require.NoError(t, err)
 	assert.Equal(t, resultID, aws.ToString(res.ResultId))
 	assert.Equal(t, rulesetName, aws.ToString(res.RulesetName))
 	assert.Empty(t, res.RuleResults)
 
-	// The evaluation writes its statistics to a profile, and the result is the
-	// only place the API hands that identifier out — GetDataQualityModel and
-	// PutDataQualityProfileAnnotation take nothing else, so a result without
-	// one leaves them unreachable.
+	// The evaluation writes its statistics to a profile, and only the result hands
+	// out that identifier, which GetDataQualityModel and
+	// PutDataQualityProfileAnnotation need.
 	profileID := aws.ToString(res.ProfileId)
 	require.NotEmpty(t, profileID)
 	_, err = c.PutDataQualityProfileAnnotation(ctx, &glue.PutDataQualityProfileAnnotationInput{
@@ -190,7 +185,6 @@ func TestGlue_DataQualityLifecycle_SDK(t *testing.T) {
 	}
 	assert.True(t, foundRes)
 
-	// Recommendation run settles SUCCEEDED and recommends a (shaped) ruleset.
 	rec, err := c.StartDataQualityRuleRecommendationRun(ctx, &glue.StartDataQualityRuleRecommendationRunInput{
 		DataSource: &gluetypes.DataSource{
 			GlueTable: &gluetypes.GlueTable{
@@ -222,15 +216,13 @@ func TestGlue_DataQualityLifecycle_SDK(t *testing.T) {
 	_, err = c.CancelDataQualityRuleRecommendationRun(ctx, &glue.CancelDataQualityRuleRecommendationRunInput{RunId: aws.String(recID)})
 	require.NoError(t, err)
 
-	// No statistic was recorded, so the listing is empty — a true answer over a
-	// history nothing wrote.
+	// No statistic was recorded, so the listing is empty.
 	stats, err := c.ListDataQualityStatistics(ctx, &glue.ListDataQualityStatisticsInput{})
 	require.NoError(t, err)
 	assert.Empty(t, stats.Statistics)
 
-	// A model is trained from that history, so no profile has one — including
-	// the one this evaluation just wrote. Reporting SUCCEEDED would say a model
-	// is ready to read, which the read itself disproves.
+	// A model trains on that history, so no profile has one, the one just written
+	// included.
 	_, err = c.GetDataQualityModel(ctx, &glue.GetDataQualityModelInput{
 		ProfileId: aws.String(profileID),
 	})
@@ -244,7 +236,7 @@ func TestGlue_DataQualityLifecycle_SDK(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "EntityNotFoundException")
 
-	// And a profile nothing issued is not found rather than answered for.
+	// A profile nothing issued is not found.
 	_, err = c.GetDataQualityModel(ctx, &glue.GetDataQualityModelInput{
 		ProfileId: aws.String("profile-1"),
 	})
@@ -252,8 +244,6 @@ func TestGlue_DataQualityLifecycle_SDK(t *testing.T) {
 	assert.Contains(t, err.Error(), "No data quality profile")
 }
 
-// TestGlue_ColumnStatisticsTaskLifecycle_SDK exercises the column-statistics
-// task settings + runs family, keyed by database+table.
 func TestGlue_ColumnStatisticsTaskLifecycle_SDK(t *testing.T) {
 	t.Parallel()
 	c := glueClient()
@@ -312,7 +302,7 @@ func TestGlue_ColumnStatisticsTaskLifecycle_SDK(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []string{"id"}, getS2.ColumnStatisticsTaskSettings.ColumnNameList)
 
-	// Start a run; it settles SUCCEEDED synchronously.
+	// The run settles SUCCEEDED before returning.
 	start, err := c.StartColumnStatisticsTaskRun(ctx, &glue.StartColumnStatisticsTaskRunInput{
 		DatabaseName:   aws.String(dbName),
 		TableName:      aws.String(tblName),
@@ -347,7 +337,6 @@ func TestGlue_ColumnStatisticsTaskLifecycle_SDK(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, listRuns.ColumnStatisticsTaskRunIds, runID)
 
-	// The run already settled, so Stop reports it is not running.
 	_, err = c.StopColumnStatisticsTaskRun(ctx, &glue.StopColumnStatisticsTaskRunInput{
 		DatabaseName: aws.String(dbName), TableName: aws.String(tblName),
 	})

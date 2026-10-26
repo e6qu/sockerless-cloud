@@ -23,10 +23,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// webIdentityIssuer is a minimal but real OpenID Connect issuer: it serves the
-// discovery document and JSON Web Key Set the Security Token Service fetches to
-// verify a web identity token, and signs tokens with the matching key. It
-// stands in for the external identity provider the console federates through.
+// webIdentityIssuer is an OpenID Connect issuer: it serves the discovery
+// document and JSON Web Key Set AWS STS fetches to verify a token, and signs
+// tokens with the matching key, standing in for the identity provider the
+// console federates through.
 type webIdentityIssuer struct {
 	server            *httptest.Server
 	key               *rsa.PrivateKey
@@ -82,9 +82,9 @@ func (i *webIdentityIssuer) mint(t *testing.T, subject, audience string, expiry 
 	return raw
 }
 
-// registerWebIdentityRole registers the OpenID Connect provider and a role that
-// trusts it, and returns the role ARN — the federation an administrator sets up
-// so an operator's identity-provider token can be exchanged for credentials.
+// registerWebIdentityRole registers the OpenID Connect provider and a role
+// trusting it, as an administrator sets up console federation, and returns
+// the role ARN.
 func registerWebIdentityRole(t *testing.T, issuerURL, audience string) string {
 	t.Helper()
 	c := iamClient()
@@ -99,8 +99,7 @@ func registerWebIdentityRole(t *testing.T, issuerURL, audience string) string {
 		_, _ = c.DeleteOpenIDConnectProvider(ctx, &iam.DeleteOpenIDConnectProviderInput{OpenIDConnectProviderArn: aws.String(providerArn)})
 	})
 
-	// The suite's tests federate at the same time, each through a role of
-	// its own.
+	// Tests federate concurrently, each through its own role.
 	role := uniquename.New("console-federation-role")
 	_, err = c.CreateRole(ctx, &iam.CreateRoleInput{
 		RoleName:                 aws.String(role),
@@ -111,10 +110,9 @@ func registerWebIdentityRole(t *testing.T, issuerURL, audience string) string {
 	return "arn:aws:iam::000000000000:role/" + role
 }
 
-// TestSTS_AssumeRoleWithWebIdentity federates a signed OpenID Connect token into
-// temporary credentials, the way the console reaches AWS: the Security Token
-// Service verifies the token against the registered provider and returns
-// credentials whose subject is the token's, exactly as against real AWS.
+// TestSTS_AssumeRoleWithWebIdentity expects AWS STS to verify a signed OpenID
+// Connect token against the registered provider and return credentials whose
+// subject is the token's, as the console reaches AWS.
 func TestSTS_AssumeRoleWithWebIdentity(t *testing.T) {
 	t.Parallel()
 	issuer := newWebIdentityIssuer(t)
@@ -148,8 +146,8 @@ func TestSTS_AssumeRoleWithWebIdentity(t *testing.T) {
 		"repeated exchanges for one issuer and signing key must reuse its JSON Web Key Set")
 }
 
-// TestSTS_AssumeRoleWithWebIdentity_RejectsUnregisteredIssuer proves a token
-// from an issuer with no registered provider is refused.
+// TestSTS_AssumeRoleWithWebIdentity_RejectsUnregisteredIssuer expects a token
+// from an issuer without a registered provider to be refused.
 func TestSTS_AssumeRoleWithWebIdentity_RejectsUnregisteredIssuer(t *testing.T) {
 	t.Parallel()
 	issuer := newWebIdentityIssuer(t)
@@ -173,8 +171,8 @@ func TestSTS_AssumeRoleWithWebIdentity_RejectsUnregisteredIssuer(t *testing.T) {
 	assert.ErrorAs(t, err, &invalid, "an unregistered issuer must be rejected as an invalid identity token")
 }
 
-// TestSTS_AssumeRoleWithWebIdentity_RejectsExpiredToken proves an expired token
-// is refused rather than exchanged.
+// TestSTS_AssumeRoleWithWebIdentity_RejectsExpiredToken expects an expired
+// token to be refused.
 func TestSTS_AssumeRoleWithWebIdentity_RejectsExpiredToken(t *testing.T) {
 	t.Parallel()
 	issuer := newWebIdentityIssuer(t)
@@ -191,10 +189,9 @@ func TestSTS_AssumeRoleWithWebIdentity_RejectsExpiredToken(t *testing.T) {
 	assert.ErrorAs(t, err, &invalid, "an expired token must be rejected")
 }
 
-// TestSTS_AssumeRoleWithWebIdentity_EnforcesTheTrustPolicy proves the role's
-// trust policy decides who may federate into it: its condition on the token's
-// subject admits one operator and refuses another, and a role that trusts a
-// different provider refuses a token this provider signed.
+// TestSTS_AssumeRoleWithWebIdentity_EnforcesTheTrustPolicy expects the role's
+// condition on the token's subject to admit one operator and refuse another,
+// and a role trusting another provider to refuse this provider's token.
 func TestSTS_AssumeRoleWithWebIdentity_EnforcesTheTrustPolicy(t *testing.T) {
 	t.Parallel()
 	issuer := newWebIdentityIssuer(t)

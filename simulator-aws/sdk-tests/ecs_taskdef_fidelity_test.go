@@ -10,11 +10,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestECS_TaskDefinitionFidelitySDK proves the full container-definition
-// round-trip (ulimits/dependsOn/dockerLabels/linuxParameters/user/… were
-// silently dropped, forcing a new revision every plan) plus the top-level knobs
-// the provider reads back (runtime_platform, ephemeral_storage, pid_mode,
-// ipc_mode, placement_constraints) and the AWS-computed compatibilities list.
+// TestECS_TaskDefinitionFidelitySDK expects every container-definition field
+// (ulimits, dependsOn, dockerLabels, linuxParameters, user and the rest), the
+// top-level fields the provider reads back (runtime_platform,
+// ephemeral_storage, pid_mode, ipc_mode, placement_constraints) and the
+// computed compatibilities to round-trip.
 func TestECS_TaskDefinitionFidelitySDK(t *testing.T) {
 	t.Parallel()
 	c := ecsClient()
@@ -69,7 +69,6 @@ func TestECS_TaskDefinitionFidelitySDK(t *testing.T) {
 	require.NoError(t, err)
 	td := desc.TaskDefinition
 
-	// Top-level knobs round-trip.
 	require.NotNil(t, td.RuntimePlatform)
 	assert.Equal(t, ecstypes.CPUArchitectureArm64, td.RuntimePlatform.CpuArchitecture)
 	assert.Equal(t, ecstypes.OSFamilyLinux, td.RuntimePlatform.OperatingSystemFamily)
@@ -80,11 +79,10 @@ func TestECS_TaskDefinitionFidelitySDK(t *testing.T) {
 	require.Len(t, td.PlacementConstraints, 1)
 	assert.Equal(t, "attribute:ecs.os-type == linux", aws.ToString(td.PlacementConstraints[0].Expression))
 
-	// Compatibilities: awsvpc + Fargate ⇒ [EC2, FARGATE].
+	// An awsvpc task definition is compatible with both EC2 and FARGATE.
 	assert.Contains(t, td.Compatibilities, ecstypes.CompatibilityEc2)
 	assert.Contains(t, td.Compatibilities, ecstypes.CompatibilityFargate)
 
-	// Full container-definition round-trip — every previously-dropped field.
 	require.Len(t, td.ContainerDefinitions, 2)
 	app := td.ContainerDefinitions[0]
 	assert.Equal(t, "1000:1000", aws.ToString(app.User))

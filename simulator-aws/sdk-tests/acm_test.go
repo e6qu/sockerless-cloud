@@ -54,7 +54,7 @@ func TestACMRequestDescribeDelete(t *testing.T) {
 	require.NotNil(t, descOut.Certificate)
 	assert.Equal(t, "example.com", aws.ToString(descOut.Certificate.DomainName))
 	assert.Equal(t, acmtypes.CertificateStatusPendingValidation, descOut.Certificate.Status)
-	// DNS validation method must include ResourceRecord for each domain.
+	// DNS validation carries a ResourceRecord for each domain.
 	require.Len(t, descOut.Certificate.DomainValidationOptions, 3)
 	for _, dvo := range descOut.Certificate.DomainValidationOptions {
 		assert.NotNil(t, dvo.ResourceRecord, "DNS validation must include ResourceRecord")
@@ -100,7 +100,6 @@ func TestACMUpdateOptionsRenewResendValidation(t *testing.T) {
 		_, _ = c.DeleteCertificate(ctx, &acm.DeleteCertificateInput{CertificateArn: aws.String(arn)})
 	}()
 
-	// UpdateCertificateOptions — set transparency logging
 	_, err = c.UpdateCertificateOptions(ctx, &acm.UpdateCertificateOptionsInput{
 		CertificateArn: aws.String(arn),
 		Options: &acmtypes.CertificateOptions{
@@ -114,8 +113,7 @@ func TestACMUpdateOptionsRenewResendValidation(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "InvalidStateException")
 
-	// ResendValidationEmail rejects a DNS-validated certificate rather than
-	// claiming that an email was sent.
+	// ResendValidationEmail rejects a DNS-validated certificate.
 	_, err = c.ResendValidationEmail(ctx, &acm.ResendValidationEmailInput{
 		CertificateArn:   aws.String(arn),
 		Domain:           aws.String("opts.example.com"),
@@ -222,10 +220,9 @@ func TestACMTagsLifecycle(t *testing.T) {
 	assert.Equal(t, "team", aws.ToString(listOut.Tags[0].Key))
 }
 
-// TestCloudFrontRejectsNonUSEast1ACMCert verifies the us-east-1 pin
-// enforcement. Sim simulates against region "us-east-1" by default;
-// we synthesise a bogus non-us-east-1 ARN that points at a real
-// cert ID in the sim's store, and confirm CloudFront rejects it.
+// TestCloudFrontRejectsNonUSEast1ACMCert points CloudFront at a real
+// certificate's ARN rewritten to another Region: CloudFront takes viewer
+// certificates only from us-east-1.
 func TestCloudFrontRejectsNonUSEast1ACMCert(t *testing.T) {
 	t.Parallel()
 	a := acmClient()
@@ -233,8 +230,6 @@ func TestCloudFrontRejectsNonUSEast1ACMCert(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	// Create a cert. Sim's region is us-east-1 by default; we munge the
-	// ARN region to "us-west-2" to test cross-resource rejection.
 	out, err := a.RequestCertificate(ctx, &acm.RequestCertificateInput{
 		DomainName:       aws.String("pin.example.com"),
 		ValidationMethod: acmtypes.ValidationMethodDns,
@@ -245,7 +240,6 @@ func TestCloudFrontRejectsNonUSEast1ACMCert(t *testing.T) {
 	}()
 
 	usEastArn := aws.ToString(out.CertificateArn)
-	// Build a non-us-east-1 variant of the same ARN
 	wrongArn := ""
 	{
 		// arn:aws:acm:us-east-1:<acct>:certificate/<id>
@@ -303,7 +297,7 @@ func TestCloudFrontRejectsNonUSEast1ACMCert(t *testing.T) {
 	assert.Equal(t, "InvalidViewerCertificate", ae.ErrorCode())
 }
 
-// splitN is a tiny strings.SplitN substitute to avoid importing strings here.
+// splitN spares this file the strings import.
 func splitN(s, sep string, n int) []string {
 	out := []string{}
 	for i := 0; i < n-1; i++ {

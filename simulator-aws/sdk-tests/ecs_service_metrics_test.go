@@ -14,10 +14,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// An Amazon ECS service reports its CPUUtilization and MemoryUtilization to
-// CloudWatch each minute, under AWS/ECS with its ClusterName and ServiceName:
-// a task that keeps a core busy under a 512-unit task size uses all the CPU it
-// reserves.
+// An Amazon ECS service reports CPUUtilization and MemoryUtilization to
+// CloudWatch each minute under AWS/ECS with ClusterName and ServiceName; a task
+// keeping a core busy under a 512-unit task size uses all the CPU it reserves.
 func TestECS_ServiceReportsItsUtilization(t *testing.T) {
 	t.Parallel()
 	ecsC, cwC := ecsClient(), cloudwatchClient()
@@ -53,8 +52,8 @@ func TestECS_ServiceReportsItsUtilization(t *testing.T) {
 		require.NoError(t, err)
 		return out.Datapoints
 	}
-	// Amazon ECS sends a minute's datapoint once the minute has passed, so
-	// read the metric on its own one-minute cadence's scale.
+	// Amazon ECS sends a minute's datapoint once the minute has passed, so poll on
+	// that cadence.
 	var cpu []cwtypes.Datapoint
 	require.Eventually(t, func() bool {
 		cpu = statistics("CPUUtilization")

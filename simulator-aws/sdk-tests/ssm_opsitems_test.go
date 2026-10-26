@@ -11,9 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestSSM_OpsItemLifecycle pins the OpsCenter slice: create an OpsItem, read it
-// back, list it via DescribeOpsItems, update its status to Resolved, associate
-// and list a related item, list the activity events, then disassociate.
 func TestSSM_OpsItemLifecycle(t *testing.T) {
 	t.Parallel()
 	c := ssmClient()
@@ -37,7 +34,6 @@ func TestSSM_OpsItemLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "arn:aws:ssm:us-east-1:"+*identity.Account+":opsitem/"+id, *created.OpsItemArn)
 
-	// Get it back.
 	got, err := c.GetOpsItem(ctx, &ssm.GetOpsItemInput{OpsItemId: aws.String(id)})
 	require.NoError(t, err)
 	require.NotNil(t, got.OpsItem)
@@ -49,7 +45,6 @@ func TestSSM_OpsItemLifecycle(t *testing.T) {
 	assert.Equal(t, *identity.Arn, *got.OpsItem.CreatedBy, "the creator is the identity that signed the create")
 	assert.Equal(t, *identity.Arn, *got.OpsItem.LastModifiedBy)
 
-	// DescribeOpsItems includes it.
 	desc, err := c.DescribeOpsItems(ctx, &ssm.DescribeOpsItemsInput{})
 	require.NoError(t, err)
 	found := false
@@ -61,7 +56,6 @@ func TestSSM_OpsItemLifecycle(t *testing.T) {
 	}
 	assert.True(t, found, "DescribeOpsItems must include created item")
 
-	// Update to Resolved.
 	_, err = c.UpdateOpsItem(ctx, &ssm.UpdateOpsItemInput{
 		OpsItemId: aws.String(id),
 		Status:    ssmtypes.OpsItemStatusResolved,
@@ -74,7 +68,6 @@ func TestSSM_OpsItemLifecycle(t *testing.T) {
 	assert.Equal(t, "2", *got2.OpsItem.Version)
 	assert.Equal(t, *identity.Arn, *got2.OpsItem.LastModifiedBy, "an update records the identity that signed it")
 
-	// Associate a related item.
 	assoc, err := c.AssociateOpsItemRelatedItem(ctx, &ssm.AssociateOpsItemRelatedItemInput{
 		OpsItemId:       aws.String(id),
 		AssociationType: aws.String("RelatesTo"),
@@ -91,7 +84,7 @@ func TestSSM_OpsItemLifecycle(t *testing.T) {
 	assert.Equal(t, assocID, *rel.Summaries[0].AssociationId)
 	assert.Equal(t, "RelatesTo", *rel.Summaries[0].AssociationType)
 
-	// Activity events (create + update were recorded).
+	// The create and the update are activity events.
 	evs, err := c.ListOpsItemEvents(ctx, &ssm.ListOpsItemEventsInput{
 		Filters: []ssmtypes.OpsItemEventFilter{
 			{
@@ -107,7 +100,6 @@ func TestSSM_OpsItemLifecycle(t *testing.T) {
 		assert.Equal(t, id, *e.OpsItemId)
 	}
 
-	// Disassociate.
 	_, err = c.DisassociateOpsItemRelatedItem(ctx, &ssm.DisassociateOpsItemRelatedItemInput{
 		OpsItemId:     aws.String(id),
 		AssociationId: aws.String(assocID),
@@ -117,17 +109,15 @@ func TestSSM_OpsItemLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, rel2.Summaries)
 
-	// Delete the ops item; a subsequent Get reports it gone.
 	_, err = c.DeleteOpsItem(ctx, &ssm.DeleteOpsItemInput{OpsItemId: aws.String(id)})
 	require.NoError(t, err)
 	_, err = c.GetOpsItem(ctx, &ssm.GetOpsItemInput{OpsItemId: aws.String(id)})
 	require.Error(t, err)
 }
 
-// TestSSM_MaintenanceWindowExecution pins the execution-side reads against a
-// real window+task: the window settles a deterministic SUCCESS execution, with
-// one task-execution and invocation, plus the GetMaintenanceWindowTask read and
-// the target/task update operations.
+// TestSSM_MaintenanceWindowExecution covers the execution reads for a window
+// and task: one SUCCESS execution with one task execution and invocation,
+// GetMaintenanceWindowTask, and the target and task updates.
 func TestSSM_MaintenanceWindowExecution(t *testing.T) {
 	t.Parallel()
 	c := ssmClient()
@@ -165,7 +155,6 @@ func TestSSM_MaintenanceWindowExecution(t *testing.T) {
 	require.NoError(t, err)
 	windowTaskID := *rtask.WindowTaskId
 
-	// GetMaintenanceWindowTask reads the registered task back.
 	gt, err := c.GetMaintenanceWindowTask(ctx, &ssm.GetMaintenanceWindowTaskInput{
 		WindowId:     aws.String(windowID),
 		WindowTaskId: aws.String(windowTaskID),
@@ -174,7 +163,6 @@ func TestSSM_MaintenanceWindowExecution(t *testing.T) {
 	assert.Equal(t, "AWS-RunShellScript", *gt.TaskArn)
 	assert.Equal(t, ssmtypes.MaintenanceWindowTaskTypeRunCommand, gt.TaskType)
 
-	// DescribeMaintenanceWindowExecutions settles a deterministic execution.
 	de, err := c.DescribeMaintenanceWindowExecutions(ctx, &ssm.DescribeMaintenanceWindowExecutionsInput{
 		WindowId: aws.String(windowID),
 	})
@@ -183,7 +171,6 @@ func TestSSM_MaintenanceWindowExecution(t *testing.T) {
 	execID := *de.WindowExecutions[0].WindowExecutionId
 	assert.Equal(t, ssmtypes.MaintenanceWindowExecutionStatusSuccess, de.WindowExecutions[0].Status)
 
-	// GetMaintenanceWindowExecution returns its task ids.
 	ge, err := c.GetMaintenanceWindowExecution(ctx, &ssm.GetMaintenanceWindowExecutionInput{
 		WindowExecutionId: aws.String(execID),
 	})
@@ -192,7 +179,6 @@ func TestSSM_MaintenanceWindowExecution(t *testing.T) {
 	taskExecID := ge.TaskIds[0]
 	assert.Equal(t, ssmtypes.MaintenanceWindowExecutionStatusSuccess, ge.Status)
 
-	// DescribeMaintenanceWindowExecutionTasks.
 	det, err := c.DescribeMaintenanceWindowExecutionTasks(ctx, &ssm.DescribeMaintenanceWindowExecutionTasksInput{
 		WindowExecutionId: aws.String(execID),
 	})
@@ -200,7 +186,6 @@ func TestSSM_MaintenanceWindowExecution(t *testing.T) {
 	require.Len(t, det.WindowExecutionTaskIdentities, 1)
 	assert.Equal(t, "AWS-RunShellScript", *det.WindowExecutionTaskIdentities[0].TaskArn)
 
-	// GetMaintenanceWindowExecutionTask.
 	get, err := c.GetMaintenanceWindowExecutionTask(ctx, &ssm.GetMaintenanceWindowExecutionTaskInput{
 		WindowExecutionId: aws.String(execID),
 		TaskId:            aws.String(taskExecID),
@@ -209,7 +194,6 @@ func TestSSM_MaintenanceWindowExecution(t *testing.T) {
 	assert.Equal(t, "AWS-RunShellScript", *get.TaskArn)
 	assert.Equal(t, ssmtypes.MaintenanceWindowExecutionStatusSuccess, get.Status)
 
-	// DescribeMaintenanceWindowExecutionTaskInvocations.
 	dei, err := c.DescribeMaintenanceWindowExecutionTaskInvocations(ctx, &ssm.DescribeMaintenanceWindowExecutionTaskInvocationsInput{
 		WindowExecutionId: aws.String(execID),
 		TaskId:            aws.String(taskExecID),
@@ -218,7 +202,6 @@ func TestSSM_MaintenanceWindowExecution(t *testing.T) {
 	require.Len(t, dei.WindowExecutionTaskInvocationIdentities, 1)
 	invID := *dei.WindowExecutionTaskInvocationIdentities[0].InvocationId
 
-	// GetMaintenanceWindowExecutionTaskInvocation.
 	gei, err := c.GetMaintenanceWindowExecutionTaskInvocation(ctx, &ssm.GetMaintenanceWindowExecutionTaskInvocationInput{
 		WindowExecutionId: aws.String(execID),
 		TaskId:            aws.String(taskExecID),
@@ -227,7 +210,7 @@ func TestSSM_MaintenanceWindowExecution(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, ssmtypes.MaintenanceWindowExecutionStatusSuccess, gei.Status)
 
-	// DescribeMaintenanceWindowSchedule + ForTarget see the enabled window.
+	// The schedule reads see the enabled window.
 	ds, err := c.DescribeMaintenanceWindowSchedule(ctx, &ssm.DescribeMaintenanceWindowScheduleInput{
 		WindowId: aws.String(windowID),
 	})
@@ -247,7 +230,6 @@ func TestSSM_MaintenanceWindowExecution(t *testing.T) {
 	}
 	assert.True(t, foundWin)
 
-	// UpdateMaintenanceWindowTarget.
 	ut, err := c.UpdateMaintenanceWindowTarget(ctx, &ssm.UpdateMaintenanceWindowTargetInput{
 		WindowId:       aws.String(windowID),
 		WindowTargetId: aws.String(targetID),
@@ -259,7 +241,6 @@ func TestSSM_MaintenanceWindowExecution(t *testing.T) {
 	require.Len(t, ut.Targets, 1)
 	assert.Equal(t, []string{"staging"}, ut.Targets[0].Values)
 
-	// UpdateMaintenanceWindowTask.
 	utask, err := c.UpdateMaintenanceWindowTask(ctx, &ssm.UpdateMaintenanceWindowTaskInput{
 		WindowId:       aws.String(windowID),
 		WindowTaskId:   aws.String(windowTaskID),
@@ -270,7 +251,6 @@ func TestSSM_MaintenanceWindowExecution(t *testing.T) {
 	assert.Equal(t, int32(5), utask.Priority)
 	assert.Equal(t, "2", *utask.MaxConcurrency)
 
-	// CancelMaintenanceWindowExecution echoes the id.
 	cancel, err := c.CancelMaintenanceWindowExecution(ctx, &ssm.CancelMaintenanceWindowExecutionInput{
 		WindowExecutionId: aws.String(execID),
 	})
@@ -278,9 +258,8 @@ func TestSSM_MaintenanceWindowExecution(t *testing.T) {
 	assert.Equal(t, execID, *cancel.WindowExecutionId)
 }
 
-// TestSSM_SessionLifecycle pins the Session Manager slice: start a session,
-// confirm its connection status, list active sessions, terminate, and confirm
-// it moves to the history view.
+// TestSSM_SessionLifecycle expects a session to report connected, list as
+// Active, resume with a new token, and move to History when terminated.
 func TestSSM_SessionLifecycle(t *testing.T) {
 	t.Parallel()
 	c := ssmClient()
@@ -296,13 +275,11 @@ func TestSSM_SessionLifecycle(t *testing.T) {
 		_, _ = c.TerminateSession(ctx, &ssm.TerminateSessionInput{SessionId: aws.String(sessID)})
 	})
 
-	// GetConnectionStatus reports connected for a target with an active session.
 	cs, err := c.GetConnectionStatus(ctx, &ssm.GetConnectionStatusInput{Target: aws.String(target)})
 	require.NoError(t, err)
 	assert.Equal(t, ssmtypes.ConnectionStatusConnected, cs.Status)
 	assert.Equal(t, target, *cs.Target)
 
-	// DescribeSessions (Active) includes it.
 	active, err := c.DescribeSessions(ctx, &ssm.DescribeSessionsInput{State: ssmtypes.SessionStateActive})
 	require.NoError(t, err)
 	foundActive := false
@@ -314,13 +291,11 @@ func TestSSM_SessionLifecycle(t *testing.T) {
 	}
 	assert.True(t, foundActive)
 
-	// ResumeSession returns a fresh token/stream.
 	resume, err := c.ResumeSession(ctx, &ssm.ResumeSessionInput{SessionId: aws.String(sessID)})
 	require.NoError(t, err)
 	assert.Equal(t, sessID, *resume.SessionId)
 	assert.NotEmpty(t, *resume.TokenValue)
 
-	// Terminate then confirm it's gone from Active and present in History.
 	term, err := c.TerminateSession(ctx, &ssm.TerminateSessionInput{SessionId: aws.String(sessID)})
 	require.NoError(t, err)
 	assert.Equal(t, sessID, *term.SessionId)
@@ -344,8 +319,8 @@ func TestSSM_SessionLifecycle(t *testing.T) {
 	assert.True(t, foundHist)
 }
 
-// TestSSM_ConnectionStatusNotConnected pins notconnected for an instance with
-// no active session.
+// TestSSM_ConnectionStatusNotConnected expects notconnected for an instance
+// without an active session.
 func TestSSM_ConnectionStatusNotConnected(t *testing.T) {
 	t.Parallel()
 	c := ssmClient()
@@ -356,8 +331,6 @@ func TestSSM_ConnectionStatusNotConnected(t *testing.T) {
 	assert.Equal(t, ssmtypes.ConnectionStatusNotConnected, cs.Status)
 }
 
-// TestSSM_ActivationLifecycle pins the hybrid-activation slice: create an
-// activation (id + code), list it back, and delete it.
 func TestSSM_ActivationLifecycle(t *testing.T) {
 	t.Parallel()
 	c := ssmClient()

@@ -51,7 +51,6 @@ func TestCloudFrontFunctionLifecycle(t *testing.T) {
 	}
 	assert.True(t, found)
 
-	// Publish DEVELOPMENT → LIVE
 	pubOut, err := c.PublishFunction(ctx, &cloudfront.PublishFunctionInput{
 		Name:    aws.String(name),
 		IfMatch: aws.String(etag),
@@ -59,11 +58,8 @@ func TestCloudFrontFunctionLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, cftypes.FunctionStageLive, pubOut.FunctionSummary.FunctionMetadata.Stage)
 
-	// Tags on the published function ARN. Regression: ListTagsForResource
-	// resolved only distribution ARNs, so a function ARN 404'd (NoSuchResource),
-	// which the AWS provider surfaced intermittently as a terraform apply
-	// failure on aws_cloudfront_function. It must return 200 (empty) and
-	// round-trip tag/untag.
+	// ListTagsForResource takes a function ARN as well as a distribution's, as
+	// aws_cloudfront_function's refresh does.
 	fnARN := aws.ToString(pubOut.FunctionSummary.FunctionMetadata.FunctionARN)
 	require.NotEmpty(t, fnARN)
 
@@ -93,7 +89,7 @@ func TestCloudFrontFunctionLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, afterUntag.Tags.Items)
 
-	// re-describe and pick up the new ETag for delete
+	// Delete needs the new ETag.
 	descOut, err = c.DescribeFunction(ctx, &cloudfront.DescribeFunctionInput{Name: aws.String(name)})
 	require.NoError(t, err)
 	curETag := aws.ToString(descOut.ETag)
@@ -116,7 +112,7 @@ func TestCloudFrontPublicKeyLifecycle(t *testing.T) {
 
 	name := "pk-" + time.Now().Format("150405.000000")
 	caller := "ref-" + time.Now().Format("150405.000000")
-	// Test PEM (not a real key — sim doesn't validate).
+	// CloudFront accepts this placeholder PEM without parsing the key.
 	encoded := "-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAtest\n-----END PUBLIC KEY-----\n"
 
 	createOut, err := c.CreatePublicKey(ctx, &cloudfront.CreatePublicKeyInput{
@@ -147,8 +143,7 @@ func TestCloudFrontPublicKeyLifecycle(t *testing.T) {
 	}
 	assert.True(t, found)
 
-	// Update rides PUT /2020-05-31/public-key/{Id}/config — the /config
-	// suffix is part of the real operation URI.
+	// UpdatePublicKey's URI ends in /config: PUT /2020-05-31/public-key/{Id}/config.
 	updOut, err := c.UpdatePublicKey(ctx, &cloudfront.UpdatePublicKeyInput{
 		Id:      aws.String(id),
 		IfMatch: aws.String(etag),
@@ -180,7 +175,6 @@ func TestCloudFrontKeyGroupLifecycle(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	// Need a PublicKey to reference.
 	pkOut, err := c.CreatePublicKey(ctx, &cloudfront.CreatePublicKeyInput{
 		PublicKeyConfig: &cftypes.PublicKeyConfig{
 			CallerReference: aws.String("kg-pk-" + time.Now().Format("150405.000000")),
@@ -215,7 +209,6 @@ func TestCloudFrontKeyGroupLifecycle(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// cleanup the public key
 	_, _ = c.DeletePublicKey(ctx, &cloudfront.DeletePublicKeyInput{
 		Id:      aws.String(pkID),
 		IfMatch: aws.String(aws.ToString(pkOut.ETag)),
@@ -228,7 +221,6 @@ func TestCloudFrontInvalidationLifecycle(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
-	// Create a distribution first.
 	caller := "inv-" + time.Now().Format("150405.000000")
 	dist, err := c.CreateDistribution(ctx, &cloudfront.CreateDistributionInput{
 		DistributionConfig: &cftypes.DistributionConfig{

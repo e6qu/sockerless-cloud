@@ -10,9 +10,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Coverage backfill for IAM role-policy operations that had no SDK/CLI test —
-// the managed-policy attach/detach, inline-policy put/delete/list, and
-// assume-role-policy update paths the fck-nat role wiring exercises.
+// The fck-nat role wiring attaches and detaches managed policies, manages
+// inline policies and updates the assume-role policy.
 
 const iamTrustDoc = `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"ec2.amazonaws.com"},"Action":"sts:AssumeRole"}]}`
 const iamPermDoc = `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"ec2:DescribeInstances","Resource":"*"}]}`

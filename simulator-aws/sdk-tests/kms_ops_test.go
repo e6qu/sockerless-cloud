@@ -14,9 +14,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestKMS_EnableDisableKey pins the key-state lifecycle terraform drives for
-// `aws_kms_key { is_enabled = ... }`: DisableKey moves the key to Disabled,
-// EnableKey returns it to Enabled — both reflected in DescribeKey.
+// TestKMS_EnableDisableKey covers the key state terraform drives through
+// `aws_kms_key { is_enabled = ... }`.
 func TestKMS_EnableDisableKey(t *testing.T) {
 	t.Parallel()
 	c := kmsClient()
@@ -40,8 +39,8 @@ func TestKMS_EnableDisableKey(t *testing.T) {
 	assert.True(t, desc.KeyMetadata.Enabled)
 }
 
-// TestKMS_CancelKeyDeletion covers ScheduleKeyDeletion → CancelKeyDeletion:
-// cancellation returns the key to Disabled and reports the KeyId.
+// TestKMS_CancelKeyDeletion expects cancellation to return the key to Disabled
+// and report its KeyId.
 func TestKMS_CancelKeyDeletion(t *testing.T) {
 	t.Parallel()
 	c := kmsClient()
@@ -65,13 +64,10 @@ func TestKMS_CancelKeyDeletion(t *testing.T) {
 	assert.Equal(t, "Disabled", string(desc.KeyMetadata.KeyState),
 		"CancelKeyDeletion must return the key to Disabled like real KMS")
 
-	// Cancelling a key that isn't pending deletion is rejected.
 	_, err = c.CancelKeyDeletion(ctx, &kms.CancelKeyDeletionInput{KeyId: aws.String(keyId)})
 	require.Error(t, err, "CancelKeyDeletion on a non-pending key must fail")
 }
 
-// TestKMS_UpdateKeyDescription verifies the description round-trips through
-// DescribeKey after UpdateKeyDescription.
 func TestKMS_UpdateKeyDescription(t *testing.T) {
 	t.Parallel()
 	c := kmsClient()
@@ -91,7 +87,6 @@ func TestKMS_UpdateKeyDescription(t *testing.T) {
 	assert.Equal(t, "updated-description", aws.ToString(desc.KeyMetadata.Description))
 }
 
-// TestKMS_UpdateAlias re-points an existing alias at a new target key.
 func TestKMS_UpdateAlias(t *testing.T) {
 	t.Parallel()
 	c := kmsClient()
@@ -114,13 +109,12 @@ func TestKMS_UpdateAlias(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, aws.ToString(enc.KeyId), idB, "UpdateAlias must re-point the alias to the new key")
 
-	// Updating a non-existent alias must fail.
 	_, err = c.UpdateAlias(ctx, &kms.UpdateAliasInput{AliasName: aws.String("alias/does-not-exist"), TargetKeyId: aws.String(idA)})
 	require.Error(t, err)
 }
 
-// TestKMS_GenerateRandom asserts GenerateRandom returns exactly the requested
-// number of cryptographically random bytes and rejects out-of-range sizes.
+// TestKMS_GenerateRandom expects exactly the requested number of random bytes
+// and rejects out-of-range sizes.
 func TestKMS_GenerateRandom(t *testing.T) {
 	t.Parallel()
 	c := kmsClient()
@@ -137,8 +131,8 @@ func TestKMS_GenerateRandom(t *testing.T) {
 	requireAWSErrorCode(t, err, "ValidationException")
 }
 
-// TestKMS_ListKeyPolicies pins the single "default" policy name real KMS
-// exposes per key.
+// TestKMS_ListKeyPolicies expects the one "default" policy name KMS exposes
+// per key.
 func TestKMS_ListKeyPolicies(t *testing.T) {
 	t.Parallel()
 	c := kmsClient()
@@ -153,8 +147,8 @@ func TestKMS_ListKeyPolicies(t *testing.T) {
 	assert.False(t, pol.Truncated)
 }
 
-// TestKMS_RotateKeyOnDemandAndList covers RotateKeyOnDemand recording an
-// ON_DEMAND rotation that ListKeyRotations then reports.
+// TestKMS_RotateKeyOnDemandAndList expects ListKeyRotations to report the
+// ON_DEMAND rotation.
 func TestKMS_RotateKeyOnDemandAndList(t *testing.T) {
 	t.Parallel()
 	c := kmsClient()
@@ -163,7 +157,6 @@ func TestKMS_RotateKeyOnDemandAndList(t *testing.T) {
 	require.NoError(t, err)
 	keyId := *out.KeyMetadata.KeyId
 
-	// Fresh key: no rotation history.
 	list, err := c.ListKeyRotations(ctx, &kms.ListKeyRotationsInput{KeyId: aws.String(keyId)})
 	require.NoError(t, err)
 	assert.Empty(t, list.Rotations)
@@ -179,10 +172,10 @@ func TestKMS_RotateKeyOnDemandAndList(t *testing.T) {
 	assert.Equal(t, keyId, aws.ToString(list.Rotations[0].KeyId))
 }
 
-// TestKMS_ImportKeyMaterialCycle exercises the EXTERNAL-origin import flow:
-// CreateKey(Origin=EXTERNAL) starts PendingImport, GetParametersForImport
-// hands back a real RSA wrapping key + token, ImportKeyMaterial enables the
-// key, DeleteImportedKeyMaterial returns it to PendingImport.
+// TestKMS_ImportKeyMaterialCycle: an EXTERNAL key starts PendingImport,
+// GetParametersForImport returns a real RSA wrapping key and token,
+// ImportKeyMaterial enables the key, and DeleteImportedKeyMaterial returns it
+// to PendingImport.
 func TestKMS_ImportKeyMaterialCycle(t *testing.T) {
 	t.Parallel()
 	c := kmsClient()
@@ -236,7 +229,6 @@ func TestKMS_ImportKeyMaterialCycle(t *testing.T) {
 	assert.Equal(t, "PendingImport", string(desc.KeyMetadata.KeyState),
 		"deleting material must return the key to PendingImport")
 
-	// A mismatched/absent import token is rejected.
 	_, err = c.ImportKeyMaterial(ctx, &kms.ImportKeyMaterialInput{
 		KeyId:                aws.String(keyId),
 		ImportToken:          []byte("bogus-token"),

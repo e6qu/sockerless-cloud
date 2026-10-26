@@ -10,8 +10,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestCloudWatchLogs_KmsKey covers CreateLogGroup persists kmsKeyId,
-// and AssociateKmsKey / DisassociateKmsKey update it.
+// TestCloudWatchLogs_KmsKey expects CreateLogGroup to keep kmsKeyId and
+// AssociateKmsKey and DisassociateKmsKey to change it.
 func TestCloudWatchLogs_KmsKey(t *testing.T) {
 	t.Parallel()
 	c := cwLogsClient()
@@ -31,7 +31,6 @@ func TestCloudWatchLogs_KmsKey(t *testing.T) {
 	require.Len(t, desc.LogGroups, 1)
 	assert.Equal(t, kms1, aws.ToString(desc.LogGroups[0].KmsKeyId), "kms key set at create must round-trip")
 
-	// AssociateKmsKey swaps the key on the existing group.
 	kms2 := "arn:aws:kms:us-east-1:123456789012:key/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
 	_, err = c.AssociateKmsKey(ctx, &cloudwatchlogs.AssociateKmsKeyInput{
 		LogGroupName: aws.String(name),
@@ -42,7 +41,6 @@ func TestCloudWatchLogs_KmsKey(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, kms2, aws.ToString(desc.LogGroups[0].KmsKeyId))
 
-	// DisassociateKmsKey clears it.
 	_, err = c.DisassociateKmsKey(ctx, &cloudwatchlogs.DisassociateKmsKeyInput{LogGroupName: aws.String(name)})
 	require.NoError(t, err)
 	desc, err = c.DescribeLogGroups(ctx, &cloudwatchlogs.DescribeLogGroupsInput{LogGroupNamePrefix: aws.String(name)})

@@ -11,10 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestCloudTrail_TrailLifecycleSDK exercises the full trail control plane:
-// CreateTrail → GetTrail / DescribeTrails / ListTrails → StartLogging /
-// GetTrailStatus / StopLogging → UpdateTrail → DeleteTrail, plus the tag and
-// event/insight-selector surfaces hung off a trail.
 func TestCloudTrail_TrailLifecycleSDK(t *testing.T) {
 	t.Parallel()
 	ct := cloudTrailClient()
@@ -37,18 +33,15 @@ func TestCloudTrail_TrailLifecycleSDK(t *testing.T) {
 	require.NotEmpty(t, aws.ToString(created.TrailARN))
 	arn := aws.ToString(created.TrailARN)
 
-	// GetTrail returns the full trail summary.
 	got, err := ct.GetTrail(ctx, &cloudtrail.GetTrailInput{Name: aws.String(trail)})
 	require.NoError(t, err)
 	require.NotNil(t, got.Trail)
 	assert.Equal(t, arn, aws.ToString(got.Trail.TrailARN))
 
-	// DescribeTrails lists the trail.
 	desc, err := ct.DescribeTrails(ctx, &cloudtrail.DescribeTrailsInput{})
 	require.NoError(t, err)
 	assert.True(t, ctTrailInDescribe(desc.TrailList, trail), "DescribeTrails must include the new trail")
 
-	// ListTrails returns name/ARN/home-region for the trail.
 	list, err := ct.ListTrails(ctx, &cloudtrail.ListTrailsInput{})
 	require.NoError(t, err)
 	found := false
@@ -61,7 +54,6 @@ func TestCloudTrail_TrailLifecycleSDK(t *testing.T) {
 	}
 	assert.True(t, found, "ListTrails must include the new trail")
 
-	// StartLogging flips IsLogging true; StopLogging flips it back.
 	_, err = ct.StartLogging(ctx, &cloudtrail.StartLoggingInput{Name: aws.String(trail)})
 	require.NoError(t, err)
 	status, err := ct.GetTrailStatus(ctx, &cloudtrail.GetTrailStatusInput{Name: aws.String(trail)})
@@ -74,7 +66,6 @@ func TestCloudTrail_TrailLifecycleSDK(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, aws.ToBool(status.IsLogging))
 
-	// UpdateTrail changes the S3 key prefix.
 	_, err = ct.UpdateTrail(ctx, &cloudtrail.UpdateTrailInput{
 		Name:        aws.String(trail),
 		S3KeyPrefix: aws.String("logs"),
@@ -84,7 +75,6 @@ func TestCloudTrail_TrailLifecycleSDK(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "logs", aws.ToString(got.Trail.S3KeyPrefix))
 
-	// Tags round-trip: Add → List → Remove.
 	_, err = ct.AddTags(ctx, &cloudtrail.AddTagsInput{
 		ResourceId: aws.String(arn),
 		TagsList:   []cttypes.Tag{{Key: aws.String("env"), Value: aws.String("test")}},
@@ -105,7 +95,6 @@ func TestCloudTrail_TrailLifecycleSDK(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, tags.ResourceTagList[0].TagsList)
 
-	// Event selectors round-trip.
 	_, err = ct.PutEventSelectors(ctx, &cloudtrail.PutEventSelectorsInput{
 		TrailName: aws.String(trail),
 		EventSelectors: []cttypes.EventSelector{{
@@ -120,7 +109,6 @@ func TestCloudTrail_TrailLifecycleSDK(t *testing.T) {
 	assert.Equal(t, cttypes.ReadWriteTypeAll, es.EventSelectors[0].ReadWriteType)
 	assert.Equal(t, arn, aws.ToString(es.TrailARN))
 
-	// Insight selectors round-trip.
 	_, err = ct.PutInsightSelectors(ctx, &cloudtrail.PutInsightSelectorsInput{
 		TrailName: aws.String(trail),
 		InsightSelectors: []cttypes.InsightSelector{
@@ -144,8 +132,6 @@ func ctTrailInDescribe(trails []cttypes.Trail, name string) bool {
 	return false
 }
 
-// TestCloudTrail_ChannelLifecycleSDK exercises CloudTrail Lake channel CRUD:
-// CreateChannel → GetChannel / ListChannels → DeleteChannel.
 func TestCloudTrail_ChannelLifecycleSDK(t *testing.T) {
 	t.Parallel()
 	ct := cloudTrailClient()

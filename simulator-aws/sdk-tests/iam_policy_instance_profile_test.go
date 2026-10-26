@@ -9,11 +9,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestIAM_CreatePolicy_RoundTrip exercises the canonical managed-
-// policy lifecycle: CreatePolicy → GetPolicy → GetPolicyVersion →
-// DeletePolicy. terraform-provider-aws's aws_iam_policy resource
-// follows this path on every plan/apply; pre-fix the sim returned
-// InvalidAction.
+// TestIAM_CreatePolicy_RoundTrip covers the managed policy lifecycle
+// aws_iam_policy follows on every plan and apply.
 func TestIAM_CreatePolicy_RoundTrip(t *testing.T) {
 	t.Parallel()
 	client := iamClient()
@@ -47,11 +44,8 @@ func TestIAM_CreatePolicy_RoundTrip(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestIAM_InstanceProfile_RoundTrip exercises the canonical instance-
-// profile lifecycle: CreateInstanceProfile → AddRoleToInstanceProfile
-// → GetInstanceProfile → RemoveRoleFromInstanceProfile →
-// DeleteInstanceProfile. Required by aws_iam_instance_profile +
-// referenced by EC2 / ECS launch templates.
+// TestIAM_InstanceProfile_RoundTrip covers the instance profile lifecycle
+// aws_iam_instance_profile uses and EC2 and ECS launch templates reference.
 func TestIAM_InstanceProfile_RoundTrip(t *testing.T) {
 	t.Parallel()
 	client := iamClient()
@@ -102,8 +96,6 @@ func TestIAM_InstanceProfile_RoundTrip(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestIAM_ListPolicies asserts the sim's ListPolicies returns the
-// managed policies created via CreatePolicy.
 func TestIAM_ListPolicies(t *testing.T) {
 	t.Parallel()
 	client := iamClient()
@@ -115,7 +107,7 @@ func TestIAM_ListPolicies(t *testing.T) {
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		// Sim emits arn:aws:iam::123456789012:policy/list-test-policy.
+		// The policy's ARN is arn:aws:iam::123456789012:policy/list-test-policy.
 		_, _ = client.DeletePolicy(ctx, &iam.DeletePolicyInput{
 			PolicyArn: aws.String("arn:aws:iam::123456789012:policy/list-test-policy"),
 		})

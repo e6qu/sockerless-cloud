@@ -27,11 +27,10 @@ const (
 	testRSAPublicKeyMD5 = "14:41:93:6c:46:cb:ab:57:36:8f:f6:91:57:b4:6a:09"
 )
 
-// TestEC2_KeyPairsSDK covers CreateKeyPair, ImportKeyPair, DescribeKeyPairs
-// and DeleteKeyPair with the fingerprints EC2 documents: the SHA-1 digest of
-// the DER-encoded private key for an RSA pair it creates, the MD5 digest of
-// the public key for an imported RSA key, and the base64 SHA-256 digest of
-// the public key for ED25519.
+// TestEC2_KeyPairsSDK expects the fingerprints Amazon EC2 documents: the SHA-1
+// digest of the DER-encoded private key for an RSA pair it creates, the MD5
+// digest of the public key for an imported RSA key, and the base64 SHA-256
+// digest of the public key for ED25519.
 func TestEC2_KeyPairsSDK(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -76,7 +75,6 @@ func TestEC2_KeyPairsSDK(t *testing.T) {
 	require.ErrorAs(t, err, &apiErr)
 	assert.Equal(t, "InvalidKey.Format", apiErr.ErrorCode())
 
-	// DescribeKeyPairs returns the public key only when asked.
 	out, err := c.DescribeKeyPairs(ctx, &ec2.DescribeKeyPairsInput{KeyNames: []string{"sdk-imported-key"}})
 	require.NoError(t, err)
 	require.Len(t, out.KeyPairs, 1)
@@ -98,7 +96,6 @@ func TestEC2_KeyPairsSDK(t *testing.T) {
 	require.ErrorAs(t, err, &apiErr)
 	assert.Equal(t, "InvalidKeyPair.NotFound", apiErr.ErrorCode())
 
-	// Delete then confirm it's gone.
 	_, err = c.DeleteKeyPair(ctx, &ec2.DeleteKeyPairInput{KeyName: aws.String("sdk-created-key")})
 	require.NoError(t, err)
 	gone, err := c.DescribeKeyPairs(ctx, &ec2.DescribeKeyPairsInput{
@@ -116,8 +113,8 @@ func colonHex(b []byte) string {
 	return strings.Join(parts, ":")
 }
 
-// TestEC2_ModifyInstanceMetadataOptionsSDK covers in-place metadata_options
-// updates (the aws_instance.metadata_options update path).
+// TestEC2_ModifyInstanceMetadataOptionsSDK covers the aws_instance
+// metadata_options update path.
 func TestEC2_ModifyInstanceMetadataOptionsSDK(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -148,8 +145,6 @@ func TestEC2_ModifyInstanceMetadataOptionsSDK(t *testing.T) {
 	assert.Equal(t, types.InstanceMetadataProtocolStateEnabled, got.MetadataOptions.HttpProtocolIpv6, "the IPv6 endpoint setting persists after modify")
 }
 
-// TestEC2_LaunchTemplateMarketCreditSDK covers the launch-template
-// instance_market_options + credit_specification round-trip.
 func TestEC2_LaunchTemplateMarketCreditSDK(t *testing.T) {
 	t.Parallel()
 	ltName := uniquename.New("market-credit-lt")
@@ -185,8 +180,8 @@ func TestEC2_LaunchTemplateMarketCreditSDK(t *testing.T) {
 	assert.Equal(t, "0.05", aws.ToString(d.InstanceMarketOptions.SpotOptions.MaxPrice), "spot max_price must round-trip")
 }
 
-// TestEC2_DescribeImagesFiltersSDK covers DescribeImages honouring filters so
-// data.aws_ami resolves by name/architecture (was ignored).
+// TestEC2_DescribeImagesFiltersSDK expects DescribeImages to honour name and
+// architecture filters, which data.aws_ami relies on.
 func TestEC2_DescribeImagesFiltersSDK(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()

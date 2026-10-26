@@ -25,9 +25,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Amplify hosting data plane + real build + Route 53 verification e2e.
-// Hosting requests hit the sim's loopback address with a Host: header (the
-// cross-platform pattern — *.amplifyapp.com does not resolve locally).
+// *.amplifyapp.com resolves nowhere locally, so hosting requests reach the
+// simulator's loopback address with a Host header.
 
 func amplifyHostGet(t *testing.T, host, path string, mutate func(*http.Request)) (*http.Response, []byte) {
 	t.Helper()
@@ -38,8 +37,8 @@ func amplifyHostGet(t *testing.T, host, path string, mutate func(*http.Request))
 		mutate(req)
 	}
 	client := &http.Client{
-		// Redirect targets point at the virtual host; assert on the 3xx
-		// itself instead of following it to the loopback base URL.
+		// Redirect targets name the virtual host; assert the 3xx instead of following
+		// it.
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 		Timeout:       2 * time.Minute,
 	}
@@ -65,8 +64,8 @@ func amplifyZipBytes(t *testing.T, files map[string][]byte) []byte {
 	return buf.Bytes()
 }
 
-// amplifyDeployZip drives the manual-deploy flow: CreateDeployment →
-// presigned PUT of the zip → StartDeployment → SUCCEED.
+// amplifyDeployZip runs the manual deploy: CreateDeployment, a presigned PUT
+// of the zip, StartDeployment, SUCCEED.
 func amplifyDeployZip(t *testing.T, ctx context.Context, c *amplify.Client, appID, branch string, zipBytes []byte) string {
 	t.Helper()
 	createDep, err := c.CreateDeployment(ctx, &amplify.CreateDeploymentInput{
@@ -114,7 +113,7 @@ func TestAmplifyHostingStaticE2E(t *testing.T) {
 	require.NoError(t, err)
 	host := "main." + appID + ".amplifyapp.com"
 
-	// No deployment yet → the real no-content experience.
+	// Before any deployment the branch serves Amplify's no-content page.
 	resp, _ := amplifyHostGet(t, host, "/", nil)
 	require.Equal(t, http.StatusNotFound, resp.StatusCode)
 
@@ -123,7 +122,6 @@ func TestAmplifyHostingStaticE2E(t *testing.T) {
 		"about.html": []byte("<html>about page</html>"),
 	}))
 
-	// Content via the defaultDomain child host.
 	resp, body := amplifyHostGet(t, host, "/", nil)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	assert.Equal(t, "<html>hosted home</html>", string(body))
@@ -133,18 +131,15 @@ func TestAmplifyHostingStaticE2E(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	assert.Equal(t, "<html>about page</html>", string(body))
 
-	// Custom rule: redirect.
 	resp, _ = amplifyHostGet(t, host, "/old", nil)
 	require.Equal(t, http.StatusMovedPermanently, resp.StatusCode)
 	assert.Equal(t, "/about.html", resp.Header.Get("Location"))
 
-	// Custom rule: SPA fallback.
 	resp, body = amplifyHostGet(t, host, "/client/side/route", nil)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	assert.Equal(t, "<html>hosted home</html>", string(body))
 
-	// Basic auth: enable on the branch, then 401 without and 200 with
-	// credentials (wire format: base64 "user:password").
+	// Basic auth sends base64 "user:password".
 	creds := base64.StdEncoding.EncodeToString([]byte("user:hunter2"))
 	_, err = c.UpdateBranch(ctx, &amplify.UpdateBranchInput{
 		AppId:                aws.String(appID),
@@ -195,11 +190,10 @@ func TestAmplifyHostingSSRComputeE2E(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	// Tiny node http server answering with dynamic content; the deployment
-	// spec's compute entrypoints listen on PORT (3000).
-	// Under /creds the server reports how it holds AWS credentials: the
-	// container credentials endpoint the SDKs' default chain reads, and the
-	// session it serves.
+	// A small Node.js server answering with dynamic content on PORT (3000), where
+	// the deployment spec's compute entrypoints listen. /creds reports the
+	// container credentials endpoint the SDKs' default chain reads, and the session
+	// it serves.
 	entrypoint := `const http = require('http');
 http.createServer(async (req, res) => {
   if (req.url === '/creds') {
@@ -220,25 +214,23 @@ http.createServer(async (req, res) => {
 	}))
 	host := "main." + appID + ".amplifyapp.com"
 
-	// Compute route → proxied to the bundle's node server (lazy cold start
-	// on this first request).
+	// The first compute request cold-starts the bundle's server.
 	resp, body := amplifyHostGet(t, host, "/render/me", nil)
 	require.Equal(t, http.StatusOK, resp.StatusCode, "compute proxy: %s", body)
 	assert.Equal(t, "ssr-dynamic:/render/me", string(body))
 
-	// Static route from the same bundle (spec: static assets under static/).
+	// The deployment spec puts static assets under static/.
 	resp, body = amplifyHostGet(t, host, "/assets/hello.txt", nil)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	assert.Equal(t, "static asset from compute bundle", string(body))
 
-	// Query strings ride through the proxy.
 	resp, body = amplifyHostGet(t, host, "/search?q=x", nil)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	assert.Equal(t, "ssr-dynamic:/search?q=x", string(body))
 
-	// The compute holds its role through the container credentials endpoint
-	// on its own loopback, which its SDKs refresh from, not through static
-	// keys in its environment; the session it reads is the compute role's.
+	// The compute holds its role through the container credentials endpoint on
+	// its own loopback, which its SDKs refresh from, not static keys in its
+	// environment.
 	resp, body = amplifyHostGet(t, host, "/creds", nil)
 	require.Equal(t, http.StatusOK, resp.StatusCode, "compute credentials: %s", body)
 	var creds struct {
@@ -281,7 +273,6 @@ func TestAmplifyRealBuildE2E(t *testing.T) {
 		"index.html": "<html>built site " + marker + "</html>",
 		"data.txt":   "source file",
 	})
-	// Plain shell commands writing files — no npm needed.
 	buildSpec := `version: 1
 frontend:
   phases:
@@ -320,8 +311,7 @@ frontend:
 	require.NoError(t, err)
 	jobID := aws.ToString(startOut.JobSummary.JobId)
 
-	// The job must pass through RUNNING (a real build takes real time)
-	// before landing SUCCEED.
+	// A real build takes time, so the job passes through RUNNING before SUCCEED.
 	sawRunning := false
 	var job *amplifytypes.Job
 	require.Eventually(t, func() bool {
@@ -346,7 +336,6 @@ frontend:
 	}, 4*time.Minute, 100*time.Millisecond, "build never succeeded")
 	require.True(t, sawRunning, "job must be observable in RUNNING while the build executes")
 
-	// Per-step logs are retrievable via each step's logUrl.
 	require.Len(t, job.Steps, 3)
 	stepLogs := map[string]string{}
 	for _, step := range job.Steps {
@@ -365,8 +354,8 @@ frontend:
 	assert.Contains(t, stepLogs["BUILD"], "prebuild "+marker, "BUILD log must carry the command output")
 	assert.Contains(t, stepLogs["DEPLOY"], "index.html")
 
-	// The hosted build bundle is returned on GetJob's BUILD step. The
-	// ListArtifacts API is reserved for end-to-end test outputs.
+	// GetJob's BUILD step returns the hosted build bundle; ListArtifacts holds only
+	// end-to-end test outputs.
 	buildStep := amplifyRequireJobStep(t, job, "BUILD")
 	buildArtifactURL := aws.ToString(buildStep.ArtifactsUrl)
 	require.NotEmpty(t, buildArtifactURL)
@@ -383,7 +372,6 @@ frontend:
 	require.NoError(t, err)
 	require.Empty(t, artifacts.Artifacts)
 
-	// The hosting data plane serves that same bundle.
 	host := "main." + appID + ".amplifyapp.com"
 	resp, body := amplifyHostGet(t, host, "/", nil)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
@@ -463,8 +451,8 @@ applications:
 	t.Cleanup(func() {
 		_, _ = c.DeleteApp(context.Background(), &amplify.DeleteAppInput{AppId: aws.String(appID)})
 	})
-	// The credential is write-only: an official SDK read returns neither the
-	// token nor a credential-bearing repository URL.
+	// The credential is write-only: GetApp returns neither the token nor a
+	// credential-bearing repository URL.
 	readBack, err := c.GetApp(testContext, &amplify.GetAppInput{AppId: aws.String(appID)})
 	require.NoError(t, err)
 	assert.Equal(t, repoURL, aws.ToString(readBack.App.Repository))
@@ -534,7 +522,7 @@ func TestAmplifyDomainVerificationRoute53Flow(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	// AMPLIFY_MANAGED certificates start PENDING_VERIFICATION with the ACM
+	// An AMPLIFY_MANAGED certificate starts PENDING_VERIFICATION with the ACM
 	// verification CNAME advertised.
 	require.Equal(t, amplifytypes.DomainStatusPendingVerification, dom.DomainAssociation.DomainStatus)
 	record := aws.ToString(dom.DomainAssociation.CertificateVerificationDNSRecord)
@@ -543,18 +531,16 @@ func TestAmplifyDomainVerificationRoute53Flow(t *testing.T) {
 	require.Equal(t, "CNAME", parts[1])
 	require.True(t, strings.HasSuffix(parts[2], ".acm-validations.aws."), "value %q", parts[2])
 	require.False(t, aws.ToBool(dom.DomainAssociation.SubDomains[0].Verified))
-	// The subdomain CNAME targets the app's (deterministic) cloudfront host.
 	assert.Contains(t, aws.ToString(dom.DomainAssociation.SubDomains[0].DnsRecord), ".cloudfront.net")
 
-	// Without DNS records the association honestly stays pending.
 	getOut, err := c.GetDomainAssociation(ctx, &amplify.GetDomainAssociationInput{
 		AppId: aws.String(appID), DomainName: aws.String(domain),
 	})
 	require.NoError(t, err)
 	require.Equal(t, amplifytypes.DomainStatusPendingVerification, getOut.DomainAssociation.DomainStatus)
 
-	// Create the hosted zone + verification CNAME in the sim's Route 53 —
-	// exactly what a real-world terraform config does.
+	// The hosted zone and verification CNAME a terraform configuration would
+	// create.
 	zoneOut, err := r53.CreateHostedZone(ctx, &route53.CreateHostedZoneInput{
 		Name:            aws.String(domain),
 		CallerReference: aws.String("amplify-verify-" + time.Now().Format("150405.000000")),
@@ -579,8 +565,8 @@ func TestAmplifyDomainVerificationRoute53Flow(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Read-triggered evaluation: GetDomainAssociation (what terraform's
-	// wait_for_verification polls) now reports AVAILABLE.
+	// Reading the association, as terraform's wait_for_verification polls it,
+	// evaluates the record and reports AVAILABLE.
 	getOut, err = c.GetDomainAssociation(ctx, &amplify.GetDomainAssociationInput{
 		AppId: aws.String(appID), DomainName: aws.String(domain),
 	})
@@ -588,7 +574,6 @@ func TestAmplifyDomainVerificationRoute53Flow(t *testing.T) {
 	require.Equal(t, amplifytypes.DomainStatusAvailable, getOut.DomainAssociation.DomainStatus)
 	require.True(t, aws.ToBool(getOut.DomainAssociation.SubDomains[0].Verified))
 
-	// The verified custom domain serves the branch's deployment.
 	amplifyDeployZip(t, ctx, c, appID, "main", amplifyZipBytes(t, map[string][]byte{
 		"index.html": []byte("<html>custom domain content</html>"),
 	}))
@@ -600,7 +585,7 @@ func TestAmplifyDomainVerificationRoute53Flow(t *testing.T) {
 		AppId: aws.String(appID), DomainName: aws.String(domain),
 	})
 	require.NoError(t, err)
-	// The zone must be emptied of user records before deletion.
+	// Route 53 deletes only a zone emptied of user records.
 	_, err = r53.ChangeResourceRecordSets(ctx, &route53.ChangeResourceRecordSetsInput{
 		HostedZoneId: aws.String(zoneID),
 		ChangeBatch: &r53types.ChangeBatch{
@@ -622,9 +607,9 @@ func TestAmplifyDomainVerificationRoute53Flow(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// A deployment carrying an invalid deploy-manifest.json must fail the way
-// real Amplify rejects it: the job lands FAILED with the DEPLOY step's log
-// carrying the validation error, and the bundle never becomes servable.
+// TestAmplifyDeploymentInvalidManifestFailsE2E expects an invalid
+// deploy-manifest.json to fail the job, with the validation error in the
+// DEPLOY step's log, and never serve the bundle.
 func TestAmplifyDeploymentInvalidManifestFailsE2E(t *testing.T) {
 	t.Parallel()
 	c := amplifyClient()
@@ -678,14 +663,13 @@ func TestAmplifyDeploymentInvalidManifestFailsE2E(t *testing.T) {
 	assert.Contains(t, string(logBody), "!!! CustomerError: We failed to validate the deploy-manifest.json file found in your build output directory")
 	assert.Contains(t, string(logBody), "version 2 not supported")
 
-	// The rejected bundle never serves.
 	resp, _ := amplifyHostGet(t, "main."+appID+".amplifyapp.com", "/", nil)
 	require.Equal(t, http.StatusNotFound, resp.StatusCode)
 }
 
-// Route fallbacks per the deployment specification: a target whose response
-// is a 404 falls back to the route's declared fallback target, for GET
-// requests without a body.
+// TestAmplifyHostingRouteFallbacksE2E covers the deployment specification's
+// route fallbacks: a target answering 404 to a GET without a body falls back
+// to the route's declared fallback target.
 func TestAmplifyHostingRouteFallbacksE2E(t *testing.T) {
 	t.Parallel()
 	c := amplifyClient()
@@ -748,14 +732,13 @@ http.createServer((req, res) => {
 	}))
 	host := "main." + appID + ".amplifyapp.com"
 
-	// Non-404 compute responses stream through untouched.
 	resp, body := amplifyHostGet(t, host, "/app/hello", nil)
 	require.Equal(t, http.StatusOK, resp.StatusCode, "compute proxy: %s", body)
 	assert.Equal(t, "compute:/app/hello", string(body))
 
-	// Compute that closes its connection mid-body has had its status and
-	// headers relayed, so the response ends where compute stopped rather than
-	// with an error appended to the body.
+	// Compute that closes its connection mid-body has had its status and headers
+	// relayed, so the response ends where compute stopped rather than with an
+	// error appended.
 	cutReq, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+"/app/cut", nil)
 	require.NoError(t, err)
 	cutReq.Host = host
@@ -767,23 +750,20 @@ http.createServer((req, res) => {
 	assert.ErrorIs(t, err, io.ErrUnexpectedEOF, "the response ends where compute stopped")
 	assert.Equal(t, "partial", string(body), "nothing follows what compute sent")
 
-	// A compute 404 falls back to the route's Static fallback.
 	resp, body = amplifyHostGet(t, host, "/app/missing-page", nil)
 	require.Equal(t, http.StatusOK, resp.StatusCode, "compute->static fallback: %s", body)
 	assert.Equal(t, "static fallback for missing page", string(body))
 
-	// A compute 404 with no matching static fallback file stays a 404.
 	resp, _ = amplifyHostGet(t, host, "/app/missing-other", nil)
 	require.Equal(t, http.StatusNotFound, resp.StatusCode)
 
-	// An ImageOptimization 404 (missing source artifact) falls back to the
+	// An ImageOptimization 404 (a missing source artifact) falls back to the
 	// route's Compute fallback.
 	resp, body = amplifyHostGet(t, host, "/_next/image?url=%2Fnope.png&w=64&q=75", nil)
 	require.Equal(t, http.StatusOK, resp.StatusCode, "imageopt->compute fallback: %s", body)
 	assert.Equal(t, "compute:/_next/image?url=%2Fnope.png&w=64&q=75", string(body))
 
-	// Fallbacks apply to GET only: a POST that 404s on compute is served
-	// the compute 404, never the fallback.
+	// Fallbacks apply to GET only.
 	postReq := func(r *http.Request) { r.Method = http.MethodPost }
 	resp, body = amplifyHostGet(t, host, "/app/missing-page", postReq)
 	require.Equal(t, http.StatusNotFound, resp.StatusCode)

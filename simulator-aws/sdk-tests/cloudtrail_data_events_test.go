@@ -14,14 +14,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestCloudTrail_NoDynamoDataEventsInLookup (#651) — DynamoDB item-level ops are
-// DATA events and must not appear in LookupEvents; CreateTable (management) must.
+// TestCloudTrail_NoDynamoDataEventsInLookup: DynamoDB item operations are data
+// events and stay out of LookupEvents; CreateTable, a management event, does
+// not.
 func TestCloudTrail_NoDynamoDataEventsInLookup(t *testing.T) {
 	t.Parallel()
 	c := ddbClient()
 	ct := cloudTrailClient()
 	tbl := "ct-data-events"
-	ddbSimpleTable(t, c, tbl) // CreateTable — a management event
+	ddbSimpleTable(t, c, tbl)
 	_, err := c.PutItem(ctx, &dynamodb.PutItemInput{TableName: aws.String(tbl),
 		Item: map[string]ddbtypes.AttributeValue{"pk": sS("a")}})
 	require.NoError(t, err)
@@ -43,15 +44,14 @@ func TestCloudTrail_NoDynamoDataEventsInLookup(t *testing.T) {
 	}
 }
 
-// TestCloudTrail_NoPhantomListBuckets (#650) — an unauthenticated GET / (the
-// container healthcheck's shape, which the S3 slice routes to ListBuckets) must
-// not generate phantom CloudTrail events.
+// TestCloudTrail_NoPhantomListBuckets: an unauthenticated GET / (a container
+// healthcheck, which Amazon S3 routes to ListBuckets) records no event.
 func TestCloudTrail_NoPhantomListBuckets(t *testing.T) {
 	t.Parallel()
 	ct := cloudTrailClient()
 	before := len(ctLookup(t, ct, cttypes.LookupAttributeKeyEventName, "ListBuckets"))
 	for i := 0; i < 3; i++ {
-		resp, err := http.Get(baseURL + "/") // no SigV4 — unauthenticated
+		resp, err := http.Get(baseURL + "/")
 		require.NoError(t, err)
 		_ = resp.Body.Close()
 	}
@@ -59,9 +59,9 @@ func TestCloudTrail_NoPhantomListBuckets(t *testing.T) {
 	assert.Equal(t, before, after, "unauthenticated GET / must not record phantom ListBuckets events")
 }
 
-// TestCloudTrail_NoCrossServiceDataEvents (#652 guard) — the data/management
-// classification holds across services: a client-initiated SQS SendMessage (a
-// data event) is excluded from LookupEvents while CreateQueue (management) is not.
+// TestCloudTrail_NoCrossServiceDataEvents: the data/management split holds
+// across services, so SQS SendMessage stays out of LookupEvents while
+// CreateQueue does not.
 func TestCloudTrail_NoCrossServiceDataEvents(t *testing.T) {
 	t.Parallel()
 	sqsc := sqsClient()

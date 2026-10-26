@@ -10,15 +10,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Amazon DynamoDB vector search through the official SDK: a table declares a
-// vector index, items carry vectors, and SearchVectors answers with the nearest
-// neighbours in order, each with the score the comparison produced.
+// Amazon DynamoDB vector search: a table declares a vector index, items carry
+// vectors, and SearchVectors answers with the nearest neighbours in order, each
+// with its comparison score.
 //
-// The documents are placed so the right answer is decidable by hand and differs
-// from the order they were written in — under EUCLIDEAN the query [0,0] is
-// nearest to "near" (1 away), then "mid" (5), then "far" (13), and they are
-// written furthest-first. Storage order and the correct answer disagree, so
-// only a real search can produce this result.
+// Under EUCLIDEAN the query [0,0] is nearest to "near" (1 away), then "mid" (5),
+// then "far" (13), written furthest-first, so storage order and the right
+// answer disagree and only a real search produces it.
 func TestDynamoDB_VectorSearchReturnsNearestNeighbours_SDK(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -41,8 +39,8 @@ func TestDynamoDB_VectorSearchReturnsNearestNeighbours_SDK(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = c.DeleteTable(ctx, &dynamodb.DeleteTableInput{TableName: aws.String(table)}) })
 
-	// DescribeTable reports what is searchable, so a client can discover the
-	// index rather than having to remember creating it.
+	// DescribeTable reports the index, so a client can discover what is
+	// searchable.
 	described, err := c.DescribeTable(ctx, &dynamodb.DescribeTableInput{TableName: aws.String(table)})
 	require.NoError(t, err)
 	require.Len(t, described.Table.VectorIndexes, 1)
@@ -88,9 +86,9 @@ func TestDynamoDB_VectorSearchReturnsNearestNeighbours_SDK(t *testing.T) {
 	require.InDelta(t, 5.0, out.SearchResults[1].Score, 1e-9)
 }
 
-// SearchConditionExpression narrows what is searched, so an item it excludes is
-// not a neighbour however near it lies. The nearest document here is archived,
-// and asking for live ones must answer with the next nearest instead.
+// SearchConditionExpression narrows what is searched, so an excluded item is
+// no neighbour however near. The nearest document is archived, so asking for
+// live ones answers with the next nearest.
 func TestDynamoDB_VectorSearchHonoursItsCondition_SDK(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -145,8 +143,7 @@ func TestDynamoDB_VectorSearchHonoursItsCondition_SDK(t *testing.T) {
 	require.Equal(t, "next-live", pk.Value, "the nearer document is excluded by the condition")
 }
 
-// A vector index can be added to and dropped from a live table through
-// UpdateTable, which is how one arrives on a table that did not declare it.
+// UpdateTable adds a vector index to a live table and drops it.
 func TestDynamoDB_VectorIndexLifecycleThroughUpdateTable_SDK(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

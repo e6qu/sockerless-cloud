@@ -16,18 +16,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestLambda_UnsignedAndWrongSecretRejected proves Lambda's REST control plane
-// now authenticates every request the way real AWS Lambda does (the gap
-// BUG-2642 closed): an unsigned GET /2015-03-31/functions is rejected with
-// MissingAuthenticationTokenException, and the same request signed with the
-// wrong secret for a real access key id is rejected with
-// SignatureDoesNotMatch — both in Lambda's restJson1 error shape (the
-// x-amzn-Errortype header plus a JSON body). A properly signed call with the
-// seeded administrator credential still succeeds, proving the SDK/CLI/
-// Terraform surfaces that already sign every request keep working.
+// TestLambda_UnsignedAndWrongSecretRejected expects Lambda's REST control plane
+// to answer an unsigned GET /2015-03-31/functions with
+// MissingAuthenticationTokenException and one signed with a wrong secret with
+// SignatureDoesNotMatch, both in restJson1's error shape (x-amzn-Errortype and
+// a JSON body), while a correctly signed call succeeds.
 func TestLambda_UnsignedAndWrongSecretRejected(t *testing.T) {
 	t.Parallel()
-	// Unsigned: no Authorization header at all.
 	req, err := http.NewRequest(http.MethodGet, baseURL+"/2015-03-31/functions", nil)
 	require.NoError(t, err)
 	resp, err := http.DefaultClient.Do(req)
@@ -36,8 +31,7 @@ func TestLambda_UnsignedAndWrongSecretRejected(t *testing.T) {
 	assert.Equal(t, http.StatusForbidden, resp.StatusCode, "unsigned ListFunctions must be rejected")
 	assert.Equal(t, "MissingAuthenticationTokenException", resp.Header.Get("X-Amzn-Errortype"))
 
-	// Signed with a well-formed but wrong secret for the real "test" access
-	// key id: the signature verifies against the wrong key and must not match.
+	// A well-formed signature with the wrong secret for the real "test" key id.
 	req2, err := http.NewRequest(http.MethodGet, baseURL+"/2015-03-31/functions", nil)
 	require.NoError(t, err)
 	signRawSigV4Creds(t, req2, "lambda", emptySHA256, "test", "not-the-real-secret")
@@ -47,8 +41,6 @@ func TestLambda_UnsignedAndWrongSecretRejected(t *testing.T) {
 	assert.Equal(t, http.StatusForbidden, resp2.StatusCode, "wrong-secret ListFunctions must be rejected")
 	assert.Equal(t, "SignatureDoesNotMatch", resp2.Header.Get("X-Amzn-Errortype"))
 
-	// A properly signed call (the seeded admin credential every SDK/CLI test
-	// already signs with) still succeeds.
 	req3, err := http.NewRequest(http.MethodGet, baseURL+"/2015-03-31/functions", nil)
 	require.NoError(t, err)
 	signRawSigV4(t, req3, "lambda", emptySHA256)
@@ -58,10 +50,9 @@ func TestLambda_UnsignedAndWrongSecretRejected(t *testing.T) {
 	assert.Equal(t, http.StatusOK, resp3.StatusCode, "correctly signed ListFunctions must succeed")
 }
 
-// TestLambda_CallTimeIAMEnforcement proves a restricted IAM principal is
-// denied a lambda: action its policy doesn't grant, and allowed the one it
-// does — the same call-time enforcement contract iam_enforcement_test.go
-// proves for EC2/ECS, now covering Lambda's REST control plane.
+// TestLambda_CallTimeIAMEnforcement expects a restricted principal to be denied
+// a lambda: action its policy does not grant and allowed the one it does, as
+// iam_enforcement_test.go shows for EC2 and ECS.
 func TestLambda_CallTimeIAMEnforcement(t *testing.T) {
 	t.Parallel()
 	admin := iamClient()
@@ -71,7 +62,6 @@ func TestLambda_CallTimeIAMEnforcement(t *testing.T) {
 	require.NoError(t, err)
 	defer admin.DeleteUser(ctx, &iam.DeleteUserInput{UserName: aws.String(user)})
 
-	// Inline policy: allow only lambda:ListFunctions — nothing else.
 	_, err = admin.PutUserPolicy(ctx, &iam.PutUserPolicyInput{
 		UserName:   aws.String(user),
 		PolicyName: aws.String("lambda-least-priv"),
@@ -101,11 +91,9 @@ func TestLambda_CallTimeIAMEnforcement(t *testing.T) {
 		return ""
 	}
 
-	// Allowed action → succeeds.
 	_, err = lr.ListFunctions(ctx, &lambda.ListFunctionsInput{})
 	assert.NoError(t, err, "lambda:ListFunctions is granted and must succeed")
 
-	// Denied action → AccessDeniedException.
 	_, err = lr.CreateFunction(ctx, &lambda.CreateFunctionInput{
 		FunctionName: aws.String("should-be-denied"),
 		Role:         aws.String(serviceRole(t, "lambda.amazonaws.com")),
@@ -117,28 +105,22 @@ func TestLambda_CallTimeIAMEnforcement(t *testing.T) {
 	assert.Equal(t, "AccessDeniedException", errCode(err))
 }
 
-// lambdaControlPlaneRoute is one row of the exhaustive route table below: path
-// is the literal route template lambdaEnforced/lambdaEnforcedDynamic guards in
-// lambda.go/lambda_extras2.go/lambda_extras3.go (the check-simulator-tests
-// route token, e.g. "/2015-03-31/functions/{name}"); url is a concrete
-// instantiation (placeholders substituted with harmless nonexistent names) to
-// fire a real HTTP request at.
+// lambdaControlPlaneRoute is one row of the route table below: path is the
+// route template lambdaEnforced or lambdaEnforcedDynamic guards (the
+// check-simulator-tests route token, e.g. "/2015-03-31/functions/{name}"), and
+// url an instance of it with harmless nonexistent names.
 type lambdaControlPlaneRoute struct {
 	method string
 	path   string
 	url    string
 }
 
-// lambdaControlPlaneRoutes enumerates every route lambdaEnforced /
-// lambdaEnforcedDynamic guards in registerLambda / registerLambdaExtras2 /
-// registerLambdaExtras3 (simulator-aws/lambda.go, lambda_extras2.go,
-// lambda_extras3.go) — the full Lambda REST control-plane surface, excluding
-// only the Lambda Runtime API (/2018-06-01/runtime/...), which is served by a
-// separate per-invocation mux the function container polls and carries no
-// SigV4 signature by design (see lambda_enforcement.go). Kept in sync with
-// those files: a route added there without a row here is a route that ships
-// without a call-time-enforcement test proving it rejects an unauthenticated
-// caller.
+// lambdaControlPlaneRoutes lists every route lambdaEnforced and
+// lambdaEnforcedDynamic guard in lambda.go, lambda_extras2.go and
+// lambda_extras3.go: the whole Lambda REST control plane except the Runtime API
+// (/2018-06-01/runtime/...), which a per-invocation mux serves to the function
+// container without SigV4 (see lambda_enforcement.go). A route added there
+// needs a row here.
 var lambdaControlPlaneRoutes = []lambdaControlPlaneRoute{
 	{http.MethodDelete, "/2015-03-31/event-source-mappings/{uuid}", "/2015-03-31/event-source-mappings/11111111-1111-1111-1111-111111111111"},
 	{http.MethodDelete, "/2015-03-31/functions/{name}", "/2015-03-31/functions/enforcement-test-fn"},
@@ -227,20 +209,15 @@ var lambdaControlPlaneRoutes = []lambdaControlPlaneRoute{
 	{http.MethodPut, "/2025-11-30/functions/{name}/function-scaling-config", "/2025-11-30/functions/enforcement-test-fn/function-scaling-config"},
 }
 
-// TestLambda_AllControlPlaneRoutesRejectUnauthenticated proves every route in
-// lambdaControlPlaneRoutes — the complete Lambda REST control-plane surface,
-// not just ListFunctions — rejects an unsigned request and a request signed
-// with the wrong secret, both with Lambda's real REST-JSON auth-error shape
-// (403, X-Amzn-Errortype). Enforcement (lambdaEnforced/lambdaEnforcedDynamic)
-// runs before the handler resolves its target resource, so a placeholder
-// function/layer/ARN name that doesn't exist still gets the auth deny rather
-// than a 404 — the assertion is on the AUTH failure, not on resource
-// existence.
+// TestLambda_AllControlPlaneRoutesRejectUnauthenticated expects every route in
+// lambdaControlPlaneRoutes to refuse an unsigned request and one with a wrong
+// secret with Lambda's REST-JSON auth error (403, X-Amzn-Errortype).
+// Enforcement runs before the handler resolves its resource, so nonexistent
+// names still get the auth refusal rather than a 404.
 func TestLambda_AllControlPlaneRoutesRejectUnauthenticated(t *testing.T) {
 	t.Parallel()
 	for _, rt := range lambdaControlPlaneRoutes {
 		t.Run(rt.method+"_"+rt.path, func(t *testing.T) {
-			// Unsigned: no Authorization header at all.
 			req, err := http.NewRequest(rt.method, baseURL+rt.url, nil)
 			require.NoError(t, err)
 			resp, err := http.DefaultClient.Do(req)
@@ -250,8 +227,7 @@ func TestLambda_AllControlPlaneRoutesRejectUnauthenticated(t *testing.T) {
 				"unsigned %s %s must be rejected", rt.method, rt.url)
 			assert.Equal(t, "MissingAuthenticationTokenException", resp.Header.Get("X-Amzn-Errortype"))
 
-			// Signed with a well-formed but wrong secret for the real "test"
-			// access key id.
+			// A well-formed signature with the wrong secret for the real "test" key id.
 			req2, err := http.NewRequest(rt.method, baseURL+rt.url, nil)
 			require.NoError(t, err)
 			signRawSigV4Creds(t, req2, "lambda", emptySHA256, "test", "not-the-real-secret")

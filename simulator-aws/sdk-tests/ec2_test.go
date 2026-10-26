@@ -211,8 +211,7 @@ func TestEC2_InstanceLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, instanceTypes.InstanceTypes, 1)
 
-	// Other tests of the suite import key pairs at the same time, so read
-	// only the name this test owns.
+	// Other tests import key pairs concurrently, so read only this test's name.
 	keys, err := client.DescribeKeyPairs(ctx, &ec2.DescribeKeyPairsInput{
 		Filters: []types.Filter{{Name: aws.String("key-name"), Values: []string{"instance-lifecycle-unused"}}},
 	})
@@ -275,10 +274,9 @@ func TestEC2_InstanceLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, tagged.Reservations, 1)
 	assert.Equal(t, instanceID, aws.ToString(tagged.Reservations[0].Instances[0].InstanceId))
-	// Scope the state filter to this test's own (tagged) instance — the shared
-	// instance store also holds instances other tests launch (fleets, spot), so
-	// a bare instance-state-name filter is not account-empty. The intent here is
-	// that this running instance does not appear under a stopped filter.
+	// Scope the state filter to this test's tagged instance: other tests' instances
+	// share the account, so this running instance's absence under a stopped filter
+	// is the assertion.
 	stoppedFiltered, err := client.DescribeInstances(ctx, &ec2.DescribeInstancesInput{
 		Filters: []types.Filter{
 			{Name: aws.String("instance-state-name"), Values: []string{"stopped"}},
@@ -409,11 +407,9 @@ func TestEC2_RunInstancesHonorsMaxCount(t *testing.T) {
 	}
 }
 
-// TestEC2_RunInstancesClientTokenReplayReportsLaunchState proves a retried
-// RunInstances (same ClientToken — the AWS SDK auto-generates one) replays the
-// original launch response: the instance is still reported "pending" even after
-// the control plane has transitioned it to "running". A replay that re-read the
-// live state instead raced that transition and could report "running".
+// TestEC2_RunInstancesClientTokenReplayReportsLaunchState expects a RunInstances
+// retried with the same ClientToken to replay the original response, "pending",
+// even after the instance is running.
 func TestEC2_RunInstancesClientTokenReplayReportsLaunchState(t *testing.T) {
 	t.Parallel()
 	client := ec2Client()
@@ -440,11 +436,8 @@ func TestEC2_RunInstancesClientTokenReplayReportsLaunchState(t *testing.T) {
 	require.Equal(t, types.InstanceStateNamePending, first.Instances[0].State.Name)
 	instanceID := aws.ToString(first.Instances[0].InstanceId)
 
-	// Let the control plane transition the instance to running.
 	waitForEC2InstanceRunning(t, client, instanceID)
 
-	// The idempotent retry replays the original launch response: still pending,
-	// same instance id and reservation.
 	replay, err := client.RunInstances(ctx, input)
 	require.NoError(t, err)
 	require.Len(t, replay.Instances, 1)
@@ -607,10 +600,9 @@ func TestEC2_EBSVolumeSnapshotLifecycleSDK(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// terminateEC2InstancesOnCleanup terminates the instances a RunInstances call
-// launched once the test ends. On a host that boots each instance as a real
-// machine, an instance left running keeps its machine running and slows every
-// later test's boot.
+// terminateEC2InstancesOnCleanup terminates the launched instances when the
+// test ends: on a host that boots each instance as a real machine, a running
+// one slows every later boot.
 func terminateEC2InstancesOnCleanup(t *testing.T, client *ec2.Client, run *ec2.RunInstancesOutput) {
 	t.Helper()
 	if run == nil {

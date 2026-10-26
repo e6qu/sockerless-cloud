@@ -16,8 +16,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The Init phase of the AWS Lambda execution environment lifecycle is bounded
-// by its own limit, not by the function's timeout:
+// AWS Lambda bounds the Init phase by its own limit, not the function's
+// timeout:
 //
 //	"The Init phase ends when the runtime and all extensions signal that they
 //	 are ready by sending a Next API request. The Init phase is limited to 10
@@ -29,16 +29,14 @@ import (
 //	 phase."
 //
 // (AWS Lambda Developer Guide, "Understanding the Lambda execution environment
-// lifecycle".) The same guide's worked example of a three-second function
-// timing out reports `Duration: 3004.92 ms … Init Duration: 111.23 ms`, so the
-// initialisation that preceded the invocation is counted beside the duration
-// the timeout bounds rather than inside it.
+// lifecycle".) Its example of a three-second function timing out reports
+// `Duration: 3004.92 ms … Init Duration: 111.23 ms`: initialisation counts
+// beside the duration the timeout bounds, not inside it.
 
-// lambdaSlowInitZip builds a deployment package whose module-level code — the
-// function's static initialisation, which runs in the Init phase — blocks for
-// initMillis before the handler is even defined. Atomics.wait is Node's
-// synchronous sleep, so the delay is a real initialisation that the runtime
-// cannot report readiness through.
+// lambdaSlowInitZip builds a package whose module-level code, the Init phase's
+// static initialisation, blocks for initMillis before defining the handler.
+// Atomics.wait is Node's synchronous sleep, so the runtime cannot report
+// readiness during it.
 func lambdaSlowInitZip(t *testing.T, initMillis int) []byte {
 	t.Helper()
 	return lambdaNodeSourceZip(t, fmt.Sprintf(
@@ -46,8 +44,8 @@ func lambdaSlowInitZip(t *testing.T, initMillis int) []byte {
 			"exports.handler = async (event) => ({ initialized: true });\n", initMillis))
 }
 
-// lambdaInvocationLog returns the newest CloudWatch log stream of a function,
-// joined, which is where START / END / REPORT / INIT_REPORT land.
+// lambdaInvocationLog returns a function's newest log stream joined, where
+// START, END, REPORT and INIT_REPORT land.
 func lambdaInvocationLog(t *testing.T, functionName string) string {
 	t.Helper()
 	cw := cloudwatchlogs.NewFromConfig(sdkConfig(), func(o *cloudwatchlogs.Options) {
@@ -75,7 +73,6 @@ func lambdaInvocationLog(t *testing.T, functionName string) string {
 	return strings.Join(lines, "\n")
 }
 
-// lambdaReportEntry returns the REPORT line that closes an invocation.
 func lambdaReportEntry(t *testing.T, log string) string {
 	t.Helper()
 	for _, line := range strings.Split(log, "\n") {
@@ -87,9 +84,8 @@ func lambdaReportEntry(t *testing.T, log string) string {
 	return ""
 }
 
-// lambdaReportMillis reads one `<field>: <n> ms` measurement out of a REPORT
-// line. The fields are tab separated, so a field name that is a suffix of
-// another (Duration inside Billed Duration) still matches only its own.
+// lambdaReportMillis reads one `<field>: <n> ms` from a REPORT line. Fields are
+// tab-separated, so Duration does not match inside Billed Duration.
 func lambdaReportMillis(t *testing.T, report, field string) float64 {
 	t.Helper()
 	pattern := regexp.MustCompile(`(?:^|\t)` + regexp.QuoteMeta(field) + `: ([0-9.]+) ms`)
@@ -101,10 +97,8 @@ func lambdaReportMillis(t *testing.T, report, field string) float64 {
 }
 
 // TestLambda_InitPhaseIsOutsideTheFunctionTimeout runs a function whose
-// initialisation is deliberately slower than its configured timeout. Lambda
-// bounds initialisation by the Init phase's own limit, so the handler — which
-// returns immediately — must still succeed, and the REPORT must account for the
-// initialisation separately from the duration the timeout limits.
+// initialisation outlasts its timeout: the handler returns at once and
+// succeeds, and REPORT counts initialisation apart from the duration.
 func TestLambda_InitPhaseIsOutsideTheFunctionTimeout(t *testing.T) {
 	t.Parallel()
 	lc := lambdaClient()
@@ -146,11 +140,10 @@ func TestLambda_InitPhaseIsOutsideTheFunctionTimeout(t *testing.T) {
 		"Billed Duration is the invocation and the initialisation together:\n%s", report)
 }
 
-// TestLambda_InitPhaseBeyondItsLimitIsRetriedInsideTheFunctionTimeout covers
-// the other side of the same rule: an initialisation that overruns the Init
-// phase's ten-second limit is retried "at the time of the first function
-// invocation with the configured function timeout", so the retried attempt is
-// the one the three-second timeout bounds and the invocation ends as a timeout.
+// TestLambda_InitPhaseBeyondItsLimitIsRetriedInsideTheFunctionTimeout: an
+// initialisation overrunning the Init phase's ten seconds is retried "at the
+// time of the first function invocation with the configured function timeout",
+// so the three-second timeout bounds the retry and the invocation times out.
 func TestLambda_InitPhaseBeyondItsLimitIsRetriedInsideTheFunctionTimeout(t *testing.T) {
 	t.Parallel()
 	lc := lambdaClient()

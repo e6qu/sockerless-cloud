@@ -12,10 +12,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestOrganizations_GovCloudAccount covers CreateGovCloudAccount: the linked
-// commercial + GovCloud account pair, the CreateAccountStatus that settles to
-// SUCCEEDED carrying both AccountId and GovCloudAccountId, and the status being
-// readable via DescribeCreateAccountStatus.
+// TestOrganizations_GovCloudAccount expects CreateGovCloudAccount to settle
+// SUCCEEDED with both AccountId and GovCloudAccountId, readable through
+// DescribeCreateAccountStatus, and the commercial account to join the tree.
 func TestOrganizations_GovCloudAccount(t *testing.T) {
 	c := orgClient()
 
@@ -32,7 +31,6 @@ func TestOrganizations_GovCloudAccount(t *testing.T) {
 	assert.NotEqual(t, aws.ToString(st.AccountId), aws.ToString(st.GovCloudAccountId))
 	assert.True(t, strings.HasPrefix(aws.ToString(st.Id), "car-"))
 
-	// The status is durable and readable by id.
 	desc, err := c.DescribeCreateAccountStatus(ctx, &organizations.DescribeCreateAccountStatusInput{
 		CreateAccountRequestId: st.Id,
 	})
@@ -40,15 +38,13 @@ func TestOrganizations_GovCloudAccount(t *testing.T) {
 	assert.Equal(t, orgtypes.CreateAccountStateSucceeded, desc.CreateAccountStatus.State)
 	assert.Equal(t, aws.ToString(st.AccountId), aws.ToString(desc.CreateAccountStatus.AccountId))
 
-	// The commercial account is a real member account in the org tree.
 	acct, err := c.DescribeAccount(ctx, &organizations.DescribeAccountInput{AccountId: st.AccountId})
 	require.NoError(t, err)
 	assert.Equal(t, "GovCloudPair", aws.ToString(acct.Account.Name))
 }
 
-// TestOrganizations_LeaveOrganization asserts the management account cannot leave
-// its own organization — the faithful outcome for the sim's caller, which is
-// always the organization's management account.
+// TestOrganizations_LeaveOrganization expects the caller, the management
+// account, to be refused leaving its own organization.
 func TestOrganizations_LeaveOrganization(t *testing.T) {
 	c := orgClient()
 	_, err := c.LeaveOrganization(ctx, &organizations.LeaveOrganizationInput{})
@@ -56,10 +52,9 @@ func TestOrganizations_LeaveOrganization(t *testing.T) {
 	assert.Contains(t, err.Error(), "MasterCannotLeaveOrganization")
 }
 
-// TestOrganizations_EffectivePolicyValidation covers the effective-policy
-// validation reads: ListAccountsWithInvalidEffectivePolicy (honest-empty over the
-// account store) and ListEffectivePolicyValidationErrors (honest-empty error list
-// for a real account, with the account id / policy type / path echoed).
+// TestOrganizations_EffectivePolicyValidation expects no accounts with an
+// invalid effective policy and no validation errors for a real account, with
+// its id, policy type and path echoed.
 func TestOrganizations_EffectivePolicyValidation(t *testing.T) {
 	c := orgClient()
 
@@ -70,7 +65,6 @@ func TestOrganizations_EffectivePolicyValidation(t *testing.T) {
 	assert.Empty(t, inv.Accounts)
 	assert.Equal(t, "BACKUP_POLICY", string(inv.PolicyType))
 
-	// Resolve the management account id to validate against a real account.
 	org, err := c.DescribeOrganization(ctx, &organizations.DescribeOrganizationInput{})
 	require.NoError(t, err)
 	acctID := aws.ToString(org.Organization.MasterAccountId)
@@ -86,7 +80,7 @@ func TestOrganizations_EffectivePolicyValidation(t *testing.T) {
 	assert.NotNil(t, errs.EvaluationTimestamp)
 	assert.Empty(t, errs.EffectivePolicyValidationErrors)
 
-	// An unknown account is rejected like the real service.
+	// An unknown account is rejected.
 	_, err = c.ListEffectivePolicyValidationErrors(ctx, &organizations.ListEffectivePolicyValidationErrorsInput{
 		AccountId:  aws.String("999999999999"),
 		PolicyType: orgtypes.EffectivePolicyType("BACKUP_POLICY"),
@@ -95,10 +89,9 @@ func TestOrganizations_EffectivePolicyValidation(t *testing.T) {
 	assert.Contains(t, err.Error(), "AccountNotFound")
 }
 
-// TestOrganizations_ResponsibilityTransfer drives the responsibility-transfer
-// family end to end: Invite creates a transfer (status REQUESTED) plus a
-// handshake, Describe reads it, Update renames it, the outbound list enumerates
-// it, the inbound list omits it, and Terminate settles it to WITHDRAWN.
+// TestOrganizations_ResponsibilityTransfer expects Invite to create a REQUESTED
+// transfer and a handshake, Update to rename it, the outbound list to hold it
+// and the inbound list not, and Terminate to settle it WITHDRAWN.
 func TestOrganizations_ResponsibilityTransfer(t *testing.T) {
 	c := orgClient()
 
@@ -115,7 +108,6 @@ func TestOrganizations_ResponsibilityTransfer(t *testing.T) {
 	require.NotNil(t, inv.Handshake)
 	assert.True(t, strings.HasPrefix(aws.ToString(inv.Handshake.Id), "h-"))
 
-	// Find the created transfer via the outbound list.
 	outbound, err := c.ListOutboundResponsibilityTransfers(ctx, &organizations.ListOutboundResponsibilityTransfersInput{
 		Type: orgtypes.ResponsibilityTransferTypeBilling,
 	})
@@ -136,13 +128,11 @@ func TestOrganizations_ResponsibilityTransfer(t *testing.T) {
 		_, _ = c.TerminateResponsibilityTransfer(ctx, &organizations.TerminateResponsibilityTransferInput{Id: aws.String(id)})
 	}()
 
-	// Describe reads the transfer.
 	desc, err := c.DescribeResponsibilityTransfer(ctx, &organizations.DescribeResponsibilityTransferInput{Id: aws.String(id)})
 	require.NoError(t, err)
 	assert.True(t, strings.HasPrefix(aws.ToString(desc.ResponsibilityTransfer.Arn), "arn:aws:organizations::"))
 	assert.Equal(t, aws.ToString(inv.Handshake.Id), aws.ToString(desc.ResponsibilityTransfer.ActiveHandshakeId))
 
-	// Update renames it.
 	upd, err := c.UpdateResponsibilityTransfer(ctx, &organizations.UpdateResponsibilityTransferInput{
 		Id:   aws.String(id),
 		Name: aws.String("billing-handoff-renamed"),
@@ -150,7 +140,6 @@ func TestOrganizations_ResponsibilityTransfer(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "billing-handoff-renamed", aws.ToString(upd.ResponsibilityTransfer.Name))
 
-	// The inbound list does not contain an outbound-direction transfer.
 	inbound, err := c.ListInboundResponsibilityTransfers(ctx, &organizations.ListInboundResponsibilityTransfersInput{
 		Type: orgtypes.ResponsibilityTransferTypeBilling,
 	})
@@ -159,7 +148,7 @@ func TestOrganizations_ResponsibilityTransfer(t *testing.T) {
 		assert.NotEqual(t, id, aws.ToString(rt.Id), "outbound transfer must not appear inbound")
 	}
 
-	// Terminate settles it to WITHDRAWN; a second terminate is rejected.
+	// A second terminate is rejected.
 	term, err := c.TerminateResponsibilityTransfer(ctx, &organizations.TerminateResponsibilityTransferInput{Id: aws.String(id)})
 	require.NoError(t, err)
 	assert.Equal(t, orgtypes.ResponsibilityTransferStatusWithdrawn, term.ResponsibilityTransfer.Status)

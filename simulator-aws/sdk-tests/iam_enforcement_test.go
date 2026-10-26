@@ -16,11 +16,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestIAM_CallTimeEnforcement proves call-time IAM enforcement (#657): a
-// credential bound to a least-privilege policy is denied the actions its policy
-// doesn't grant, with the correct per-service error shape — while the allowed
-// action succeeds. Unregistered (test) credentials remain permissive, which is
-// why the setup calls (run with the default creds) work.
+// TestIAM_CallTimeEnforcement expects a credential bound to a least-privilege
+// policy to be denied what the policy does not grant, in each service's error
+// shape, while the allowed action succeeds. The setup calls use the suite's
+// seed credential, the account administrator.
 func TestIAM_CallTimeEnforcement(t *testing.T) {
 	t.Parallel()
 	admin := iamClient()
@@ -30,7 +29,6 @@ func TestIAM_CallTimeEnforcement(t *testing.T) {
 	require.NoError(t, err)
 	defer admin.DeleteUser(ctx, &iam.DeleteUserInput{UserName: aws.String(user)})
 
-	// Inline policy: allow only ec2:DescribeVolumes — nothing else.
 	_, err = admin.PutUserPolicy(ctx, &iam.PutUserPolicyInput{
 		UserName:   aws.String(user),
 		PolicyName: aws.String("least-priv"),
@@ -61,32 +59,30 @@ func TestIAM_CallTimeEnforcement(t *testing.T) {
 		return ""
 	}
 
-	// Allowed action → succeeds.
 	_, err = ec2r.DescribeVolumes(ctx, &ec2.DescribeVolumesInput{})
 	assert.NoError(t, err, "ec2:DescribeVolumes is granted and must succeed")
 
-	// Denied EC2 action → UnauthorizedOperation (the EC2 query-protocol shape).
+	// A denied EC2 action answers UnauthorizedOperation, the query-protocol shape.
 	_, err = ec2r.CreateVolume(ctx, &ec2.CreateVolumeInput{
 		AvailabilityZone: aws.String("us-east-1a"), Size: aws.Int32(1),
 	})
 	require.Error(t, err, "ec2:CreateVolume is not granted and must be denied")
 	assert.Equal(t, "UnauthorizedOperation", errCode(err))
 
-	// Denied awsJson action → AccessDeniedException (the ECS/JSON shape).
+	// A denied awsJson action answers AccessDeniedException.
 	_, err = ecsr.ListClusters(ctx, &ecs.ListClustersInput{})
 	require.Error(t, err, "ecs:ListClusters is not granted and must be denied")
 	assert.Equal(t, "AccessDeniedException", errCode(err))
 
-	// A sanity check that the default (unregistered) credentials are still
-	// permissive: the admin client created above can CreateVolume.
+	// The seed credential can still CreateVolume.
 	adminEC2 := ec2.NewFromConfig(sdkConfig(), func(o *ec2.Options) { o.BaseEndpoint = aws.String(baseURL) })
 	_, err = adminEC2.DescribeVolumes(ctx, &ec2.DescribeVolumesInput{})
 	assert.NoError(t, err, "unregistered test credentials remain permissive")
 }
 
-// TestIAM_CloudWatchNamespaceEnforcement proves Amazon CloudWatch's
-// monitoring.amazonaws.com CloudTrail event source is authorized through the
-// service's real cloudwatch:* IAM namespace.
+// TestIAM_CloudWatchNamespaceEnforcement expects CloudWatch's
+// monitoring.amazonaws.com event source to authorize under the cloudwatch:* IAM
+// namespace.
 func TestIAM_CloudWatchNamespaceEnforcement(t *testing.T) {
 	t.Parallel()
 	cfg := restrictedConfig(t, iamClient(), "cloudwatch-restricted-user", "cloudwatch-only",

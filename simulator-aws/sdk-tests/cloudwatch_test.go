@@ -11,10 +11,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestCloudWatch_FilterLogEventsByStreamPrefix covers logStreamNamePrefix on
-// FilterLogEvents: the prefix scopes the searched streams (previously ignored,
-// so events from every stream leaked in), and supplying both logStreamNames and
-// logStreamNamePrefix is rejected, matching real CloudWatch Logs.
+// TestCloudWatch_FilterLogEventsByStreamPrefix expects logStreamNamePrefix to
+// scope the searched streams, and logStreamNames together with
+// logStreamNamePrefix to be rejected.
 func TestCloudWatch_FilterLogEventsByStreamPrefix(t *testing.T) {
 	t.Parallel()
 	cw := cwLogsClient()
@@ -66,7 +65,6 @@ func TestCloudWatch_GetLogEventsPagination(t *testing.T) {
 	logGroup := "/test/pagination"
 	streamName := "test-stream"
 
-	// Create log group and stream
 	_, err := cw.CreateLogGroup(ctx, &cloudwatchlogs.CreateLogGroupInput{
 		LogGroupName: aws.String(logGroup),
 	})
@@ -83,7 +81,6 @@ func TestCloudWatch_GetLogEventsPagination(t *testing.T) {
 
 	now := time.Now().UnixMilli()
 
-	// Put initial batch of events
 	_, err = cw.PutLogEvents(ctx, &cloudwatchlogs.PutLogEventsInput{
 		LogGroupName:  aws.String(logGroup),
 		LogStreamName: aws.String(streamName),
@@ -95,7 +92,6 @@ func TestCloudWatch_GetLogEventsPagination(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Read all events
 	result1, err := cw.GetLogEvents(ctx, &cloudwatchlogs.GetLogEventsInput{
 		LogGroupName:  aws.String(logGroup),
 		LogStreamName: aws.String(streamName),
@@ -109,7 +105,7 @@ func TestCloudWatch_GetLogEventsPagination(t *testing.T) {
 	token := result1.NextForwardToken
 	require.NotNil(t, token)
 
-	// Read again with same token — no new events, should return empty
+	// The same token with no new events returns nothing.
 	result2, err := cw.GetLogEvents(ctx, &cloudwatchlogs.GetLogEventsInput{
 		LogGroupName:  aws.String(logGroup),
 		LogStreamName: aws.String(streamName),
@@ -120,7 +116,6 @@ func TestCloudWatch_GetLogEventsPagination(t *testing.T) {
 	assert.Empty(t, result2.Events, "should return no events when no new data")
 	assert.Equal(t, *token, *result2.NextForwardToken, "token should stay the same when no new events")
 
-	// Put more events
 	_, err = cw.PutLogEvents(ctx, &cloudwatchlogs.PutLogEventsInput{
 		LogGroupName:  aws.String(logGroup),
 		LogStreamName: aws.String(streamName),
@@ -131,7 +126,7 @@ func TestCloudWatch_GetLogEventsPagination(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Read with the old token — should get only new events
+	// The old token returns only the new events.
 	result3, err := cw.GetLogEvents(ctx, &cloudwatchlogs.GetLogEventsInput{
 		LogGroupName:  aws.String(logGroup),
 		LogStreamName: aws.String(streamName),
@@ -143,7 +138,6 @@ func TestCloudWatch_GetLogEventsPagination(t *testing.T) {
 	assert.Equal(t, "event-4", *result3.Events[0].Message)
 	assert.Equal(t, "event-5", *result3.Events[1].Message)
 
-	// New token should be different
 	assert.NotEqual(t, *token, *result3.NextForwardToken, "token should change when new events exist")
 }
 
@@ -186,7 +180,6 @@ func TestCloudWatch_DescribeLogStreamsOrdering(t *testing.T) {
 		LogGroupName: aws.String(logGroup),
 	})
 
-	// Create 3 streams
 	streams := []string{"stream-a", "stream-b", "stream-c"}
 	for _, s := range streams {
 		_, err := cw.CreateLogStream(ctx, &cloudwatchlogs.CreateLogStreamInput{
@@ -198,7 +191,7 @@ func TestCloudWatch_DescribeLogStreamsOrdering(t *testing.T) {
 
 	now := time.Now().UnixMilli()
 
-	// Put events at different times: stream-b gets the newest event
+	// stream-b gets the newest event.
 	_, err = cw.PutLogEvents(ctx, &cloudwatchlogs.PutLogEventsInput{
 		LogGroupName:  aws.String(logGroup),
 		LogStreamName: aws.String("stream-a"),
@@ -220,7 +213,6 @@ func TestCloudWatch_DescribeLogStreamsOrdering(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Describe with OrderBy=LastEventTime, Descending=true
 	result, err := cw.DescribeLogStreams(ctx, &cloudwatchlogs.DescribeLogStreamsInput{
 		LogGroupName: aws.String(logGroup),
 		OrderBy:      cwlogtypes.OrderByLastEventTime,
@@ -232,7 +224,6 @@ func TestCloudWatch_DescribeLogStreamsOrdering(t *testing.T) {
 	assert.Equal(t, "stream-c", *result.LogStreams[1].LogStreamName)
 	assert.Equal(t, "stream-a", *result.LogStreams[2].LogStreamName, "oldest stream should be last")
 
-	// With Limit=1, should return only the newest stream
 	limited, err := cw.DescribeLogStreams(ctx, &cloudwatchlogs.DescribeLogStreamsInput{
 		LogGroupName: aws.String(logGroup),
 		OrderBy:      cwlogtypes.OrderByLastEventTime,
@@ -243,7 +234,7 @@ func TestCloudWatch_DescribeLogStreamsOrdering(t *testing.T) {
 	require.Len(t, limited.LogStreams, 1)
 	assert.Equal(t, "stream-b", *limited.LogStreams[0].LogStreamName)
 
-	// Default ordering (by name, ascending)
+	// The default order is by name, ascending.
 	byName, err := cw.DescribeLogStreams(ctx, &cloudwatchlogs.DescribeLogStreamsInput{
 		LogGroupName: aws.String(logGroup),
 	})

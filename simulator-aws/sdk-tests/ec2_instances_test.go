@@ -23,13 +23,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// ssmManagedNodePolicy is the permission SSM Agent needs to register the
-// instance as a managed node, which the AmazonSSMManagedInstanceCore managed
-// policy grants on AWS.
+// ssmManagedNodePolicy grants what SSM Agent needs to register a managed node,
+// as AmazonSSMManagedInstanceCore does on AWS.
 const ssmManagedNodePolicy = `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["ssm:UpdateInstanceInformation","ssmmessages:*","ec2messages:*"],"Resource":"*"}]}`
 
-// ssmManagedInstanceProfile creates an instance profile whose role lets SSM
-// Agent register the instance as a managed node, and returns its name.
 func ssmManagedInstanceProfile(t *testing.T) string {
 	t.Helper()
 	iamc := iamClient()
@@ -57,15 +54,11 @@ func ssmManagedInstanceProfile(t *testing.T) string {
 	return name
 }
 
-// ssmManagedProfileSpec is the RunInstances member that gives the instance a
-// profile SSM Agent registers it under.
 func ssmManagedProfileSpec(t *testing.T) *types.IamInstanceProfileSpecification {
 	t.Helper()
 	return &types.IamInstanceProfileSpecification{Name: aws.String(ssmManagedInstanceProfile(t))}
 }
 
-// launchSSMManagedInstanceFor launches an instance in its own VPC with a
-// profile SSM Agent registers it under, and waits until it runs.
 func launchSSMManagedInstanceFor(t *testing.T, c *ec2.Client, cidr string) string {
 	t.Helper()
 	return ec2UserDataInstance(t, c, cidr, "")
@@ -93,8 +86,6 @@ func ec2UserDataInstance(t *testing.T, c *ec2.Client, cidr, userData string) str
 	return instanceID
 }
 
-// ssmShell runs a shell command on the instance through Run Command and
-// returns its standard output.
 func ssmShell(t *testing.T, c *ssm.Client, instanceID string, commands ...string) string {
 	t.Helper()
 	send, err := c.SendCommand(ctx, &ssm.SendCommandInput{
@@ -108,9 +99,9 @@ func ssmShell(t *testing.T, c *ssm.Client, instanceID string, commands ...string
 	return aws.ToString(inv.StandardOutputContent)
 }
 
-// An instance boots the AMI's image, runs its user data as root with the
-// instance's own hostname, reaches the instance metadata service through
-// the VPC's reserved address the SDKs are pointed at, and writes its console.
+// An instance boots the AMI's image, runs its user data as root under its own
+// hostname, reaches the instance metadata service through the VPC's reserved
+// address the SDKs use, and writes its console.
 func TestEC2_InstanceRunsUserDataAndReadsItsMetadata(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -154,9 +145,9 @@ curl -sS -H "X-aws-ec2-metadata-token: $token" "${AWS_EC2_METADATA_SERVICE_ENDPO
 		"the VPC's resolver answers the address's PTR record with the interface's private DNS name")
 }
 
-// Stopping an instance keeps its root disk for the next start; an AMI created
-// from the instance carries that disk into the instances launched from it;
-// terminating discards it.
+// Stopping keeps the root disk for the next start; an AMI created from the
+// instance carries it into the instances launched from it; terminating
+// discards it.
 func TestEC2_StopKeepsTheRootDiskAndCreateImageCapturesIt(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -215,8 +206,8 @@ func TestEC2_StopKeepsTheRootDiskAndCreateImageCapturesIt(t *testing.T) {
 }
 
 // Two VPCs over one CIDR cannot both hold a running instance on one engine:
-// the second instance's launch fails with the internal error EC2 reports for
-// a launch it could not complete.
+// the second launch fails with the internal error Amazon EC2 reports for a
+// launch it could not complete.
 func TestEC2_InstancesOfVPCsSharingACIDRCannotCoexist(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -231,8 +222,8 @@ func TestEC2_InstancesOfVPCsSharingACIDRCannotCoexist(t *testing.T) {
 	})
 	require.NoError(t, err)
 	second := aws.ToString(run.Instances[0].InstanceId)
-	// The InstanceTerminated waiter gives up on a pending instance, which is
-	// what a launch that fails is until it fails, so the state is polled.
+	// The InstanceTerminated waiter gives up on a pending instance, which a failing
+	// launch is until it fails, so poll the state.
 	var inst types.Instance
 	require.Eventually(t, func() bool {
 		desc, err := c.DescribeInstances(ctx, &ec2.DescribeInstancesInput{InstanceIds: []string{second}})
@@ -265,8 +256,8 @@ func TestEC2_RunInstancesRefusesAnArchitectureMismatch(t *testing.T) {
 }
 
 // An awsvpc task resolves names through the VPC's Route 53 Resolver, which
-// answers the private hosted zones associated with the VPC, and reads its
-// task metadata through the same reserved address.
+// answers the private hosted zones associated with the VPC, and reads its task
+// metadata through the same reserved address.
 func TestECS_TaskResolvesAPrivateHostedZoneThroughTheVPCResolver(t *testing.T) {
 	t.Parallel()
 	ecsc := ecsClient()
@@ -306,7 +297,7 @@ func TestECS_TaskResolvesAPrivateHostedZoneThroughTheVPCResolver(t *testing.T) {
 		ContainerDefinitions: []ecstypes.ContainerDefinition{{
 			Name:  aws.String("resolver"),
 			Image: aws.String("mirror.gcr.io/library/busybox:latest"),
-			// The task's metadata answers from the container's first moment.
+			// The task metadata answers from the container's first moment.
 			Command: []string{"sh", "-c",
 				`nslookup db.corp.internal && wget -qO- "$ECS_CONTAINER_METADATA_URI_V4/task"`},
 			LogConfiguration: &ecstypes.LogConfiguration{
@@ -363,8 +354,8 @@ func TestEC2_ImportImageFromAnOCIReferenceBoots(t *testing.T) {
 	require.NoError(t, err)
 	taskID := aws.ToString(imp.ImportTaskId)
 	var task types.ImportImageTask
-	// EC2 offers no waiter for ImportImage, so the task's own status is read
-	// until it settles.
+	// Amazon EC2 has no waiter for ImportImage, so poll the task's status until it
+	// settles.
 	require.Eventually(t, func() bool {
 		out, err := c.DescribeImportImageTasks(ctx, &ec2.DescribeImportImageTasksInput{ImportTaskIds: []string{taskID}})
 		require.NoError(t, err)
@@ -393,9 +384,9 @@ func TestEC2_ImportImageFromAnOCIReferenceBoots(t *testing.T) {
 }
 
 // An instance receives what its security groups admit and nothing else: a
-// neighbour in the VPC reaches the port a group's rule names and not
-// another, a rule authorized while the instance runs admits its port at
-// once, and a revoked one refuses it again.
+// neighbour reaches the port a rule names and not another, a rule authorized
+// while the instance runs admits its port at once, and a revoked one refuses it
+// again.
 func TestEC2_SecurityGroupFiltersWhatAnInstanceReceives(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()

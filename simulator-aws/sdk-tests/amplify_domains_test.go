@@ -36,15 +36,15 @@ func TestAmplifyDomainAssociationLifecycle(t *testing.T) {
 		EnableAutoSubDomain: aws.Bool(false),
 		SubDomainSettings: []amplifytypes.SubDomainSetting{
 			{Prefix: aws.String("www"), BranchName: aws.String("main")},
-			{Prefix: aws.String(""), BranchName: aws.String("main")}, // apex
+			{Prefix: aws.String(""), BranchName: aws.String("main")},
 		},
 	})
 	require.NoError(t, err)
 	require.NotNil(t, dom.DomainAssociation)
 	assert.Equal(t, "sdk-test.example.com", aws.ToString(dom.DomainAssociation.DomainName))
-	// No verification records exist in Route 53 → the association honestly
-	// reports PENDING_VERIFICATION (the route53-backed flip to AVAILABLE is
-	// covered by TestAmplifyDomainVerificationRoute53Flow).
+	// Without verification records in Route 53 the association stays
+	// PENDING_VERIFICATION; TestAmplifyDomainVerificationRoute53Flow covers the
+	// move to AVAILABLE.
 	assert.Equal(t, amplifytypes.DomainStatusPendingVerification, dom.DomainAssociation.DomainStatus)
 	require.NotEmpty(t, aws.ToString(dom.DomainAssociation.CertificateVerificationDNSRecord))
 	require.Len(t, dom.DomainAssociation.SubDomains, 2)
@@ -149,9 +149,8 @@ func TestAmplifyDeleteAppCascadesDomainsAndBackends(t *testing.T) {
 	_, err = c.DeleteApp(ctx, &amplify.DeleteAppInput{AppId: aws.String(appID)})
 	require.NoError(t, err)
 
-	// The domain/backend stores must hold no orphans for the deleted app:
-	// the Get handlers consult only their own stores, so a leftover row
-	// would still be served here.
+	// The Get handlers read only their own stores, so a leftover domain or backend
+	// row for the deleted app would still be served here.
 	var notFound *amplifytypes.NotFoundException
 	_, err = c.GetDomainAssociation(ctx, &amplify.GetDomainAssociationInput{
 		AppId: aws.String(appID), DomainName: aws.String("cascade.example.com"),

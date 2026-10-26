@@ -13,22 +13,19 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestECS_TaskWireShapeOmitsNetworkConfiguration pins the Task response
-// shape: the real Task conveys networking via attachments and has no
-// networkConfiguration member, even when RunTask was called with one.
-// The SDK silently drops unknown members, so the absence is asserted at
-// the wire level alongside the SDK view of the ENI attachment.
+// TestECS_TaskWireShapeOmitsNetworkConfiguration expects the Task to carry
+// networking in attachments and no networkConfiguration member, even when
+// RunTask had one. The SDK drops unknown members, so the wire is checked too.
 func TestECS_TaskWireShapeOmitsNetworkConfiguration(t *testing.T) {
 	t.Parallel()
 	client, clusterName, taskArn := ecsRunTaskHelper(t, "task-wire-shape", ecstypes.ContainerDefinition{
 		StopTimeout: aws.Int32(2),
 		Name:        aws.String("main"),
 		Image:       aws.String("mirror.gcr.io/library/alpine:latest"),
-		Command:     []string{"sleep", "30"}, // long-running so RUNNING window is real
+		Command:     []string{"sleep", "30"}, // long enough for a real RUNNING window
 	})
 	waitForECSTaskStatus(t, client, clusterName, taskArn, "RUNNING")
 
-	// SDK view: networking rides the ElasticNetworkInterface attachment.
 	desc, err := client.DescribeTasks(ctx, &ecs.DescribeTasksInput{
 		Cluster: aws.String(clusterName),
 		Tasks:   []string{taskArn},
@@ -48,7 +45,6 @@ func TestECS_TaskWireShapeOmitsNetworkConfiguration(t *testing.T) {
 	}
 	assert.NotEmpty(t, details["subnetId"], "ENI attachment must carry the subnet")
 
-	// Wire view: the task object has no networkConfiguration member.
 	rawReq, err := json.Marshal(map[string]any{
 		"cluster": clusterName,
 		"tasks":   []string{taskArn},

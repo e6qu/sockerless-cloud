@@ -11,10 +11,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestKinesisSDK_ChannelLifecycle covers the delivery channel family: a
-// channel over a real stream and a real service execution role, its
-// description, an update of what an update may change, the listing and its
-// stream filter, and the delete.
+// TestKinesisSDK_ChannelLifecycle covers a delivery channel over a real stream
+// and service execution role: its description, an update of what may change,
+// the listing and its stream filter, and the delete.
 func TestKinesisSDK_ChannelLifecycle(t *testing.T) {
 	t.Parallel()
 	kc := kinesisClient()
@@ -73,7 +72,6 @@ func TestKinesisSDK_ChannelLifecycle(t *testing.T) {
 		_, _ = kc.DeleteChannel(ctx, &kinesis.DeleteChannelInput{ChannelARN: aws.String(channelARN)})
 	})
 
-	// A channel over a stream that does not exist has nothing to deliver.
 	_, err = kc.CreateChannel(ctx, &kinesis.CreateChannelInput{
 		ChannelName:             aws.String("channel-no-stream"),
 		ServiceExecutionRoleARN: role.Role.Arn,
@@ -104,8 +102,8 @@ func TestKinesisSDK_ChannelLifecycle(t *testing.T) {
 	assert.Equal(t, int32(60),
 		aws.ToInt32(updated.ChannelDescription.S3DestinationConfiguration.DataFreshnessInSeconds))
 
-	// An update naming the destination this channel does not deliver to is
-	// asking to change something that is not there.
+	// An update naming a destination this channel does not deliver to changes
+	// nothing that exists.
 	_, err = kc.UpdateChannel(ctx, &kinesis.UpdateChannelInput{
 		ChannelARN: aws.String(channelARN),
 		S3TablesDestinationConfiguration: &kinesistypes.S3TablesDestinationUpdateInput{
@@ -120,7 +118,6 @@ func TestKinesisSDK_ChannelLifecycle(t *testing.T) {
 		listed.ChannelSummaries[0].ChannelDestinationType)
 	require.Len(t, listed.ChannelSummaries[0].Streams, 1)
 
-	// The filter selects on the streams a channel reads.
 	filtered, err := kc.ListChannels(ctx, &kinesis.ListChannelsInput{
 		StreamFilter: []kinesistypes.StreamFilter{{
 			StreamARN: aws.String("arn:aws:kinesis:us-east-1:123456789012:stream/some-other-stream")}},

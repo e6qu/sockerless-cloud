@@ -13,13 +13,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// launchInstanceFor runs a single instance in a fresh VPC+subnet and returns
-// its instance ID, for the instance-attribute ops to operate on.
+// launchInstanceFor runs one instance in a fresh VPC and subnet and returns
+// its ID.
 func launchInstanceFor(t *testing.T, c *ec2.Client, cidr string) string {
 	t.Helper()
 	vpc, err := c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String(cidr)})
 	require.NoError(t, err)
-	// Derive a /24 inside the VPC's /16: 10.x.0.0/16 -> 10.x.1.0/24.
+	// The subnet is the second /24 of the VPC's /16.
 	octets := strings.SplitN(cidr, ".", 3)
 	subnetCidr := octets[0] + "." + octets[1] + ".1.0/24"
 	subnet := createSubnetFor(t, c, vpc.Vpc.VpcId, subnetCidr)
@@ -33,10 +33,9 @@ func launchInstanceFor(t *testing.T, c *ec2.Client, cidr string) string {
 	return aws.ToString(run.Instances[0].InstanceId)
 }
 
-// TestEC2_IamInstanceProfileAssociation covers the IAM instance-profile
-// association lifecycle: Associate over a running instance (state associated,
-// iip-assoc ID, bound ARN), Describe read-back + instance-id filter, Replace
-// (swaps the bound profile, same association ID flow), and Disassociate.
+// TestEC2_IamInstanceProfileAssociation expects an association over a running
+// instance to report associated with an iip-assoc ID and the bound ARN, the
+// instance-id filter to find it, and Replace to swap the bound profile.
 func TestEC2_IamInstanceProfileAssociation(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -91,15 +90,13 @@ func TestEC2_IamInstanceProfileAssociation(t *testing.T) {
 	}
 }
 
-// TestEC2_InstanceCreditSpecification covers the burstable-performance credit
-// option: Modify to unlimited and read it back via Describe (defaulting to
-// standard for an unset instance), plus the CPU-options modification.
+// TestEC2_InstanceCreditSpecification covers the burstable credit option,
+// standard until modified, and the CPU options modification.
 func TestEC2_InstanceCreditSpecification(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
 	instID := launchInstanceFor(t, c, "10.191.0.0/16")
 
-	// Default before any modification is standard.
 	pre, err := c.DescribeInstanceCreditSpecifications(ctx, &ec2.DescribeInstanceCreditSpecificationsInput{
 		InstanceIds: []string{instID},
 	})
@@ -124,8 +121,6 @@ func TestEC2_InstanceCreditSpecification(t *testing.T) {
 	assert.Equal(t, "unlimited", aws.ToString(post.InstanceCreditSpecifications[0].CpuCredits))
 }
 
-// TestEC2_InstanceCpuOptions covers ModifyInstanceCpuOptions: the core/thread
-// counts are echoed back after the update.
 func TestEC2_InstanceCpuOptions(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -142,8 +137,6 @@ func TestEC2_InstanceCpuOptions(t *testing.T) {
 	assert.Equal(t, int32(1), aws.ToInt32(out.ThreadsPerCore))
 }
 
-// TestEC2_InstancePlacement covers the placement / maintenance / network-
-// performance / event-start-time modifications over a running instance.
 func TestEC2_InstancePlacement(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -191,14 +184,13 @@ func TestEC2_InstancePlacement(t *testing.T) {
 	assert.Equal(t, "instance-event-0abcd1234", aws.ToString(ev.Event.InstanceEventId))
 }
 
-// TestEC2_ConsoleOutput covers the console / TPM / UEFI reads, plus the
-// password-data and instance-topology reads — every value is base64-shaped or
-// id-bound and deterministic for the instance.
+// TestEC2_ConsoleOutput covers the console, TPM, UEFI, password-data and
+// instance-topology reads.
 func TestEC2_ConsoleOutput(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
-	// The console carries what the machine writes to it, so the instance's
-	// user data writes a line.
+	// The console carries what the machine writes, so the user data writes a
+	// line.
 	instID := ec2UserDataInstance(t, c, "10.194.0.0/16", "#!/bin/sh\necho console-ready\n")
 
 	con, err := c.GetConsoleOutput(ctx, &ec2.GetConsoleOutputInput{InstanceId: aws.String(instID)})
@@ -229,8 +221,7 @@ func TestEC2_ConsoleOutput(t *testing.T) {
 	assert.NotEmpty(t, aws.ToString(uefi.UefiData))
 }
 
-// TestEC2_PasswordData covers GetPasswordData (a Linux-derived instance has no
-// Windows password, so the data is empty but the call is faithful).
+// TestEC2_PasswordData expects empty password data for a Linux instance.
 func TestEC2_PasswordData(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -241,8 +232,6 @@ func TestEC2_PasswordData(t *testing.T) {
 	assert.Equal(t, instID, aws.ToString(pw.InstanceId))
 }
 
-// TestEC2_InstanceTopology covers DescribeInstanceTopology + the
-// DescribeInstanceImageMetadata read.
 func TestEC2_InstanceTopology(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -272,8 +261,6 @@ func TestEC2_InstanceTopology(t *testing.T) {
 	assert.Equal(t, ec2AmazonLinuxAMI(t), aws.ToString(meta.InstanceImageMetadata[0].ImageMetadata.ImageId))
 }
 
-// TestEC2_BundleInstance covers BundleInstance + ConfirmProductInstance + the
-// ImportInstance conversion task, each a real-shaped task/result record.
 func TestEC2_BundleInstance(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -306,7 +293,6 @@ func TestEC2_BundleInstance(t *testing.T) {
 	assert.NotEmpty(t, aws.ToString(imp.ConversionTask.ConversionTaskId))
 }
 
-// TestEC2_InstanceExportTask covers CreateInstanceExportTask.
 func TestEC2_InstanceExportTask(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -328,9 +314,8 @@ func TestEC2_InstanceExportTask(t *testing.T) {
 	assert.Equal(t, instID, aws.ToString(exp.ExportTask.InstanceExportDetails.InstanceId))
 }
 
-// TestEC2_InstanceSqlHa covers the SQL Server High Availability states: enable
-// standby detection over a running instance, read the per-instance state back
-// (DescribeInstanceSqlHaStates + history), then disable.
+// TestEC2_InstanceSqlHa enables SQL Server High Availability standby detection
+// on a running instance, reads its state and history, and disables it.
 func TestEC2_InstanceSqlHa(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -363,9 +348,8 @@ func TestEC2_InstanceSqlHa(t *testing.T) {
 	require.NotEmpty(t, dis.Instances)
 }
 
-// TestEC2_InstanceTypesFromRequirements covers
-// GetInstanceTypesFromInstanceRequirements: the matcher returns instance types
-// from the catalog satisfying the vCPU/memory/architecture constraints.
+// TestEC2_InstanceTypesFromRequirements expects the catalog's types that meet
+// the vCPU, memory and architecture constraints.
 func TestEC2_InstanceTypesFromRequirements(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()

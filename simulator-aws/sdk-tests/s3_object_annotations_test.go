@@ -14,10 +14,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestS3_ObjectAnnotations covers the object `?annotation` subresource:
-// PutObjectAnnotation stores a named payload, GetObjectAnnotation streams it
-// back, ListObjectAnnotations enumerates and prefix-filters them, and
-// DeleteObjectAnnotation removes one.
 func TestS3_ObjectAnnotations(t *testing.T) {
 	t.Parallel()
 	client := s3Client()
@@ -106,7 +102,6 @@ func TestS3_ObjectAnnotations(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, listed.Annotations, 2)
 
-	// Reading an annotation that is not there fails loudly.
 	_, err = client.GetObjectAnnotation(ctx, &s3.GetObjectAnnotationInput{
 		Bucket:         aws.String(bucket),
 		Key:            aws.String(key),
@@ -131,9 +126,8 @@ func TestS3_ObjectAnnotations(t *testing.T) {
 	require.Empty(t, listed.Annotations)
 }
 
-// TestS3_UpdateBucketMetadataAnnotationTableConfiguration covers the
-// bucket-level `?metadataAnnotationTable` operation: the annotation table can be
-// turned on for a bucket with an S3 Metadata configuration, and the state is
+// TestS3_UpdateBucketMetadataAnnotationTableConfiguration expects the
+// annotation table to turn on for a bucket with an S3 Metadata configuration,
 // read back from GetBucketMetadataConfiguration.
 func TestS3_UpdateBucketMetadataAnnotationTableConfiguration(t *testing.T) {
 	t.Parallel()

@@ -12,9 +12,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestAPIGatewayV2_PortalsSDK exercises the developer-portal surface:
-// CreatePortal, GetPortal, ListPortals, UpdatePortal, PublishPortal,
-// PreviewPortal, DisablePortal, DeletePortal.
 func TestAPIGatewayV2_PortalsSDK(t *testing.T) {
 	t.Parallel()
 	c := apigwv2Client()
@@ -87,11 +84,6 @@ func TestAPIGatewayV2_PortalsSDK(t *testing.T) {
 	require.Error(t, err, "deleted portal must 404")
 }
 
-// TestAPIGatewayV2_PortalProductsSDK exercises the portal-product surface plus
-// the product sharing policy: CreatePortalProduct, GetPortalProduct,
-// ListPortalProducts, UpdatePortalProduct, PutPortalProductSharingPolicy,
-// GetPortalProductSharingPolicy, DeletePortalProductSharingPolicy,
-// DeletePortalProduct.
 func TestAPIGatewayV2_PortalProductsSDK(t *testing.T) {
 	t.Parallel()
 	c := apigwv2Client()
@@ -152,9 +144,6 @@ func TestAPIGatewayV2_PortalProductsSDK(t *testing.T) {
 	require.Error(t, err, "deleted portal product must 404")
 }
 
-// TestAPIGatewayV2_ProductPagesSDK exercises product pages and product
-// REST-endpoint pages: Create/Get/List/Update/Delete ProductPage +
-// Create/Get/List/Update/Delete ProductRestEndpointPage.
 func TestAPIGatewayV2_ProductPagesSDK(t *testing.T) {
 	t.Parallel()
 	c := apigwv2Client()
@@ -167,7 +156,6 @@ func TestAPIGatewayV2_ProductPagesSDK(t *testing.T) {
 		_, _ = c.DeletePortalProduct(ctx, &apigatewayv2.DeletePortalProductInput{PortalProductId: aws.String(productID)})
 	})
 
-	// Product page round-trip.
 	page, err := c.CreateProductPage(ctx, &apigatewayv2.CreateProductPageInput{
 		PortalProductId: aws.String(productID),
 		DisplayContent: &apigwv2types.DisplayContent{
@@ -212,7 +200,6 @@ func TestAPIGatewayV2_ProductPagesSDK(t *testing.T) {
 	})
 	require.Error(t, err, "deleted product page must 404")
 
-	// Product REST-endpoint page round-trip.
 	rep, err := c.CreateProductRestEndpointPage(ctx, &apigatewayv2.CreateProductRestEndpointPageInput{
 		PortalProductId: aws.String(productID),
 		RestEndpointIdentifier: &apigwv2types.RestEndpointIdentifier{
@@ -264,9 +251,6 @@ func TestAPIGatewayV2_ProductPagesSDK(t *testing.T) {
 	require.Error(t, err, "deleted REST-endpoint page must 404")
 }
 
-// TestAPIGatewayV2_RoutingRulesSDK exercises routing rules under a domain name:
-// CreateRoutingRule, GetRoutingRule, ListRoutingRules, PutRoutingRule,
-// DeleteRoutingRule.
 func TestAPIGatewayV2_RoutingRulesSDK(t *testing.T) {
 	t.Parallel()
 	c := apigwv2Client()
@@ -335,8 +319,6 @@ func TestAPIGatewayV2_RoutingRulesSDK(t *testing.T) {
 	require.Error(t, err, "deleted routing rule must 404")
 }
 
-// TestAPIGatewayV2_ApiUpdatesSDK exercises UpdateApi, UpdateApiMapping, and
-// ResetAuthorizersCache against the existing api / api-mapping / stage stores.
 func TestAPIGatewayV2_ApiUpdatesSDK(t *testing.T) {
 	t.Parallel()
 	c := apigwv2Client()
@@ -367,7 +349,6 @@ func TestAPIGatewayV2_ApiUpdatesSDK(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// UpdateApiMapping against a domain name.
 	dn := fmt.Sprintf("map-%d.example.com", time.Now().UnixNano())
 	_, err = c.CreateDomainName(ctx, &apigatewayv2.CreateDomainNameInput{DomainName: aws.String(dn)})
 	require.NoError(t, err)

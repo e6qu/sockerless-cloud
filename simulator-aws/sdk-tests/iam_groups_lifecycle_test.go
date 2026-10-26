@@ -11,10 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestIAM_GroupLifecycle exercises the full IAM group surface plus ListUsers and
-// the permission-boundary delete: CreateGroup/GetGroup/ListGroups,
-// AddUserToGroup/RemoveUserFromGroup/ListGroupsForUser, the group inline +
-// attached policy ops, and DeleteGroup.
 func TestIAM_GroupLifecycle(t *testing.T) {
 	t.Parallel()
 	managedPolicy := uniquename.New("g-managed")
@@ -80,7 +76,6 @@ func TestIAM_GroupLifecycle(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestIAM_PermissionBoundaryPutDelete covers Put/DeleteUserPermissionsBoundary.
 func TestIAM_PermissionBoundaryPutDelete(t *testing.T) {
 	t.Parallel()
 	boundaryPolicy := uniquename.New("pb-policy")
@@ -103,9 +98,9 @@ func TestIAM_PermissionBoundaryPutDelete(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestSTS_GetSessionToken covers the permission-less GetSessionToken call.
-// AssumeRoleWithWebIdentity, which now verifies the web identity token against
-// a registered OpenID Connect provider, is covered in sts_webidentity_test.go.
+// TestSTS_GetSessionToken covers GetSessionToken; sts_webidentity_test.go
+// covers AssumeRoleWithWebIdentity against a registered OpenID Connect
+// provider.
 func TestSTS_GetSessionToken(t *testing.T) {
 	t.Parallel()
 	stsc := sts.NewFromConfig(sdkConfig(), func(o *sts.Options) { o.BaseEndpoint = aws.String(baseURL) })

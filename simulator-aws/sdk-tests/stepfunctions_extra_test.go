@@ -15,8 +15,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestSFN_LambdaTaskHistory_SDK verifies the real direct-Lambda integration
-// lifecycle, including the service events that surround the Task state.
+// TestSFN_LambdaTaskHistory_SDK expects the direct AWS Lambda integration's
+// history, with the service events around the Task state.
 func TestSFN_LambdaTaskHistory_SDK(t *testing.T) {
 	t.Parallel()
 	lambdaAPI := lambdaClient()
@@ -114,10 +114,9 @@ func TestSFN_LambdaTaskHistory_SDK(t *testing.T) {
 	assert.False(t, withoutData.Events[6].ExecutionSucceededEventDetails.OutputDetails.Truncated)
 }
 
-// TestSFN_NestedWorkflowIntegration_SDK executes the optimized
-// states:startExecution.sync:2 integration against a second real state
-// machine and verifies both the parent result and the independently
-// discoverable child execution.
+// TestSFN_NestedWorkflowIntegration_SDK runs states:startExecution.sync:2
+// against a second state machine and expects the parent's result and the
+// child execution, discoverable on its own.
 func TestSFN_NestedWorkflowIntegration_SDK(t *testing.T) {
 	t.Parallel()
 	parentName := uniquename.New("sfn-sdk-nested-parent")
@@ -158,9 +157,6 @@ func TestSFN_NestedWorkflowIntegration_SDK(t *testing.T) {
 	assert.Equal(t, sfntypes.ExecutionStatusSucceeded, children.Executions[0].Status)
 }
 
-// TestSFN_Activities_SDK covers CreateActivity / DescribeActivity /
-// ListActivities / DeleteActivity and the GetActivityTask + SendTask*
-// task-token lifecycle.
 func TestSFN_Activities_SDK(t *testing.T) {
 	t.Parallel()
 	c := sfnClient()
@@ -255,10 +251,6 @@ func TestSFN_Activities_SDK(t *testing.T) {
 	}, 10e9, 1e8)
 }
 
-// TestSFN_VersionsAndAliases_SDK covers PublishStateMachineVersion,
-// CreateStateMachineAlias, DescribeStateMachineAlias,
-// ListStateMachineAliases, UpdateStateMachineAlias,
-// DeleteStateMachineAlias, DeleteStateMachineVersion.
 func TestSFN_VersionsAndAliases_SDK(t *testing.T) {
 	t.Parallel()
 	c := sfnClient()
@@ -339,8 +331,7 @@ func TestSFN_VersionsAndAliases_SDK(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestSFN_TestState_SDK runs a single Pass state synchronously and asserts the
-// real evaluated output.
+// TestSFN_TestState_SDK runs one Pass state and expects its evaluated output.
 func TestSFN_TestState_SDK(t *testing.T) {
 	t.Parallel()
 	c := sfnClient()
@@ -355,8 +346,8 @@ func TestSFN_TestState_SDK(t *testing.T) {
 	assert.JSONEq(t, `{"hello":"world"}`, aws.ToString(out.Output))
 }
 
-// TestSFN_StartSyncExecution_SDK runs a whole EXPRESS-shaped state machine
-// synchronously and returns the terminal result inline.
+// TestSFN_StartSyncExecution_SDK runs an EXPRESS state machine synchronously
+// and expects the result inline.
 func TestSFN_StartSyncExecution_SDK(t *testing.T) {
 	t.Parallel()
 	c := sfnClient()
@@ -372,9 +363,8 @@ func TestSFN_StartSyncExecution_SDK(t *testing.T) {
 		_, _ = c.DeleteStateMachine(ctx, &sfn.DeleteStateMachineInput{StateMachineArn: sm.StateMachineArn})
 	})
 
-	// StartSyncExecution carries the modeled `sync-` endpoint host prefix, so
-	// the request the SDK signs and sends addresses sync-states.<endpoint> —
-	// the same host shape real AWS serves it on.
+	// StartSyncExecution carries the modeled sync- host prefix, so the SDK sends
+	// it to sync-states.<endpoint>, the host AWS serves it on.
 	var sent capturedRequest
 	out, err := c.StartSyncExecution(ctx, &sfn.StartSyncExecutionInput{
 		StateMachineArn: sm.StateMachineArn,
@@ -390,7 +380,8 @@ func TestSFN_StartSyncExecution_SDK(t *testing.T) {
 	assert.Contains(t, sent.signedHeaders(), "host")
 }
 
-// TestSFN_DescribeStateMachineForExecution_SDK + RedriveExecution.
+// TestSFN_DescribeForExecutionAndRedrive_SDK covers
+// DescribeStateMachineForExecution and RedriveExecution.
 func TestSFN_DescribeForExecutionAndRedrive_SDK(t *testing.T) {
 	t.Parallel()
 	c := sfnClient()
@@ -424,7 +415,6 @@ func TestSFN_DescribeForExecutionAndRedrive_SDK(t *testing.T) {
 	assert.Equal(t, "sfn-sdk-redrive-sm", aws.ToString(dfe.Name))
 	assert.Contains(t, aws.ToString(dfe.Definition), "Fail")
 
-	// Wait until the execution reaches a terminal FAILED state, then redrive.
 	require.Eventually(t, func() bool {
 		d, err := c.DescribeExecution(ctx, &sfn.DescribeExecutionInput{ExecutionArn: start.ExecutionArn})
 		return err == nil && d.Status == sfntypes.ExecutionStatusFailed
@@ -464,9 +454,8 @@ func TestSFN_DescribeForExecutionAndRedrive_SDK(t *testing.T) {
 	assert.Equal(t, 1, completedStateEntries, "redrive must resume at the failed state")
 }
 
-// TestSFN_MapRuns_SDK launches a real Distributed Map and exercises its
-// ListMapRuns, DescribeMapRun, and UpdateMapRun control plane while its child
-// workflows are running.
+// TestSFN_MapRuns_SDK launches a Distributed Map and covers ListMapRuns,
+// DescribeMapRun and UpdateMapRun while its child workflows run.
 func TestSFN_MapRuns_SDK(t *testing.T) {
 	t.Parallel()
 	c := sfnClient()

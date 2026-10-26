@@ -13,11 +13,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestCloudWatch_DatasetKmsKey covers the metrics-dataset KMS lifecycle on the
-// default dataset, the one CloudWatch supports: GetDataset reads it without its
-// having been created, AssociateDatasetKmsKey sets the CMK, GetDataset reads it
-// back, and DisassociateDatasetKmsKey clears it. Any other dataset does not
-// exist.
+// TestCloudWatch_DatasetKmsKey covers the KMS lifecycle of the default metrics
+// dataset, the only one CloudWatch supports: GetDataset reads it uncreated,
+// AssociateDatasetKmsKey sets the CMK and DisassociateDatasetKmsKey clears it.
+// No other dataset exists.
 func TestCloudWatch_DatasetKmsKey(t *testing.T) {
 	t.Parallel()
 	client := cloudwatchClient()
@@ -55,9 +54,6 @@ func TestCloudWatch_DatasetKmsKey(t *testing.T) {
 	assert.Empty(t, aws.ToString(got.KmsKeyArn), "key cleared after disassociate")
 }
 
-// TestCloudWatch_OTelEnrichment covers the account-level OpenTelemetry
-// enrichment state: Start flips the status to Running, Stop flips it to Stopped,
-// and Get reads the current value.
 func TestCloudWatch_OTelEnrichment(t *testing.T) {
 	t.Parallel()
 	client := cloudwatchClient()
@@ -75,9 +71,6 @@ func TestCloudWatch_OTelEnrichment(t *testing.T) {
 	assert.Equal(t, cwtypes.OTelEnrichmentStatusStopped, got.Status)
 }
 
-// TestCloudWatch_ManagedInsightRules covers PutManagedInsightRules creating a
-// managed rule over a resource ARN and ListManagedInsightRules reading it back
-// with its template name and rule state.
 func TestCloudWatch_ManagedInsightRules(t *testing.T) {
 	t.Parallel()
 	client := cloudwatchClient()
@@ -105,10 +98,9 @@ func TestCloudWatch_ManagedInsightRules(t *testing.T) {
 	assert.Equal(t, "ENABLED", aws.ToString(out.ManagedRules[0].RuleState.State))
 }
 
-// TestCloudWatch_InsightRuleReport covers GetInsightRuleReport over an existing
-// insight rule: the report has the real shape with honestly-empty contributors
-// and per-period metric datapoints with zero counts (no contributor data is
-// ingested by the sim).
+// TestCloudWatch_InsightRuleReport expects the real report shape with no
+// contributors and zero-count datapoints per period, since nothing feeds
+// contributor data.
 func TestCloudWatch_InsightRuleReport(t *testing.T) {
 	t.Parallel()
 	client := cloudwatchClient()
@@ -138,7 +130,6 @@ func TestCloudWatch_InsightRuleReport(t *testing.T) {
 	assert.Equal(t, int64(0), aws.ToInt64(rep.ApproximateUniqueCount))
 	require.Len(t, rep.MetricDatapoints, 5, "one datapoint per minute over the 5-minute window")
 
-	// An unknown rule is a real not-found error, not an empty report.
 	_, err = client.GetInsightRuleReport(ctx, &cloudwatch.GetInsightRuleReportInput{
 		RuleName:  aws.String("does-not-exist-rule"),
 		StartTime: aws.Time(start),
@@ -148,9 +139,8 @@ func TestCloudWatch_InsightRuleReport(t *testing.T) {
 	require.Error(t, err)
 }
 
-// TestCloudWatch_AlarmContributors covers DescribeAlarmContributors over an
-// existing alarm: the contributor list is honestly empty for a single-metric
-// alarm, and an unknown alarm is a not-found error.
+// TestCloudWatch_AlarmContributors expects an empty contributor list for a
+// single-metric alarm, and not-found for an unknown alarm.
 func TestCloudWatch_AlarmContributors(t *testing.T) {
 	t.Parallel()
 	client := cloudwatchClient()
@@ -180,8 +170,8 @@ func TestCloudWatch_AlarmContributors(t *testing.T) {
 	requireAWSErrorCode(t, err, "ResourceNotFound")
 }
 
-// TestCloudWatch_MetricWidgetImage verifies GetMetricWidgetImage returns real,
-// decodable PNG bytes sized from the widget definition's width/height.
+// TestCloudWatch_MetricWidgetImage expects decodable PNG bytes sized from the
+// widget definition's width and height.
 func TestCloudWatch_MetricWidgetImage(t *testing.T) {
 	t.Parallel()
 	client := cloudwatchClient()
@@ -198,7 +188,6 @@ func TestCloudWatch_MetricWidgetImage(t *testing.T) {
 	assert.Equal(t, 300, img.Bounds().Dx(), "image width matches the widget")
 	assert.Equal(t, 200, img.Bounds().Dy(), "image height matches the widget")
 
-	// A malformed widget JSON is rejected, not silently rendered.
 	_, err = client.GetMetricWidgetImage(ctx, &cloudwatch.GetMetricWidgetImageInput{
 		MetricWidget: aws.String("{not json"),
 	})

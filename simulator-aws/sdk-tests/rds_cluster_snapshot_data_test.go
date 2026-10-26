@@ -34,8 +34,6 @@ func waitForRDSClusterAvailable(t *testing.T, c *rds.Client, ctx context.Context
 		"DB cluster %s must become available", clusterID)
 }
 
-// auroraSnapshotClient reads and writes one Aurora cluster through its
-// cluster endpoint with a stock driver.
 type auroraSnapshotClient interface {
 	exec(t *testing.T, statement string)
 	entries(t *testing.T) []string
@@ -93,13 +91,11 @@ func (a auroraMySQL) entries(t *testing.T) []string {
 	return entries
 }
 
-// An Aurora DB cluster snapshot carries the cluster volume's data, and every
-// cluster restore returns to the data its source held: a restore from a
-// snapshot (here, from a copy of it) has the rows written before the snapshot
-// and none written after; a point-in-time restore to the latest restorable
-// time has every committed row; and the final snapshot DeleteDBCluster takes
-// restores the cluster as it was deleted. Each restored cluster serves its
-// data under the source's master credential through a stock driver.
+// An Aurora DB cluster snapshot carries the cluster volume's data: a restore
+// from a copy of a snapshot holds the rows written before it and none after, a
+// point-in-time restore to the latest restorable time holds every committed
+// row, and DeleteDBCluster's final snapshot restores the cluster as deleted.
+// Each restored cluster serves its data under the source's master credential.
 func TestRDS_AuroraClusterSnapshotsCaptureAndRestoreTheClusterVolume(t *testing.T) {
 	t.Parallel()
 	const (

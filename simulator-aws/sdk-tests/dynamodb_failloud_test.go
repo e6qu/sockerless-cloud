@@ -12,12 +12,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestDynamoDB_ExpressionsFailLoud is lever 2 of the #652 "silent
-// incompleteness" prevention work, observed through the official SDK: a
-// malformed expression — or one referencing an undefined #name / :value — must
-// raise a ValidationException, not silently return a plausible-wrong empty
-// result set or flip a condition. The string-munging-evaluator class of
-// consumer bugs (#629 / #643 / #648) all stemmed from the opposite posture.
+// TestDynamoDB_ExpressionsFailLoud expects a malformed expression, or one naming
+// an undefined #name or :value, to raise ValidationException rather than return
+// a plausible empty result or flip a condition.
 func TestDynamoDB_ExpressionsFailLoud(t *testing.T) {
 	t.Parallel()
 	c := ddbClient()
@@ -50,7 +47,7 @@ func TestDynamoDB_ExpressionsFailLoud(t *testing.T) {
 		assert.Equal(t, "ValidationException", ae.ErrorCode())
 	}
 
-	// Malformed KeyConditionExpression (dangling comparator).
+	// The KeyConditionExpression ends in a dangling comparator.
 	_, err = c.Query(ctx, &dynamodb.QueryInput{
 		TableName:              aws.String(table),
 		KeyConditionExpression: aws.String("PK ="),
@@ -60,15 +57,13 @@ func TestDynamoDB_ExpressionsFailLoud(t *testing.T) {
 	})
 	isValidation(t, err)
 
-	// FilterExpression referencing an undefined :value — would otherwise have
-	// silently matched nothing (Count: 0) and read as "no data".
+	// An undefined :value would otherwise match nothing and read as "no data".
 	_, err = c.Scan(ctx, &dynamodb.ScanInput{
 		TableName:        aws.String(table),
 		FilterExpression: aws.String("PK = :missing"),
 	})
 	isValidation(t, err)
 
-	// FilterExpression referencing an undefined #name alias.
 	_, err = c.Scan(ctx, &dynamodb.ScanInput{
 		TableName:        aws.String(table),
 		FilterExpression: aws.String("#undef = :v"),
@@ -78,7 +73,6 @@ func TestDynamoDB_ExpressionsFailLoud(t *testing.T) {
 	})
 	isValidation(t, err)
 
-	// Malformed ConditionExpression on a write.
 	_, err = c.PutItem(ctx, &dynamodb.PutItemInput{
 		TableName:           aws.String(table),
 		Item:                map[string]ddbtypes.AttributeValue{"PK": &ddbtypes.AttributeValueMemberS{Value: "row2"}},
@@ -86,8 +80,8 @@ func TestDynamoDB_ExpressionsFailLoud(t *testing.T) {
 	})
 	isValidation(t, err)
 
-	// A well-formed FilterExpression whose defined references simply don't match
-	// is NOT an error — it returns zero items cleanly.
+	// A well-formed FilterExpression that matches nothing returns zero items
+	// without error.
 	scan, err := c.Scan(ctx, &dynamodb.ScanInput{
 		TableName:        aws.String(table),
 		FilterExpression: aws.String("PK = :v"),

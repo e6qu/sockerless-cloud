@@ -11,10 +11,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestCWLogs_ReadOpsRejectMissingGroup covers the group-existence contract for
-// the log-reading ops: FilterLogEvents / DescribeLogStreams / GetLogEvents must
-// return ResourceNotFoundException (a declared error for each) when the group
-// does not exist, not an empty result that masks misconfiguration.
+// TestCWLogs_ReadOpsRejectMissingGroup expects FilterLogEvents,
+// DescribeLogStreams and GetLogEvents to answer a missing group with their
+// declared ResourceNotFoundException, not an empty result.
 func TestCWLogs_ReadOpsRejectMissingGroup(t *testing.T) {
 	t.Parallel()
 	c := cwLogsClient()
@@ -40,8 +39,8 @@ func TestCWLogs_ReadOpsRejectMissingGroup(t *testing.T) {
 	})
 	assertRNFE("GetLogEvents", err)
 
-	// Positive: an existing but empty group returns empty results, not an error
-	// (the contract the consumer relies on to distinguish empty from absent).
+	// An existing empty group returns empty results, which lets a consumer tell
+	// empty from absent.
 	const groupName = "/rnfe/exists"
 	_, err = c.CreateLogGroup(ctx, &cloudwatchlogs.CreateLogGroupInput{LogGroupName: aws.String(groupName)})
 	require.NoError(t, err)

@@ -15,8 +15,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// createVMImportRole creates the service role VM Import/Export assumes to
-// read disk images from the bucket.
 func createVMImportRole(t *testing.T, name, bucket string) {
 	t.Helper()
 	iamc := iamClient()
@@ -36,9 +34,9 @@ func createVMImportRole(t *testing.T, name, bucket string) {
 	require.NoError(t, err)
 }
 
-// TestEC2_ImportSnapshotReadsTheDiskImage imports a RAW disk image from
-// Amazon S3: the task completes behind the call, the SDK's SnapshotImported
-// waiter observes it, and the snapshot is sized from the image.
+// TestEC2_ImportSnapshotReadsTheDiskImage imports a RAW disk image from Amazon
+// S3: the task completes in the background, the SDK's SnapshotImported waiter
+// sees it, and the snapshot takes the image's size.
 func TestEC2_ImportSnapshotReadsTheDiskImage(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -99,8 +97,8 @@ func TestEC2_ImportSnapshotReadsTheDiskImage(t *testing.T) {
 }
 
 // TestEC2_ImportSnapshotRejectsAnImageNotInItsFormat declares raw bytes a VMDK:
-// the task fails with the disk validation error, which the SDK's
-// SnapshotImported waiter reports as its failure state.
+// the task fails disk validation, which the SnapshotImported waiter reports as
+// its failure state.
 func TestEC2_ImportSnapshotRejectsAnImageNotInItsFormat(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()

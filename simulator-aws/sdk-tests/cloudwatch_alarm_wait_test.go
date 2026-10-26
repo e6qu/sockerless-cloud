@@ -15,34 +15,27 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Waiting on a condition, not on a clock. The alarm tests used to sleep a
-// fixed two or three seconds at each step; a fixed wait is wrong in both
-// directions — it costs its full length on every run, and on a loaded machine
-// it can still elapse before the thing it waits for has happened, which is a
-// flake that looks like a delivery bug. Each helper below waits for the state
-// the test actually depends on and returns the moment it holds.
+// These helpers wait for the state a test depends on and return as soon as it
+// holds: a fixed sleep costs its whole length every run and can still end
+// early on a loaded machine.
 
-// cloudWatchProbeID hands each alarm probe a namespace and alarm name nothing
-// else uses, so metric data left behind by one cannot stand in for another's.
+// cloudWatchProbeID gives each alarm probe its own namespace and alarm name, so
+// one probe's leftover metric data cannot stand in for another's.
 var cloudWatchProbeID atomic.Int64
 
 func nextCloudWatchProbeID() int64 { return cloudWatchProbeID.Add(1) }
 
 const (
-	// How long a condition is given to become true before the test calls it a
-	// failure. Generous, because it is only ever paid when something is
-	// genuinely broken.
+	// alarmWaitTimeout is paid only when something is broken.
 	alarmWaitTimeout = 30 * time.Second
 	alarmWaitPoll    = 25 * time.Millisecond
-	// How long a queue is watched to confirm nothing arrives. A negative
-	// observation has to spend its window, but it ends early — and loudly — the
-	// moment a message shows up.
+	// alarmQuietWindow is how long a queue is watched for an unwanted message; the
+	// watch fails as soon as one arrives.
 	alarmQuietWindow = 2 * time.Second
 )
 
-// awaitSubscription waits until a topic reports the subscription just made, so
-// the alarm that follows is created against a topic the evaluator can already
-// see delivering.
+// awaitSubscription waits until a topic lists the subscription, so the alarm
+// that follows targets a topic that can deliver.
 func awaitSubscription(ctx context.Context, t *testing.T, snsC *sns.Client, topicARN, endpoint string) {
 	t.Helper()
 	require.Eventually(t, func() bool {
@@ -61,8 +54,6 @@ func awaitSubscription(ctx context.Context, t *testing.T, snsC *sns.Client, topi
 	}, alarmWaitTimeout, alarmWaitPoll, "the topic never reported its subscription to %s", endpoint)
 }
 
-// awaitAlarmState waits with CloudWatch's AlarmExists waiter on DescribeAlarms
-// filtered to the wanted state, and returns the alarm once it is in it.
 func awaitAlarmState(ctx context.Context, t *testing.T, cw *cloudwatch.Client, alarmName string, want cwtypes.StateValue, why string) cwtypes.MetricAlarm {
 	t.Helper()
 	out, err := cloudwatch.NewAlarmExistsWaiter(cw, func(o *cloudwatch.AlarmExistsWaiterOptions) {
@@ -77,8 +68,6 @@ func awaitAlarmState(ctx context.Context, t *testing.T, cw *cloudwatch.Client, a
 	return out.MetricAlarms[0]
 }
 
-// awaitQueueMessages waits for a queue to hold the messages an alarm action
-// delivers, and hands them to the assertions that read them.
 func awaitQueueMessages(ctx context.Context, t *testing.T, sqsC *sqs.Client, queueURL *string, want int) *sqs.ReceiveMessageOutput {
 	t.Helper()
 	received := &sqs.ReceiveMessageOutput{}
@@ -97,14 +86,10 @@ func awaitQueueMessages(ctx context.Context, t *testing.T, sqsC *sqs.Client, que
 }
 
 // awaitRecordedTransition waits until the alarm's history shows CloudWatch
-// having moved it into the wanted state.
-//
-// DescribeAlarms reports the state derived from the metric data, which is the
-// answer as soon as the data is there; the transition — and the action dispatch
-// that rides it — is the service's own, and the history is where a client can
-// see it has happened. A test that puts its next datapoint before the previous
-// transition is recorded gets a notification for a transition that skipped a
-// state, which looks like a dispatch bug and is not one.
+// moved it into want. DescribeAlarms derives state from the metric data at
+// once, while the transition and its action dispatch are the service's own and
+// show in the history; a datapoint put before the previous transition is
+// recorded yields a notification that skipped a state.
 func awaitRecordedTransition(ctx context.Context, t *testing.T, cw *cloudwatch.Client, alarmName, want string) {
 	t.Helper()
 	require.Eventually(t, func() bool {
@@ -130,9 +115,8 @@ func awaitRecordedTransition(ctx context.Context, t *testing.T, cw *cloudwatch.C
 	}, alarmWaitTimeout, alarmWaitPoll, "the alarm never recorded a transition into %s", want)
 }
 
-// requireQueueStaysEmpty confirms an alarm delivered nothing. The evaluator has
-// already run by the time this is called — the alarm reached ALARM — so this
-// watches for a delivery that must not happen, and fails as soon as one does.
+// requireQueueStaysEmpty confirms an alarm that already reached ALARM delivered
+// nothing, failing as soon as a message arrives.
 func requireQueueStaysEmpty(ctx context.Context, t *testing.T, sqsC *sqs.Client, queueURL *string, why string) {
 	t.Helper()
 	out, err := sqsC.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{

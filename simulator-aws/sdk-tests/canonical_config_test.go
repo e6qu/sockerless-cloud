@@ -11,38 +11,31 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestCanonicalConfig_NoSimQuirkBaseEndpoint scans test sources and
-// Terraform provider configs for the known shape:
+// TestCanonicalConfig_NoSimQuirkBaseEndpoint scans test sources and Terraform
+// provider configs for endpoints reconfigured around a simulator wire-protocol
+// bug:
 //
 //	o.BaseEndpoint = aws.String(baseURL + "/<service>")
 //	endpoints { s3 = "${var.endpoint}/<service>" }
 //	AWS_ENDPOINT_URL=<base>/<service>
 //
-// All three forms reconfigure a client around a sim wire-protocol
-// bug instead of fixing the sim. The S3 case (`baseURL + "/s3"`)
-// was load-bearing because tests passed against the quirk and the bug
-// only surfaced when an unmodified consumer pointed at the documented
-// AWS_ENDPOINT_URL.
-//
-// Allowed:
+// A test passing against such a quirk hides a bug an unmodified consumer meets
+// at the documented AWS_ENDPOINT_URL. Allowed:
 //
 //	o.BaseEndpoint = aws.String(baseURL)
 //	endpoints { s3 = var.endpoint }
 //	AWS_ENDPOINT_URL=<base>
 //
-// Codified by skill `.claude/skills/sim-canonical-config-test/SKILL.md`.
+// See `.claude/skills/sim-canonical-config-test/SKILL.md`.
 func TestCanonicalConfig_NoSimQuirkBaseEndpoint(t *testing.T) {
 	t.Parallel()
 
-	// Go-SDK quirk: BaseEndpoint = aws.String(baseURL + ...)
 	sdkPattern := regexp.MustCompile(`BaseEndpoint\s*=\s*aws\.String\(\s*baseURL\s*\+\s*`)
-	// Terraform: endpoints { <svc> = "${var.endpoint}/<suffix>" }
 	tfPattern := regexp.MustCompile(`"\$\{var\.endpoint\}/`)
-	// Shell / env: AWS_ENDPOINT_URL=<base>/<suffix>  (string-concat in shell scripts or Cmd.Env)
 	shellPattern := regexp.MustCompile(`"AWS_ENDPOINT_URL=" *\+ *baseURL *\+ *"/`)
 
-	// Scan one level up from cwd so we cover sibling dirs (cli-tests,
-	// terraform-tests, scripts).
+	// Scan from the parent so sibling dirs (cli-tests, terraform-tests, scripts)
+	// count.
 	cwd, err := os.Getwd()
 	if err != nil {
 		t.Fatalf("Getwd: %v", err)
@@ -56,7 +49,6 @@ func TestCanonicalConfig_NoSimQuirkBaseEndpoint(t *testing.T) {
 			return err
 		}
 		if d.IsDir() {
-			// Skip vendor + .git + build artifacts.
 			name := d.Name()
 			if name == "vendor" || name == ".git" || name == "node_modules" {
 				return filepath.SkipDir
@@ -64,7 +56,7 @@ func TestCanonicalConfig_NoSimQuirkBaseEndpoint(t *testing.T) {
 			return nil
 		}
 		base := filepath.Base(path)
-		// Skip the self-test file (regex literals match themselves).
+		// The regex literals in this file match themselves.
 		if base == "canonical_config_test.go" {
 			return nil
 		}
@@ -79,8 +71,6 @@ func TestCanonicalConfig_NoSimQuirkBaseEndpoint(t *testing.T) {
 		isTF := strings.HasSuffix(base, ".tf")
 		for lineNo, line := range strings.Split(string(body), "\n") {
 			trim := strings.TrimSpace(line)
-			// Allow .tf comments and Go comments — skip a line that
-			// is entirely a comment.
 			if strings.HasPrefix(trim, "#") || strings.HasPrefix(trim, "//") {
 				continue
 			}
@@ -105,10 +95,9 @@ func TestCanonicalConfig_NoSimQuirkBaseEndpoint(t *testing.T) {
 		t.Fatalf("WalkDir: %v", err)
 	}
 
-	// A scan that reached nothing reports clean without having looked, so the
-	// file count is asserted before the finding count. The floor is far below
-	// the hundreds of test and Terraform files under simulator-aws/, and exists
-	// only to catch a walk that lost its root or its filter.
+	// A scan that reached nothing reports clean, so assert the file count first.
+	// The floor sits far below the hundreds of files under simulator-aws/ and only
+	// catches a walk that lost its root or filter.
 	require.Greaterf(t, scanned, 100,
 		"the scan read only %d files under %s — it cannot report clean without having looked", scanned, root)
 

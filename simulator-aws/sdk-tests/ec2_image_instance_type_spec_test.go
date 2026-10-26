@@ -10,9 +10,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// registerAMIForInstanceTypeSpec registers an AMI the caller owns, which is the
-// only kind whose instance type specification may be set, over the root
-// filesystem of the Amazon Linux AMI so its instances boot.
+// registerAMIForInstanceTypeSpec registers an AMI the caller owns, the only kind
+// whose instance type specification may be set, over the Amazon Linux AMI's
+// root filesystem so its instances boot.
 func registerAMIForInstanceTypeSpec(t *testing.T, c *ec2.Client, name string) string {
 	t.Helper()
 	base, err := c.DescribeImages(ctx, &ec2.DescribeImagesInput{ImageIds: []string{ec2AmazonLinuxAMI(t)}})
@@ -29,16 +29,16 @@ func registerAMIForInstanceTypeSpec(t *testing.T, c *ec2.Client, name string) st
 	return aws.ToString(out.ImageId)
 }
 
-// TestEC2_ReplaceImageInstanceTypeSpecificationSDK covers the specification's
-// whole contract: DescribeImages reports it, RunInstances enforces it, wildcard
-// entries match a family, and omitting the specification removes it.
+// TestEC2_ReplaceImageInstanceTypeSpecificationSDK expects DescribeImages to
+// report the specification, wildcard entries to match a family, and omitting it
+// to remove it.
 func TestEC2_ReplaceImageInstanceTypeSpecificationSDK(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
 	imageID := registerAMIForInstanceTypeSpec(t, c, "instance-type-spec-ami")
 
-	// No specification: every instance type is allowed, and DescribeImages
-	// carries no member for it.
+	// With no specification every type is allowed, and DescribeImages carries no
+	// member for it.
 	described, err := c.DescribeImages(ctx, &ec2.DescribeImagesInput{ImageIds: []string{imageID}})
 	require.NoError(t, err)
 	require.Len(t, described.Images, 1)
@@ -53,7 +53,6 @@ func TestEC2_ReplaceImageInstanceTypeSpecificationSDK(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// The specification is stored against the AMI, not merely acknowledged.
 	described, err = c.DescribeImages(ctx, &ec2.DescribeImagesInput{ImageIds: []string{imageID}})
 	require.NoError(t, err)
 	require.Len(t, described.Images, 1)
@@ -71,9 +70,8 @@ func TestEC2_ReplaceImageInstanceTypeSpecificationSDK(t *testing.T) {
 	assert.ElementsMatch(t, []string{"t3.nano"}, names(spec.UnsupportedInstanceTypes))
 }
 
-// The specification decides what RunInstances accepts, which is the whole
-// reason it exists — a stored specification nothing enforces would report a
-// restriction the simulator does not apply.
+// RunInstances enforces the specification; a stored one nothing enforced
+// would report a restriction that does not apply.
 func TestEC2_ImageInstanceTypeSpecificationGovernsRunInstances(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -101,20 +99,17 @@ func TestEC2_ImageInstanceTypeSpecificationGovernsRunInstances(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// A wildcard entry matches the whole family.
 	require.NoError(t, launch(types.InstanceTypeT3Micro))
 
-	// An unsupported entry wins over the wildcard that would otherwise allow it.
+	// An unsupported entry beats the wildcard that would allow it.
 	err = launch(types.InstanceTypeT3Nano)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "InvalidParameterCombination")
 
-	// A type outside the supported list is refused.
 	err = launch(types.InstanceTypeM5Large)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "InvalidParameterCombination")
 
-	// Omitting the specification removes it, and every type launches again.
 	_, err = c.ReplaceImageInstanceTypeSpecification(ctx, &ec2.ReplaceImageInstanceTypeSpecificationInput{
 		ImageId: aws.String(imageID),
 	})
@@ -128,7 +123,7 @@ func TestEC2_ImageInstanceTypeSpecificationGovernsRunInstances(t *testing.T) {
 	require.NoError(t, launch(types.InstanceTypeM5Large))
 }
 
-// Only unsupported entries set: everything launches except what they match.
+// With only unsupported entries, everything launches except what they match.
 func TestEC2_ImageInstanceTypeSpecificationUnsupportedOnly(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -161,7 +156,7 @@ func TestEC2_ImageInstanceTypeSpecificationUnsupportedOnly(t *testing.T) {
 	assert.Contains(t, err.Error(), "InvalidParameterCombination")
 }
 
-// An AMI that does not exist reports itself rather than answering true.
+// An AMI that does not exist is reported rather than answered true.
 func TestEC2_ReplaceImageInstanceTypeSpecificationRejectsAbsentImage(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()

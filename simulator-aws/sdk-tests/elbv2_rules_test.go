@@ -12,8 +12,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestELBv2_ListenerRulesAndModifyListener covers listener-rule
-// CRUD (host-header routing) plus ModifyListener changing the default action.
 func TestELBv2_ListenerRulesAndModifyListener(t *testing.T) {
 	t.Parallel()
 	tgName := uniquename.New("rule-tg")
@@ -59,7 +57,6 @@ func TestELBv2_ListenerRulesAndModifyListener(t *testing.T) {
 	require.NoError(t, err)
 	listenerArn := aws.ToString(listener.Listeners[0].ListenerArn)
 
-	// CreateRule: host-header → forward to the target group.
 	created, err := elb.CreateRule(ctx, &elbv2.CreateRuleInput{
 		ListenerArn: aws.String(listenerArn),
 		Priority:    aws.Int32(100),
@@ -78,7 +75,7 @@ func TestELBv2_ListenerRulesAndModifyListener(t *testing.T) {
 	require.NotEmpty(t, ruleArn)
 	assert.Equal(t, "100", aws.ToString(created.Rules[0].Priority))
 
-	// DescribeRules returns the custom rule + the synthesized default rule.
+	// DescribeRules returns the custom rule and the listener's default rule.
 	described, err := elb.DescribeRules(ctx, &elbv2.DescribeRulesInput{ListenerArn: aws.String(listenerArn)})
 	require.NoError(t, err)
 	require.Len(t, described.Rules, 2)
@@ -97,7 +94,6 @@ func TestELBv2_ListenerRulesAndModifyListener(t *testing.T) {
 	require.NotNil(t, custom.Conditions[0].HostHeaderConfig)
 	assert.Equal(t, []string{"app.example.com"}, custom.Conditions[0].HostHeaderConfig.Values)
 
-	// ModifyRule: change the matched host.
 	_, err = elb.ModifyRule(ctx, &elbv2.ModifyRuleInput{
 		RuleArn: aws.String(ruleArn),
 		Conditions: []elbtypes.RuleCondition{{
@@ -111,7 +107,6 @@ func TestELBv2_ListenerRulesAndModifyListener(t *testing.T) {
 	require.Len(t, after.Rules, 1)
 	assert.Equal(t, []string{"api.example.com"}, after.Rules[0].Conditions[0].HostHeaderConfig.Values)
 
-	// ModifyListener: swap the default action to a fixed response.
 	ml, err := elb.ModifyListener(ctx, &elbv2.ModifyListenerInput{
 		ListenerArn: aws.String(listenerArn),
 		DefaultActions: []elbtypes.Action{{
@@ -131,7 +126,6 @@ func TestELBv2_ListenerRulesAndModifyListener(t *testing.T) {
 	require.NotNil(t, da.FixedResponseConfig)
 	assert.Equal(t, "200", aws.ToString(da.FixedResponseConfig.StatusCode))
 
-	// DeleteRule removes it.
 	_, err = elb.DeleteRule(ctx, &elbv2.DeleteRuleInput{RuleArn: aws.String(ruleArn)})
 	require.NoError(t, err)
 	final, err := elb.DescribeRules(ctx, &elbv2.DescribeRulesInput{ListenerArn: aws.String(listenerArn)})
@@ -140,9 +134,8 @@ func TestELBv2_ListenerRulesAndModifyListener(t *testing.T) {
 	assert.True(t, aws.ToBool(final.Rules[0].IsDefault))
 }
 
-// TestELBv2_DescribeRulesNotFound proves DescribeRules raises RuleNotFound when
-// a requested RuleArn doesn't exist, instead of silently returning a short list
-// (which made terraform refresh see destroyed rules as still present).
+// TestELBv2_DescribeRulesNotFound expects RuleNotFound for a missing RuleArn,
+// not a short list that makes terraform see a destroyed rule as present.
 func TestELBv2_DescribeRulesNotFound(t *testing.T) {
 	t.Parallel()
 	elb := elbv2Client()

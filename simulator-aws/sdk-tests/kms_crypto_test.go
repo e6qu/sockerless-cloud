@@ -17,10 +17,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestKMS_AsymmetricSignVerify exercises the ASYMMETRIC_SIGN flow end-to-end
-// with REAL cryptography: CreateKey(RSA_2048, SIGN_VERIFY) → GetPublicKey →
-// Sign → Verify succeeds, and a tampered message fails Verify. The sim
-// generates a real RSA key, so the signature genuinely verifies.
+// TestKMS_AsymmetricSignVerify signs with an RSA_2048 SIGN_VERIFY key and
+// verifies against its public key; a tampered message fails Verify.
 func TestKMS_AsymmetricSignVerify(t *testing.T) {
 	t.Parallel()
 	c := kmsClient()
@@ -37,7 +35,6 @@ func TestKMS_AsymmetricSignVerify(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, pub.PublicKey, "GetPublicKey must return a DER-encoded SPKI public key")
 	require.Contains(t, pub.SigningAlgorithms, kmstypes.SigningAlgorithmSpecRsassaPssSha256)
-	// The returned public key must be a parseable RSA SPKI.
 	_, err = x509.ParsePKIXPublicKey(pub.PublicKey)
 	require.NoError(t, err, "GetPublicKey output must be a valid DER SubjectPublicKeyInfo")
 
@@ -61,7 +58,6 @@ func TestKMS_AsymmetricSignVerify(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, verifyOut.SignatureValid, "Verify of a real signature must succeed")
 
-	// A tampered message must fail verification.
 	_, err = c.Verify(ctx, &kms.VerifyInput{
 		KeyId:            aws.String(keyId),
 		Message:          []byte("the TAMPERED message"),
@@ -74,8 +70,7 @@ func TestKMS_AsymmetricSignVerify(t *testing.T) {
 	require.ErrorAs(t, err, &invalidSig, "tampered Verify must return KMSInvalidSignatureException")
 }
 
-// TestKMS_ECDSASignVerify covers the EC signing path (ECC_NIST_P256 →
-// ECDSA_SHA_256) with real crypto.
+// TestKMS_ECDSASignVerify covers ECC_NIST_P256 with ECDSA_SHA_256.
 func TestKMS_ECDSASignVerify(t *testing.T) {
 	t.Parallel()
 	c := kmsClient()
@@ -108,8 +103,8 @@ func TestKMS_ECDSASignVerify(t *testing.T) {
 	assert.True(t, verifyOut.SignatureValid)
 }
 
-// TestKMS_GenerateVerifyMac exercises the HMAC flow: CreateKey(HMAC_256) →
-// GenerateMac → VerifyMac round-trips, and a tampered message fails VerifyMac.
+// TestKMS_GenerateVerifyMac round-trips an HMAC_256 MAC; a tampered message
+// fails VerifyMac.
 func TestKMS_GenerateVerifyMac(t *testing.T) {
 	t.Parallel()
 	c := kmsClient()
@@ -140,7 +135,6 @@ func TestKMS_GenerateVerifyMac(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, verifyOut.MacValid, "VerifyMac of a real MAC must succeed")
 
-	// A tampered message must fail MAC verification.
 	_, err = c.VerifyMac(ctx, &kms.VerifyMacInput{
 		KeyId:        aws.String(keyId),
 		Message:      []byte("mac ME (tampered)"),
@@ -150,9 +144,8 @@ func TestKMS_GenerateVerifyMac(t *testing.T) {
 	requireAWSErrorCode(t, err, "KMSInvalidMacException")
 }
 
-// TestKMS_GenerateDataKeyPair covers GenerateDataKeyPair (real keypair +
-// wrapped private key + decryptable wrap) and GenerateDataKeyPairWithoutPlaintext
-// (wrapped private key only, no plaintext on the wire).
+// TestKMS_GenerateDataKeyPair expects a real key pair whose wrapped private key
+// decrypts, and GenerateDataKeyPairWithoutPlaintext to send no plaintext.
 func TestKMS_GenerateDataKeyPair(t *testing.T) {
 	t.Parallel()
 	c := kmsClient()
@@ -169,14 +162,12 @@ func TestKMS_GenerateDataKeyPair(t *testing.T) {
 	require.NotEmpty(t, pair.PublicKey, "public key must be returned")
 	require.NotEmpty(t, pair.PrivateKeyPlaintext, "plaintext private key must be returned")
 	require.NotEmpty(t, pair.PrivateKeyCiphertextBlob, "wrapped private key must be returned")
-	// The plaintext private key is a parseable PKCS#8 key.
 	_, err = x509.ParsePKCS8PrivateKey(pair.PrivateKeyPlaintext)
 	require.NoError(t, err, "PrivateKeyPlaintext must be a valid PKCS#8 DER key")
-	// The public key is a parseable SPKI.
 	_, err = x509.ParsePKIXPublicKey(pair.PublicKey)
 	require.NoError(t, err)
 
-	// The wrapped private key decrypts back to the plaintext via the CMK.
+	// The wrapped private key decrypts to the plaintext under the CMK.
 	dec, err := c.Decrypt(ctx, &kms.DecryptInput{
 		CiphertextBlob: pair.PrivateKeyCiphertextBlob,
 	})
@@ -193,8 +184,8 @@ func TestKMS_GenerateDataKeyPair(t *testing.T) {
 	require.NotEmpty(t, noPlain.PrivateKeyCiphertextBlob)
 }
 
-// TestKMS_DeriveSharedSecret runs a real ECDH between the CMK's EC key and a
-// peer EC public key, and asserts both sides derive the same secret.
+// TestKMS_DeriveSharedSecret runs ECDH between the CMK's EC key and a peer key,
+// and both sides derive the same secret.
 func TestKMS_DeriveSharedSecret(t *testing.T) {
 	t.Parallel()
 	c := kmsClient()
@@ -207,7 +198,6 @@ func TestKMS_DeriveSharedSecret(t *testing.T) {
 	require.NoError(t, err)
 	keyId := *created.KeyMetadata.KeyId
 
-	// The CMK's public key (one side of the exchange).
 	cmkPub, err := c.GetPublicKey(ctx, &kms.GetPublicKeyInput{KeyId: aws.String(keyId)})
 	require.NoError(t, err)
 	require.Contains(t, cmkPub.KeyAgreementAlgorithms, kmstypes.KeyAgreementAlgorithmSpecEcdh)
@@ -215,7 +205,6 @@ func TestKMS_DeriveSharedSecret(t *testing.T) {
 	require.NoError(t, err)
 	cmkEcdsaPub := cmkPubAny.(*ecdsa.PublicKey)
 
-	// Our peer key (the other side).
 	peerPriv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	require.NoError(t, err)
 	peerPubDER, err := x509.MarshalPKIXPublicKey(&peerPriv.PublicKey)
@@ -229,7 +218,6 @@ func TestKMS_DeriveSharedSecret(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, derived.SharedSecret, "DeriveSharedSecret must return the raw shared secret")
 
-	// Compute the same secret on the peer side with stdlib ECDH and compare.
 	cmkEcdh, err := cmkEcdsaPub.ECDH()
 	require.NoError(t, err)
 	peerEcdh, err := peerPriv.ECDH()
@@ -240,8 +228,8 @@ func TestKMS_DeriveSharedSecret(t *testing.T) {
 		"the sim's ECDH must match the peer-side ECDH for the same key pair")
 }
 
-// TestKMS_CustomKeyStores covers the custom-key-store CRUD + connection-state
-// machine: Create → Describe → Connect → Disconnect → Update → Delete.
+// TestKMS_CustomKeyStores covers the custom key store CRUD and its
+// connection-state machine.
 func TestKMS_CustomKeyStores(t *testing.T) {
 	t.Parallel()
 	c := kmsClient()
@@ -286,8 +274,6 @@ func TestKMS_CustomKeyStores(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestKMS_RetireAndListRetirableGrants covers RetireGrant (by grant id) and
-// ListRetirableGrants (filtering by RetiringPrincipal).
 func TestKMS_RetireAndListRetirableGrants(t *testing.T) {
 	t.Parallel()
 	c := kmsClient()
@@ -326,9 +312,8 @@ func TestKMS_RetireAndListRetirableGrants(t *testing.T) {
 	assert.Empty(t, retirable.Grants, "the retired grant must no longer be listed")
 }
 
-// TestKMS_MultiRegionReplicateAndPrimary covers the multi-region key flow:
-// CreateKey(MultiRegion=true) → ReplicateKey → UpdatePrimaryRegion, and
-// asserts DescribeKey surfaces the MultiRegionConfiguration.
+// TestKMS_MultiRegionReplicateAndPrimary expects DescribeKey's
+// MultiRegionConfiguration to follow ReplicateKey and UpdatePrimaryRegion.
 func TestKMS_MultiRegionReplicateAndPrimary(t *testing.T) {
 	t.Parallel()
 	c := kmsClient()
@@ -356,7 +341,6 @@ func TestKMS_MultiRegionReplicateAndPrimary(t *testing.T) {
 	assert.Equal(t, kmstypes.MultiRegionKeyTypeReplica,
 		rep.ReplicaKeyMetadata.MultiRegionConfiguration.MultiRegionKeyType)
 
-	// The primary now lists the replica region.
 	desc, err := c.DescribeKey(ctx, &kms.DescribeKeyInput{KeyId: aws.String(keyId)})
 	require.NoError(t, err)
 	require.NotNil(t, desc.KeyMetadata.MultiRegionConfiguration)
@@ -371,8 +355,8 @@ func TestKMS_MultiRegionReplicateAndPrimary(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestKMS_GetKeyLastUsage asserts GetKeyLastUsage omits KeyLastUsage for a
-// never-used key, then reports it after a Sign operation.
+// TestKMS_GetKeyLastUsage expects no KeyLastUsage for a never-used key, and one
+// after a Sign.
 func TestKMS_GetKeyLastUsage(t *testing.T) {
 	t.Parallel()
 	c := kmsClient()
@@ -404,13 +388,10 @@ func TestKMS_GetKeyLastUsage(t *testing.T) {
 	assert.Equal(t, "Sign", string(usage.KeyLastUsage.Operation))
 }
 
-// TestKMS_AsymmetricOperationsRestored exercises every asymmetric/MAC
-// operation against what it produces: GetPublicKey, Sign, Verify, GenerateMac,
-// VerifyMac, GenerateDataKeyPair, GenerateDataKeyPairWithoutPlaintext, and
-// DeriveSharedSecret. Each result is checked as material — a parsed public key,
-// a verification that says valid and refuses a tampered input, a key pair whose
-// halves belong together, a secret that changes with the peer — so a handler
-// that answers with an empty struct fails rather than counting as coverage.
+// TestKMS_AsymmetricOperationsRestored checks each asymmetric and MAC result as
+// material: a parsed public key, a verification that says valid and refuses a
+// tampered input, a key pair whose halves belong together, a secret that
+// changes with the peer. A handler answering an empty struct fails.
 func TestKMS_AsymmetricOperationsRestored(t *testing.T) {
 	t.Parallel()
 	c := kmsClient()
@@ -452,7 +433,7 @@ func TestKMS_AsymmetricOperationsRestored(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, verified.SignatureValid, "the signature this key produced must verify under it")
 	// A message the signature was not made over is refused, so "valid" is a
-	// decision rather than a constant.
+	// decision.
 	_, err = c.Verify(ctx, &kms.VerifyInput{
 		KeyId:            aws.String(signKeyId),
 		Message:          []byte("tampered"),
@@ -504,8 +485,8 @@ func TestKMS_AsymmetricOperationsRestored(t *testing.T) {
 		KeyPairSpec: kmstypes.DataKeyPairSpecRsa2048,
 	})
 	require.NoError(t, err)
-	// The two halves are one key pair: the plaintext private key parses, and
-	// its public half is the one returned beside it.
+	// The halves are one key pair: the private key parses, and its public half is
+	// the one returned beside it.
 	privateKey, err := x509.ParsePKCS8PrivateKey(pair.PrivateKeyPlaintext)
 	require.NoError(t, err, "the plaintext private key must be a PKCS#8 document")
 	rsaPrivate, ok := privateKey.(*rsa.PrivateKey)
@@ -546,13 +527,12 @@ func TestKMS_AsymmetricOperationsRestored(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Len(t, derived.SharedSecret, 32, "ECDH over P-256 agrees on a 32-byte secret")
-	// The service names the key by its ARN here, which is what the operation
-	// documents it returns.
+	// The operation documents that it returns the key's ARN.
 	assert.True(t, strings.HasSuffix(aws.ToString(derived.KeyId), ":key/"+eccKeyId),
 		"DeriveSharedSecret names the key by ARN: %s", aws.ToString(derived.KeyId))
 
-	// The same peer agrees on the same secret; a different peer does not, so
-	// the secret is derived from the two keys rather than minted per call.
+	// The same peer gets the same secret and a different peer does not, so the
+	// secret derives from the two keys.
 	again, err := c.DeriveSharedSecret(ctx, &kms.DeriveSharedSecretInput{
 		KeyId:                 aws.String(eccKeyId),
 		KeyAgreementAlgorithm: kmstypes.KeyAgreementAlgorithmSpecEcdh,

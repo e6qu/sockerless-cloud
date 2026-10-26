@@ -10,8 +10,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// ssmCreateBaseline creates a Linux patch baseline and returns its ID,
-// registering a t.Cleanup to delete it.
+// ssmCreateBaseline creates a Linux patch baseline, registers its cleanup, and
+// returns its ID.
 func ssmCreateBaseline(t *testing.T, c *ssm.Client, name string) string {
 	t.Helper()
 	out, err := c.CreatePatchBaseline(ctx, &ssm.CreatePatchBaselineInput{
@@ -26,9 +26,6 @@ func ssmCreateBaseline(t *testing.T, c *ssm.Client, name string) string {
 	return aws.ToString(out.BaselineId)
 }
 
-// TestSSM_PatchGroupRegistration exercises the patch-group ↔ baseline
-// registration round trip: register, read it back via
-// GetPatchBaselineForPatchGroup + DescribePatchGroups, then deregister.
 func TestSSM_PatchGroupRegistration(t *testing.T) {
 	t.Parallel()
 	c := ssmClient()
@@ -65,7 +62,7 @@ func TestSSM_PatchGroupRegistration(t *testing.T) {
 	}
 	assert.True(t, foundGroup, "DescribePatchGroups must include the registered group")
 
-	// Patch-group state is honest-empty (no scanned managed nodes).
+	// No managed node has been scanned, so the patch group state is empty.
 	state, err := c.DescribePatchGroupState(ctx, &ssm.DescribePatchGroupStateInput{
 		PatchGroup: aws.String(group),
 	})
@@ -80,7 +77,6 @@ func TestSSM_PatchGroupRegistration(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, group, aws.ToString(dereg.PatchGroup))
 
-	// After deregistration the lookup must fail.
 	_, err = c.GetPatchBaselineForPatchGroup(ctx, &ssm.GetPatchBaselineForPatchGroupInput{
 		PatchGroup:      aws.String(group),
 		OperatingSystem: ssmtypes.OperatingSystemAmazonLinux2,
@@ -88,9 +84,6 @@ func TestSSM_PatchGroupRegistration(t *testing.T) {
 	require.Error(t, err, "lookup must fail after deregistration")
 }
 
-// TestSSM_AvailablePatches covers the patch-read ops: available patches,
-// effective patches for a baseline, instance patch states/patches, patch
-// properties, and the deployable snapshot.
 func TestSSM_AvailablePatches(t *testing.T) {
 	t.Parallel()
 	c := ssmClient()
@@ -106,7 +99,7 @@ func TestSSM_AvailablePatches(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotNil(t, eff.EffectivePatches)
 
-	// Unknown baseline must 400.
+	// An unknown baseline answers 400.
 	_, err = c.DescribeEffectivePatchesForPatchBaseline(ctx, &ssm.DescribeEffectivePatchesForPatchBaselineInput{
 		BaselineId: aws.String("pb-doesnotexist00000"),
 	})
@@ -128,8 +121,8 @@ func TestSSM_AvailablePatches(t *testing.T) {
 }
 
 // TestSSM_InstancePatchReads covers the per-instance patch reads and the
-// deployable snapshot. The sim has no managed nodes, so the state/patch
-// reads are honest-empty.
+// deployable snapshot; no managed node has been scanned, so the reads are
+// empty.
 func TestSSM_InstancePatchReads(t *testing.T) {
 	t.Parallel()
 	c := ssmClient()
@@ -162,8 +155,6 @@ func TestSSM_InstancePatchReads(t *testing.T) {
 	assert.Contains(t, aws.ToString(snap.SnapshotDownloadUrl), "s3")
 }
 
-// TestSSM_OpsMetadata exercises the OpsMetadata CRUD round trip:
-// create, get, update (add + delete keys), list, delete.
 func TestSSM_OpsMetadata(t *testing.T) {
 	t.Parallel()
 	c := ssmClient()
@@ -183,7 +174,6 @@ func TestSSM_OpsMetadata(t *testing.T) {
 		_, _ = c.DeleteOpsMetadata(ctx, &ssm.DeleteOpsMetadataInput{OpsMetadataArn: aws.String(arn)})
 	})
 
-	// Duplicate create must fail.
 	_, err = c.CreateOpsMetadata(ctx, &ssm.CreateOpsMetadataInput{ResourceId: aws.String(resourceID)})
 	require.Error(t, err, "duplicate OpsMetadata create must fail")
 
@@ -219,8 +209,8 @@ func TestSSM_OpsMetadata(t *testing.T) {
 	assert.True(t, foundArn, "ListOpsMetadata must include the created object")
 }
 
-// TestSSM_OpsSummary verifies GetOpsSummary returns the real shape. The
-// sim has no OpsData ingest pipeline, so the entity list is honest-empty.
+// TestSSM_OpsSummary expects GetOpsSummary's shape; no OpsData has been
+// ingested, so the entity list is empty.
 func TestSSM_OpsSummary(t *testing.T) {
 	t.Parallel()
 	c := ssmClient()
@@ -233,9 +223,8 @@ func TestSSM_OpsSummary(t *testing.T) {
 	assert.NotNil(t, out.Entities)
 }
 
-// TestSSM_ResourcePolicy exercises the resource-policy round trip with the
-// PolicyId/PolicyHash optimistic-concurrency contract: put, get, update,
-// delete.
+// TestSSM_ResourcePolicy covers PutResourcePolicy's optimistic concurrency on
+// PolicyId and PolicyHash.
 func TestSSM_ResourcePolicy(t *testing.T) {
 	t.Parallel()
 	c := ssmClient()
@@ -261,7 +250,7 @@ func TestSSM_ResourcePolicy(t *testing.T) {
 	assert.Equal(t, policyHash, aws.ToString(got.Policies[0].PolicyHash))
 	assert.Contains(t, aws.ToString(got.Policies[0].Policy), "ssm:GetOpsItem")
 
-	// Update with stale hash must fail (optimistic concurrency).
+	// An update with a stale hash fails.
 	_, err = c.PutResourcePolicy(ctx, &ssm.PutResourcePolicyInput{
 		ResourceArn: aws.String(resourceArn),
 		Policy:      aws.String(policy),
@@ -270,7 +259,6 @@ func TestSSM_ResourcePolicy(t *testing.T) {
 	})
 	require.Error(t, err, "update with stale PolicyHash must fail")
 
-	// Update with the correct hash succeeds.
 	const updated = `{"Version":"2012-10-17","Statement":[]}`
 	put2, err := c.PutResourcePolicy(ctx, &ssm.PutResourcePolicyInput{
 		ResourceArn: aws.String(resourceArn),
@@ -289,7 +277,6 @@ func TestSSM_ResourcePolicy(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Policy is gone.
 	gone, err := c.GetResourcePolicies(ctx, &ssm.GetResourcePoliciesInput{
 		ResourceArn: aws.String(resourceArn),
 	})
@@ -297,8 +284,7 @@ func TestSSM_ResourcePolicy(t *testing.T) {
 	assert.Empty(t, gone.Policies)
 }
 
-// TestSSM_ParameterHistory verifies GetParameterHistory returns one entry
-// per observed parameter version.
+// TestSSM_ParameterHistory expects one history entry per parameter version.
 func TestSSM_ParameterHistory(t *testing.T) {
 	t.Parallel()
 	c := ssmClient()
@@ -313,7 +299,7 @@ func TestSSM_ParameterHistory(t *testing.T) {
 			Overwrite: aws.Bool(i > 0),
 		})
 		require.NoError(t, err)
-		// Read between writes so each version is reconciled into history.
+		// Read the history between writes.
 		_, err = c.GetParameterHistory(ctx, &ssm.GetParameterHistoryInput{Name: aws.String(name)})
 		require.NoError(t, err)
 	}
@@ -330,9 +316,8 @@ func TestSSM_ParameterHistory(t *testing.T) {
 	assert.Equal(t, "v3", versions[3])
 }
 
-// TestSSM_ParameterLabel exercises label attach/detach over a parameter
-// version, including label uniqueness (relabel moves a label off the old
-// version) and Unlabel.
+// TestSSM_ParameterLabel expects a label to move off its old version when
+// applied to another, and UnlabelParameterVersion to remove it.
 func TestSSM_ParameterLabel(t *testing.T) {
 	t.Parallel()
 	c := ssmClient()
@@ -343,7 +328,7 @@ func TestSSM_ParameterLabel(t *testing.T) {
 		Name: aws.String(name), Type: ssmtypes.ParameterTypeString, Value: aws.String("a"),
 	})
 	require.NoError(t, err)
-	// Reconcile v1 into history.
+	// Read the history after v1.
 	_, err = c.GetParameterHistory(ctx, &ssm.GetParameterHistoryInput{Name: aws.String(name)})
 	require.NoError(t, err)
 
@@ -366,7 +351,7 @@ func TestSSM_ParameterLabel(t *testing.T) {
 	assert.Contains(t, v1Labels, "prod")
 	assert.NotContains(t, v1Labels, "1bad")
 
-	// Unlabel removes the label; an unattached label is reported invalid.
+	// Unlabelling removes the label and reports an unattached one invalid.
 	un, err := c.UnlabelParameterVersion(ctx, &ssm.UnlabelParameterVersionInput{
 		Name:             aws.String(name),
 		ParameterVersion: aws.Int64(1),

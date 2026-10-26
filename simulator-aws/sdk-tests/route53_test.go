@@ -41,7 +41,6 @@ func TestRoute53HostedZoneLifecycle(t *testing.T) {
 	require.NotEmpty(t, zoneID)
 	assert.Equal(t, "INSYNC", string(createOut.ChangeInfo.Status))
 
-	// List
 	listOut, err := c.ListHostedZones(ctx, &route53.ListHostedZonesInput{})
 	require.NoError(t, err)
 	found := false
@@ -52,23 +51,20 @@ func TestRoute53HostedZoneLifecycle(t *testing.T) {
 	}
 	assert.True(t, found, "expected new zone %q in list", zoneID)
 
-	// Get
 	getOut, err := c.GetHostedZone(ctx, &route53.GetHostedZoneInput{Id: aws.String(zoneID)})
 	require.NoError(t, err)
 	assert.Equal(t, "sdk-route53-test.local.", aws.ToString(getOut.HostedZone.Name))
 
-	// ListResourceRecordSets — initial zone has NS + SOA
+	// A new zone holds NS and SOA.
 	rrOut, err := c.ListResourceRecordSets(ctx, &route53.ListResourceRecordSetsInput{
 		HostedZoneId: aws.String(zoneID),
 	})
 	require.NoError(t, err)
 	require.Len(t, rrOut.ResourceRecordSets, 2)
 
-	// Delete
 	_, err = c.DeleteHostedZone(ctx, &route53.DeleteHostedZoneInput{Id: aws.String(zoneID)})
 	require.NoError(t, err)
 
-	// Get after delete should fail
 	_, err = c.GetHostedZone(ctx, &route53.GetHostedZoneInput{Id: aws.String(zoneID)})
 	require.Error(t, err)
 }
@@ -143,7 +139,6 @@ func TestRoute53RecordCRUD(t *testing.T) {
 	require.NoError(t, err)
 	zoneID := strings.TrimPrefix(aws.ToString(zoneOut.HostedZone.Id), "/hostedzone/")
 	defer func() {
-		// Cleanup A record, then zone.
 		_, _ = c.ChangeResourceRecordSets(ctx, &route53.ChangeResourceRecordSetsInput{
 			HostedZoneId: aws.String(zoneID),
 			ChangeBatch: &r53types.ChangeBatch{
@@ -161,7 +156,6 @@ func TestRoute53RecordCRUD(t *testing.T) {
 		_, _ = c.DeleteHostedZone(ctx, &route53.DeleteHostedZoneInput{Id: aws.String(zoneID)})
 	}()
 
-	// CREATE
 	changeOut, err := c.ChangeResourceRecordSets(ctx, &route53.ChangeResourceRecordSetsInput{
 		HostedZoneId: aws.String(zoneID),
 		ChangeBatch: &r53types.ChangeBatch{
@@ -179,7 +173,6 @@ func TestRoute53RecordCRUD(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, r53types.ChangeStatusInsync, changeOut.ChangeInfo.Status)
 
-	// Duplicate CREATE → error
 	_, err = c.ChangeResourceRecordSets(ctx, &route53.ChangeResourceRecordSetsInput{
 		HostedZoneId: aws.String(zoneID),
 		ChangeBatch: &r53types.ChangeBatch{
@@ -196,7 +189,6 @@ func TestRoute53RecordCRUD(t *testing.T) {
 	})
 	require.Error(t, err, "duplicate CREATE must fail")
 
-	// UPSERT
 	_, err = c.ChangeResourceRecordSets(ctx, &route53.ChangeResourceRecordSetsInput{
 		HostedZoneId: aws.String(zoneID),
 		ChangeBatch: &r53types.ChangeBatch{
@@ -213,7 +205,6 @@ func TestRoute53RecordCRUD(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Verify via List
 	rrOut, err := c.ListResourceRecordSets(ctx, &route53.ListResourceRecordSetsInput{
 		HostedZoneId: aws.String(zoneID),
 	})
@@ -229,7 +220,6 @@ func TestRoute53RecordCRUD(t *testing.T) {
 	}
 	assert.True(t, found, "expected updated A record in list")
 
-	// GetChange — sim returns INSYNC for any change ID
 	getChangeOut, err := c.GetChange(ctx, &route53.GetChangeInput{Id: changeOut.ChangeInfo.Id})
 	require.NoError(t, err)
 	assert.Equal(t, r53types.ChangeStatusInsync, getChangeOut.ChangeInfo.Status)
@@ -352,10 +342,8 @@ func TestRoute53AliasTargetForCloudFront(t *testing.T) {
 		_, _ = c.DeleteHostedZone(ctx, &route53.DeleteHostedZoneInput{Id: aws.String(zoneID)})
 	}()
 
-	// ALIAS record targeting a CloudFront distribution domain name. The
-	// HostedZoneId Z2FDTNDATAQYW2 is the CloudFront-fixed zone for every
-	// distribution; the DNSName is the value the SDK would resolve from
-	// `aws_cloudfront_distribution.x.domain_name` in Terraform.
+	// Z2FDTNDATAQYW2 is the hosted zone of every CloudFront distribution; the
+	// DNSName is what aws_cloudfront_distribution's domain_name holds.
 	_, err = c.ChangeResourceRecordSets(ctx, &route53.ChangeResourceRecordSetsInput{
 		HostedZoneId: aws.String(zoneID),
 		ChangeBatch: &r53types.ChangeBatch{
@@ -375,7 +363,6 @@ func TestRoute53AliasTargetForCloudFront(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Verify the AliasTarget round-trips through XML decode/encode
 	rrOut, err := c.ListResourceRecordSets(ctx, &route53.ListResourceRecordSetsInput{
 		HostedZoneId: aws.String(zoneID),
 	})
@@ -392,7 +379,7 @@ func TestRoute53AliasTargetForCloudFront(t *testing.T) {
 	assert.True(t, found)
 }
 
-// helper: a hosted zone for tests that need one. Returns the bare zone id.
+// r53MakeZone creates a hosted zone and returns its bare id.
 func r53MakeZone(t *testing.T, c *route53.Client, ctx context.Context) string {
 	t.Helper()
 	caller := "sdk-r53x-" + time.Now().Format("150405.000000000")
@@ -575,7 +562,6 @@ func TestRoute53_VPCAndQueryLogging(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, r53types.ChangeStatusInsync, disOut.ChangeInfo.Status)
 
-	// Query logging config.
 	logArn := "arn:aws:logs:us-east-1:123456789012:log-group:/aws/route53/test"
 	qlOut, err := c.CreateQueryLoggingConfig(ctx, &route53.CreateQueryLoggingConfigInput{
 		HostedZoneId:              aws.String(zoneID),
@@ -614,7 +600,6 @@ func TestRoute53_CountsAndGeo(t *testing.T) {
 	require.NoError(t, err)
 	assert.GreaterOrEqual(t, aws.ToInt64(countOut.HostedZoneCount), int64(1))
 
-	// GetChange returns INSYNC.
 	changeOut, err := c.GetChange(ctx, &route53.GetChangeInput{Id: aws.String("C1234567890")})
 	require.NoError(t, err)
 	assert.Equal(t, r53types.ChangeStatusInsync, changeOut.ChangeInfo.Status)

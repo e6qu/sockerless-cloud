@@ -65,8 +65,8 @@ func TestAcceptedAWSLambdaAsynchronousInvocationSurvivesSimulatorRestart_SDK(t *
 		},
 	})
 	require.NoError(t, err)
-	// Watch the function's log group with Live Tail, so the restart happens
-	// once the asynchronous invocation has started and not before.
+	// Live Tail on the function's log group times the restart after the
+	// asynchronous invocation starts.
 	logsAPI := cloudwatchlogs.NewFromConfig(cfg, func(o *cloudwatchlogs.Options) {
 		o.BaseEndpoint = aws.String(fmt.Sprintf("http://logs.localhost:%d", tcpPort))
 	})
@@ -112,8 +112,6 @@ func TestAcceptedAWSLambdaAsynchronousInvocationSurvivesSimulatorRestart_SDK(t *
 	require.GreaterOrEqual(t, destinationRecord.RequestContext["approximateInvokeCount"], float64(1))
 }
 
-// awaitLiveTailMessage reads Live Tail session updates until one carries a
-// log event whose message starts with prefix.
 func awaitLiveTailMessage(t *testing.T, stream *cloudwatchlogs.StartLiveTailEventStream, prefix string) {
 	t.Helper()
 	for event := range stream.Events() {

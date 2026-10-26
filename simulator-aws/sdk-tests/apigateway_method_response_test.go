@@ -9,11 +9,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestAPIGW_MethodResponse_RoundTrip exercises the API Gateway v1
-// `aws_api_gateway_method_response` lifecycle: CreateRestApi →
-// (root resource auto-created) → PutMethod → PutMethodResponse →
-// GetMethodResponse → DeleteMethodResponse. Same shape for
-// integration responses.
+// TestAPIGW_MethodResponse_RoundTrip covers the aws_api_gateway_method_response
+// lifecycle on the root resource CreateRestApi creates.
 func TestAPIGW_MethodResponse_RoundTrip(t *testing.T) {
 	t.Parallel()
 	c := apigwClient()
@@ -22,7 +19,6 @@ func TestAPIGW_MethodResponse_RoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = c.DeleteRestApi(ctx, &apigateway.DeleteRestApiInput{RestApiId: api.Id}) })
 
-	// Find the auto-created root resource.
 	resources, err := c.GetResources(ctx, &apigateway.GetResourcesInput{RestApiId: api.Id})
 	require.NoError(t, err)
 	require.NotEmpty(t, resources.Items, "root resource auto-created on CreateRestApi")
@@ -36,7 +32,6 @@ func TestAPIGW_MethodResponse_RoundTrip(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// PutMethodResponse for 200.
 	_, err = c.PutMethodResponse(ctx, &apigateway.PutMethodResponseInput{
 		RestApiId:  api.Id,
 		ResourceId: rootID,
@@ -75,8 +70,6 @@ func TestAPIGW_MethodResponse_RoundTrip(t *testing.T) {
 	require.Error(t, err, "deleted method response must 404 on read")
 }
 
-// TestAPIGW_IntegrationResponse_RoundTrip exercises the same shape
-// for integration responses.
 func TestAPIGW_IntegrationResponse_RoundTrip(t *testing.T) {
 	t.Parallel()
 	c := apigwClient()

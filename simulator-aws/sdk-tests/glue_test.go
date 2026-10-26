@@ -213,7 +213,6 @@ func TestGlue_PartitionLifecycle_SDK(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// CreatePartition (single).
 	_, err = c.CreatePartition(ctx, &glue.CreatePartitionInput{
 		DatabaseName: aws.String(db),
 		TableName:    aws.String(tbl),
@@ -224,20 +223,18 @@ func TestGlue_PartitionLifecycle_SDK(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// BatchCreatePartition (multiple).
 	bcp, err := c.BatchCreatePartition(ctx, &glue.BatchCreatePartitionInput{
 		DatabaseName: aws.String(db),
 		TableName:    aws.String(tbl),
 		PartitionInputList: []gluetypes.PartitionInput{
 			{Values: []string{"2024-01-02"}, StorageDescriptor: &gluetypes.StorageDescriptor{Location: aws.String("s3://bucket/part/dt=2024-01-02/")}},
-			{Values: []string{"2024-01-01"}}, // already exists -> Errors entry
+			{Values: []string{"2024-01-01"}}, // already exists, so an Errors entry
 		},
 	})
 	require.NoError(t, err)
 	require.Len(t, bcp.Errors, 1)
 	assert.Equal(t, []string{"2024-01-01"}, bcp.Errors[0].PartitionValues)
 
-	// GetPartition.
 	gp, err := c.GetPartition(ctx, &glue.GetPartitionInput{
 		DatabaseName:    aws.String(db),
 		TableName:       aws.String(tbl),
@@ -248,7 +245,6 @@ func TestGlue_PartitionLifecycle_SDK(t *testing.T) {
 	assert.Equal(t, db, aws.ToString(gp.Partition.DatabaseName))
 	assert.Equal(t, tbl, aws.ToString(gp.Partition.TableName))
 
-	// GetPartitions.
 	gps, err := c.GetPartitions(ctx, &glue.GetPartitionsInput{
 		DatabaseName: aws.String(db),
 		TableName:    aws.String(tbl),
@@ -256,7 +252,6 @@ func TestGlue_PartitionLifecycle_SDK(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, gps.Partitions, 2)
 
-	// BatchGetPartition (one present, one missing).
 	bgp, err := c.BatchGetPartition(ctx, &glue.BatchGetPartitionInput{
 		DatabaseName: aws.String(db),
 		TableName:    aws.String(tbl),
@@ -271,7 +266,6 @@ func TestGlue_PartitionLifecycle_SDK(t *testing.T) {
 	require.Len(t, bgp.UnprocessedKeys, 1)
 	assert.Equal(t, []string{"2099-12-31"}, bgp.UnprocessedKeys[0].Values)
 
-	// UpdatePartition (in place).
 	_, err = c.UpdatePartition(ctx, &glue.UpdatePartitionInput{
 		DatabaseName:       aws.String(db),
 		TableName:          aws.String(tbl),
@@ -290,7 +284,6 @@ func TestGlue_PartitionLifecycle_SDK(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "100", gp.Partition.Parameters["rows"])
 
-	// DeletePartition (single).
 	_, err = c.DeletePartition(ctx, &glue.DeletePartitionInput{
 		DatabaseName:    aws.String(db),
 		TableName:       aws.String(tbl),
@@ -306,7 +299,6 @@ func TestGlue_PartitionLifecycle_SDK(t *testing.T) {
 	var notFound *gluetypes.EntityNotFoundException
 	assert.ErrorAs(t, err, &notFound)
 
-	// BatchDeletePartition (one present, one missing).
 	bdp, err := c.BatchDeletePartition(ctx, &glue.BatchDeletePartitionInput{
 		DatabaseName: aws.String(db),
 		TableName:    aws.String(tbl),
@@ -363,7 +355,6 @@ func TestGlue_GetPartitionIndexes_SDK(t *testing.T) {
 	assert.NotNil(t, indexes.PartitionIndexDescriptorList)
 	assert.Empty(t, indexes.PartitionIndexDescriptorList)
 
-	// CreatePartitionIndex over the table's partition key.
 	_, err = c.CreatePartitionIndex(ctx, &glue.CreatePartitionIndexInput{
 		DatabaseName: aws.String("glue-sdk-index-db"),
 		TableName:    aws.String("glue-sdk-index-table"),
@@ -401,18 +392,15 @@ func TestGlue_GetPartitionIndexes_SDK(t *testing.T) {
 	assert.Empty(t, indexes.PartitionIndexDescriptorList)
 }
 
-// glueJobRunCompletionBudget bounds every wait for an AWS Glue job run to
-// settle. A Python shell job run is real container work — the interpreter image
-// is pulled if absent, the script runs inside it, and the run settles when that
-// container exits — so the budget covers the container engine's
-// pull/create/start/wait alongside whatever else is running on the host. Real
-// AWS Glue job runs take minutes; the API promises nothing faster.
+// glueJobRunCompletionBudget bounds each wait for an AWS Glue job run to settle.
+// A Python shell job run is real container work (pull if absent, run the
+// script, exit), so the budget covers the container engine alongside whatever
+// else shares the host.
 const glueJobRunCompletionBudget = 4 * time.Minute
 
 func TestGlue_JobCRUD_SDK(t *testing.T) {
 	t.Parallel()
-	// The interpreter this job run executes in, fetched before the clock the
-	// run is timed by starts.
+	// Fetch the interpreter image before the run's clock starts.
 	ensureGluePythonShellImage(t)
 	c := glueClient()
 	s3c := s3Client()
@@ -458,7 +446,7 @@ func TestGlue_JobCRUD_SDK(t *testing.T) {
 	assert.Equal(t, "glue-sdk-job", aws.ToString(get.Job.Name))
 	assert.Equal(t, "sdk test job", aws.ToString(get.Job.Description))
 
-	// The Job shape has no Tags member — create-time tags ride GetTags.
+	// The Job shape has no Tags member; GetTags carries create-time tags.
 	jobTags, err := c.GetTags(ctx, &glue.GetTagsInput{
 		ResourceArn: aws.String("arn:aws:glue:us-east-1:123456789012:job/glue-sdk-job"),
 	})
@@ -545,8 +533,8 @@ func TestGlue_JobCRUD_SDK(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, runs.JobRuns, 1)
 
-	// GetJobRuns for a non-existent job must raise EntityNotFoundException, not
-	// silently return an empty list (matching real Glue).
+	// GetJobRuns for a missing job raises EntityNotFoundException rather than
+	// returning an empty list.
 	_, err = c.GetJobRuns(ctx, &glue.GetJobRunsInput{
 		JobName: aws.String("glue-sdk-job-does-not-exist"),
 	})
@@ -653,8 +641,7 @@ func TestGlue_JobUpdateListAndBatchStop_SDK(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, list.JobNames, "glue-sdk-upd-job")
 
-	// BatchStopJobRun against a run id that does not exist surfaces as an error
-	// entry, not a hard failure.
+	// BatchStopJobRun reports an unknown run id as an error entry, not a failure.
 	stop, err := c.BatchStopJobRun(ctx, &glue.BatchStopJobRunInput{
 		JobName:   aws.String("glue-sdk-upd-job"),
 		JobRunIds: []string{"jr_does_not_exist"},
@@ -694,7 +681,7 @@ func TestGlue_CrawlerCRUD_SDK(t *testing.T) {
 	require.Len(t, get.Crawler.Targets.S3Targets, 1)
 	assert.Equal(t, "s3://bucket/data/", aws.ToString(get.Crawler.Targets.S3Targets[0].Path))
 
-	// Tags ride GetTags, not the Crawler shape.
+	// GetTags carries tags; the Crawler shape has none.
 	tags, err := c.GetTags(ctx, &glue.GetTagsInput{
 		ResourceArn: aws.String("arn:aws:glue:us-east-1:123456789012:crawler/glue-sdk-crawler"),
 	})
@@ -742,7 +729,6 @@ func TestGlue_TriggerCRUD_SDK(t *testing.T) {
 	t.Parallel()
 	c := glueClient()
 
-	// A dependent job for the trigger action.
 	_, err := c.CreateJob(ctx, &glue.CreateJobInput{
 		Name: aws.String("glue-sdk-trigger-job"),
 		Role: aws.String(serviceRole(t, "glue.amazonaws.com")),
@@ -1138,7 +1124,6 @@ func TestGlue_TableVersions_SDK(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Two updates produce versions 2 and 3.
 	for _, loc := range []string{"s3://bucket/v2/", "s3://bucket/v3/"} {
 		_, err = c.UpdateTable(ctx, &glue.UpdateTableInput{
 			DatabaseName: aws.String(db),
@@ -1159,7 +1144,7 @@ func TestGlue_TableVersions_SDK(t *testing.T) {
 	assert.Equal(t, "1", aws.ToString(vers.TableVersions[0].VersionId))
 	assert.Equal(t, "3", aws.ToString(vers.TableVersions[2].VersionId))
 
-	// GetTableVersion latest (no VersionId) returns version 3's location.
+	// Without VersionId, GetTableVersion returns the latest, version 3.
 	gv, err := c.GetTableVersion(ctx, &glue.GetTableVersionInput{
 		DatabaseName: aws.String(db),
 		TableName:    aws.String(tbl),
@@ -1168,7 +1153,6 @@ func TestGlue_TableVersions_SDK(t *testing.T) {
 	assert.Equal(t, "3", aws.ToString(gv.TableVersion.VersionId))
 	assert.Equal(t, "s3://bucket/v3/", aws.ToString(gv.TableVersion.Table.StorageDescriptor.Location))
 
-	// GetTableVersion explicit version 1.
 	gv1, err := c.GetTableVersion(ctx, &glue.GetTableVersionInput{
 		DatabaseName: aws.String(db),
 		TableName:    aws.String(tbl),
@@ -1177,7 +1161,6 @@ func TestGlue_TableVersions_SDK(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "s3://bucket/v1/", aws.ToString(gv1.TableVersion.Table.StorageDescriptor.Location))
 
-	// DeleteTableVersion (single).
 	_, err = c.DeleteTableVersion(ctx, &glue.DeleteTableVersionInput{
 		DatabaseName: aws.String(db),
 		TableName:    aws.String(tbl),
@@ -1185,7 +1168,6 @@ func TestGlue_TableVersions_SDK(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// BatchDeleteTableVersion (one present, one missing).
 	bd, err := c.BatchDeleteTableVersion(ctx, &glue.BatchDeleteTableVersionInput{
 		DatabaseName: aws.String(db),
 		TableName:    aws.String(tbl),
@@ -1248,7 +1230,6 @@ func TestGlue_ColumnStatistics_SDK(t *testing.T) {
 		},
 	}
 
-	// Table-scoped column statistics.
 	upd, err := c.UpdateColumnStatisticsForTable(ctx, &glue.UpdateColumnStatisticsForTableInput{
 		DatabaseName:         aws.String(db),
 		TableName:            aws.String(tbl),
@@ -1282,7 +1263,6 @@ func TestGlue_ColumnStatistics_SDK(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, get.ColumnStatisticsList)
 
-	// Partition-scoped column statistics.
 	_, err = c.CreatePartition(ctx, &glue.CreatePartitionInput{
 		DatabaseName: aws.String(db),
 		TableName:    aws.String(tbl),
@@ -1329,7 +1309,7 @@ func TestGlue_ColumnStatistics_SDK(t *testing.T) {
 }
 
 // An account has one Data Catalog resource policy, so a test holds this from
-// putting its policy until its cleanup has deleted it.
+// putting its policy until its cleanup deletes it.
 var glueCatalogPolicy sync.Mutex
 
 func TestGlue_ResourcePolicy_SDK(t *testing.T) {
@@ -1385,7 +1365,6 @@ func TestGlue_DataCatalogEncryptionAndImport_SDK(t *testing.T) {
 	require.NotNil(t, get.DataCatalogEncryptionSettings.EncryptionAtRest)
 	assert.Equal(t, gluetypes.CatalogEncryptionModeSsekms, get.DataCatalogEncryptionSettings.EncryptionAtRest.CatalogEncryptionMode)
 
-	// Catalog import status starts not-completed, then completes.
 	status, err := c.GetCatalogImportStatus(ctx, &glue.GetCatalogImportStatusInput{})
 	require.NoError(t, err)
 	require.NotNil(t, status.ImportStatus)
@@ -1427,7 +1406,6 @@ func TestGlue_SchemaVersions_SDK(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// RegisterSchemaVersion adds version 2.
 	reg2, err := c.RegisterSchemaVersion(ctx, &glue.RegisterSchemaVersionInput{
 		SchemaId:         &gluetypes.SchemaId{RegistryName: aws.String(reg), SchemaName: aws.String(sch)},
 		SchemaDefinition: aws.String(def2),
@@ -1444,7 +1422,6 @@ func TestGlue_SchemaVersions_SDK(t *testing.T) {
 	assert.Equal(t, int64(1), aws.ToInt64(list.Schemas[0].VersionNumber))
 	assert.Equal(t, int64(2), aws.ToInt64(list.Schemas[1].VersionNumber))
 
-	// GetSchemaVersion by explicit version number.
 	gv1, err := c.GetSchemaVersion(ctx, &glue.GetSchemaVersionInput{
 		SchemaId:            &gluetypes.SchemaId{RegistryName: aws.String(reg), SchemaName: aws.String(sch)},
 		SchemaVersionNumber: &gluetypes.SchemaVersionNumber{VersionNumber: aws.Int64(1)},
@@ -1453,14 +1430,12 @@ func TestGlue_SchemaVersions_SDK(t *testing.T) {
 	assert.Equal(t, def1, aws.ToString(gv1.SchemaDefinition))
 	assert.Equal(t, int64(1), aws.ToInt64(gv1.VersionNumber))
 
-	// GetSchemaVersion by SchemaVersionId.
 	gvByID, err := c.GetSchemaVersion(ctx, &glue.GetSchemaVersionInput{
 		SchemaVersionId: reg2.SchemaVersionId,
 	})
 	require.NoError(t, err)
 	assert.Equal(t, def2, aws.ToString(gvByID.SchemaDefinition))
 
-	// GetSchemaByDefinition resolves the version carrying def2.
 	byDef, err := c.GetSchemaByDefinition(ctx, &glue.GetSchemaByDefinitionInput{
 		SchemaId:         &gluetypes.SchemaId{RegistryName: aws.String(reg), SchemaName: aws.String(sch)},
 		SchemaDefinition: aws.String(def2),
@@ -1468,7 +1443,6 @@ func TestGlue_SchemaVersions_SDK(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, aws.ToString(reg2.SchemaVersionId), aws.ToString(byDef.SchemaVersionId))
 
-	// DeleteSchemaVersions for version 2.
 	_, err = c.DeleteSchemaVersions(ctx, &glue.DeleteSchemaVersionsInput{
 		SchemaId: &gluetypes.SchemaId{RegistryName: aws.String(reg), SchemaName: aws.String(sch)},
 		Versions: aws.String("2"),

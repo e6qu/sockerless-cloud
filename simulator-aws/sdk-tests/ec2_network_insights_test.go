@@ -10,9 +10,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestEC2_NetworkInsightsReachability exercises the Reachability Analyzer
-// path → analysis CRUD: create a path, run an analysis (settles succeeded with
-// a reachable path), describe, then tear both down.
+// TestEC2_NetworkInsightsReachability expects an analysis of a path to settle
+// succeeded and reachable.
 func TestEC2_NetworkInsightsReachability(t *testing.T) {
 	t.Parallel()
 	client := ec2Client()
@@ -71,9 +70,8 @@ func TestEC2_NetworkInsightsReachability(t *testing.T) {
 	assert.Equal(t, pathID, aws.ToString(descAna.NetworkInsightsAnalyses[0].NetworkInsightsPathId))
 }
 
-// TestEC2_NetworkInsightsAccessScope exercises the Network Access Analyzer
-// access-scope path: create scope → get content → run scope analysis → get
-// findings (none) → teardown.
+// TestEC2_NetworkInsightsAccessScope runs a Network Access Analyzer scope
+// analysis that finds nothing.
 func TestEC2_NetworkInsightsAccessScope(t *testing.T) {
 	t.Parallel()
 	client := ec2Client()
@@ -141,14 +139,10 @@ func TestEC2_NetworkInsightsAccessScope(t *testing.T) {
 	assert.Empty(t, findingsOut.AnalysisFindings)
 }
 
-// TestEC2_RouteServerCore drives the full route-server graph: route server →
-// VPC association → endpoint → BGP peer → route-table propagation → routing
-// database, plus modify and tolerant teardown.
 func TestEC2_RouteServerCore(t *testing.T) {
 	t.Parallel()
 	client := ec2Client()
 
-	// VPC + subnet to anchor the endpoint.
 	vpcOut, err := client.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.70.0.0/16")})
 	require.NoError(t, err)
 	vpcID := aws.ToString(vpcOut.Vpc.VpcId)
@@ -187,7 +181,6 @@ func TestEC2_RouteServerCore(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, types.RouteServerPersistRoutesStateEnabled, modRS.RouteServer.PersistRoutesState)
 
-	// Associate to the VPC.
 	assocOut, err := client.AssociateRouteServer(ctx, &ec2.AssociateRouteServerInput{
 		RouteServerId: aws.String(rsID), VpcId: aws.String(vpcID),
 	})
@@ -203,7 +196,6 @@ func TestEC2_RouteServerCore(t *testing.T) {
 	require.Len(t, getAssoc.RouteServerAssociations, 1)
 	assert.Equal(t, vpcID, aws.ToString(getAssoc.RouteServerAssociations[0].VpcId))
 
-	// Endpoint.
 	epOut, err := client.CreateRouteServerEndpoint(ctx, &ec2.CreateRouteServerEndpointInput{
 		RouteServerId: aws.String(rsID), SubnetId: aws.String(subnetID),
 	})
@@ -225,7 +217,6 @@ func TestEC2_RouteServerCore(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, descEP.RouteServerEndpoints, 1)
 
-	// Peer.
 	peerOut, err := client.CreateRouteServerPeer(ctx, &ec2.CreateRouteServerPeerInput{
 		RouteServerEndpointId: aws.String(epID),
 		PeerAddress:           aws.String("10.70.1.20"),
@@ -254,7 +245,6 @@ func TestEC2_RouteServerCore(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, descPeer.RouteServerPeers, 1)
 
-	// Route-table propagation.
 	rtOut, err := client.CreateRouteTable(ctx, &ec2.CreateRouteTableInput{VpcId: aws.String(vpcID)})
 	require.NoError(t, err)
 	rtID := aws.ToString(rtOut.RouteTable.RouteTableId)
@@ -291,8 +281,6 @@ func TestEC2_RouteServerCore(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestEC2_LocalGatewayRouteCRUD exercises the local-gateway-route CRUD path on
-// a local-gateway-route-table id: create → search → modify → delete.
 func TestEC2_LocalGatewayRouteCRUD(t *testing.T) {
 	t.Parallel()
 	client := ec2Client()

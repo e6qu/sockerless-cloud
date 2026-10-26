@@ -11,10 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestLogs_S3TableIntegrationSourceRoundTrip covers
-// AssociateSourceToS3TableIntegration, ListSourcesForS3TableIntegration, and
-// DisassociateSourceFromS3TableIntegration for an S3 Table Integration
-// data-source association.
 func TestLogs_S3TableIntegrationSourceRoundTrip(t *testing.T) {
 	t.Parallel()
 	cw := cwLogsClient()
@@ -61,7 +57,6 @@ func TestLogs_S3TableIntegrationSourceRoundTrip(t *testing.T) {
 	assert.Equal(t, identifier, aws.ToString(dis.Identifier))
 	identifier = ""
 
-	// A second list returns no sources for this integration.
 	after, err := cw.ListSourcesForS3TableIntegration(ctx, &cloudwatchlogs.ListSourcesForS3TableIntegrationInput{
 		IntegrationArn: aws.String(integrationArn),
 	})
@@ -71,8 +66,8 @@ func TestLogs_S3TableIntegrationSourceRoundTrip(t *testing.T) {
 	}
 }
 
-// TestLogs_GetLogFields derives the field set from a log group's stored JSON
-// events; GetLogFields exposes the structural @-fields plus the parsed keys.
+// TestLogs_GetLogFields expects the structural @-fields and the keys parsed
+// from the group's stored JSON events.
 func TestLogs_GetLogFields(t *testing.T) {
 	t.Parallel()
 	cw := cwLogsClient()
@@ -110,7 +105,7 @@ func TestLogs_GetLogFields(t *testing.T) {
 	assert.Equal(t, "double", byName["code"])
 	assert.Equal(t, "boolean", byName["ok"])
 
-	// An unknown data source yields an honestly-empty field set.
+	// An unknown data source yields an empty field set.
 	empty, err := cw.GetLogFields(ctx, &cloudwatchlogs.GetLogFieldsInput{
 		DataSourceName: aws.String("/test/getlogfields-missing"),
 		DataSourceType: aws.String("LOG_GROUP"),
@@ -119,8 +114,6 @@ func TestLogs_GetLogFields(t *testing.T) {
 	assert.Empty(t, empty.LogFields)
 }
 
-// TestLogs_ListLogGroupsForQuery reads the log groups a stored Insights query
-// was started against back through ListLogGroupsForQuery.
 func TestLogs_ListLogGroupsForQuery(t *testing.T) {
 	t.Parallel()
 	cw := cwLogsClient()
@@ -157,8 +150,6 @@ func TestLogs_ListLogGroupsForQuery(t *testing.T) {
 	assert.Contains(t, listed.LogGroupIdentifiers, group)
 }
 
-// TestLogs_PutBearerTokenAuthentication enables bearer-token authentication for
-// an existing log group.
 func TestLogs_PutBearerTokenAuthentication(t *testing.T) {
 	t.Parallel()
 	cw := cwLogsClient()
@@ -173,7 +164,6 @@ func TestLogs_PutBearerTokenAuthentication(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// An unknown log group is rejected, not silently accepted.
 	_, err = cw.PutBearerTokenAuthentication(ctx, &cloudwatchlogs.PutBearerTokenAuthenticationInput{
 		LogGroupIdentifier:               aws.String("/test/bearer-token-missing"),
 		BearerTokenAuthenticationEnabled: aws.Bool(true),
@@ -181,9 +171,6 @@ func TestLogs_PutBearerTokenAuthentication(t *testing.T) {
 	requireAWSErrorCode(t, err, "ResourceNotFoundException")
 }
 
-// TestLogs_UpdateDeliveryConfiguration creates a vended-log delivery and then
-// updates its record fields and field delimiter via
-// UpdateDeliveryConfiguration.
 func TestLogs_UpdateDeliveryConfiguration(t *testing.T) {
 	t.Parallel()
 	cw := cwLogsClient()
@@ -231,7 +218,6 @@ func TestLogs_UpdateDeliveryConfiguration(t *testing.T) {
 	assert.Equal(t, []string{"timestamp", "message"}, got.Delivery.RecordFields)
 	assert.Equal(t, "|", aws.ToString(got.Delivery.FieldDelimiter))
 
-	// Updating an unknown delivery is rejected.
 	_, err = cw.UpdateDeliveryConfiguration(ctx, &cloudwatchlogs.UpdateDeliveryConfigurationInput{
 		Id:           aws.String("00000000-0000-0000-0000-000000000000"),
 		RecordFields: []string{"timestamp"},

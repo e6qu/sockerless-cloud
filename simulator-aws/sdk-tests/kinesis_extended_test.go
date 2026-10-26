@@ -11,9 +11,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestKinesisSDK_Consumers drives the enhanced fan-out consumer lifecycle:
-// Register -> Describe -> List -> Deregister, asserting the ARN shape and the
-// status transitions a real client reads back.
+// TestKinesisSDK_Consumers expects the consumer ARN's shape and its status
+// transitions.
 func TestKinesisSDK_Consumers(t *testing.T) {
 	t.Parallel()
 	client := kinesisClient()
@@ -48,7 +47,6 @@ func TestKinesisSDK_Consumers(t *testing.T) {
 		"RegisterStreamConsumer answers with the consumer CREATING")
 	waitForKinesisConsumerActive(t, client, consumerARN)
 
-	// Re-registering the same name fails while the consumer exists.
 	_, err = client.RegisterStreamConsumer(ctx, &kinesis.RegisterStreamConsumerInput{
 		StreamARN:    aws.String(streamARN),
 		ConsumerName: aws.String("sdk-consumer"),
@@ -85,7 +83,7 @@ func TestKinesisSDK_Consumers(t *testing.T) {
 }
 
 // waitForKinesisConsumerActive polls DescribeStreamConsumer until the consumer
-// leaves CREATING for ACTIVE: the SDK has no waiter for a consumer.
+// is ACTIVE: the SDK has no waiter for a consumer.
 func waitForKinesisConsumerActive(t *testing.T, client *kinesis.Client, consumerARN string) {
 	t.Helper()
 	pollKinesisConsumer(t, client, consumerARN, func(desc *ktypes.ConsumerDescription, err error) bool {
@@ -132,8 +130,8 @@ func pollKinesisConsumer(t *testing.T, client *kinesis.Client, consumerARN strin
 }
 
 // TestKinesisSDK_DryRun sets DryRun on the four data-plane operations that take
-// it: each validates the request, answers DryRunOperationException instead of
-// acting, and still refuses a request that would fail.
+// it: each validates the request and answers DryRunOperationException instead
+// of acting, still refusing a request that would fail.
 func TestKinesisSDK_DryRun(t *testing.T) {
 	t.Parallel()
 	client := kinesisClient()
@@ -184,8 +182,6 @@ func TestKinesisSDK_DryRun(t *testing.T) {
 	assert.Empty(t, records.Records, "dry-run puts store no record")
 }
 
-// TestKinesisSDK_ResourcePolicy round-trips a stream resource policy through
-// Put/Get/Delete.
 func TestKinesisSDK_ResourcePolicy(t *testing.T) {
 	t.Parallel()
 	client := kinesisClient()
@@ -228,9 +224,9 @@ func TestKinesisSDK_ResourcePolicy(t *testing.T) {
 	requireAWSErrorCode(t, err, "ResourceNotFoundException")
 }
 
-// TestKinesisSDK_MergeAndSplitShards exercises SplitShard then MergeShards,
-// asserting the shard list mutates faithfully (split parent closes, two open
-// children appear; an adjacent merge collapses two open shards into one child).
+// TestKinesisSDK_MergeAndSplitShards expects a split to close the parent and
+// open two children, and an adjacent merge to collapse two open shards into one
+// child.
 func TestKinesisSDK_MergeAndSplitShards(t *testing.T) {
 	t.Parallel()
 	client := kinesisClient()
@@ -263,10 +259,9 @@ func TestKinesisSDK_MergeAndSplitShards(t *testing.T) {
 	require.NoError(t, err)
 	open := openShards(afterSplit.StreamDescription.Shards)
 	require.Len(t, open, 2, "split yields two open children")
-	// Parent is now closed (has an EndingSequenceNumber).
+	// The closed parent carries an EndingSequenceNumber.
 	assert.Equal(t, 3, len(afterSplit.StreamDescription.Shards), "parent + two children")
 
-	// Merge the two open children back together.
 	_, err = client.MergeShards(ctx, &kinesis.MergeShardsInput{
 		StreamName:           aws.String(streamName),
 		ShardToMerge:         open[0].ShardId,
@@ -280,9 +275,9 @@ func TestKinesisSDK_MergeAndSplitShards(t *testing.T) {
 	require.Len(t, openShards(afterMerge.StreamDescription.Shards), 1, "merge collapses to one open shard")
 }
 
-// TestKinesisSDK_UpdateShardCountReshardsByLineage scales a stream through
-// UpdateShardCount and reads a closed parent to its end: the parent's last
-// GetRecords carries no NextShardIterator and names the children to read next.
+// TestKinesisSDK_UpdateShardCountReshardsByLineage scales a stream with
+// UpdateShardCount and reads a closed parent to its end: its last GetRecords
+// carries no NextShardIterator and names the children to read next.
 func TestKinesisSDK_UpdateShardCountReshardsByLineage(t *testing.T) {
 	t.Parallel()
 	client := kinesisClient()
@@ -355,7 +350,6 @@ func openShards(shards []ktypes.Shard) []ktypes.Shard {
 	return out
 }
 
-// TestKinesisSDK_TagResource covers the resource-ARN tagging trio.
 func TestKinesisSDK_TagResource(t *testing.T) {
 	t.Parallel()
 	client := kinesisClient()
@@ -406,8 +400,6 @@ func TestKinesisSDK_TagResource(t *testing.T) {
 	assert.Equal(t, map[string]string{"team": "data"}, got)
 }
 
-// TestKinesisSDK_UpdateStreamMode toggles a stream between capacity modes and
-// confirms the new mode reads back on the summary.
 func TestKinesisSDK_UpdateStreamMode(t *testing.T) {
 	t.Parallel()
 	client := kinesisClient()
@@ -440,8 +432,6 @@ func TestKinesisSDK_UpdateStreamMode(t *testing.T) {
 	assert.Equal(t, ktypes.StreamModeOnDemand, summary.StreamDescriptionSummary.StreamModeDetails.StreamMode)
 }
 
-// TestKinesisSDK_AccountSettings round-trips the minimum-throughput billing
-// commitment via Update/Describe.
 func TestKinesisSDK_AccountSettings(t *testing.T) {
 	client := kinesisClient()
 
@@ -460,7 +450,7 @@ func TestKinesisSDK_AccountSettings(t *testing.T) {
 	require.NotNil(t, desc.MinimumThroughputBillingCommitment)
 	assert.Equal(t, ktypes.MinimumThroughputBillingCommitmentOutputStatusEnabled, desc.MinimumThroughputBillingCommitment.Status)
 
-	// Reset to disabled so other tests / runs start clean.
+	// Reset to disabled so other tests start clean.
 	_, err = client.UpdateAccountSettings(ctx, &kinesis.UpdateAccountSettingsInput{
 		MinimumThroughputBillingCommitment: &ktypes.MinimumThroughputBillingCommitmentInput{
 			Status: ktypes.MinimumThroughputBillingCommitmentInputStatusDisabled,
@@ -469,8 +459,6 @@ func TestKinesisSDK_AccountSettings(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestKinesisSDK_UpdateMaxRecordSize sets the per-record max size and rejects
-// out-of-range values.
 func TestKinesisSDK_UpdateMaxRecordSize(t *testing.T) {
 	t.Parallel()
 	client := kinesisClient()
@@ -502,8 +490,6 @@ func TestKinesisSDK_UpdateMaxRecordSize(t *testing.T) {
 	requireAWSErrorCode(t, err, "ValidationException")
 }
 
-// TestKinesisSDK_UpdateStreamWarmThroughput sets a warm-throughput target and
-// reads the echoed configuration back.
 func TestKinesisSDK_UpdateStreamWarmThroughput(t *testing.T) {
 	t.Parallel()
 	client := kinesisClient()

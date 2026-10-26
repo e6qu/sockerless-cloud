@@ -47,10 +47,9 @@ func ctHasEventNamed(events []cttypes.Event, name string) bool {
 	return false
 }
 
-// TestCloudTrailLookupFilterKeysSDK verifies LookupEvents filters on all eight
-// AttributeKey values, not just EventName/EventSource/Username. Creates an ECS
-// cluster — a resource-bearing management event — and exercises the EventId /
-// ResourceName / ResourceType / ReadOnly filters.
+// TestCloudTrailLookupFilterKeysSDK covers the EventId, ResourceName,
+// ResourceType and ReadOnly lookup keys on an Amazon ECS CreateCluster, a
+// resource-bearing management event.
 func TestCloudTrailLookupFilterKeysSDK(t *testing.T) {
 	t.Parallel()
 	ct := cloudTrailClient()
@@ -63,7 +62,6 @@ func TestCloudTrailLookupFilterKeysSDK(t *testing.T) {
 		_, _ = ecsc.DeleteCluster(ctx, &ecs.DeleteClusterInput{Cluster: aws.String(cluster)})
 	})
 
-	// By EventName — locate the CreateCluster event and capture its id.
 	byName := ctLookup(t, ct, cttypes.LookupAttributeKeyEventName, "CreateCluster")
 	require.True(t, ctHasEventNamed(byName, "CreateCluster"),
 		"LookupEvents by EventName must return the CreateCluster event")
@@ -77,38 +75,33 @@ func TestCloudTrailLookupFilterKeysSDK(t *testing.T) {
 	assert.Equal(t, "ecs.amazonaws.com", src)
 	require.NotEmpty(t, eventID)
 
-	// By EventId — exact match returns that one event (previously ignored).
 	byID := ctLookup(t, ct, cttypes.LookupAttributeKeyEventId, eventID)
 	require.Len(t, byID, 1, "EventId filter must return exactly the one matching event")
 	assert.Equal(t, eventID, aws.ToString(byID[0].EventId))
 
-	// By ResourceName — the cluster name the call acted on.
 	byResName := ctLookup(t, ct, cttypes.LookupAttributeKeyResourceName, cluster)
 	require.True(t, ctHasEventNamed(byResName, "CreateCluster"),
 		"ResourceName filter must return events touching the named resource")
 
-	// By ResourceType — AWS::ECS::Cluster.
 	byResType := ctLookup(t, ct, cttypes.LookupAttributeKeyResourceType, "AWS::ECS::Cluster")
 	require.True(t, ctHasEventNamed(byResType, "CreateCluster"),
 		"ResourceType filter must return events of that resource type")
 
-	// By ReadOnly=false — a mutating call; ReadOnly=true must exclude it.
+	// ReadOnly=true excludes a mutating call.
 	rw := ctLookup(t, ct, cttypes.LookupAttributeKeyReadOnly, "false")
 	assert.True(t, ctHasEventNamed(rw, "CreateCluster"), "CreateCluster is a write event (ReadOnly=false)")
 	ro := ctLookup(t, ct, cttypes.LookupAttributeKeyReadOnly, "true")
 	assert.False(t, ctHasEventNamed(ro, "CreateCluster"), "CreateCluster must not appear under ReadOnly=true")
 
-	// Negative: a non-matching ResourceName returns nothing — proves the filter
-	// is applied, not silently ignored.
+	// A non-matching ResourceName returns nothing, so the filter applies.
 	none := ctLookup(t, ct, cttypes.LookupAttributeKeyResourceName, "no-such-resource-xyz")
 	assert.False(t, ctHasEventNamed(none, "CreateCluster"),
 		"a non-matching ResourceName filter must not return the CreateCluster event")
 }
 
-// TestCloudTrailRecordsSchedulerAPICallsSDK verifies EventBridge Scheduler REST
-// API calls are recorded in CloudTrail. Scheduler is registered off the central
-// POST / router, so CreateSchedule and the other Scheduler operations must
-// appear in LookupEvents against scheduler.amazonaws.com.
+// TestCloudTrailRecordsSchedulerAPICallsSDK expects Amazon EventBridge Scheduler
+// calls, which bypass the central POST / router, recorded against
+// scheduler.amazonaws.com.
 func TestCloudTrailRecordsSchedulerAPICallsSDK(t *testing.T) {
 	t.Parallel()
 	ct := cloudTrailClient()
@@ -138,18 +131,15 @@ func TestCloudTrailRecordsSchedulerAPICallsSDK(t *testing.T) {
 		}
 	}
 
-	// The schedule resource is filterable by name.
 	byRes := ctLookup(t, ct, cttypes.LookupAttributeKeyResourceName, name)
 	assert.True(t, ctHasEventNamed(byRes, "CreateSchedule"),
 		"the CreateSchedule event must carry the schedule as a ResourceName")
 }
 
-// TestCloudTrailRecordsSchedulerFiredTargetSDK verifies a scheduler-fired SQS
-// target actually delivers (the message lands in the queue) AND that the
-// resulting SQS SendMessage — a CloudTrail DATA event — does NOT appear in
-// LookupEvents, matching real AWS (data events aren't returned there).
-// Service-initiated MANAGEMENT targets (e.g. ECS RunTask) are still recorded with
-// invokedBy=scheduler.amazonaws.com; that path is covered by the RunTask tests.
+// TestCloudTrailRecordsSchedulerFiredTargetSDK expects a scheduler-fired Amazon
+// SQS target to deliver, while the SendMessage it makes, a data event, stays
+// out of LookupEvents. The RunTask tests cover service-initiated management
+// targets, recorded with invokedBy=scheduler.amazonaws.com.
 func TestCloudTrailRecordsSchedulerFiredTargetSDK(t *testing.T) {
 	t.Parallel()
 	ct := cloudTrailClient()
@@ -177,8 +167,6 @@ func TestCloudTrailRecordsSchedulerFiredTargetSDK(t *testing.T) {
 		_, _ = sched.DeleteSchedule(ctx, &scheduler.DeleteScheduleInput{Name: aws.String("ct-fire-sqs")})
 	})
 
-	// The scheduler really delivers: the message lands in the queue. Verify the
-	// firing by reading it off the queue — the faithful observation point.
 	delivered, err := sqsc.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{
 		QueueUrl: cq.QueueUrl, MaxNumberOfMessages: 10, WaitTimeSeconds: 20,
 	})
@@ -186,8 +174,8 @@ func TestCloudTrailRecordsSchedulerFiredTargetSDK(t *testing.T) {
 	require.Len(t, delivered.Messages, 1, "scheduler must deliver the SendMessage to the queue")
 	assert.Equal(t, "scheduled-payload", aws.ToString(delivered.Messages[0].Body))
 
-	// SQS SendMessage is a CloudTrail DATA event — it must NOT appear in
-	// LookupEvents, whether client- or scheduler-initiated.
+	// SendMessage is a data event and stays out of LookupEvents whoever initiates
+	// it.
 	for _, e := range ctLookup(t, ct, cttypes.LookupAttributeKeyEventName, "SendMessage") {
 		assert.NotEqual(t, "sqs.amazonaws.com", aws.ToString(e.EventSource),
 			"SQS SendMessage is a data event and must not appear in LookupEvents")

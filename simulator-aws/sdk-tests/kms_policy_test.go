@@ -15,10 +15,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestKMS_KeyPolicyDenyBlocksDecrypt verifies that a CMK key policy with an
-// explicit Deny statement for a principal prevents that principal from calling
-// Decrypt, while an Allow on Encrypt still succeeds. This locks issue #732:
-// the simulator must evaluate key-policy Deny at call time.
+// TestKMS_KeyPolicyDenyBlocksDecrypt expects a key policy's explicit Deny to
+// stop a principal's Decrypt at call time while its allowed Encrypt succeeds.
 func TestKMS_KeyPolicyDenyBlocksDecrypt(t *testing.T) {
 	t.Parallel()
 	adminIAM := iamClient()

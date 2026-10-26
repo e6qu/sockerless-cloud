@@ -11,11 +11,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestSQS_DLQ_RedriveOnMaxReceiveCount asserts that a message on a source queue
-// configured with a RedrivePolicy is delivered to callers up to maxReceiveCount
-// times and then silently redriven to the dead-letter queue on the next receive,
-// matching real SQS behavior. Visibility timeouts are reset to zero between
-// receives so the message reappears for each pick-up within the test.
+// TestSQS_DLQ_RedriveOnMaxReceiveCount expects a message on a queue with a
+// RedrivePolicy to be delivered maxReceiveCount times and then moved to the
+// dead-letter queue on the next receive. Each receive sets the visibility
+// timeout to zero so the message comes back.
 func TestSQS_DLQ_RedriveOnMaxReceiveCount(t *testing.T) {
 	t.Parallel()
 	client := sqsClient()
@@ -43,9 +42,8 @@ func TestSQS_DLQ_RedriveOnMaxReceiveCount(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// First two receives return the message; the third would push its
-	// ApproximateReceiveCount past maxReceiveCount, so it is redriven to
-	// the DLQ and the source queue returns empty.
+	// Two receives return the message; a third would take ApproximateReceiveCount
+	// past maxReceiveCount, so it moves to the dead-letter queue instead.
 	for i := 1; i <= 2; i++ {
 		recv, err := client.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{
 			QueueUrl:                    aws.String(srcURL),
@@ -61,7 +59,6 @@ func TestSQS_DLQ_RedriveOnMaxReceiveCount(t *testing.T) {
 			"ApproximateReceiveCount must increment per receive")
 	}
 
-	// Third receive: count would reach 3 (> maxReceiveCount=2) → redrived.
 	recv, err := client.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{
 		QueueUrl:            aws.String(srcURL),
 		MaxNumberOfMessages: 10,
@@ -70,7 +67,7 @@ func TestSQS_DLQ_RedriveOnMaxReceiveCount(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, recv.Messages, "source queue must be empty after the redrive")
 
-	// The message now lives on the DLQ with a fresh id and reset count.
+	// On the dead-letter queue the message has a new id and a reset count.
 	dlqRecv, err := client.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{
 		QueueUrl:                    aws.String(dlqURL),
 		MaxNumberOfMessages:         10,
@@ -83,7 +80,6 @@ func TestSQS_DLQ_RedriveOnMaxReceiveCount(t *testing.T) {
 		dlqRecv.Messages[0].Attributes["ApproximateReceiveCount"],
 		"DLQ must track its own receive count from zero")
 
-	// Source-queue depth attribute must reflect the absence.
 	srcAttrs, err := client.GetQueueAttributes(ctx, &sqs.GetQueueAttributesInput{
 		QueueUrl:       aws.String(srcURL),
 		AttributeNames: []sqstypes.QueueAttributeName{sqstypes.QueueAttributeNameApproximateNumberOfMessages},
@@ -92,8 +88,8 @@ func TestSQS_DLQ_RedriveOnMaxReceiveCount(t *testing.T) {
 	assert.Equal(t, "0", srcAttrs.Attributes["ApproximateNumberOfMessages"])
 }
 
-// sqsRedrivePolicyJSONCount builds a RedrivePolicy attribute string with an
-// explicit maxReceiveCount, since the SDK stores both fields as JSON strings.
+// sqsRedrivePolicyJSONCount builds a RedrivePolicy with an explicit
+// maxReceiveCount; the attribute is a JSON string.
 func sqsRedrivePolicyJSONCount(t *testing.T, dlqARN string, maxReceiveCount int) string {
 	t.Helper()
 	return `{"deadLetterTargetArn":"` + dlqARN +

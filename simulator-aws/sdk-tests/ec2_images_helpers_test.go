@@ -10,8 +10,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The public AMIs the tests launch, resolved through DescribeImages by owner
-// and name the way a client finds an AMI on AWS, once per process.
+// The public AMIs the tests launch, resolved once per process through
+// DescribeImages by owner and name, as a client finds an AMI on AWS.
 var (
 	ec2PublicAMIMu sync.Mutex
 	ec2PublicAMIs  = map[string]string{}
@@ -40,7 +40,6 @@ func ec2PublicAMI(t *testing.T, owner, namePattern string) string {
 	return id
 }
 
-// ec2AmazonLinuxAMI is the Amazon Linux 2023 x86_64 AMI.
 func ec2AmazonLinuxAMI(t *testing.T) string {
 	return ec2PublicAMI(t, "amazon", "al2023-ami-2023.*-kernel-6.1-x86_64")
 }

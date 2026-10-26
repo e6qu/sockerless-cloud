@@ -10,15 +10,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// patch builds a single replace PatchOperation.
 func apigwPatch(path, value string) apigwtypes.PatchOperation {
 	return apigwtypes.PatchOperation{Op: apigwtypes.OpReplace, Path: aws.String(path), Value: aws.String(value)}
 }
 
-// TestAPIGateway_UpdateLifecycle drives the full REST-API resource tree through
-// its Update* operations: UpdateRestApi, UpdateResource, UpdateMethod,
-// UpdateMethodResponse, UpdateIntegration, UpdateModel, UpdateRequestValidator,
-// UpdateDeployment, UpdateStage — each a PATCH against the stored resource.
+// TestAPIGateway_UpdateLifecycle patches each part of the REST API resource
+// tree: UpdateRestApi, UpdateResource, UpdateMethod, UpdateMethodResponse,
+// UpdateIntegration, UpdateModel, UpdateRequestValidator, UpdateDeployment
+// and UpdateStage.
 func TestAPIGateway_UpdateLifecycle(t *testing.T) {
 	t.Parallel()
 	c := apigwClient()
@@ -134,13 +133,11 @@ func TestAPIGateway_UpdateLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, aws.ToString(dep2.Id), aws.ToString(upStage.DeploymentId))
 
-	// FlushStageCache + FlushStageAuthorizersCache on the deployed stage.
 	_, err = c.FlushStageCache(ctx, &apigateway.FlushStageCacheInput{RestApiId: aws.String(apiId), StageName: aws.String("prod")})
 	require.NoError(t, err)
 	_, err = c.FlushStageAuthorizersCache(ctx, &apigateway.FlushStageAuthorizersCacheInput{RestApiId: aws.String(apiId), StageName: aws.String("prod")})
 	require.NoError(t, err)
 
-	// TestInvokeMethod against the stored GET method.
 	ti, err := c.TestInvokeMethod(ctx, &apigateway.TestInvokeMethodInput{
 		RestApiId: aws.String(apiId), ResourceId: aws.String(resId), HttpMethod: aws.String("GET"),
 		PathWithQueryString: aws.String("/gadgets"),
@@ -149,7 +146,6 @@ func TestAPIGateway_UpdateLifecycle(t *testing.T) {
 	assert.Equal(t, int32(200), ti.Status)
 	assert.NotEmpty(t, aws.ToString(ti.Log))
 
-	// TestInvokeAuthorizer against a stored authorizer.
 	authz, err := c.CreateAuthorizer(ctx, &apigateway.CreateAuthorizerInput{
 		RestApiId: aws.String(apiId), Name: aws.String("authz"),
 		Type: apigwtypes.AuthorizerTypeToken, IdentitySource: aws.String("method.request.header.Authorization"),
@@ -165,8 +161,6 @@ func TestAPIGateway_UpdateLifecycle(t *testing.T) {
 	assert.Equal(t, "test-principal", aws.ToString(ta.PrincipalId))
 }
 
-// TestAPIGateway_ImportAndTag covers ImportRestApi, PutRestApi, ImportApiKeys,
-// TagResource and UntagResource.
 func TestAPIGateway_ImportAndTag(t *testing.T) {
 	t.Parallel()
 	c := apigwClient()
@@ -179,7 +173,6 @@ func TestAPIGateway_ImportAndTag(t *testing.T) {
 	t.Cleanup(func() { _, _ = c.DeleteRestApi(ctx, &apigateway.DeleteRestApiInput{RestApiId: aws.String(impId)}) })
 	assert.Equal(t, "imported-api", aws.ToString(imp.Name))
 
-	// Imported resource tree carries the /ping resource.
 	resources, err := c.GetResources(ctx, &apigateway.GetResourcesInput{RestApiId: aws.String(impId)})
 	require.NoError(t, err)
 	var hasPing bool
@@ -190,7 +183,7 @@ func TestAPIGateway_ImportAndTag(t *testing.T) {
 	}
 	assert.True(t, hasPing, "imported API should carry the /ping resource")
 
-	// PutRestApi overwrites the resource tree from a fresh OpenAPI body.
+	// PutRestApi replaces the resource tree with the new OpenAPI body.
 	openapi2 := []byte(`{"openapi":"3.0.1","info":{"title":"imported-api","version":"2.0"},"paths":{"/pong":{"post":{"responses":{"200":{"description":"ok"}}}}}}`)
 	_, err = c.PutRestApi(ctx, &apigateway.PutRestApiInput{
 		RestApiId: aws.String(impId), Body: openapi2, Mode: apigwtypes.PutModeOverwrite,
@@ -210,7 +203,6 @@ func TestAPIGateway_ImportAndTag(t *testing.T) {
 	assert.True(t, hasPong, "overwrite should add /pong")
 	assert.False(t, stillPing, "overwrite should drop /ping")
 
-	// ImportApiKeys bulk-creates keys from a CSV payload.
 	csv := []byte("name,key\nkey-one,abcdefghij1234567890\nkey-two,zyxwvutsrq0987654321\n")
 	impKeys, err := c.ImportApiKeys(ctx, &apigateway.ImportApiKeysInput{
 		Body: csv, Format: apigwtypes.ApiKeysFormatCsv,
@@ -221,7 +213,6 @@ func TestAPIGateway_ImportAndTag(t *testing.T) {
 		t.Cleanup(func() { _, _ = c.DeleteApiKey(ctx, &apigateway.DeleteApiKeyInput{ApiKey: aws.String(id)}) })
 	}
 
-	// TagResource + UntagResource on the imported REST API's ARN.
 	arn := "arn:aws:apigateway:us-east-1::/restapis/" + impId
 	_, err = c.TagResource(ctx, &apigateway.TagResourceInput{
 		ResourceArn: aws.String(arn), Tags: map[string]string{"team": "platform", "env": "test"},
@@ -242,15 +233,13 @@ func TestAPIGateway_ImportAndTag(t *testing.T) {
 	assert.Equal(t, "platform", tags2.Tags["team"])
 }
 
-// TestAPIGateway_DomainVpcUsageAndAccess covers UpdateDomainName, UpdateVpcLink,
-// UpdateUsage, and the domain-name access-association operations
-// (CreateDomainNameAccessAssociation, GetDomainNameAccessAssociations,
-// RejectDomainNameAccessAssociation, DeleteDomainNameAccessAssociation).
+// TestAPIGateway_DomainVpcUsageAndAccess covers UpdateDomainName,
+// UpdateVpcLink, UpdateUsage and the domain-name access-association
+// operations.
 func TestAPIGateway_DomainVpcUsageAndAccess(t *testing.T) {
 	t.Parallel()
 	c := apigwClient()
 
-	// UpdateDomainName patches a custom domain's certificate settings.
 	upDomain, err := c.UpdateDomainName(ctx, &apigateway.UpdateDomainNameInput{
 		DomainName:      aws.String("api.example.com"),
 		PatchOperations: []apigwtypes.PatchOperation{apigwPatch("/certificateName", "prod-cert")},
@@ -258,7 +247,6 @@ func TestAPIGateway_DomainVpcUsageAndAccess(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "prod-cert", aws.ToString(upDomain.CertificateName))
 
-	// UpdateVpcLink patches a VPC link's name.
 	upLink, err := c.UpdateVpcLink(ctx, &apigateway.UpdateVpcLinkInput{
 		VpcLinkId:       aws.String("vpclink-1"),
 		PatchOperations: []apigwtypes.PatchOperation{apigwPatch("/name", "private-backends")},
@@ -266,7 +254,6 @@ func TestAPIGateway_DomainVpcUsageAndAccess(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "private-backends", aws.ToString(upLink.Name))
 
-	// UpdateUsage against a usage-plan key.
 	up, err := c.CreateUsagePlan(ctx, &apigateway.CreateUsagePlanInput{
 		Name:  aws.String("plan"),
 		Quota: &apigwtypes.QuotaSettings{Limit: 1000, Period: apigwtypes.QuotaPeriodTypeMonth},
@@ -290,7 +277,6 @@ func TestAPIGateway_DomainVpcUsageAndAccess(t *testing.T) {
 	assert.Equal(t, upId, aws.ToString(usage.UsagePlanId))
 	require.Contains(t, usage.Items, keyId)
 
-	// Domain-name access associations.
 	assoc, err := c.CreateDomainNameAccessAssociation(ctx, &apigateway.CreateDomainNameAccessAssociationInput{
 		DomainNameArn:               aws.String("arn:aws:apigateway:us-east-1::/domainnames/api.example.com"),
 		AccessAssociationSource:     aws.String("arn:aws:ec2:us-east-1:111122223333:vpc-endpoint/vpce-123"),
@@ -310,7 +296,7 @@ func TestAPIGateway_DomainVpcUsageAndAccess(t *testing.T) {
 	}
 	assert.True(t, found, "created access association should be listed")
 
-	// Reject removes a pending association; create a second one to reject.
+	// Reject removes a pending association, so create a second one to reject.
 	assoc2, err := c.CreateDomainNameAccessAssociation(ctx, &apigateway.CreateDomainNameAccessAssociationInput{
 		DomainNameArn:               aws.String("arn:aws:apigateway:us-east-1::/domainnames/api2.example.com"),
 		AccessAssociationSource:     aws.String("arn:aws:ec2:us-east-1:111122223333:vpc-endpoint/vpce-456"),

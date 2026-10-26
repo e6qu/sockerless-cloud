@@ -19,10 +19,8 @@ import (
 	"golang.org/x/crypto/acme"
 )
 
-// acmHostedZoneID strips the "/hostedzone/" Amazon Route 53 prefixes onto the
-// id it returns. AWS Certificate Manager's HostedZoneId admits the bare id
-// alone, so a caller carrying one API's answer into the other's request has to
-// strip it — exactly as here.
+// acmHostedZoneID strips the "/hostedzone/" prefix Route 53 puts on the id it
+// returns: ACM's HostedZoneId takes the bare id.
 func acmHostedZoneID(route53ID *string) string {
 	return strings.TrimPrefix(aws.ToString(route53ID), "/hostedzone/")
 }

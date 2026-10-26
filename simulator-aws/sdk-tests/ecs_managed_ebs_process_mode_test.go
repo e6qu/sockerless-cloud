@@ -19,22 +19,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// startProcessModeSim starts a second simulator-aws instance with
-// SIM_RUNTIME=process (the API-only mode that never initialises a Docker
-// client) on a fresh port and returns its base URL. Reuses the binary
-// TestMain already built. Killed on test cleanup.
+// startProcessModeSim starts another simulator-aws from TestMain's binary with
+// SIM_RUNTIME=process, which never creates a Docker client, and returns its base
+// URL.
 func startProcessModeSim(t *testing.T) string {
 	t.Helper()
-	// The coordinates come from freeSimulatorPortPair, which probes TCP and UDP
-	// together — the Route 53 listener the simulator binds needs both — and
-	// cannot hand back the port the HTTP listener is about to take.
-	//
-	// A probe only holds a port until it returns it, so another process can
-	// still take it in the window before the simulator binds. The simulator
-	// then exits on the bind, and waiting on its health endpoint would spend
-	// its whole budget reporting a refused connection instead of the bind that
-	// actually failed. Watch the process instead: if it exits before it is
-	// healthy, start again on fresh coordinates.
+	// freeSimulatorPortPair probes TCP and UDP together, since the Route 53
+	// listener binds both. Another process can still take a port before the
+	// simulator binds it, and the simulator then exits; waiting on its health
+	// endpoint would only report refused connections, so watch the process and
+	// retry on fresh ports if it exits before it is healthy.
 	const attempts = 5
 	var lastErr error
 	for attempt := 1; attempt <= attempts; attempt++ {
@@ -72,11 +66,9 @@ func startProcessModeSim(t *testing.T) string {
 	return ""
 }
 
-// TestECS_ManagedEBSRunTaskProcessMode: a managed-EBS RunTask under
-// SIM_RUNTIME=process must not panic the simulator on the nil Docker client.
-// The managed-EBS volume is host-path-backed in process mode (the same
-// in-memory model ec2:CreateVolume uses), so the transition completes and the
-// simulator keeps serving.
+// TestECS_ManagedEBSRunTaskProcessMode runs a managed-EBS task under
+// SIM_RUNTIME=process, where a host path backs the volume as it backs
+// ec2:CreateVolume, and the simulator keeps serving.
 func TestECS_ManagedEBSRunTaskProcessMode(t *testing.T) {
 	t.Parallel()
 	url := startProcessModeSim(t)
@@ -146,8 +138,7 @@ func TestECS_ManagedEBSRunTaskProcessMode(t *testing.T) {
 				RoleArn:    role.Role.Arn,
 				SizeInGiB:  aws.Int32(1),
 				VolumeType: aws.String("gp3"),
-				// deleteOnTermination=true exercises the cleanup path that
-				// dereferenced the nil Docker client and crashed the sim.
+				// deleteOnTermination=true runs the volume cleanup without a Docker client.
 				TerminationPolicy: &ecstypes.TaskManagedEBSVolumeTerminationPolicy{
 					DeleteOnTermination: aws.Bool(true),
 				},
@@ -159,9 +150,8 @@ func TestECS_ManagedEBSRunTaskProcessMode(t *testing.T) {
 	taskArn := aws.ToString(runOut.Tasks[0].TaskArn)
 	require.NotEmpty(t, taskArn)
 
-	// The task's termination runs the deleteOnTermination volume cleanup (the
-	// crash site): wait for the task to stop and for its volume to be deleted,
-	// which a panicking simulator never reports.
+	// Wait for the task to stop and its volume to be deleted, which a crashed
+	// simulator never reports.
 	stopped, err := ecs.NewTasksStoppedWaiter(ecsc, func(o *ecs.TasksStoppedWaiterOptions) {
 		o.MinDelay = waiterMinDelay
 		o.MaxDelay = waiterMaxDelay
@@ -185,7 +175,7 @@ func TestECS_ManagedEBSRunTaskProcessMode(t *testing.T) {
 	}).Wait(ctx, &ec2.DescribeVolumesInput{VolumeIds: []string{volumeID}}, time.Minute),
 		"deleteOnTermination must delete the task's managed Amazon EBS volume")
 
-	// Final liveness proof on an unrelated control-plane call.
+	// An unrelated control-plane call proves the simulator is alive.
 	_, err = ecsc.ListClusters(ctx, &ecs.ListClustersInput{})
 	require.NoError(t, err, "simulator must still be alive after a process-mode managed-EBS RunTask")
 	assert.Contains(t, taskArn, "task/")

@@ -29,23 +29,19 @@ func rdsAccountQuotas(t *testing.T, c *rds.Client) map[string][2]int64 {
 	return rdsAccountQuotaUsage(t, out)
 }
 
-// TestRDS_DescribeAccountAttributes covers DescribeAccountAttributes: it takes
-// no parameters and reports each Amazon RDS account quota with the account's
-// current usage. The usage must track the account's real resources, so the test
-// measures a baseline, reserves capacity, creates a DB instance in it and a
-// subnet group, and asserts the exact deltas the new resources produce. The
-// DBInstances quota counts the DB instances and the unused capacity of the
-// reservations, and a reservation that would exceed it is refused.
+// TestRDS_DescribeAccountAttributes expects each Amazon RDS account quota with
+// the account's usage, tracking real resources: it measures a baseline,
+// reserves capacity, creates a DB instance in it and a subnet group, and
+// asserts the exact deltas. DBInstances counts instances and reservations'
+// unused capacity, and a reservation exceeding it is refused.
 //
-// The Terraform AWS provider exposes no resource or data source that reads RDS
-// account quotas, so this operation's client coverage is SDK + CLI
-// (cli-tests/rds_account_attributes_test.go).
+// terraform-provider-aws reads no RDS account quotas, so SDK and CLI
+// (cli-tests/rds_account_attributes_test.go) cover this operation.
 func TestRDS_DescribeAccountAttributes(t *testing.T) {
 	c := rdsClient()
 	base := rdsAccountQuotas(t, c)
 
-	// Every quota Amazon RDS documents for an account must be present, with a
-	// nonzero maximum.
+	// Every quota Amazon RDS documents is present with a nonzero maximum.
 	for _, name := range []string{
 		"DBInstances", "ReservedDBInstances", "AllocatedStorage", "DBSecurityGroups",
 		"AuthorizationsPerDBSecurityGroup", "DBParameterGroups", "ManualSnapshots",
@@ -61,8 +57,8 @@ func TestRDS_DescribeAccountAttributes(t *testing.T) {
 	assert.Equal(t, int64(40), base["DBInstances"][1])
 	assert.Equal(t, int64(100000), base["AllocatedStorage"][1])
 
-	// A reservation of two DB instances in each of two Availability Zones
-	// counts four against the DBInstances quota while nothing uses it.
+	// A reservation of two DB instances in each of two Availability Zones counts
+	// four against DBInstances while unused.
 	reservation := "acct-attr-reservation"
 	reserved, err := c.CreateDBCapacityReservation(ctx, &rds.CreateDBCapacityReservationInput{
 		DBCapacityReservationName:   aws.String(reservation),
@@ -118,9 +114,8 @@ func TestRDS_DescribeAccountAttributes(t *testing.T) {
 	assert.GreaterOrEqual(t, now["SubnetsPerDBSubnetGroup"][0], int64(3),
 		"SubnetsPerDBSubnetGroup reports the highest subnet count of any subnet group")
 
-	// A reservation whose capacity would exceed the remaining quota is refused,
-	// and so is an increase of an existing reservation past it; a decrease is
-	// not checked.
+	// A reservation, or an increase of one, past the remaining quota is refused; a
+	// decrease is not checked.
 	remaining := now["DBInstances"][1] - now["DBInstances"][0]
 	_, err = c.CreateDBCapacityReservation(ctx, &rds.CreateDBCapacityReservationInput{
 		DBCapacityReservationName:   aws.String("acct-attr-over-quota"),

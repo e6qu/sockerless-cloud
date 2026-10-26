@@ -49,11 +49,11 @@ func TestECSTaskMetadataV4_UnknownTask(t *testing.T) {
 	require.Equal(t, http.StatusNotFound, resp.StatusCode)
 }
 
-// An instance reads its own identity, placement, tags and profile from the
+// An instance reads its identity, placement, tags and profile from the
 // instance metadata service under an IMDSv2 token: a tag's value at
 // /latest/meta-data/tags/instance/{key}, and at
-// /latest/meta-data/iam/security-credentials/{role} a session of its
-// profile's role named for the instance.
+// /latest/meta-data/iam/security-credentials/{role} a session of its profile's
+// role named for the instance.
 func TestIMDS_InstanceReadsItsOwnMetadataAndRoleSession(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -130,9 +130,9 @@ curl -sS -H "X-aws-ec2-metadata-token: $token" "${AWS_EC2_METADATA_SERVICE_ENDPO
 	region := imds("/latest/meta-data/placement/region")
 	assert.True(t, strings.HasPrefix(aws.ToString(subnets.Subnets[0].AvailabilityZone), region), "zone %s lies in region %s", aws.ToString(subnets.Subnets[0].AvailabilityZone), region)
 
-	// The interface the instance holds is the one the API reports: its MAC
-	// is the guest's own, and its private DNS name resolves to its address
-	// through the VPC's resolver.
+	// The instance holds the interface the API reports: its MAC is the guest's,
+	// and its private DNS name resolves to its address through the VPC's
+	// resolver.
 	require.Len(t, inst.NetworkInterfaces, 1)
 	eni := inst.NetworkInterfaces[0]
 	mac := aws.ToString(eni.MacAddress)
@@ -158,9 +158,8 @@ curl -sS -H "X-aws-ec2-metadata-token: $token" "${AWS_EC2_METADATA_SERVICE_ENDPO
 	assert.Equal(t, "10.217.0.0/16", macKey("vpc-ipv4-cidr-block"))
 	assert.Equal(t, aws.ToString(inst.PrivateIpAddress), macKey("local-ipv4s"))
 
-	// An Elastic IP address associated with the instance appears under the
-	// interface's public addresses, and ipv4-associations maps it to the
-	// private address it is associated with.
+	// An associated Elastic IP address appears under the interface's public
+	// addresses, and ipv4-associations maps it to its private address.
 	assert.Equal(t, "404", status(`-H "X-aws-ec2-metadata-token: $(curl -sS -X PUT "${AWS_EC2_METADATA_SERVICE_ENDPOINT}latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 60")" "${AWS_EC2_METADATA_SERVICE_ENDPOINT}latest/meta-data/network/interfaces/macs/`+mac+`/public-ipv4s"`),
 		"an interface without a public address has no public-ipv4s")
 	eip, err := c.AllocateAddress(ctx, &ec2.AllocateAddressInput{Domain: types.DomainTypeVpc})
@@ -215,8 +214,8 @@ curl -sS -H "X-aws-ec2-metadata-token: $token" "${AWS_EC2_METADATA_SERVICE_ENDPO
 	assert.Equal(t, aws.ToString(inst.PrivateIpAddress), document.PrivateIP)
 	assert.Equal(t, region, document.Region)
 
-	// The session the instance holds is its profile role's, named for the
-	// instance, in the instance's own account.
+	// The instance's session is its profile role's, named for the instance, in its
+	// own account.
 	sessionSTS := sts.NewFromConfig(sdkConfig(), func(o *sts.Options) {
 		o.BaseEndpoint = aws.String(baseURL)
 		o.Credentials = credentials.NewStaticCredentialsProvider(cred.AccessKeyId, cred.SecretAccessKey, cred.Token)

@@ -14,10 +14,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestEventBridgeAndScheduler_StartStepFunctionsExecutions_SDK validates both
-// AWS-managed event paths with official clients: an EventBridge rule and an
-// EventBridge Scheduler one-time schedule each start a real AWS Step Functions
-// execution that reaches SUCCEEDED.
+// TestEventBridgeAndScheduler_StartStepFunctionsExecutions_SDK expects an
+// EventBridge rule and an EventBridge Scheduler one-time schedule each to start
+// an AWS Step Functions execution that reaches SUCCEEDED.
 func TestEventBridgeAndScheduler_StartStepFunctionsExecutions_SDK(t *testing.T) {
 	t.Parallel()
 	stepFunctions := sfnClient()

@@ -13,12 +13,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestS3_Bucket_Versioning_RoundTrip locks the invariant: PUT
-// `/{bucket}?versioning` must route to the bucket-subresource
-// dispatcher and persist the configuration, GET must return the
-// same configuration back. A regression that re-routes the PUT
-// to CreateBucket would surface as 409 BucketAlreadyOwnedByYou
-// and fail this test.
+// TestS3_Bucket_Versioning_RoundTrip expects PUT /{bucket}?versioning to store
+// the configuration GET returns, not to create the bucket and answer 409
+// BucketAlreadyOwnedByYou.
 func TestS3_Bucket_Versioning_RoundTrip(t *testing.T) {
 	t.Parallel()
 	c := s3Client()
@@ -40,9 +37,6 @@ func TestS3_Bucket_Versioning_RoundTrip(t *testing.T) {
 		"GetBucketVersioning must return the previously-PUT Enabled status")
 }
 
-// TestS3_Bucket_Lifecycle_RoundTrip exercises Put → Get → Delete on
-// the bucket lifecycle subresource — the lifecycle config has both
-// PUT and DELETE shapes; both must be wired (not just PUT).
 func TestS3_Bucket_Lifecycle_RoundTrip(t *testing.T) {
 	t.Parallel()
 	c := s3Client()
@@ -50,14 +44,13 @@ func TestS3_Bucket_Lifecycle_RoundTrip(t *testing.T) {
 	bucket := "lifecycle-bucket"
 	s3CreateBucket(t, c, bucket)
 
-	// Initial Get → canonical empty-config 404.
+	// A bucket without a configuration answers 404.
 	_, err := c.GetBucketLifecycleConfiguration(ctx, &s3.GetBucketLifecycleConfigurationInput{Bucket: aws.String(bucket)})
 	require.Error(t, err, "initial GetBucketLifecycleConfiguration must 404")
 	var apiErr smithy.APIError
 	require.True(t, errors.As(err, &apiErr))
 	assert.Equal(t, "NoSuchLifecycleConfiguration", apiErr.ErrorCode())
 
-	// PUT a rule.
 	put, err := c.PutBucketLifecycleConfiguration(ctx, &s3.PutBucketLifecycleConfigurationInput{
 		Bucket:                             aws.String(bucket),
 		TransitionDefaultMinimumObjectSize: types.TransitionDefaultMinimumObjectSizeVariesByStorageClass,
@@ -78,7 +71,6 @@ func TestS3_Bucket_Lifecycle_RoundTrip(t *testing.T) {
 	assert.Equal(t, types.TransitionDefaultMinimumObjectSizeVariesByStorageClass, put.TransitionDefaultMinimumObjectSize,
 		"PutBucketLifecycleConfiguration must echo the transition default minimum object size header")
 
-	// Get round-trips.
 	get, err := c.GetBucketLifecycleConfiguration(ctx, &s3.GetBucketLifecycleConfigurationInput{Bucket: aws.String(bucket)})
 	require.NoError(t, err, "GetBucketLifecycleConfiguration must return the PUT config")
 	require.Len(t, get.Rules, 1)
@@ -86,16 +78,13 @@ func TestS3_Bucket_Lifecycle_RoundTrip(t *testing.T) {
 	assert.Equal(t, types.TransitionDefaultMinimumObjectSizeVariesByStorageClass, get.TransitionDefaultMinimumObjectSize,
 		"GetBucketLifecycleConfiguration must return the stored transition default minimum object size header")
 
-	// Delete clears the config.
 	_, err = c.DeleteBucketLifecycle(ctx, &s3.DeleteBucketLifecycleInput{Bucket: aws.String(bucket)})
 	require.NoError(t, err)
 
-	// Subsequent Get is 404 again.
 	_, err = c.GetBucketLifecycleConfiguration(ctx, &s3.GetBucketLifecycleConfigurationInput{Bucket: aws.String(bucket)})
 	require.Error(t, err, "post-delete GetBucketLifecycleConfiguration must 404")
 }
 
-// TestS3_Bucket_Cors_RoundTrip covers the bucket CORS subresource.
 func TestS3_Bucket_Cors_RoundTrip(t *testing.T) {
 	t.Parallel()
 	c := s3Client()
@@ -126,9 +115,8 @@ func TestS3_Bucket_Cors_RoundTrip(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestS3_Bucket_Policy_RoundTrip covers the bucket policy
-// subresource — PUT body is a JSON IAM policy document (not XML);
-// the dispatcher must accept either content type.
+// TestS3_Bucket_Policy_RoundTrip covers the bucket policy, whose PUT body is a
+// JSON policy document rather than XML.
 func TestS3_Bucket_Policy_RoundTrip(t *testing.T) {
 	t.Parallel()
 	c := s3Client()
@@ -156,8 +144,6 @@ func TestS3_Bucket_Policy_RoundTrip(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestS3_Bucket_Encryption_RoundTrip covers
-// PutBucketEncryption / GetBucketEncryption / DeleteBucketEncryption.
 func TestS3_Bucket_Encryption_RoundTrip(t *testing.T) {
 	t.Parallel()
 	c := s3Client()
@@ -189,8 +175,6 @@ func TestS3_Bucket_Encryption_RoundTrip(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestS3_Bucket_Tagging_RoundTrip covers the bucket-level tagging
-// subresource. Distinct from object tagging (which already worked).
 func TestS3_Bucket_Tagging_RoundTrip(t *testing.T) {
 	t.Parallel()
 	c := s3Client()
@@ -217,9 +201,8 @@ func TestS3_Bucket_Tagging_RoundTrip(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestS3_Bucket_Website_RoundTrip covers the bucket-website
-// subresource — locks in the per-subresource success-status fidelity
-// (Website is 200 OK, distinct from Policy's 204 No Content).
+// TestS3_Bucket_Website_RoundTrip expects the website subresource to answer 200
+// OK, where the policy answers 204 No Content.
 func TestS3_Bucket_Website_RoundTrip(t *testing.T) {
 	t.Parallel()
 	c := s3Client()

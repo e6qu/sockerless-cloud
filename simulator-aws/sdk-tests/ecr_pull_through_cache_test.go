@@ -16,14 +16,9 @@ import (
 )
 
 // A pull through a cache rule creates the repository and caches the upstream
-// image in it.
-//
-// The registry accepted pull-through cache rules and served them back, and then
-// refused every pull through one with `NAME_UNKNOWN` — the repository a rule
-// covers does not exist until something has been pulled through it, which is
-// the whole of what the feature does. This drives the documented flow with the
-// official SDK for the rule and a real registry client for the pull, and
-// asserts the image that comes back is the upstream image's own content.
+// image in it: the repository a rule covers exists only once something is
+// pulled through it. The SDK sets the rule, a registry client pulls, and the
+// image that comes back is the upstream image's own content.
 func TestECR_PullThroughCacheHydratesFromTheUpstreamRegistry(t *testing.T) {
 	t.Parallel()
 	client := ecrClient()
@@ -41,16 +36,12 @@ func TestECR_PullThroughCacheHydratesFromTheUpstreamRegistry(t *testing.T) {
 		require.ErrorAs(t, err, &exists)
 	}
 
-	// Nothing has been pulled through the rule yet, so the repository it covers
-	// does not exist.
 	_, err = client.DescribeRepositories(ctx, &ecr.DescribeRepositoriesInput{
 		RepositoryNames: []string{repo},
 	})
 	var missing *ecrtypes.RepositoryNotFoundException
 	require.ErrorAs(t, err, &missing, "the rule must not create its repository before a pull")
 
-	// The pull. The manifest comes back rather than the NAME_UNKNOWN the
-	// registry used to answer.
 	resp := ociDo(t, http.MethodGet, baseURL+"/v2/"+repo+"/manifests/"+tag, nil, "")
 	manifestBody, readErr := io.ReadAll(resp.Body)
 	resp.Body.Close()
@@ -72,8 +63,7 @@ func TestECR_PullThroughCacheHydratesFromTheUpstreamRegistry(t *testing.T) {
 	require.NoError(t, json.Unmarshal(manifestBody, &manifest))
 	require.NotEmpty(t, manifest.Layers, "a cached image must carry the upstream image's layers")
 
-	// The layers are really there: the cache holds the upstream content, not a
-	// manifest describing content it does not have.
+	// The cache holds the upstream layers, not only a manifest describing them.
 	for _, layer := range manifest.Layers {
 		blob := ociDo(t, http.MethodGet, baseURL+"/v2/"+repo+"/blobs/"+layer.Digest, nil, "")
 		data, err := io.ReadAll(blob.Body)
@@ -83,8 +73,8 @@ func TestECR_PullThroughCacheHydratesFromTheUpstreamRegistry(t *testing.T) {
 		require.Equal(t, layer.Size, int64(len(data)), "cached layer %s is truncated", layer.Digest)
 	}
 
-	// The config blob is the upstream image's own: it names the architecture
-	// and operating system the upstream image was built for.
+	// The config blob names the architecture and operating system the upstream
+	// image was built for.
 	config := ociDo(t, http.MethodGet, baseURL+"/v2/"+repo+"/blobs/"+manifest.Config.Digest, nil, "")
 	configData, err := io.ReadAll(config.Body)
 	config.Body.Close()
@@ -102,9 +92,8 @@ func TestECR_PullThroughCacheHydratesFromTheUpstreamRegistry(t *testing.T) {
 	assert.Equal(t, "linux", imageConfig.OS)
 	assert.Len(t, imageConfig.RootFS.DiffIDs, len(manifest.Layers))
 
-	// Amazon ECR created the repository as part of the pull, and the cached
-	// image is one the control plane can see — the cache is registry state, not
-	// a pass-through.
+	// Amazon ECR created the repository during the pull, and the control plane
+	// sees the cached image.
 	described, err := client.DescribeRepositories(ctx, &ecr.DescribeRepositoriesInput{
 		RepositoryNames: []string{repo},
 	})

@@ -10,8 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestLogs_AccountPolicyRoundTrip covers PutAccountPolicy, DescribeAccountPolicies,
-// and DeleteAccountPolicy for a CloudWatch Logs account-level policy.
 func TestLogs_AccountPolicyRoundTrip(t *testing.T) {
 	cw := cwLogsClient()
 	doc := `{"Rules":[{"DataIdentifier":["arn:aws:dataprotection::aws:data-identifier/EmailAddress"],"Operation":{"Deidentify":{"MaskConfig":{}}}}]}`
@@ -52,8 +50,6 @@ func TestLogs_AccountPolicyRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestLogs_QueryDefinitionRoundTrip covers PutQueryDefinition, DescribeQueryDefinitions,
-// and DeleteQueryDefinition.
 func TestLogs_QueryDefinitionRoundTrip(t *testing.T) {
 	t.Parallel()
 	cw := cwLogsClient()
@@ -81,7 +77,6 @@ func TestLogs_QueryDefinitionRoundTrip(t *testing.T) {
 	}
 	assert.True(t, found, "query definition should be listed")
 
-	// Update in place via the returned id.
 	put2, err := cw.PutQueryDefinition(ctx, &cloudwatchlogs.PutQueryDefinitionInput{
 		Name:              aws.String("test-query-def"),
 		QueryString:       aws.String("fields @message"),
@@ -97,8 +92,6 @@ func TestLogs_QueryDefinitionRoundTrip(t *testing.T) {
 	assert.True(t, del.Success)
 }
 
-// TestLogs_ResourcePolicyRoundTrip covers PutResourcePolicy, DescribeResourcePolicies,
-// and DeleteResourcePolicy.
 func TestLogs_ResourcePolicyRoundTrip(t *testing.T) {
 	t.Parallel()
 	cw := cwLogsClient()
@@ -128,8 +121,6 @@ func TestLogs_ResourcePolicyRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestLogs_DestinationRoundTrip covers PutDestination, DescribeDestinations,
-// PutDestinationPolicy, and DeleteDestination for a cross-account destination.
 func TestLogs_DestinationRoundTrip(t *testing.T) {
 	t.Parallel()
 	cw := cwLogsClient()
@@ -169,9 +160,6 @@ func TestLogs_DestinationRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestLogs_DeliveryRoundTrip covers the full vended-log delivery surface:
-// delivery sources, delivery destinations (+ their policies), and the delivery
-// that links a source to a destination.
 func TestLogs_DeliveryRoundTrip(t *testing.T) {
 	t.Parallel()
 	cw := cwLogsClient()
@@ -180,7 +168,6 @@ func TestLogs_DeliveryRoundTrip(t *testing.T) {
 	defer cw.DeleteDeliverySource(ctx, &cloudwatchlogs.DeleteDeliverySourceInput{Name: aws.String(srcName)})
 	defer cw.DeleteDeliveryDestination(ctx, &cloudwatchlogs.DeleteDeliveryDestinationInput{Name: aws.String(dstName)})
 
-	// Delivery source.
 	srcPut, err := cw.PutDeliverySource(ctx, &cloudwatchlogs.PutDeliverySourceInput{
 		Name:        aws.String(srcName),
 		LogType:     aws.String("APPLICATION_LOGS"),
@@ -198,7 +185,6 @@ func TestLogs_DeliveryRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, srcList.DeliverySources)
 
-	// Delivery destination (an S3 bucket).
 	dstPut, err := cw.PutDeliveryDestination(ctx, &cloudwatchlogs.PutDeliveryDestinationInput{
 		Name:                    aws.String(dstName),
 		DeliveryDestinationType: cwlogtypes.DeliveryDestinationTypeS3,
@@ -220,7 +206,6 @@ func TestLogs_DeliveryRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, dstList.DeliveryDestinations)
 
-	// Delivery destination policy.
 	polDoc := `{"Version":"2012-10-17","Statement":[{"Sid":"Allow","Effect":"Allow","Principal":{"Service":"delivery.logs.amazonaws.com"},"Action":"logs:CreateDelivery","Resource":"*"}]}`
 	_, err = cw.PutDeliveryDestinationPolicy(ctx, &cloudwatchlogs.PutDeliveryDestinationPolicyInput{
 		DeliveryDestinationName:   aws.String(dstName),
@@ -235,7 +220,6 @@ func TestLogs_DeliveryRoundTrip(t *testing.T) {
 	require.NotNil(t, getPol.Policy)
 	assert.Equal(t, polDoc, aws.ToString(getPol.Policy.DeliveryDestinationPolicy))
 
-	// Delivery linking source -> destination.
 	created, err := cw.CreateDelivery(ctx, &cloudwatchlogs.CreateDeliveryInput{
 		DeliverySourceName:     aws.String(srcName),
 		DeliveryDestinationArn: aws.String(dstArn),
@@ -262,8 +246,6 @@ func TestLogs_DeliveryRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestLogs_AnomalyDetectorRoundTrip covers CreateLogAnomalyDetector,
-// GetLogAnomalyDetector, ListLogAnomalyDetectors, and DeleteLogAnomalyDetector.
 func TestLogs_AnomalyDetectorRoundTrip(t *testing.T) {
 	t.Parallel()
 	cw := cwLogsClient()
@@ -307,8 +289,6 @@ func TestLogs_AnomalyDetectorRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestLogs_IndexPolicyRoundTrip covers PutIndexPolicy, DescribeIndexPolicies,
-// DescribeFieldIndexes, and DeleteIndexPolicy.
 func TestLogs_IndexPolicyRoundTrip(t *testing.T) {
 	t.Parallel()
 	cw := cwLogsClient()
@@ -344,8 +324,8 @@ func TestLogs_IndexPolicyRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestLogs_ConfigurationTemplates covers DescribeConfigurationTemplates, which
-// returns the delivery configuration templates AWS publishes per log source.
+// TestLogs_ConfigurationTemplates covers the delivery configuration templates
+// AWS publishes per log source.
 func TestLogs_ConfigurationTemplates(t *testing.T) {
 	t.Parallel()
 	cw := cwLogsClient()
@@ -358,8 +338,8 @@ func TestLogs_ConfigurationTemplates(t *testing.T) {
 	}
 }
 
-// cwLogGroupArnForTest builds the ARN the sim assigns to a log group, for use
-// as a log anomaly detector target.
+// cwLogGroupArnForTest builds a log group's ARN, the target a log anomaly
+// detector names.
 func cwLogGroupArnForTest(group string) string {
 	out, err := cwLogsClient().DescribeLogGroups(ctx, &cloudwatchlogs.DescribeLogGroupsInput{
 		LogGroupNamePrefix: aws.String(group),

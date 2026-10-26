@@ -17,8 +17,8 @@ func ddbClient() *dynamodb.Client {
 	})
 }
 
-// TestDynamoDB_TableLifecycle covers Create/Describe/List/Delete on
-// the table surface terraform's `aws_dynamodb_table` exercises.
+// TestDynamoDB_TableLifecycle covers the table surface terraform's
+// `aws_dynamodb_table` uses.
 func TestDynamoDB_TableLifecycle(t *testing.T) {
 	t.Parallel()
 	c := ddbClient()
@@ -51,16 +51,14 @@ func TestDynamoDB_TableLifecycle(t *testing.T) {
 	assert.Equal(t, tableName, *desc.Table.TableName)
 	assert.Equal(t, "ACTIVE", string(desc.Table.TableStatus))
 	assert.Contains(t, *desc.Table.TableArn, "arn:aws:dynamodb:")
-	// BillingModeSummary must reflect PAY_PER_REQUEST.
 	require.NotNil(t, desc.Table.BillingModeSummary, "BillingModeSummary must be present")
 	assert.Equal(t, "PAY_PER_REQUEST", string(desc.Table.BillingModeSummary.BillingMode))
-	// ProvisionedThroughput must be present (zero-filled) even for on-demand tables.
+	// ProvisionedThroughput is present, zero-filled, even for on-demand tables.
 	require.NotNil(t, desc.Table.ProvisionedThroughput, "ProvisionedThroughput must be present")
-	// TableClassSummary must default to STANDARD.
 	require.NotNil(t, desc.Table.TableClassSummary, "TableClassSummary must be present")
 	assert.Equal(t, "STANDARD", string(desc.Table.TableClassSummary.TableClass))
-	// WarmThroughput must be non-nil with Status=ACTIVE — terraform-provider-aws v6
-	// waitTableWarmThroughputActive loops 21 times and errors if the field is absent.
+	// terraform-provider-aws v6's waitTableWarmThroughputActive needs WarmThroughput
+	// with Status=ACTIVE.
 	require.NotNil(t, desc.Table.WarmThroughput, "WarmThroughput must be present")
 	assert.Equal(t, "ACTIVE", string(desc.Table.WarmThroughput.Status))
 
@@ -69,10 +67,8 @@ func TestDynamoDB_TableLifecycle(t *testing.T) {
 	assert.Contains(t, list.TableNames, tableName)
 }
 
-// TestDynamoDB_GlobalSecondaryIndexes pins CreateTable
-// must echo each GSI in TableDescription with IndexStatus==ACTIVE, and
-// DescribeTable must report the same. Pre-fix the sim dropped all GSIs
-// (returned null), so terraform-provider-aws waited for GSI ACTIVE forever.
+// TestDynamoDB_GlobalSecondaryIndexes expects CreateTable and DescribeTable to
+// list each GSI with IndexStatus ACTIVE, which terraform-provider-aws waits for.
 func TestDynamoDB_GlobalSecondaryIndexes(t *testing.T) {
 	t.Parallel()
 	c := ddbClient()
@@ -108,7 +104,6 @@ func TestDynamoDB_GlobalSecondaryIndexes(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, createOut.TableDescription)
 
-	// gsiStatus maps index name -> status, requiring the projection to round-trip.
 	gsiStatus := func(gsis []ddbtypes.GlobalSecondaryIndexDescription) map[string]string {
 		m := map[string]string{}
 		for _, g := range gsis {
@@ -133,10 +128,9 @@ func TestDynamoDB_GlobalSecondaryIndexes(t *testing.T) {
 	assert.Equal(t, "ACTIVE", described["GSI2"])
 }
 
-// TestDynamoDB_UpdateTableGSI covers the post-create GSI lifecycle that
-// terraform-provider-aws drives via UpdateTable's GlobalSecondaryIndexUpdates:
-// add a GSI (declaring its new attribute), confirm it goes ACTIVE, then delete
-// it. Pre-fix UpdateTable was unregistered (404 UnknownOperation).
+// TestDynamoDB_UpdateTableGSI covers the GSI lifecycle terraform-provider-aws
+// drives through UpdateTable's GlobalSecondaryIndexUpdates: add a GSI with its
+// new attribute, see it ACTIVE, delete it.
 func TestDynamoDB_UpdateTableGSI(t *testing.T) {
 	t.Parallel()
 	c := ddbClient()
@@ -153,7 +147,6 @@ func TestDynamoDB_UpdateTableGSI(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Add a GSI post-create (declaring the new attribute in the same call).
 	upd, err := c.UpdateTable(ctx, &dynamodb.UpdateTableInput{
 		TableName: aws.String(table),
 		AttributeDefinitions: []ddbtypes.AttributeDefinition{
@@ -176,7 +169,6 @@ func TestDynamoDB_UpdateTableGSI(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, desc.Table.GlobalSecondaryIndexes, 1, "DescribeTable must report the added GSI")
 
-	// Delete the GSI.
 	_, err = c.UpdateTable(ctx, &dynamodb.UpdateTableInput{
 		TableName: aws.String(table),
 		GlobalSecondaryIndexUpdates: []ddbtypes.GlobalSecondaryIndexUpdate{
@@ -189,9 +181,8 @@ func TestDynamoDB_UpdateTableGSI(t *testing.T) {
 	assert.Empty(t, desc.Table.GlobalSecondaryIndexes, "deleted GSI must be gone")
 }
 
-// TestDynamoDB_QueryOnGSI verifies a Query against a GSI returns the items
-// whose GSI key matches, that an unknown index is rejected, and that
-// ScannedCount is reported.
+// TestDynamoDB_QueryOnGSI expects a GSI query to return the items whose GSI key
+// matches, with ScannedCount, and an unknown index to be rejected.
 func TestDynamoDB_QueryOnGSI(t *testing.T) {
 	t.Parallel()
 	c := ddbClient()
@@ -237,7 +228,6 @@ func TestDynamoDB_QueryOnGSI(t *testing.T) {
 	assert.EqualValues(t, 2, out.Count, "GSI query must return the two group1 items")
 	assert.EqualValues(t, 2, out.ScannedCount)
 
-	// Unknown index must be rejected.
 	_, err = c.Query(ctx, &dynamodb.QueryInput{
 		TableName:                 aws.String(table),
 		IndexName:                 aws.String("does-not-exist"),
@@ -247,8 +237,8 @@ func TestDynamoDB_QueryOnGSI(t *testing.T) {
 	requireAWSErrorCode(t, err, "ValidationException")
 }
 
-// TestDynamoDB_BatchAndTransact covers BatchWriteItem/BatchGetItem and the
-// transactional ops, plus a richer ConditionExpression than the state-lock case.
+// TestDynamoDB_BatchAndTransact covers the batch and transactional operations
+// and a numeric ConditionExpression.
 func TestDynamoDB_BatchAndTransact(t *testing.T) {
 	t.Parallel()
 	c := ddbClient()
@@ -263,7 +253,6 @@ func TestDynamoDB_BatchAndTransact(t *testing.T) {
 	require.NoError(t, err)
 	s := func(v string) *ddbtypes.AttributeValueMemberS { return &ddbtypes.AttributeValueMemberS{Value: v} }
 
-	// BatchWriteItem: put three.
 	_, err = c.BatchWriteItem(ctx, &dynamodb.BatchWriteItemInput{
 		RequestItems: map[string][]ddbtypes.WriteRequest{table: {
 			{PutRequest: &ddbtypes.PutRequest{Item: map[string]ddbtypes.AttributeValue{"PK": s("a")}}},
@@ -273,7 +262,6 @@ func TestDynamoDB_BatchAndTransact(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// BatchGetItem: read two back.
 	bg, err := c.BatchGetItem(ctx, &dynamodb.BatchGetItemInput{
 		RequestItems: map[string]ddbtypes.KeysAndAttributes{table: {Keys: []map[string]ddbtypes.AttributeValue{
 			{"PK": s("a")}, {"PK": s("c")},
@@ -282,7 +270,7 @@ func TestDynamoDB_BatchAndTransact(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, bg.Responses[table], 2)
 
-	// TransactWriteItems: put "d" only if it doesn't exist — succeeds, then fails.
+	// The put of "d" requires its absence, so it succeeds once.
 	txPut := func() error {
 		_, e := c.TransactWriteItems(ctx, &dynamodb.TransactWriteItemsInput{
 			TransactItems: []ddbtypes.TransactWriteItem{{Put: &ddbtypes.Put{
@@ -296,7 +284,6 @@ func TestDynamoDB_BatchAndTransact(t *testing.T) {
 	require.NoError(t, txPut())
 	requireAWSErrorCode(t, txPut(), "TransactionCanceledException")
 
-	// TransactGetItems.
 	tg, err := c.TransactGetItems(ctx, &dynamodb.TransactGetItemsInput{
 		TransactItems: []ddbtypes.TransactGetItem{{Get: &ddbtypes.Get{
 			TableName: aws.String(table), Key: map[string]ddbtypes.AttributeValue{"PK": s("d")},
@@ -306,7 +293,6 @@ func TestDynamoDB_BatchAndTransact(t *testing.T) {
 	require.Len(t, tg.Responses, 1)
 	require.NotNil(t, tg.Responses[0].Item)
 
-	// Richer ConditionExpression: numeric comparison.
 	_, err = c.PutItem(ctx, &dynamodb.PutItemInput{
 		TableName: aws.String(table),
 		Item:      map[string]ddbtypes.AttributeValue{"PK": s("ver"), "v": &ddbtypes.AttributeValueMemberN{Value: "5"}},
@@ -321,12 +307,10 @@ func TestDynamoDB_BatchAndTransact(t *testing.T) {
 	require.NoError(t, err, "condition v < 10 should hold (current v=5)")
 }
 
-// TestDynamoDB_TerraformStateLockSemantics pins the canonical
-// state-lock acquire/release flow that terraform uses with
-// `backend "s3" { dynamodb_table = "..." }` — PutItem with
-// ConditionExpression="attribute_not_exists(LockID)" must succeed
-// the first time and fail with ConditionalCheckFailedException on
-// the second concurrent acquire.
+// TestDynamoDB_TerraformStateLockSemantics covers terraform's
+// `backend "s3" { dynamodb_table = "..." }` lock: PutItem with
+// attribute_not_exists(LockID) succeeds once and then fails with
+// ConditionalCheckFailedException.
 func TestDynamoDB_TerraformStateLockSemantics(t *testing.T) {
 	t.Parallel()
 	c := ddbClient()
@@ -345,7 +329,6 @@ func TestDynamoDB_TerraformStateLockSemantics(t *testing.T) {
 	require.NoError(t, err)
 	defer c.DeleteTable(ctx, &dynamodb.DeleteTableInput{TableName: aws.String(tableName)})
 
-	// First acquire — should succeed.
 	_, err = c.PutItem(ctx, &dynamodb.PutItemInput{
 		TableName: aws.String(tableName),
 		Item: map[string]ddbtypes.AttributeValue{
@@ -356,8 +339,7 @@ func TestDynamoDB_TerraformStateLockSemantics(t *testing.T) {
 	})
 	require.NoError(t, err, "first PutItem must succeed when no item exists")
 
-	// Second acquire — must fail with the ConditionalCheckFailed shape
-	// terraform translates into "lock contention".
+	// terraform translates ConditionalCheckFailed into lock contention.
 	_, err = c.PutItem(ctx, &dynamodb.PutItemInput{
 		TableName: aws.String(tableName),
 		Item: map[string]ddbtypes.AttributeValue{
@@ -368,7 +350,6 @@ func TestDynamoDB_TerraformStateLockSemantics(t *testing.T) {
 	})
 	require.Error(t, err, "second PutItem must fail with ConditionalCheckFailedException")
 
-	// GetItem returns the original item (held by runner-1).
 	got, err := c.GetItem(ctx, &dynamodb.GetItemInput{
 		TableName: aws.String(tableName),
 		Key: map[string]ddbtypes.AttributeValue{
@@ -380,7 +361,6 @@ func TestDynamoDB_TerraformStateLockSemantics(t *testing.T) {
 	owner := got.Item["Owner"].(*ddbtypes.AttributeValueMemberS)
 	assert.Equal(t, "runner-1", owner.Value)
 
-	// Release the lock.
 	_, err = c.DeleteItem(ctx, &dynamodb.DeleteItemInput{
 		TableName: aws.String(tableName),
 		Key: map[string]ddbtypes.AttributeValue{
@@ -389,7 +369,6 @@ func TestDynamoDB_TerraformStateLockSemantics(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// New runner can now acquire.
 	_, err = c.PutItem(ctx, &dynamodb.PutItemInput{
 		TableName: aws.String(tableName),
 		Item: map[string]ddbtypes.AttributeValue{

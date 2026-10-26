@@ -10,10 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestEC2_NetworkAclLifecycleSDK exercises the network ACL control plane:
-// CreateNetworkAcl, CreateNetworkAclEntry (with a port range), ReplaceNetworkAclEntry,
-// DescribeNetworkAcls read-back of the entries, DeleteNetworkAclEntry, and
-// DeleteNetworkAcl.
 func TestEC2_NetworkAclLifecycleSDK(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -64,7 +60,6 @@ func TestEC2_NetworkAclLifecycleSDK(t *testing.T) {
 	require.NotNil(t, found.PortRange)
 	assert.Equal(t, int32(80), aws.ToInt32(found.PortRange.From))
 
-	// Replace the rule with a deny on port 443.
 	_, err = c.ReplaceNetworkAclEntry(ctx, &ec2.ReplaceNetworkAclEntryInput{
 		NetworkAclId: aclID,
 		RuleNumber:   aws.Int32(100),
@@ -95,9 +90,6 @@ func TestEC2_NetworkAclLifecycleSDK(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestEC2_VpcPeeringLifecycleSDK covers CreateVpcPeeringConnection,
-// DescribeVpcPeeringConnections, AcceptVpcPeeringConnection (pending-acceptance
-// -> active), and DeleteVpcPeeringConnection.
 func TestEC2_VpcPeeringLifecycleSDK(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -135,9 +127,6 @@ func TestEC2_VpcPeeringLifecycleSDK(t *testing.T) {
 	assert.Equal(t, types.VpcPeeringConnectionStateReasonCodeActive, desc.VpcPeeringConnections[0].Status.Code)
 }
 
-// TestEC2_ManagedPrefixListLifecycleSDK covers CreateManagedPrefixList,
-// DescribeManagedPrefixLists, GetManagedPrefixListEntries, and
-// DeleteManagedPrefixList.
 func TestEC2_ManagedPrefixListLifecycleSDK(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -180,8 +169,6 @@ func TestEC2_ManagedPrefixListLifecycleSDK(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestEC2_FlowLogsLifecycleSDK covers CreateFlowLogs against a VPC,
-// DescribeFlowLogs read-back, and DeleteFlowLogs.
 func TestEC2_FlowLogsLifecycleSDK(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -216,9 +203,6 @@ func TestEC2_FlowLogsLifecycleSDK(t *testing.T) {
 	assert.Empty(t, del.Unsuccessful)
 }
 
-// TestEC2_EgressOnlyInternetGatewayLifecycleSDK covers
-// CreateEgressOnlyInternetGateway, DescribeEgressOnlyInternetGateways, and
-// DeleteEgressOnlyInternetGateway.
 func TestEC2_EgressOnlyInternetGatewayLifecycleSDK(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()

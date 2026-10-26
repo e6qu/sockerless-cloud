@@ -17,10 +17,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestACMIssuedCertHasPEMMaterial verifies that a DNS-validated AMAZON_ISSUED
-// cert that reaches ISSUED exposes real, parseable X.509 PEM via
-// GetCertificate, with the domain name (and SAN) present in the leaf's
-// DNSNames. Mirrors what a real ACM caller sees post-issuance.
+// TestACMIssuedCertHasPEMMaterial expects an ISSUED DNS-validated
+// AMAZON_ISSUED certificate to return parseable X.509 PEM from GetCertificate,
+// with the domain name and SAN in the leaf's DNSNames.
 func TestACMIssuedCertHasPEMMaterial(t *testing.T) {
 	t.Parallel()
 	acmC := acmClient()
@@ -42,7 +41,7 @@ func TestACMIssuedCertHasPEMMaterial(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, acmtypes.CertificateStatusPendingValidation, desc.Certificate.Status)
 
-	// Pre-issuance: GetCertificate returns RequestInProgressException.
+	// Before issuance GetCertificate answers RequestInProgressException.
 	_, err = acmC.GetCertificate(ctx, &acm.GetCertificateInput{CertificateArn: aws.String(arn)})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "RequestInProgressException")
@@ -95,7 +94,6 @@ func TestACMIssuedCertHasPEMMaterial(t *testing.T) {
 	require.Contains(t, leaf.DNSNames, san)
 	require.False(t, leaf.IsCA)
 
-	// Chain is served alongside the leaf.
 	if chain := aws.ToString(getOut.CertificateChain); chain != "" {
 		chainBlock, _ := pem.Decode([]byte(chain))
 		require.NotNil(t, chainBlock, "certificate chain PEM must decode")

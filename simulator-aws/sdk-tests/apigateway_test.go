@@ -26,9 +26,6 @@ func apigwv2Client() *apigatewayv2.Client {
 	})
 }
 
-// TestAPIGatewayV2_ApiLifecycle exercises the HTTP-API minimal flow:
-// CreateApi → CreateIntegration → CreateRoute → CreateStage →
-// GetApi → DeleteApi.
 func TestAPIGatewayV2_ApiLifecycle(t *testing.T) {
 	t.Parallel()
 	c := apigwv2Client()
@@ -103,9 +100,6 @@ func TestAPIGatewayV2_ApiLifecycle(t *testing.T) {
 	assert.True(t, found)
 }
 
-// TestAPIGateway_RestApiLifecycle exercises the REST-API minimal flow:
-// CreateRestApi → GetResources → PutMethod → PutIntegration →
-// CreateDeployment → CreateStage → DeleteRestApi.
 func TestAPIGateway_RestApiLifecycle(t *testing.T) {
 	t.Parallel()
 	c := apigwClient()
@@ -120,13 +114,12 @@ func TestAPIGateway_RestApiLifecycle(t *testing.T) {
 		_, _ = c.DeleteRestApi(ctx, &apigateway.DeleteRestApiInput{RestApiId: aws.String(apiId)})
 	})
 
-	// CreateRestApi auto-creates the root "/" resource.
+	// CreateRestApi creates the root "/" resource.
 	res, err := c.GetResources(ctx, &apigateway.GetResourcesInput{RestApiId: aws.String(apiId)})
 	require.NoError(t, err)
 	require.Len(t, res.Items, 1, "expected one root resource on a fresh REST API")
 	rootId := aws.ToString(res.Items[0].Id)
 
-	// CreateResource as a child of the root.
 	child, err := c.CreateResource(ctx, &apigateway.CreateResourceInput{
 		RestApiId: aws.String(apiId),
 		ParentId:  aws.String(rootId),
@@ -136,7 +129,6 @@ func TestAPIGateway_RestApiLifecycle(t *testing.T) {
 	childId := aws.ToString(child.Id)
 	require.NotEmpty(t, childId)
 
-	// PutMethod on the child.
 	_, err = c.PutMethod(ctx, &apigateway.PutMethodInput{
 		RestApiId:         aws.String(apiId),
 		ResourceId:        aws.String(childId),
@@ -145,7 +137,6 @@ func TestAPIGateway_RestApiLifecycle(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// PutIntegration.
 	_, err = c.PutIntegration(ctx, &apigateway.PutIntegrationInput{
 		RestApiId:  aws.String(apiId),
 		ResourceId: aws.String(childId),
@@ -155,7 +146,6 @@ func TestAPIGateway_RestApiLifecycle(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// CreateDeployment + CreateStage.
 	dep, err := c.CreateDeployment(ctx, &apigateway.CreateDeploymentInput{
 		RestApiId: aws.String(apiId),
 	})
@@ -170,7 +160,6 @@ func TestAPIGateway_RestApiLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "prod", aws.ToString(stage.StageName))
 
-	// GetDeployments + GetStages list the resources just created.
 	deps, err := c.GetDeployments(ctx, &apigateway.GetDeploymentsInput{RestApiId: aws.String(apiId)})
 	require.NoError(t, err)
 	foundDep := false
@@ -194,8 +183,6 @@ func TestAPIGateway_RestApiLifecycle(t *testing.T) {
 	assert.True(t, foundStage, "created stage should appear in GetStages")
 }
 
-// TestAPIGatewayV2_UpdateRoute exercises the PATCH route update path:
-// CreateRoute → UpdateRoute (change RouteKey) → GetRoute reflects it.
 func TestAPIGatewayV2_UpdateRoute(t *testing.T) {
 	t.Parallel()
 	c := apigwv2Client()
@@ -234,11 +221,6 @@ func TestAPIGatewayV2_UpdateRoute(t *testing.T) {
 	assert.Equal(t, "POST /after", aws.ToString(got.RouteKey))
 }
 
-// TestAPIGateway_ApiKeysAndUsagePlans exercises the v1 API-key + usage-plan
-// surface end-to-end: CreateApiKey → GetApiKey → GetApiKeys → UpdateApiKey,
-// CreateUsagePlan → GetUsagePlan → GetUsagePlans → UpdateUsagePlan,
-// CreateUsagePlanKey → GetUsagePlanKey → GetUsagePlanKeys, then the matching
-// deletes.
 func TestAPIGateway_ApiKeysAndUsagePlans(t *testing.T) {
 	t.Parallel()
 	c := apigwClient()
@@ -339,10 +321,6 @@ func TestAPIGateway_ApiKeysAndUsagePlans(t *testing.T) {
 	require.Len(t, listUpk.Items, 1)
 }
 
-// TestAPIGateway_ModelsValidatorsAuthorizers exercises the v1 REST-API-scoped
-// model / request-validator / authorizer CRUD: CreateModel → GetModel →
-// GetModels, CreateRequestValidator → GetRequestValidators, CreateAuthorizer →
-// GetAuthorizer → GetAuthorizers, then the matching deletes.
 func TestAPIGateway_ModelsValidatorsAuthorizers(t *testing.T) {
 	t.Parallel()
 	c := apigwClient()
@@ -420,9 +398,6 @@ func TestAPIGateway_ModelsValidatorsAuthorizers(t *testing.T) {
 	require.Len(t, auths.Items, 1)
 }
 
-// TestAPIGatewayV2_AuthorizersAndModels exercises the v2 API-scoped authorizer
-// + model CRUD: CreateAuthorizer → GetAuthorizer → GetAuthorizers →
-// UpdateAuthorizer, CreateModel → GetModel → GetModels, then deletes.
 func TestAPIGatewayV2_AuthorizersAndModels(t *testing.T) {
 	t.Parallel()
 	c := apigwv2Client()
@@ -485,10 +460,6 @@ func TestAPIGatewayV2_AuthorizersAndModels(t *testing.T) {
 	require.Len(t, models.Items, 1)
 }
 
-// TestAPIGatewayV2_DomainNamesMappingsVpcLinks exercises the v2 domain-name +
-// API-mapping + VPC-link surface: CreateDomainName → GetDomainName →
-// GetDomainNames, CreateApiMapping → GetApiMapping → GetApiMappings,
-// CreateVpcLink → GetVpcLink → GetVpcLinks, then deletes.
 func TestAPIGatewayV2_DomainNamesMappingsVpcLinks(t *testing.T) {
 	t.Parallel()
 	c := apigwv2Client()

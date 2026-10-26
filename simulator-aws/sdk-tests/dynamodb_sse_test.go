@@ -11,8 +11,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestDynamoDB_SSEDescriptionRoundTrip verifies a table created with
-// server-side encryption reports the full SSEDescription on DescribeTable.
+// TestDynamoDB_SSEDescriptionRoundTrip expects DescribeTable to report the full
+// SSEDescription.
 func TestDynamoDB_SSEDescriptionRoundTrip(t *testing.T) {
 	t.Parallel()
 	table := uniquename.New("sse-table")

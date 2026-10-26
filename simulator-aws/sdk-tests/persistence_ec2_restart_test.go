@@ -15,9 +15,8 @@ import (
 )
 
 // A running instance outlives the simulator process that launched it: the
-// next process of the same persistent simulator reports it running, reaches
-// it through Run Command, and finds what the instance wrote before the
-// restart on its disk.
+// next process of the persistent simulator reports it running, reaches it
+// through Run Command, and finds on its disk what it wrote before the restart.
 func TestEC2InstanceSurvivesSimulatorRestart_SDK(t *testing.T) {
 	t.Parallel()
 	stateDir := t.TempDir()
@@ -31,8 +30,6 @@ func TestEC2InstanceSurvivesSimulatorRestart_SDK(t *testing.T) {
 	cmd := startPersistentSimulator(t, stateDir, tcpPort, udpPort, "docker")
 	t.Cleanup(func() { shutdownSimulator(cmd) })
 
-	// The instance's profile lets SSM Agent register it as a managed node,
-	// which the restarted simulator still reaches through Run Command.
 	profile := "restart-ssm-managed"
 	_, err := iamAPI.CreateRole(ctx, &iam.CreateRoleInput{
 		RoleName:                 aws.String(profile),

@@ -11,8 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// ddbMakeTable creates a simple hash-key table and registers cleanup. Returns
-// the table ARN.
 func ddbMakeTable(t *testing.T, c *dynamodb.Client, name string) string {
 	t.Helper()
 	out, err := c.CreateTable(ctx, &dynamodb.CreateTableInput{
@@ -30,9 +28,8 @@ func ddbMakeTable(t *testing.T, c *dynamodb.Client, name string) string {
 	return aws.ToString(out.TableDescription.TableArn)
 }
 
-// TestDDB_BackupLifecycle covers CreateBackup / DescribeBackup / ListBackups /
-// DeleteBackup / RestoreTableFromBackup as a faithful round-trip: a backup of a
-// populated table restores into a new table that carries the original item.
+// TestDDB_BackupLifecycle expects a backup of a populated table to restore into
+// a new table carrying the original item.
 func TestDDB_BackupLifecycle(t *testing.T) {
 	t.Parallel()
 	c := ddbClient()
@@ -74,7 +71,6 @@ func TestDDB_BackupLifecycle(t *testing.T) {
 	}
 	assert.True(t, found, "ListBackups must include the created backup")
 
-	// Restore into a new table; the original item must be present.
 	restored := "ddb-bk-restored"
 	t.Cleanup(func() { _, _ = c.DeleteTable(ctx, &dynamodb.DeleteTableInput{TableName: aws.String(restored)}) })
 	rb, err := c.RestoreTableFromBackup(ctx, &dynamodb.RestoreTableFromBackupInput{
@@ -99,7 +95,6 @@ func TestDDB_BackupLifecycle(t *testing.T) {
 	require.Error(t, err, "deleted backup must DescribeBackup→BackupNotFoundException")
 }
 
-// TestDDB_RestoreToPointInTime restores a PITR-enabled table to a new table.
 func TestDDB_RestoreToPointInTime(t *testing.T) {
 	t.Parallel()
 	c := ddbClient()
@@ -138,8 +133,6 @@ func TestDDB_RestoreToPointInTime(t *testing.T) {
 	require.NotEmpty(t, gi.Item)
 }
 
-// TestDDB_GlobalTables covers CreateGlobalTable / DescribeGlobalTable /
-// ListGlobalTables / UpdateGlobalTable and the settings + autoscaling reads.
 func TestDDB_GlobalTables(t *testing.T) {
 	t.Parallel()
 	c := ddbClient()
@@ -206,8 +199,6 @@ func TestDDB_GlobalTables(t *testing.T) {
 	assert.NotEmpty(t, das.TableAutoScalingDescription.Replicas)
 }
 
-// TestDDB_ResourcePolicy covers PutResourcePolicy / GetResourcePolicy /
-// DeleteResourcePolicy on a table ARN.
 func TestDDB_ResourcePolicy(t *testing.T) {
 	t.Parallel()
 	c := ddbClient()
@@ -232,8 +223,6 @@ func TestDDB_ResourcePolicy(t *testing.T) {
 	requireAWSErrorCode(t, err, "PolicyNotFoundException")
 }
 
-// TestDDB_KinesisStreaming covers Enable/Describe/Update/Disable Kinesis
-// streaming destination.
 func TestDDB_KinesisStreaming(t *testing.T) {
 	t.Parallel()
 	c := ddbClient()
@@ -278,8 +267,6 @@ func TestDDB_KinesisStreaming(t *testing.T) {
 	assert.Empty(t, dk2.KinesisDataStreamDestinations, "disabled destination must be gone")
 }
 
-// TestDDB_ExportImport covers ExportTableToPointInTime / DescribeExport /
-// ListExports and ImportTable / DescribeImport / ListImports.
 func TestDDB_ExportImport(t *testing.T) {
 	t.Parallel()
 	c := ddbClient()
@@ -304,7 +291,6 @@ func TestDDB_ExportImport(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, le.ExportSummaries)
 
-	// Import creates a new destination table.
 	importTable := "ddb-imported"
 	t.Cleanup(func() { _, _ = c.DeleteTable(ctx, &dynamodb.DeleteTableInput{TableName: aws.String(importTable)}) })
 	im, err := c.ImportTable(ctx, &dynamodb.ImportTableInput{
@@ -334,12 +320,10 @@ func TestDDB_ExportImport(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, li.ImportSummaryList)
 
-	// The imported destination table must really exist.
 	_, err = c.DescribeTable(ctx, &dynamodb.DescribeTableInput{TableName: aws.String(importTable)})
 	require.NoError(t, err)
 }
 
-// TestDDB_ContributorInsights covers Update/Describe/List contributor insights.
 func TestDDB_ContributorInsights(t *testing.T) {
 	t.Parallel()
 	c := ddbClient()

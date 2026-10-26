@@ -13,15 +13,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// StartDBInstanceAutomatedBackupsReplication, called in another Region,
-// copies a DB instance's automated snapshots and log into a replicated
-// automated backup there. DescribeDBInstanceAutomatedBackups lists it in that
-// Region only, pending until it holds an automated snapshot and replicating
-// after, and the source names it among its DBInstanceAutomatedBackupsReplications.
-// RestoreDBInstanceToPointInTime restores through its ARN every row the
-// source committed, before StopDBInstanceAutomatedBackupsReplication leaves it
-// retained and after the source is deleted. A retained replicated backup is
-// deleted like any other.
+// StartDBInstanceAutomatedBackupsReplication, called in another Region, copies a
+// DB instance's automated snapshots and log into a replicated backup there,
+// listed in that Region only, pending until it holds a snapshot and
+// replicating after; the source names it among its
+// DBInstanceAutomatedBackupsReplications. RestoreDBInstanceToPointInTime
+// through its ARN restores every committed row, before
+// StopDBInstanceAutomatedBackupsReplication retains it and after the source is
+// deleted. A retained replicated backup deletes like any other.
 func TestRDS_AutomatedBackupsReplicateToAnotherRegion(t *testing.T) {
 	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
@@ -82,8 +81,8 @@ func TestRDS_AutomatedBackupsReplicateToAnotherRegion(t *testing.T) {
 	})
 	assertAWSAPIErrorCode(t, err, "InvalidDBInstanceAutomatedBackupState")
 
-	// Amazon RDS offers no waiter for an automated backup; its Status is what
-	// the console and the CLI poll.
+	// Amazon RDS has no waiter for an automated backup; the console and the CLI
+	// poll its Status.
 	require.Eventually(t, func() bool {
 		listed, err := destination.DescribeDBInstanceAutomatedBackups(ctx, &rds.DescribeDBInstanceAutomatedBackupsInput{
 			DBInstanceAutomatedBackupsArn: backupARN,
@@ -175,9 +174,9 @@ func TestRDS_AutomatedBackupsReplicateToAnotherRegion(t *testing.T) {
 	assertAWSAPIErrorCode(t, err, "DBInstanceAutomatedBackupNotFound")
 }
 
-// A replication started while its new source, which no client has connected
-// to, still takes its first automated backup replicates that backup once
-// Amazon RDS has taken it, as the Terraform provider's create waiter expects.
+// A replication started while its new, unconnected source still takes its
+// first automated backup replicates that backup once Amazon RDS takes it, as
+// terraform-provider-aws's create waiter expects.
 func TestRDS_AutomatedBackupsReplicationTakesTheSourcesFirstBackup(t *testing.T) {
 	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)

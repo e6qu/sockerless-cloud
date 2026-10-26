@@ -10,11 +10,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestEC2_LaunchTemplateLifecycle covers the EC2 Launch Template
-// create → describe → describe-versions → delete lifecycle, the fck-nat
-// NAT-instance shape (aws_launch_template as the ASG launch config). The
-// launch-template data submitted on create must round-trip verbatim through
-// DescribeLaunchTemplateVersions, so the Terraform provider sees no drift.
+// TestEC2_LaunchTemplateLifecycle covers the fck-nat NAT-instance shape
+// (aws_launch_template as the Auto Scaling launch configuration): the data
+// submitted on create comes back verbatim from DescribeLaunchTemplateVersions,
+// so Terraform sees no drift.
 func TestEC2_LaunchTemplateLifecycle(t *testing.T) {
 	t.Parallel()
 	client := ec2Client()
@@ -74,14 +73,13 @@ func TestEC2_LaunchTemplateLifecycle(t *testing.T) {
 	require.Len(t, created.LaunchTemplate.Tags, 1)
 	assert.Equal(t, "module", aws.ToString(created.LaunchTemplate.Tags[0].Key))
 
-	// Re-creating the same name conflicts (real AWS AlreadyExistsException).
+	// Re-creating the name fails with AlreadyExistsException.
 	_, err = client.CreateLaunchTemplate(ctx, &ec2.CreateLaunchTemplateInput{
 		LaunchTemplateName: aws.String("fck-nat-lt"),
 		LaunchTemplateData: &types.RequestLaunchTemplateData{ImageId: aws.String("ami-99999999")},
 	})
 	require.Error(t, err)
 
-	// DescribeLaunchTemplates by name filters to the one template.
 	listed, err := client.DescribeLaunchTemplates(ctx, &ec2.DescribeLaunchTemplatesInput{
 		LaunchTemplateNames: []string{"fck-nat-lt"},
 	})
@@ -89,7 +87,6 @@ func TestEC2_LaunchTemplateLifecycle(t *testing.T) {
 	require.Len(t, listed.LaunchTemplates, 1)
 	assert.Equal(t, ltID, aws.ToString(listed.LaunchTemplates[0].LaunchTemplateId))
 
-	// DescribeLaunchTemplateVersions with $Latest must echo the data back.
 	versions, err := client.DescribeLaunchTemplateVersions(ctx, &ec2.DescribeLaunchTemplateVersionsInput{
 		LaunchTemplateId: aws.String(ltID),
 		Versions:         []string{"$Latest"},
@@ -137,7 +134,6 @@ func TestEC2_LaunchTemplateLifecycle(t *testing.T) {
 	assert.Equal(t, "Name", aws.ToString(rd.TagSpecifications[0].Tags[0].Key))
 	assert.Equal(t, "fck-nat", aws.ToString(rd.TagSpecifications[0].Tags[0].Value))
 
-	// $Default resolves to the same version too.
 	def, err := client.DescribeLaunchTemplateVersions(ctx, &ec2.DescribeLaunchTemplateVersionsInput{
 		LaunchTemplateId: aws.String(ltID),
 		Versions:         []string{"$Default"},
@@ -145,13 +141,13 @@ func TestEC2_LaunchTemplateLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, def.LaunchTemplateVersions, 1)
 
-	// Unknown template ID is a NotFound, not an empty set.
+	// An unknown template ID is NotFound, not an empty set.
 	_, err = client.DescribeLaunchTemplateVersions(ctx, &ec2.DescribeLaunchTemplateVersionsInput{
 		LaunchTemplateId: aws.String("lt-doesnotexist"),
 	})
 	require.Error(t, err)
 
-	// Delete echoes the deleted template, then it's gone.
+	// Delete echoes the deleted template.
 	deleted, err := client.DeleteLaunchTemplate(ctx, &ec2.DeleteLaunchTemplateInput{
 		LaunchTemplateId: aws.String(ltID),
 	})

@@ -340,10 +340,9 @@ func TestSFN_GenericAWSSDKIntegrations_SDK(t *testing.T) {
 	assert.JSONEq(t, `{"source":"aws-sdk-integration"}`, string(decodedPayload))
 }
 
-// TestSFN_EventingAndObservabilityIntegrations_SDK proves the workflow runtime
-// executes the real service integrations rather than merely accepting their
-// Amazon States Language definitions. Every resource and observation travels
-// through an official AWS SDK client at the simulator coordinate.
+// TestSFN_EventingAndObservabilityIntegrations_SDK expects the service
+// integrations to run, not merely to be accepted in a definition; every
+// resource and observation goes through an SDK client.
 func TestSFN_EventingAndObservabilityIntegrations_SDK(t *testing.T) {
 	t.Parallel()
 	namespace := uniquename.New("Sockerless/StepFunctions")
@@ -497,11 +496,10 @@ func TestSFN_EventingAndObservabilityIntegrations_SDK(t *testing.T) {
 	assert.Equal(t, []float64{1}, metrics.MetricDataResults[0].Values)
 }
 
-// TestSFN_AmazonECSAndCodeBuildIntegrations_SDK proves the optimized
-// RunTask.sync and StartBuild.sync resources execute their actual cloud
-// workloads. The AWS CodeBuild workload uses the vendor AWS CLI with the
-// standard global endpoint coordinate to send a message back through Amazon
-// SQS; no simulator-only endpoint or execution branch participates.
+// TestSFN_AmazonECSAndCodeBuildIntegrations_SDK expects RunTask.sync and
+// StartBuild.sync to run their workloads. The AWS CodeBuild workload sends a
+// message back through Amazon SQS with the AWS CLI and the standard global
+// endpoint coordinate.
 func TestSFN_AmazonECSAndCodeBuildIntegrations_SDK(t *testing.T) {
 	t.Parallel()
 	statesAPI := sfnClient()
@@ -617,10 +615,9 @@ phases:
 	})
 	execution, err := statesAPI.StartExecution(ctx, &sfn.StartExecutionInput{StateMachineArn: machine.StateMachineArn})
 	require.NoError(t, err)
-	// Amazon Elastic Container Service (Amazon ECS) and AWS CodeBuild both
-	// provision containers asynchronously. A cold external runner may need
-	// longer than one minute to fetch both configured images, just as the real
-	// services may spend several minutes in provisioning and queued states.
+	// Amazon ECS and AWS CodeBuild provision containers asynchronously, and a cold
+	// runner may take over a minute to fetch both images, as the services may
+	// spend minutes provisioning and queued.
 	require.EventuallyWithT(t, func(collect *assert.CollectT) {
 		described, describeErr := statesAPI.DescribeExecution(ctx, &sfn.DescribeExecutionInput{ExecutionArn: execution.ExecutionArn})
 		if !assert.NoError(collect, describeErr) {
@@ -779,11 +776,9 @@ phases:
 	assert.Empty(t, received.Messages, "a stopped CodeBuild container must not complete its delayed Amazon SQS write")
 }
 
-// TestSFN_AmazonECSRunsTerraformAgainstSimulator_SDK is the consumer-side
-// proof that an infrastructure-as-code provider running inside an Amazon ECS
-// workload can apply resources back to the cloud that launched it. Terraform
-// uses the AWS provider's standard AWS_ENDPOINT_URL coordinate; the state
-// machine supplies no simulator-aware path, provider block, or custom broker.
+// TestSFN_AmazonECSRunsTerraformAgainstSimulator_SDK runs Terraform in an
+// Amazon ECS workload and applies resources to the cloud that launched it,
+// through the AWS provider's standard AWS_ENDPOINT_URL coordinate.
 func TestSFN_AmazonECSRunsTerraformAgainstSimulator_SDK(t *testing.T) {
 	t.Parallel()
 	statesAPI := sfnClient()
@@ -857,10 +852,9 @@ timeout -s TERM 120 terraform apply -auto-approve -input=false -no-color`,
 				{Name: aws.String("AWS_ENDPOINT_URL"), Value: aws.String(containerEndpoint)},
 				{Name: aws.String("TF_IN_AUTOMATION"), Value: aws.String("true")},
 				{Name: aws.String("TF_CLI_CONFIG_FILE"), Value: aws.String("/terraformrc")},
-				// Prove provider installation is fully offline: any accidental
-				// HTTPS registry access fails instead of borrowing host egress.
-				// The simulator is the task's declared cloud endpoint, so it
-				// must bypass environment proxies just as localhost does.
+				// Provider installation is offline: registry access over HTTPS fails rather
+				// than using host egress. The simulator is the task's cloud endpoint, so it
+				// bypasses proxies as localhost does.
 				{Name: aws.String("HTTPS_PROXY"), Value: aws.String("http://127.0.0.1:1")},
 				{Name: aws.String("NO_PROXY"), Value: aws.String("host.docker.internal,169.254.170.2")},
 				{Name: aws.String("CHECKPOINT_DISABLE"), Value: aws.String("1")},
@@ -1036,11 +1030,11 @@ func TestSFN_TasksActAsTheExecutionRole_SDK(t *testing.T) {
 	assert.Equal(t, "sent-as-the-role", aws.ToString(messages[0].Body))
 }
 
-// TestSFN_SyncIntegrationsActAsTheExecutionRole_SDK proves a .sync integration
-// waits through the service's API as the execution role: a role allowed
-// ecs:RunTask but not ecs:DescribeTasks starts the task and then fails the
-// state with the ECS-named refusal, and stopping a parent execution stops the
-// nested execution it waits on through states:StopExecution.
+// TestSFN_SyncIntegrationsActAsTheExecutionRole_SDK expects a .sync
+// integration to wait through the service's API as the execution role: a role
+// allowed ecs:RunTask but not ecs:DescribeTasks starts the task and then fails
+// the state with the Amazon ECS refusal, and stopping a parent execution stops
+// the nested one through states:StopExecution.
 func TestSFN_SyncIntegrationsActAsTheExecutionRole_SDK(t *testing.T) {
 	t.Parallel()
 	statesAPI := sfnClient()

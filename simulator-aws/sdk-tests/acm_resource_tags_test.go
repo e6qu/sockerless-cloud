@@ -9,9 +9,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestACM_ResourceTagging covers the cross-resource tagging API AWS Certificate
-// Manager exposes alongside the certificate-scoped AddTagsToCertificate family:
-// TagResource / ListTagsForResource / UntagResource addressed by ARN.
+// TestACM_ResourceTagging covers the ARN-addressed TagResource,
+// ListTagsForResource and UntagResource, beside the certificate-scoped
+// AddTagsToCertificate family.
 func TestACM_ResourceTagging(t *testing.T) {
 	t.Parallel()
 	c := acmClient()
@@ -55,8 +55,8 @@ func TestACM_ResourceTagging(t *testing.T) {
 	require.Len(t, listed.Tags, 1)
 	require.Equal(t, "env", aws.ToString(listed.Tags[0].Key))
 
-	// An ARN that names no ACM resource is a ResourceNotFoundException, not a
-	// silently-empty answer.
+	// An ARN naming no ACM resource is ResourceNotFoundException, not an empty
+	// answer.
 	_, err = c.ListTagsForResource(ctx, &acm.ListTagsForResourceInput{
 		ResourceArn: aws.String("arn:aws:acm:us-east-1:000000000000:certificate/does-not-exist"),
 	})

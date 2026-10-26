@@ -52,7 +52,6 @@ func TestRDS_DBClusterLifecycle(t *testing.T) {
 	clusterARN := aws.ToString(got.DBClusterArn)
 	require.NotEmpty(t, clusterARN)
 
-	// Tags round-trip through the shared RDS tagging ops.
 	tags, err := c.ListTagsForResource(ctx, &rds.ListTagsForResourceInput{
 		ResourceName: aws.String(clusterARN),
 	})
@@ -144,7 +143,7 @@ func TestRDS_DBSubnetGroupLifecycle(t *testing.T) {
 	otherVPC, otherSubnets := createECSTestVPCSubnets(t, name+"-other", 3)
 	_, oneZone := createECSTestVPCSubnets(t, name+"-one-zone", 1)
 
-	// The group's subnets must exist, share a VPC and cover two Availability
+	// A subnet group's subnets must exist, share a VPC and cover two Availability
 	// Zones.
 	for _, refusal := range []struct {
 		subnets []string

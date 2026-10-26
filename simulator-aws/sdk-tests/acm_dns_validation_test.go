@@ -15,10 +15,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestACMDNSCertWildcardAndIssuance verifies a DNS-validated AMAZON_ISSUED
-// cert reaches ISSUED, and that a wildcard SAN's validation record name strips
-// the "*.". The cert stays PENDING until its _acm-challenge records exist in
-// Route53, then issues — mirroring real ACM.
+// TestACMDNSCertWildcardAndIssuance expects a DNS-validated certificate to stay
+// PENDING until its _acm-challenge records exist in Route 53 and then reach
+// ISSUED, with the wildcard SAN's record name stripped of "*.".
 func TestACMDNSCertWildcardAndIssuance(t *testing.T) {
 	t.Parallel()
 	acmC := acmClient()
@@ -45,16 +44,15 @@ func TestACMDNSCertWildcardAndIssuance(t *testing.T) {
 		require.NotNil(t, dvo.ResourceRecord, "DNS DVO must carry a ResourceRecord")
 		records[aws.ToString(dvo.DomainName)] = *dvo.ResourceRecord
 	}
-	// DomainName echoes the wildcard, but the record name is de-wildcarded.
+	// DomainName keeps the wildcard; the record name does not.
 	require.Contains(t, records, "*."+devbox)
 	wildName := aws.ToString(records["*."+devbox].Name)
 	require.Equal(t, "_acm-challenge."+devbox+".", wildName)
 	require.NotContains(t, wildName, "*")
 
-	// A second certificate for the same fully qualified domain name receives
-	// the same validation CNAME value. Real deployments commonly request one
-	// regional certificate and one us-east-1 CloudFront certificate and publish
-	// only one long-lived validation record.
+	// A second certificate for the same domain name gets the same validation
+	// CNAME value, so a regional certificate and a us-east-1 CloudFront one share
+	// one long-lived record.
 	secondOut, err := acmC.RequestCertificate(ctx, &acm.RequestCertificateInput{
 		DomainName:       aws.String(appDomain),
 		ValidationMethod: acmtypes.ValidationMethodDns,
@@ -71,8 +69,7 @@ func TestACMDNSCertWildcardAndIssuance(t *testing.T) {
 		aws.ToString(secondDesc.Certificate.DomainValidationOptions[0].ResourceRecord.Value),
 	)
 
-	// Faithful: with no validation records yet, the cert stays PENDING —
-	// no synthetic issuance.
+	// With no validation records yet, the certificate stays PENDING.
 	desc, err = acmC.DescribeCertificate(ctx, &acm.DescribeCertificateInput{CertificateArn: aws.String(arn)})
 	require.NoError(t, err)
 	require.Equal(t, acmtypes.CertificateStatusPendingValidation, desc.Certificate.Status)
@@ -102,7 +99,6 @@ func TestACMDNSCertWildcardAndIssuance(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// With both _acm-challenge records present, the cert reaches ISSUED.
 	desc, err = acmC.DescribeCertificate(ctx, &acm.DescribeCertificateInput{CertificateArn: aws.String(arn)})
 	require.NoError(t, err)
 	require.Equal(t, acmtypes.CertificateStatusIssued, desc.Certificate.Status)

@@ -14,13 +14,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// lambdaFunctionArn builds the function ARN the sim mints for a given name.
 func lambdaFunctionArn(name string) string {
 	return "arn:aws:lambda:us-east-1:123456789012:function:" + name
 }
 
-// TestLambda_ConfigAndCode exercises GetFunctionConfiguration and
-// UpdateFunctionCode against a real stored function.
 func TestLambda_ConfigAndCode(t *testing.T) {
 	t.Parallel()
 	lc := lambdaClient()
@@ -43,15 +40,12 @@ func TestLambda_ConfigAndCode(t *testing.T) {
 	// A code swap re-stamps CodeSha256 and CodeSize.
 	assert.NotEmpty(t, aws.ToString(upd.CodeSha256))
 
-	// GetFunctionConfiguration for an unknown function is a 404.
 	_, err = lc.GetFunctionConfiguration(ctx, &lambda.GetFunctionConfigurationInput{
 		FunctionName: aws.String("extras3-no-such-fn"),
 	})
 	require.Error(t, err)
 }
 
-// TestLambda_FunctionScalingConfig exercises Put/Get of the per-function
-// scaling config (2025-11-30).
 func TestLambda_FunctionScalingConfig(t *testing.T) {
 	t.Parallel()
 	lc := lambdaClient()
@@ -62,7 +56,7 @@ func TestLambda_FunctionScalingConfig(t *testing.T) {
 	require.NoError(t, err)
 	qual := aws.ToString(pub.Version)
 
-	// Get before put: no scaling config set, but the call succeeds with the ARN.
+	// Before a put, GetFunctionScalingConfig still succeeds with the ARN.
 	pre, err := lc.GetFunctionScalingConfig(ctx, &lambda.GetFunctionScalingConfigInput{
 		FunctionName: aws.String(fn),
 		Qualifier:    aws.String(qual),
@@ -92,8 +86,6 @@ func TestLambda_FunctionScalingConfig(t *testing.T) {
 	assert.Equal(t, int32(5), aws.ToInt32(got.AppliedFunctionScalingConfig.MaxExecutionEnvironments))
 }
 
-// TestLambda_ListFunctionsByCodeSigningConfig wires a function to a
-// code-signing config and reads the membership back.
 func TestLambda_ListFunctionsByCodeSigningConfig(t *testing.T) {
 	t.Parallel()
 	lc := lambdaClient()
@@ -130,8 +122,6 @@ func TestLambda_ListFunctionsByCodeSigningConfig(t *testing.T) {
 	})
 }
 
-// TestLambda_CapacityProviders runs the full create/get/list/update/delete
-// round-trip plus the function-versions read-back (2025-11-30).
 func TestLambda_CapacityProviders(t *testing.T) {
 	t.Parallel()
 	lc := lambdaClient()
@@ -238,7 +228,7 @@ func TestLambda_CapacityProviders(t *testing.T) {
 	require.ErrorContains(t, err, "ResourceNotFoundException")
 }
 
-// TestLambda_InvokeAsync exercises the deprecated InvokeAsync entry point (202).
+// TestLambda_InvokeAsync covers the deprecated InvokeAsync, which answers 202.
 func TestLambda_InvokeAsync(t *testing.T) {
 	t.Parallel()
 	lc := lambdaClient()
@@ -253,8 +243,8 @@ func TestLambda_InvokeAsync(t *testing.T) {
 	assert.Equal(t, int32(202), out.Status)
 }
 
-// TestLambda_InvokeWithResponseStream exercises the streaming invoke entry
-// point and reassembles the event stream the handler emits.
+// TestLambda_InvokeWithResponseStream reassembles the event stream the handler
+// emits.
 func TestLambda_InvokeWithResponseStream(t *testing.T) {
 	t.Parallel()
 	lc := lambdaClient()
@@ -274,7 +264,7 @@ func TestLambda_InvokeWithResponseStream(t *testing.T) {
 	for ev := range stream.Events() {
 		switch ev.(type) {
 		case *lambdatypes.InvokeWithResponseStreamResponseEventMemberPayloadChunk:
-			// A chunk of the Zip-package function's {} response is fine.
+			// The Zip function's {} response may arrive as a chunk.
 		case *lambdatypes.InvokeWithResponseStreamResponseEventMemberInvokeComplete:
 			sawComplete = true
 		}
@@ -283,9 +273,8 @@ func TestLambda_InvokeWithResponseStream(t *testing.T) {
 	assert.True(t, sawComplete, "stream must terminate with an InvokeComplete event")
 }
 
-// TestLambda_DurableExecutionLifecycle starts a durable execution through the
-// real Invoke entry point, then observes its result, history, listing, and
-// idempotent execution-name behavior through the official SDK.
+// TestLambda_DurableExecutionLifecycle starts a durable execution through
+// Invoke and reads its result, history, listing and idempotent execution name.
 func TestLambda_DurableExecutionLifecycle(t *testing.T) {
 	t.Parallel()
 	lc := lambdaClient()
@@ -427,11 +416,10 @@ func TestLambda_DurableExecutionLifecycle(t *testing.T) {
 	require.Error(t, err)
 }
 
-// TestLambda_DurableCheckpointAndCallbackReplay drives the private durable
-// execution envelope through a real managed-runtime container, then uses the
-// official AWS SDK for Go for checkpoint, heartbeat, and callback completion.
-// The synchronous Invoke remains open until callback completion causes Lambda
-// to replay the function and return its customer result.
+// TestLambda_DurableCheckpointAndCallbackReplay runs the durable execution
+// envelope in a managed-runtime container and checkpoints, heartbeats and
+// completes the callback through the SDK; the synchronous Invoke stays open
+// until completion makes Lambda replay the function and return its result.
 func TestLambda_DurableCheckpointAndCallbackReplay(t *testing.T) {
 	t.Parallel()
 	lc := lambdaClient()
@@ -476,8 +464,8 @@ exports.handler = async (event) => {
 		output *lambda.InvokeOutput
 		err    error
 	}
-	// AWS Lambda writes to the function's log group when it exists, so the
-	// group is there for a Live Tail session before the function writes.
+	// AWS Lambda writes to the function's log group, so the group exists for a
+	// Live Tail session before the function writes.
 	cw := cwLogsClient()
 	logGroup := "/aws/lambda/" + fn
 	_, err = cw.CreateLogGroup(ctx, &cloudwatchlogs.CreateLogGroupInput{LogGroupName: aws.String(logGroup)})

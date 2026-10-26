@@ -19,18 +19,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// ociDigest computes the registry digest of content.
 func ociDigest(b []byte) string {
 	sum := sha256.Sum256(b)
 	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
-// ecrCreateRepository creates the repository a registry test addresses. Amazon
-// ECR repositories are explicit resources — "With Amazon ECR, new repositories
-// must be explicitly created before they can be used" (Amazon ECR User Guide,
-// "Troubleshooting Amazon ECR error messages" § HTTP 404: "Repository Does Not
-// Exist" error) — so a client creates one through the control plane before its
-// first push, exactly as the documented push flow instructs.
+// ecrCreateRepository creates the repository a registry test addresses: "With
+// Amazon ECR, new repositories must be explicitly created before they can be
+// used" (Amazon ECR User Guide, "Troubleshooting Amazon ECR error messages",
+// HTTP 404: "Repository Does Not Exist" error).
 func ecrCreateRepository(t *testing.T, repo string) {
 	t.Helper()
 	_, err := ecrClient().CreateRepository(ctx, &ecr.CreateRepositoryInput{
@@ -42,11 +39,10 @@ func ecrCreateRepository(t *testing.T, repo string) {
 	}
 }
 
-// ecrRegistryCredential returns the Basic credential the Amazon ECR data plane
-// authenticates, obtained the documented way: GetAuthorizationToken serves a
-// base64 `AWS:<password>` string that is itself the Basic parameter — "you must
-// provide an authorization token with every HTTP request … -H "Authorization:
-// Basic $TOKEN"" (Amazon ECR User Guide, "Using HTTP API authentication").
+// ecrRegistryCredential returns the Basic credential the data plane accepts:
+// GetAuthorizationToken serves a base64 `AWS:<password>` that is itself the
+// Basic parameter, "-H "Authorization: Basic $TOKEN"" (Amazon ECR User Guide,
+// "Using HTTP API authentication").
 func ecrRegistryCredential(t *testing.T) string {
 	t.Helper()
 	out, err := ecrClient().GetAuthorizationToken(ctx, &ecr.GetAuthorizationTokenInput{})
@@ -56,9 +52,9 @@ func ecrRegistryCredential(t *testing.T) string {
 	return "Basic " + *out.AuthorizationData[0].AuthorizationToken
 }
 
-// ecrRegistryPassword returns the password half of the authorization token —
-// what `aws ecr get-login-password` prints and `docker login --password-stdin`
-// consumes.
+// ecrRegistryPassword returns the token's password half, which
+// `aws ecr get-login-password` prints and `docker login --password-stdin`
+// takes.
 func ecrRegistryPassword(t *testing.T) string {
 	t.Helper()
 	out, err := ecrClient().GetAuthorizationToken(ctx, &ecr.GetAuthorizationTokenInput{})
@@ -96,20 +92,16 @@ func ociDoAuthorized(t *testing.T, method, url string, body []byte, contentType,
 	return resp
 }
 
-// TestECR_OCIDataPlane covers the Docker Registry /v2/ data plane —
-// a full chunked blob push + manifest push, then pull, against an ECR
-// multi-segment repository.
+// TestECR_OCIDataPlane pushes a chunked blob and a manifest to a multi-segment
+// repository and pulls them back.
 func TestECR_OCIDataPlane(t *testing.T) {
 	t.Parallel()
 	repo := "oci-test-repo/app"
 	ecrCreateRepository(t, repo)
 
-	// Base / version route. Captured from `public.ecr.aws/v2/` with a Bearer
-	// token from its own token service: status 200, `content-length: 0`, an
-	// empty body, and no `content-type` header at all. The `{}` this used to
-	// answer is Docker Distribution's, and Amazon ECR is not Docker
-	// Distribution — nor do the two other registries the shared implementation
-	// serves agree with it or with each other.
+	// Captured from `public.ecr.aws/v2/` with a Bearer token from its token
+	// service: 200, `content-length: 0`, an empty body and no `content-type`.
+	// Docker Distribution answers `{}`, and Amazon ECR is not Docker Distribution.
 	resp := ociDo(t, http.MethodGet, baseURL+"/v2/", nil, "")
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	assert.Equal(t, "registry/2.0", resp.Header.Get("Docker-Distribution-API-Version"))
@@ -120,7 +112,7 @@ func TestECR_OCIDataPlane(t *testing.T) {
 	assert.Equal(t, "0", resp.Header.Get("Content-Length"))
 	assert.Empty(t, resp.Header.Get("Content-Type"))
 
-	// Chunked blob upload: POST (init) → PATCH (chunk) → PUT (finalize).
+	// A chunked upload: POST to start, PATCH a chunk, PUT to finish.
 	layer := []byte("the-image-layer-bytes-go-here")
 	digest := ociDigest(layer)
 
@@ -140,12 +132,10 @@ func TestECR_OCIDataPlane(t *testing.T) {
 	assert.Equal(t, digest, resp.Header.Get("Docker-Content-Digest"))
 	resp.Body.Close()
 
-	// Blob is now present.
 	resp = ociDo(t, http.MethodHead, baseURL+"/v2/"+repo+"/blobs/"+digest, nil, "")
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	resp.Body.Close()
 
-	// Push a manifest referencing the layer.
 	manifest := []byte(fmt.Sprintf(`{"schemaVersion":2,"mediaType":"application/vnd.docker.distribution.manifest.v2+json","config":{"mediaType":"application/vnd.docker.container.image.v1+json","size":7,"digest":"%s"},"layers":[{"mediaType":"application/vnd.docker.image.rootfs.diff.tar.gzip","size":%d,"digest":"%s"}]}`, digest, len(layer), digest))
 	resp = ociDo(t, http.MethodPut, baseURL+"/v2/"+repo+"/manifests/v1", manifest, "application/vnd.docker.distribution.manifest.v2+json")
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
@@ -153,26 +143,22 @@ func TestECR_OCIDataPlane(t *testing.T) {
 	assert.Equal(t, ociDigest(manifest), manifestDigest)
 	resp.Body.Close()
 
-	// Pull it back by tag.
 	resp = ociDo(t, http.MethodGet, baseURL+"/v2/"+repo+"/manifests/v1", nil, "")
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	got, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
 	assert.Equal(t, manifest, got)
 
-	// And by digest.
 	resp = ociDo(t, http.MethodGet, baseURL+"/v2/"+repo+"/manifests/"+manifestDigest, nil, "")
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	resp.Body.Close()
 
-	// Pull the layer blob back.
 	resp = ociDo(t, http.MethodGet, baseURL+"/v2/"+repo+"/blobs/"+digest, nil, "")
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	gotLayer, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
 	assert.Equal(t, layer, gotLayer)
 
-	// A digest that doesn't match the content is rejected.
 	resp = ociDo(t, http.MethodPost, baseURL+"/v2/"+repo+"/blobs/uploads/", nil, "")
 	bad := resp.Header.Get("Location")
 	resp.Body.Close()
@@ -183,19 +169,16 @@ func TestECR_OCIDataPlane(t *testing.T) {
 	resp.Body.Close()
 }
 
-// TestECR_OCIManifestHeadMissing locks the push-client probe shape: a manifest
-// HEAD for a tag that doesn't exist must return 404 (MANIFEST_UNKNOWN), never a
-// generic 400 — an OCI client (go-containerregistry) treats 404 as "absent,
-// proceed to upload" but aborts on 4xx that isn't 404. Every /v2/ response,
-// including this 404, also carries Docker-Distribution-Api-Version (real
-// registries set it on all responses, not just the base ping).
+// TestECR_OCIManifestHeadMissing expects a manifest HEAD for a missing tag to
+// answer 404 (MANIFEST_UNKNOWN): go-containerregistry reads 404 as "absent,
+// upload" and aborts on any other 4xx. Every /v2/ response, this 404 included,
+// carries Docker-Distribution-Api-Version.
 func TestECR_OCIManifestHeadMissing(t *testing.T) {
 	t.Parallel()
 	repo := uniquename.New("shim/registry")
 	ecrCreateRepository(t, repo)
 	const apiVersionHeader = "Docker-Distribution-Api-Version"
 
-	// Missing tag in a not-yet-populated repo → 404 with the registry header.
 	resp := ociDo(t, http.MethodHead, baseURL+"/v2/"+repo+"/manifests/v1", nil, "")
 	require.Equal(t, http.StatusNotFound, resp.StatusCode,
 		"manifest HEAD for a missing tag must be 404, not 400")
@@ -203,14 +186,12 @@ func TestECR_OCIManifestHeadMissing(t *testing.T) {
 		"the missing-manifest response must carry Docker-Distribution-Api-Version")
 	resp.Body.Close()
 
-	// GET for the same missing tag → 404 with the MANIFEST_UNKNOWN envelope.
 	resp = ociDo(t, http.MethodGet, baseURL+"/v2/"+repo+"/manifests/v1", nil, "")
 	require.Equal(t, http.StatusNotFound, resp.StatusCode)
 	body, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
 	assert.Contains(t, string(body), "MANIFEST_UNKNOWN")
 
-	// Push the tag, then the same HEAD probe now reports it present (200).
 	layer := []byte("head-probe-layer")
 	digest := ociDigest(layer)
 	resp = ociDo(t, http.MethodPost, baseURL+"/v2/"+repo+"/blobs/uploads/", nil, "")
@@ -231,15 +212,14 @@ func TestECR_OCIManifestHeadMissing(t *testing.T) {
 	resp.Body.Close()
 }
 
-// TestECR_RegistryDataPlaneAuthentication drives the Amazon ECR private-registry
-// credential contract end to end through the SDK: GetAuthorizationToken mints
-// the credential, the /v2/ data plane accepts it, and every other credential is
-// refused with the Basic challenge Amazon ECR publishes.
+// TestECR_RegistryDataPlaneAuthentication expects the data plane to accept the
+// credential GetAuthorizationToken mints and refuse every other with Amazon
+// ECR's Basic challenge
 //
 //	Www-Authenticate: Basic realm="https://<registry>/",service="ecr.amazonaws.com"
 //
-// (observed against a real private registry in NVIDIA/enroot#59), and the
-// plain-text `Not Authorized` body that go-containerregistry renders as
+// (observed against a private registry in NVIDIA/enroot#59) and the plain-text
+// `Not Authorized` body go-containerregistry renders as
 // `unexpected status code 401 Unauthorized: Not Authorized`
 // (google/go-containerregistry#861).
 func TestECR_RegistryDataPlaneAuthentication(t *testing.T) {
@@ -248,8 +228,6 @@ func TestECR_RegistryDataPlaneAuthentication(t *testing.T) {
 	ecrCreateRepository(t, repo)
 	credential := ecrRegistryCredential(t)
 
-	// Every credential the registry does not accept is refused, on the base
-	// endpoint and on a repository route alike.
 	for _, probe := range []struct {
 		name          string
 		authorization string
@@ -274,14 +252,13 @@ func TestECR_RegistryDataPlaneAuthentication(t *testing.T) {
 		}
 	}
 
-	// A blob upload is refused before it can allocate an upload slot.
+	// A blob upload is refused before it allocates an upload slot.
 	resp := ociDoAuthorized(t, http.MethodPost, baseURL+"/v2/"+repo+"/blobs/uploads/", nil, "", "")
 	resp.Body.Close()
 	require.Equal(t, http.StatusUnauthorized, resp.StatusCode)
 	assert.Empty(t, resp.Header.Get("Docker-Upload-UUID"),
 		"a refused upload must not allocate an upload")
 
-	// The credential GetAuthorizationToken issued reaches the whole data plane.
 	resp = ociDoAuthorized(t, http.MethodGet, baseURL+"/v2/", nil, "", credential)
 	resp.Body.Close()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
@@ -305,8 +282,8 @@ func TestECR_RegistryDataPlaneAuthentication(t *testing.T) {
 	resp.Body.Close()
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
 
-	// A second, independently issued token authenticates too — the credential
-	// is the IAM principal's, not one shared secret.
+	// An independently issued token authenticates too: the credential is the IAM
+	// principal's, not one shared secret.
 	other := ecrRegistryCredential(t)
 	require.NotEqual(t, credential, other, "each GetAuthorizationToken call mints its own token")
 	resp = ociDoAuthorized(t, http.MethodGet, baseURL+"/v2/"+repo+"/manifests/v1", nil, "", other)
@@ -315,8 +292,7 @@ func TestECR_RegistryDataPlaneAuthentication(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	assert.Equal(t, manifest, got)
 
-	// And the same pull without it is refused, so the pushed manifest is not
-	// readable by an unauthenticated caller.
+	// Without it the same pull is refused.
 	resp = ociDoAuthorized(t, http.MethodGet, baseURL+"/v2/"+repo+"/manifests/v1", nil, "", "")
 	resp.Body.Close()
 	require.Equal(t, http.StatusUnauthorized, resp.StatusCode)

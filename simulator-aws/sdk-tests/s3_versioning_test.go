@@ -18,7 +18,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// s3VersionedBucket creates a bucket and sets its versioning state.
 func s3VersionedBucket(t *testing.T, c *s3.Client, prefix string, status types.BucketVersioningStatus) string {
 	t.Helper()
 	bucket := uniquename.New(prefix)
@@ -41,7 +40,7 @@ func s3Put(t *testing.T, c *s3.Client, bucket, key, body string) *s3.PutObjectOu
 	return out
 }
 
-// s3Read reads the object version names ("" for the current object).
+// s3Read reads the object version names; "" reads the current object.
 func s3Read(t *testing.T, c *s3.Client, bucket, key, version string) (string, error) {
 	t.Helper()
 	in := &s3.GetObjectInput{Bucket: aws.String(bucket), Key: aws.String(key)}

@@ -13,9 +13,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestEC2_SecurityGroupEnforce_RejectsMalformedCIDR covers Tier 1 validation:
-// AuthorizeSecurityGroupIngress must reject a syntactically invalid IPv4 CIDR
-// with InvalidPermission.Malformed, matching real AWS' Authorize boundary.
+// TestEC2_SecurityGroupEnforce_RejectsMalformedCIDR expects
+// AuthorizeSecurityGroupIngress to reject an invalid IPv4 CIDR with
+// InvalidPermission.Malformed.
 func TestEC2_SecurityGroupEnforce_RejectsMalformedCIDR(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -33,8 +33,6 @@ func TestEC2_SecurityGroupEnforce_RejectsMalformedCIDR(t *testing.T) {
 	requireSGErrorCode(t, err, "InvalidPermission.Malformed")
 }
 
-// TestEC2_SecurityGroupEnforce_RejectsMalformedIPv6CIDR verifies IPv6 CIDR
-// validation.
 func TestEC2_SecurityGroupEnforce_RejectsMalformedIPv6CIDR(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -52,8 +50,8 @@ func TestEC2_SecurityGroupEnforce_RejectsMalformedIPv6CIDR(t *testing.T) {
 	requireSGErrorCode(t, err, "InvalidPermission.Malformed")
 }
 
-// TestEC2_SecurityGroupEnforce_RejectsUnknownSGRef covers Tier 1: a UserIdGroupPair
-// referencing a non-existent SG must come back as InvalidGroup.NotFound.
+// TestEC2_SecurityGroupEnforce_RejectsUnknownSGRef expects a UserIdGroupPair
+// naming a missing group to fail with InvalidGroup.NotFound.
 func TestEC2_SecurityGroupEnforce_RejectsUnknownSGRef(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -71,8 +69,8 @@ func TestEC2_SecurityGroupEnforce_RejectsUnknownSGRef(t *testing.T) {
 	requireSGErrorCode(t, err, "InvalidGroup.NotFound")
 }
 
-// TestEC2_SecurityGroupEnforce_RejectsBadProtocol verifies unsupported protocol
-// names are rejected with InvalidPermission.Malformed.
+// TestEC2_SecurityGroupEnforce_RejectsBadProtocol expects an unsupported
+// protocol name to fail with InvalidPermission.Malformed.
 func TestEC2_SecurityGroupEnforce_RejectsBadProtocol(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -89,8 +87,8 @@ func TestEC2_SecurityGroupEnforce_RejectsBadProtocol(t *testing.T) {
 	requireSGErrorCode(t, err, "InvalidPermission.Malformed")
 }
 
-// TestEC2_SecurityGroupEnforce_RejectsInvertedPortRange verifies FromPort>ToPort
-// for TCP is rejected.
+// TestEC2_SecurityGroupEnforce_RejectsInvertedPortRange expects a TCP FromPort
+// above ToPort to be rejected.
 func TestEC2_SecurityGroupEnforce_RejectsInvertedPortRange(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -107,8 +105,6 @@ func TestEC2_SecurityGroupEnforce_RejectsInvertedPortRange(t *testing.T) {
 	requireSGErrorCode(t, err, "InvalidPortRange.Malformed")
 }
 
-// TestEC2_SecurityGroupEnforce_RejectsUnknownGroup verifies the Authorize
-// boundary rejects an Authorize against a non-existent group itself.
 func TestEC2_SecurityGroupEnforce_RejectsUnknownGroup(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -123,8 +119,8 @@ func TestEC2_SecurityGroupEnforce_RejectsUnknownGroup(t *testing.T) {
 	requireSGErrorCode(t, err, "InvalidGroup.NotFound")
 }
 
-// TestEC2_SecurityGroupEnforce_StoresAndQueries: SG rules are stored,
-// queryable via the API, and reference-resolvable.
+// TestEC2_SecurityGroupEnforce_StoresAndQueries expects rules stored, queryable
+// and carrying their group references.
 func TestEC2_SecurityGroupEnforce_StoresAndQueries(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -132,7 +128,6 @@ func TestEC2_SecurityGroupEnforce_StoresAndQueries(t *testing.T) {
 	webSG := mustCreateSG(t, c, "enforce-web", vpc)
 	dbSG := mustCreateSG(t, c, "enforce-db", vpc)
 
-	// Web SG opens TCP 80 from anywhere.
 	_, err := c.AuthorizeSecurityGroupIngress(ctx, &ec2.AuthorizeSecurityGroupIngressInput{
 		GroupId: webSG.GroupId,
 		IpPermissions: []types.IpPermission{{
@@ -142,7 +137,6 @@ func TestEC2_SecurityGroupEnforce_StoresAndQueries(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// DB SG opens 5432 to webSG (referenced).
 	_, err = c.AuthorizeSecurityGroupIngress(ctx, &ec2.AuthorizeSecurityGroupIngressInput{
 		GroupId: dbSG.GroupId,
 		IpPermissions: []types.IpPermission{{
@@ -152,7 +146,6 @@ func TestEC2_SecurityGroupEnforce_StoresAndQueries(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Restrictive egress: only TCP 443 to 0.0.0.0/0.
 	_, err = c.AuthorizeSecurityGroupEgress(ctx, &ec2.AuthorizeSecurityGroupEgressInput{
 		GroupId: dbSG.GroupId,
 		IpPermissions: []types.IpPermission{{
@@ -162,7 +155,6 @@ func TestEC2_SecurityGroupEnforce_StoresAndQueries(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Both ingress + the egress rule are queryable by group id.
 	rules := sgRulesFor(t, c, aws.ToString(dbSG.GroupId))
 	var sawIngressRef, sawEgressHTTPS bool
 	for i := range rules {
@@ -177,7 +169,6 @@ func TestEC2_SecurityGroupEnforce_StoresAndQueries(t *testing.T) {
 	assert.True(t, sawIngressRef, "ingress SG reference rule must be queryable")
 	assert.True(t, sawEgressHTTPS, "restrictive egress rule must be queryable")
 
-	// And via DescribeSecurityGroups the IpPermissions carry the SG reference.
 	desc, err := c.DescribeSecurityGroups(ctx, &ec2.DescribeSecurityGroupsInput{GroupIds: []string{aws.ToString(dbSG.GroupId)}})
 	require.NoError(t, err)
 	require.NotEmpty(t, desc.SecurityGroups)
@@ -193,8 +184,6 @@ func TestEC2_SecurityGroupEnforce_StoresAndQueries(t *testing.T) {
 
 }
 
-// TestEC2_SecurityGroupEnforce_IPv6IngressStored verifies IPv6 ingress rules
-// survive the validation boundary and round-trip through Describe.
 func TestEC2_SecurityGroupEnforce_IPv6IngressStored(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()

@@ -17,11 +17,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The operations AWS added to the vendored models after the simulator's
-// implementation, driven through the real SDK clients. Each family is proved
-// by its effects: a budget action's execution is read back from the IAM
-// attachment it created and the instance it stopped, not from its own status
-// alone.
+// Operations AWS added to the vendored models, each shown by its effects: a
+// budget action's execution reads back from the IAM attachment it created and
+// the instance it stopped, not only from its own status.
 
 func TestGlue_DataCatalogExportConfigurationRoundTrips(t *testing.T) {
 	t.Parallel()
@@ -42,10 +40,9 @@ func TestGlue_DataCatalogExportConfigurationRoundTrips(t *testing.T) {
 func TestIAM_AccountPropertiesRoundTripAndTemplatesNameTheirCatalog(t *testing.T) {
 	t.Parallel()
 	c := iamClient()
-	// The model is explicit about the key: "Each key uses the format
-	// Namespace/PropertyName ... exactly one / ... cannot start or end with
-	// /", and "All properties in a single request must belong to the same
-	// namespace."
+	// The model on the key: "Each key uses the format Namespace/PropertyName ...
+	// exactly one / ... cannot start or end with /", and "All properties in a
+	// single request must belong to the same namespace."
 	_, err := c.PutAccountProperties(ctx, &iam.PutAccountPropertiesInput{
 		Properties: map[string]string{"roleManager/assumeRoleWithWebIdentityLimit": "extended"},
 	})
@@ -72,8 +69,8 @@ func TestIAM_AccountPropertiesRoundTripAndTemplatesNameTheirCatalog(t *testing.T
 	assert.Contains(t, err.Error(), "same namespace",
 		"the failure must name the one-namespace rule: %v", err)
 
-	// Role templates are AWS's own catalog; both operations say so rather
-	// than fabricating template content.
+	// Role templates are AWS's own catalog, which both operations say rather than
+	// invent content.
 	_, err = c.GetRoleTemplateVersion(ctx, &iam.GetRoleTemplateVersionInput{
 		TemplateArn: aws.String("arn:aws:iam::aws:role-template/lambda.amazonaws.com/basic:1"),
 	})
@@ -113,8 +110,7 @@ func TestBudgets_ActionExecutesThroughTheSimulatorsOwnServices(t *testing.T) {
 		})
 	})
 
-	// The action attaches a deny policy to a real role, so the role exists
-	// first and the attachment is read back through IAM itself.
+	// The action attaches a deny policy to a real role, read back through IAM.
 	const roleName = "drift-action-role"
 	_, err = iamC.CreateRole(ctx, &iam.CreateRoleInput{
 		RoleName:                 aws.String(roleName),
@@ -163,8 +159,8 @@ func TestBudgets_ActionExecutesThroughTheSimulatorsOwnServices(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// The execution's effect is what proves it: the policy is attached to the
-	// role, read back through IAM rather than through Budgets' own status.
+	// The attachment, read through IAM rather than Budgets' status, shows the
+	// execution.
 	attached, err := iamC.ListAttachedRolePolicies(ctx, &iam.ListAttachedRolePoliciesInput{
 		RoleName: aws.String(roleName),
 	})
@@ -177,7 +173,6 @@ func TestBudgets_ActionExecutesThroughTheSimulatorsOwnServices(t *testing.T) {
 	}
 	assert.True(t, found, "executing the action must attach the policy through the simulator's own IAM")
 
-	// Reversing detaches it again.
 	_, err = c.ExecuteBudgetAction(ctx, &budgets.ExecuteBudgetActionInput{
 		AccountId: aws.String(account), BudgetName: aws.String(budgetName),
 		ActionId: aws.String(actionID), ExecutionType: budgetstypes.ExecutionTypeReverseBudgetAction,
@@ -192,7 +187,6 @@ func TestBudgets_ActionExecutesThroughTheSimulatorsOwnServices(t *testing.T) {
 			"reversing the action must detach the policy it attached")
 	}
 
-	// The action's history recorded both executions.
 	histories, err := c.DescribeBudgetActionHistories(ctx, &budgets.DescribeBudgetActionHistoriesInput{
 		AccountId: aws.String(account), BudgetName: aws.String(budgetName), ActionId: aws.String(actionID),
 	})
@@ -200,7 +194,6 @@ func TestBudgets_ActionExecutesThroughTheSimulatorsOwnServices(t *testing.T) {
 	assert.GreaterOrEqual(t, len(histories.ActionHistories), 3,
 		"create and two executions must be in the history")
 
-	// Updating the action changes what a later describe returns.
 	updated, err := c.UpdateBudgetAction(ctx, &budgets.UpdateBudgetActionInput{
 		AccountId: aws.String(account), BudgetName: aws.String(budgetName), ActionId: aws.String(actionID),
 		ActionThreshold: &budgetstypes.ActionThreshold{
@@ -212,7 +205,6 @@ func TestBudgets_ActionExecutesThroughTheSimulatorsOwnServices(t *testing.T) {
 	assert.Equal(t, float64(95), updated.NewAction.ActionThreshold.ActionThresholdValue,
 		"the update must be the one returned")
 
-	// The budget-scoped listing carries the action.
 	forBudget, err := c.DescribeBudgetActionsForBudget(ctx, &budgets.DescribeBudgetActionsForBudgetInput{
 		AccountId: aws.String(account), BudgetName: aws.String(budgetName),
 	})
@@ -220,7 +212,6 @@ func TestBudgets_ActionExecutesThroughTheSimulatorsOwnServices(t *testing.T) {
 	require.Len(t, forBudget.Actions, 1)
 	assert.Equal(t, actionID, aws.ToString(forBudget.Actions[0].ActionId))
 
-	// Account-wide listing sees it; deleting removes it.
 	forAccount, err := c.DescribeBudgetActionsForAccount(ctx, &budgets.DescribeBudgetActionsForAccountInput{
 		AccountId: aws.String(account),
 	})
@@ -253,7 +244,6 @@ func TestEC2_IpamInternetRegistryIsRealStateAndNamesTheRIR(t *testing.T) {
 		created.IpamInternetRegistryAssociation.State,
 		"created and awaiting enable: pending-enable, per the association-state enum")
 
-	// The association is real state and round-trips.
 	described, err := c.DescribeIpamInternetRegistryAssociations(ctx, &ec2.DescribeIpamInternetRegistryAssociationsInput{
 		IpamInternetRegistryAssociationIds: []string{associationID},
 	})
@@ -261,11 +251,10 @@ func TestEC2_IpamInternetRegistryIsRealStateAndNamesTheRIR(t *testing.T) {
 	require.Len(t, described.IpamInternetRegistryAssociations, 1)
 	assert.Equal(t, "EXAMPLE-ORG", aws.ToString(described.IpamInternetRegistryAssociations[0].OrganizationHandle))
 
-	// Enabling begins verification with the RIR, which is outside AWS: the
-	// failure names the registry, not a vague unavailability.
-	// The RPKI provisioning parameters are required by the model — they are
-	// what a caller hands the registry — and the SDK validates them
-	// client-side; the refusal under test is the server's.
+	// Enabling begins verification with the regional internet registry, outside
+	// AWS, so the failure names the registry. The model requires the RPKI
+	// provisioning parameters, which the SDK validates; the refusal under test is
+	// the service's.
 	_, err = c.EnableIpamInternetRegistryAssociation(ctx, &ec2.EnableIpamInternetRegistryAssociationInput{
 		IpamInternetRegistryAssociationId: aws.String(associationID),
 		RpkiVersion:                       aws.String("1"),
@@ -278,9 +267,8 @@ func TestEC2_IpamInternetRegistryIsRealStateAndNamesTheRIR(t *testing.T) {
 	assert.Contains(t, err.Error(), "Regional Internet Registry",
 		"the failure must name the registry: %v", err)
 
-	// Registrations are the caller's own declarations and round-trip. Every
-	// mutation answers with a delta record (the model's shape for all four
-	// registration operations), which the deltas listing must also return.
+	// Registrations are the caller's declarations. Each of the four registration
+	// operations answers with a delta record, which the deltas listing returns too.
 	createdReg, err := c.CreateIpamRoutingPolicyRegistration(ctx, &ec2.CreateIpamRoutingPolicyRegistrationInput{
 		IpamInternetRegistryAssociationId: aws.String(associationID),
 		Cidr:                              aws.String("203.0.113.0/24"),
@@ -305,7 +293,6 @@ func TestEC2_IpamInternetRegistryIsRealStateAndNamesTheRIR(t *testing.T) {
 	assert.Equal(t, createDeltaID, aws.ToString(registrations.IpamRoutingPolicyRegistrations[0].LatestDeltaId),
 		"the create's delta is the registration's latest")
 
-	// Modifying a registration changes what the listing returns.
 	modified, err := c.ModifyIpamRoutingPolicyRegistration(ctx, &ec2.ModifyIpamRoutingPolicyRegistrationInput{
 		IpamInternetRegistryAssociationId: aws.String(associationID),
 		Cidr:                              aws.String("203.0.113.0/24"),
@@ -327,8 +314,8 @@ func TestEC2_IpamInternetRegistryIsRealStateAndNamesTheRIR(t *testing.T) {
 		registrations.IpamRoutingPolicyRegistrations[0].State,
 		"a synchronously applied modify is update-complete, per the registration-state enum")
 
-	// The batch form takes a caller-authored delta document, applies it, and
-	// creates a delta record the deltas listing returns.
+	// The batch applies a caller-authored delta document and creates a delta
+	// record the listing returns.
 	batch, err := c.BatchModifyIpamRoutingPolicyRegistrations(ctx, &ec2.BatchModifyIpamRoutingPolicyRegistrationsInput{
 		IpamInternetRegistryAssociationId: aws.String(associationID),
 		DeltaJson:                         aws.String(`[{"Cidr":"203.0.113.0/24","Asns":["64502"]}]`),
@@ -338,8 +325,8 @@ func TestEC2_IpamInternetRegistryIsRealStateAndNamesTheRIR(t *testing.T) {
 	deltaID := aws.ToString(batch.IpamRoutingPolicyRegistrationDelta.DeltaId)
 	require.NotEmpty(t, deltaID)
 
-	// The batch really applied: the registration carries the new ASN and
-	// names the delta as its latest.
+	// The registration carries the new ASN and names the batch's delta as its
+	// latest.
 	registrations, err = c.GetIpamRoutingPolicyRegistrations(ctx, &ec2.GetIpamRoutingPolicyRegistrationsInput{
 		IpamInternetRegistryAssociationId: aws.String(associationID),
 	})
@@ -349,9 +336,8 @@ func TestEC2_IpamInternetRegistryIsRealStateAndNamesTheRIR(t *testing.T) {
 		"the delta document must actually modify the registration")
 	assert.Equal(t, deltaID, aws.ToString(registrations.IpamRoutingPolicyRegistrations[0].LatestDeltaId))
 
-	// The deltas listing knows every delta a response ever named — the
-	// create, the modify, and the batch. A returned-but-unlisted delta would
-	// be a phantom record.
+	// The deltas listing holds every delta a response named: the create, the
+	// modify and the batch.
 	deltas, err := c.GetIpamRoutingPolicyRegistrationDeltas(ctx, &ec2.GetIpamRoutingPolicyRegistrationDeltasInput{
 		IpamInternetRegistryAssociationId: aws.String(associationID),
 	})
@@ -366,7 +352,6 @@ func TestEC2_IpamInternetRegistryIsRealStateAndNamesTheRIR(t *testing.T) {
 		"the modify's delta must be listed")
 	assert.True(t, listed[deltaID], "the batch's delta must be listed")
 
-	// So are the imports the registry would have sent back.
 	asns, err := c.GetIpamInternetRegistryAssociationAsns(ctx, &ec2.GetIpamInternetRegistryAssociationAsnsInput{
 		IpamInternetRegistryAssociationId: aws.String(associationID),
 	})
@@ -386,8 +371,8 @@ func TestEC2_IpamInternetRegistryIsRealStateAndNamesTheRIR(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, findings.RouteProtectionFindings)
 
-	// Deleting the registration empties the listing and answers a published
-	// delta of its own.
+	// Deleting the registration empties the listing and answers a delta of its
+	// own.
 	deleted, err := c.DeleteIpamRoutingPolicyRegistration(ctx, &ec2.DeleteIpamRoutingPolicyRegistrationInput{
 		IpamInternetRegistryAssociationId: aws.String(associationID),
 		Cidr:                              aws.String("203.0.113.0/24"),
@@ -402,7 +387,7 @@ func TestEC2_IpamInternetRegistryIsRealStateAndNamesTheRIR(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, registrations.IpamRoutingPolicyRegistrations)
 
-	// ROAs are the registries' RPKI data; the failure says so.
+	// ROAs are the registries' RPKI data, which the failure says.
 	_, err = c.GetIpamRouteOriginAuthorizations(ctx, &ec2.GetIpamRouteOriginAuthorizationsInput{
 		IpamInternetRegistryAssociationId: aws.String(associationID),
 	})
@@ -443,10 +428,9 @@ func TestEC2_ApplicationStatusIsMeasuredNotDeclared(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Nothing listens on the check's port, so the checker's first scheduled
-	// probe really fails and, with a FailureThreshold of one, the check reports
-	// failed and the instance-level status impaired — the SDK's own
-	// vocabulary, deserialised by the SDK's own client.
+	// Nothing listens on the check's port, so the first probe fails and, with a
+	// FailureThreshold of one, the check reports failed and the instance impaired,
+	// in the SDK's own vocabulary.
 	var status *ec2.DescribeApplicationStatusOutput
 	require.Eventually(t, func() bool {
 		status, err = c.DescribeApplicationStatus(ctx, &ec2.DescribeApplicationStatusInput{
@@ -463,8 +447,6 @@ func TestEC2_ApplicationStatusIsMeasuredNotDeclared(t *testing.T) {
 	assert.Equal(t, ec2types.ApplicationStatusCheckEnumFailed, measured.ApplicationStatus.Details[0].Status,
 		"the probe really ran and really failed")
 
-	// The check round-trips through its own describe, and a modification is
-	// the one returned.
 	checks, err := c.DescribeApplicationStatusChecks(ctx, &ec2.DescribeApplicationStatusChecksInput{
 		ApplicationStatusCheckIds: []string{checkID},
 	})
@@ -486,7 +468,6 @@ func TestEC2_ApplicationStatusIsMeasuredNotDeclared(t *testing.T) {
 	require.Len(t, checks.ApplicationStatusChecks, 1)
 	assert.Equal(t, int32(58888), aws.ToInt32(checks.ApplicationStatusChecks[0].Port))
 
-	// The association listing carries the binding.
 	associations, err := c.DescribeApplicationStatusCheckAssociations(ctx, &ec2.DescribeApplicationStatusCheckAssociationsInput{
 		ApplicationStatusCheckIds: []string{checkID},
 	})
@@ -494,7 +475,7 @@ func TestEC2_ApplicationStatusIsMeasuredNotDeclared(t *testing.T) {
 	require.Len(t, associations.Associations, 1)
 	assert.Equal(t, checkID, aws.ToString(associations.Associations[0].ApplicationStatusCheckId))
 
-	// Suppression is state of its own, and reports as itself.
+	// Suppression is state of its own and reports as such.
 	_, err = c.EnableApplicationStatusCheckSuppression(ctx, &ec2.EnableApplicationStatusCheckSuppressionInput{
 		InstanceIds: []string{instance},
 	})
@@ -507,7 +488,6 @@ func TestEC2_ApplicationStatusIsMeasuredNotDeclared(t *testing.T) {
 	assert.Equal(t, ec2types.ApplicationStatusEnumSuppressed,
 		status.ApplicationStatuses.Instances[0].ApplicationStatus.Status)
 
-	// Lifting the suppression restores the measured verdict.
 	_, err = c.DisableApplicationStatusCheckSuppression(ctx, &ec2.DisableApplicationStatusCheckSuppressionInput{
 		InstanceIds: []string{instance},
 	})
@@ -521,7 +501,6 @@ func TestEC2_ApplicationStatusIsMeasuredNotDeclared(t *testing.T) {
 		status.ApplicationStatuses.Instances[0].ApplicationStatus.Status,
 		"lifting suppression must restore the measured verdict")
 
-	// Disassociating removes the binding, and with it the status.
 	disassociated, err := c.DisassociateApplicationStatusCheck(ctx, &ec2.DisassociateApplicationStatusCheckInput{
 		ApplicationStatusCheckId: aws.String(checkID),
 		InstanceIds:              []string{instance},
@@ -535,8 +514,6 @@ func TestEC2_ApplicationStatusIsMeasuredNotDeclared(t *testing.T) {
 	assert.Empty(t, associations.Associations)
 }
 
-// runDriftTestInstance launches one instance for the drift tests and stops it
-// on cleanup.
 func runDriftTestInstance(t *testing.T, c *ec2.Client) string {
 	t.Helper()
 	run, err := c.RunInstances(ctx, &ec2.RunInstancesInput{
@@ -602,8 +579,8 @@ func TestBudgets_NotificationUpdatesMoveTheirSubscribers(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// The notification's identity is its field tuple, so the subscriber must
-	// have moved to the new tuple rather than being orphaned under the old.
+	// A notification's identity is its field tuple, so the subscriber moves to the
+	// new tuple rather than being orphaned under the old.
 	subscribers, err := c.DescribeSubscribersForNotification(ctx, &budgets.DescribeSubscribersForNotificationInput{
 		AccountId: aws.String(account), BudgetName: aws.String(budgetName),
 		Notification: newNotification,
@@ -613,7 +590,6 @@ func TestBudgets_NotificationUpdatesMoveTheirSubscribers(t *testing.T) {
 		"the subscriber must follow the notification it was subscribed to")
 	assert.Equal(t, "before@example.com", aws.ToString(subscribers.Subscribers[0].Address))
 
-	// Replacing the subscriber under the new tuple.
 	_, err = c.UpdateSubscriber(ctx, &budgets.UpdateSubscriberInput{
 		AccountId: aws.String(account), BudgetName: aws.String(budgetName),
 		Notification: newNotification,
@@ -635,8 +611,6 @@ func TestBudgets_NotificationUpdatesMoveTheirSubscribers(t *testing.T) {
 	require.Len(t, subscribers.Subscribers, 1)
 	assert.Equal(t, "after@example.com", aws.ToString(subscribers.Subscribers[0].Address))
 
-	// The account-wide notification listing names the budget and its
-	// notification at the updated threshold.
 	forAccount, err := c.DescribeBudgetNotificationsForAccount(ctx, &budgets.DescribeBudgetNotificationsForAccountInput{
 		AccountId: aws.String(account),
 	})
@@ -652,8 +626,7 @@ func TestBudgets_NotificationUpdatesMoveTheirSubscribers(t *testing.T) {
 	}
 	assert.True(t, foundBudget, "the account-wide listing must carry the budget's notifications")
 
-	// Performance history: the budgeted amount beside an actual of zero,
-	// which is this simulator's truth — it accrues no cost.
+	// The budgeted amount beside an actual of zero: the simulator accrues no cost.
 	history, err := c.DescribeBudgetPerformanceHistory(ctx, &budgets.DescribeBudgetPerformanceHistoryInput{
 		AccountId: aws.String(account), BudgetName: aws.String(budgetName),
 	})

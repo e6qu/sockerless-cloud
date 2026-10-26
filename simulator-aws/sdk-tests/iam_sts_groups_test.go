@@ -23,9 +23,9 @@ func errCodeOf(err error) string {
 	return ""
 }
 
-// TestSTS_AssumeRoleEnforcement proves AssumeRole mints temporary (ASIA…)
-// credentials that resolve, under call-time enforcement, to the assumed role's
-// policies — and that GetCallerIdentity reports the assumed-role ARN.
+// TestSTS_AssumeRoleEnforcement expects AssumeRole to mint temporary (ASIA)
+// credentials that enforce as the assumed role's policies, and
+// GetCallerIdentity to report the assumed-role ARN.
 func TestSTS_AssumeRoleEnforcement(t *testing.T) {
 	t.Parallel()
 	admin := iamClient()
@@ -33,8 +33,8 @@ func TestSTS_AssumeRoleEnforcement(t *testing.T) {
 
 	_, err := admin.CreateRole(ctx, &iam.CreateRoleInput{
 		RoleName: aws.String(role),
-		// The account principal delegates to the caller's own policies, which
-		// for the harness administrator allow sts:AssumeRole.
+		// The account principal defers to the caller's own policies, which for the
+		// suite's administrator allow sts:AssumeRole.
 		AssumeRolePolicyDocument: aws.String(`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"AWS":"arn:aws:iam::123456789012:root"},"Action":"sts:AssumeRole"}]}`),
 	})
 	require.NoError(t, err)
@@ -72,8 +72,6 @@ func TestSTS_AssumeRoleEnforcement(t *testing.T) {
 	assert.Contains(t, aws.ToString(id.Arn), "assumed-role/"+role+"/sess1")
 }
 
-// TestIAM_GroupInheritanceEnforcement proves a user inherits its group's
-// policies under enforcement.
 func TestIAM_GroupInheritanceEnforcement(t *testing.T) {
 	t.Parallel()
 	admin := iamClient()
@@ -108,8 +106,8 @@ func TestIAM_GroupInheritanceEnforcement(t *testing.T) {
 	assert.Equal(t, "UnauthorizedOperation", errCodeOf(err))
 }
 
-// TestIAM_PermissionBoundaryEnforcement proves a permission boundary caps a
-// user whose identity policy is broader than the boundary.
+// TestIAM_PermissionBoundaryEnforcement expects a boundary to cap a user whose
+// identity policy is broader.
 func TestIAM_PermissionBoundaryEnforcement(t *testing.T) {
 	t.Parallel()
 	boundaryPolicy := uniquename.New("describe-boundary")
@@ -120,7 +118,6 @@ func TestIAM_PermissionBoundaryEnforcement(t *testing.T) {
 	require.NoError(t, err)
 	defer admin.DeleteUser(ctx, &iam.DeleteUserInput{UserName: aws.String(user)})
 
-	// Identity policy allows all of EC2.
 	_, err = admin.PutUserPolicy(ctx, &iam.PutUserPolicyInput{
 		UserName:       aws.String(user),
 		PolicyName:     aws.String("ec2-all"),
@@ -128,7 +125,6 @@ func TestIAM_PermissionBoundaryEnforcement(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Boundary allows only ec2:Describe*.
 	boundary, err := admin.CreatePolicy(ctx, &iam.CreatePolicyInput{
 		PolicyName:     aws.String(boundaryPolicy),
 		PolicyDocument: aws.String(`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"ec2:Describe*","Resource":"*"}]}`),

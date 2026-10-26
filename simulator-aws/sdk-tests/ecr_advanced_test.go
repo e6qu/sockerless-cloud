@@ -10,9 +10,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestECR_AccountSettings round-trips PutAccountSetting / GetAccountSetting
-// for a named setting, then confirms an un-Put setting reports the real-ECR
-// default.
+// TestECR_AccountSettings expects a setting never written to report Amazon
+// ECR's default.
 func TestECR_AccountSettings(t *testing.T) {
 	client := ecrClient()
 
@@ -30,7 +29,6 @@ func TestECR_AccountSettings(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "AWS_NATIVE", aws.ToString(get.Value))
 
-	// A setting never written reports the real-ECR default.
 	def, err := client.GetAccountSetting(ctx, &ecr.GetAccountSettingInput{
 		Name: aws.String("REGISTRY_POLICY_SCOPE"),
 	})
@@ -38,10 +36,9 @@ func TestECR_AccountSettings(t *testing.T) {
 	assert.Equal(t, "V1", aws.ToString(def.Value))
 }
 
-// TestECR_RegistryScanningConfiguration round-trips
-// PutRegistryScanningConfiguration / GetRegistryScanningConfiguration and
-// confirms BatchGetRepositoryScanningConfiguration composes the per-repo
-// config from the registry rules plus the repository's scanOnPush flag.
+// TestECR_RegistryScanningConfiguration expects
+// BatchGetRepositoryScanningConfiguration to compose each repository's
+// configuration from the registry rules and its scanOnPush flag.
 func TestECR_RegistryScanningConfiguration(t *testing.T) {
 	client := ecrClient()
 	repo := "ecr-scan-cfg-repo"
@@ -86,7 +83,7 @@ func TestECR_RegistryScanningConfiguration(t *testing.T) {
 	assert.True(t, batch.ScanningConfigurations[0].ScanOnPush)
 	assert.Equal(t, ecrtypes.ScanFrequencyContinuousScan, batch.ScanningConfigurations[0].ScanFrequency)
 
-	// An unknown repository surfaces as a failure, not a hard error.
+	// An unknown repository is a per-item failure, not an error.
 	miss, err := client.BatchGetRepositoryScanningConfiguration(ctx, &ecr.BatchGetRepositoryScanningConfigurationInput{
 		RepositoryNames: []string{"ecr-scan-no-such-repo"},
 	})
@@ -95,14 +92,12 @@ func TestECR_RegistryScanningConfiguration(t *testing.T) {
 	assert.Equal(t, "ecr-scan-no-such-repo", aws.ToString(miss.Failures[0].RepositoryName))
 }
 
-// TestECR_RepositoryCreationTemplates exercises the full Create / Describe /
-// Update / Delete lifecycle of a repository creation template keyed by prefix.
 func TestECR_RepositoryCreationTemplates(t *testing.T) {
 	t.Parallel()
 	client := ecrClient()
 	prefix := "ecr-tmpl-prefix"
 
-	// Tolerant cleanup of a pre-existing template from an earlier run.
+	// A template an earlier run left behind may exist.
 	_, _ = client.DeleteRepositoryCreationTemplate(ctx, &ecr.DeleteRepositoryCreationTemplateInput{
 		Prefix: aws.String(prefix),
 	})
@@ -129,7 +124,6 @@ func TestECR_RepositoryCreationTemplates(t *testing.T) {
 	assert.Equal(t, ecrtypes.ImageTagMutabilityImmutable, created.RepositoryCreationTemplate.ImageTagMutability)
 	require.Len(t, created.RepositoryCreationTemplate.AppliedFor, 1)
 
-	// Creating the same prefix again raises TemplateAlreadyExistsException.
 	_, err = client.CreateRepositoryCreationTemplate(ctx, &ecr.CreateRepositoryCreationTemplateInput{
 		Prefix:     aws.String(prefix),
 		AppliedFor: []ecrtypes.RCTAppliedFor{ecrtypes.RCTAppliedForReplication},
@@ -150,7 +144,7 @@ func TestECR_RepositoryCreationTemplates(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, updated.RepositoryCreationTemplate)
 	assert.Equal(t, "updated description", aws.ToString(updated.RepositoryCreationTemplate.Description))
-	// Omitted fields stay unchanged across an update.
+	// Fields an update omits stay as they were.
 	assert.Equal(t, ecrtypes.ImageTagMutabilityImmutable, updated.RepositoryCreationTemplate.ImageTagMutability)
 
 	deleted, err := client.DeleteRepositoryCreationTemplate(ctx, &ecr.DeleteRepositoryCreationTemplateInput{
@@ -159,7 +153,6 @@ func TestECR_RepositoryCreationTemplates(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, prefix, aws.ToString(deleted.RepositoryCreationTemplate.Prefix))
 
-	// Updating a deleted template raises TemplateNotFoundException.
 	_, err = client.UpdateRepositoryCreationTemplate(ctx, &ecr.UpdateRepositoryCreationTemplateInput{
 		Prefix:      aws.String(prefix),
 		Description: aws.String("nope"),
@@ -167,14 +160,12 @@ func TestECR_RepositoryCreationTemplates(t *testing.T) {
 	require.Error(t, err)
 }
 
-// TestECR_SigningConfiguration round-trips the managed-signing configuration
-// (Put / Get / Delete) and confirms DescribeImageSigningStatus reports an
-// honest empty signing status for a stored image.
+// TestECR_SigningConfiguration expects DescribeImageSigningStatus to report no
+// signing status for a stored image.
 func TestECR_SigningConfiguration(t *testing.T) {
 	t.Parallel()
 	client := ecrClient()
 
-	// GetSigningConfiguration before any Put raises NotFound.
 	_, _ = client.DeleteSigningConfiguration(ctx, &ecr.DeleteSigningConfigurationInput{})
 	_, err := client.GetSigningConfiguration(ctx, &ecr.GetSigningConfigurationInput{})
 	require.Error(t, err)
@@ -213,7 +204,7 @@ func TestECR_SigningConfiguration(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t, repo, aws.ToString(status.RepositoryName))
-	// The simulator signs nothing, so the status list is honestly empty.
+	// The simulator signs nothing, so the status list is empty.
 	assert.Empty(t, status.SigningStatuses)
 
 	del, err := client.DeleteSigningConfiguration(ctx, &ecr.DeleteSigningConfigurationInput{})
@@ -221,14 +212,11 @@ func TestECR_SigningConfiguration(t *testing.T) {
 	require.NotNil(t, del.SigningConfiguration)
 }
 
-// TestECR_PullTimeUpdateExclusions round-trips Register / List / Deregister
-// of pull-time update exclusions keyed by IAM principal ARN.
 func TestECR_PullTimeUpdateExclusions(t *testing.T) {
 	t.Parallel()
 	client := ecrClient()
 	principal := "arn:aws:iam::123456789012:role/ECRAccess"
 
-	// Tolerant cleanup of a leftover exclusion.
 	_, _ = client.DeregisterPullTimeUpdateExclusion(ctx, &ecr.DeregisterPullTimeUpdateExclusionInput{
 		PrincipalArn: aws.String(principal),
 	})
@@ -239,7 +227,6 @@ func TestECR_PullTimeUpdateExclusions(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, principal, aws.ToString(reg.PrincipalArn))
 
-	// Registering the same principal again raises ExclusionAlreadyExists.
 	_, err = client.RegisterPullTimeUpdateExclusion(ctx, &ecr.RegisterPullTimeUpdateExclusionInput{
 		PrincipalArn: aws.String(principal),
 	})
@@ -255,15 +242,12 @@ func TestECR_PullTimeUpdateExclusions(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, principal, aws.ToString(dereg.PrincipalArn))
 
-	// Deregistering a principal that is not excluded raises ExclusionNotFound.
 	_, err = client.DeregisterPullTimeUpdateExclusion(ctx, &ecr.DeregisterPullTimeUpdateExclusionInput{
 		PrincipalArn: aws.String(principal),
 	})
 	require.Error(t, err)
 }
 
-// TestECR_PullThroughCacheUpdateValidate exercises UpdatePullThroughCacheRule
-// and ValidatePullThroughCacheRule against an existing rule.
 func TestECR_PullThroughCacheUpdateValidate(t *testing.T) {
 	t.Parallel()
 	client := ecrClient()
@@ -295,7 +279,6 @@ func TestECR_PullThroughCacheUpdateValidate(t *testing.T) {
 	assert.Equal(t, "registry-1.docker.io", aws.ToString(val.UpstreamRegistryUrl))
 	assert.True(t, val.IsValid)
 
-	// Validating an unknown prefix raises PullThroughCacheRuleNotFound.
 	_, err = client.ValidatePullThroughCacheRule(ctx, &ecr.ValidatePullThroughCacheRuleInput{
 		EcrRepositoryPrefix: aws.String("ecr-ptc-no-such-prefix"),
 	})
@@ -306,9 +289,8 @@ func TestECR_PullThroughCacheUpdateValidate(t *testing.T) {
 	})
 }
 
-// TestECR_ListImageReferrersAndStorageClass exercises ListImageReferrers
-// (honest empty referrer list for a stored subject image) and
-// UpdateImageStorageClass (transition between STANDARD and ARCHIVE).
+// TestECR_ListImageReferrersAndStorageClass expects no referrers for a subject
+// image and UpdateImageStorageClass to move it between STANDARD and ARCHIVE.
 func TestECR_ListImageReferrersAndStorageClass(t *testing.T) {
 	t.Parallel()
 	client := ecrClient()
@@ -320,7 +302,7 @@ func TestECR_ListImageReferrersAndStorageClass(t *testing.T) {
 		SubjectId:      &ecrtypes.SubjectIdentifier{ImageDigest: aws.String(digest)},
 	})
 	require.NoError(t, err)
-	// No artifacts are pushed against the subject, so the list is empty.
+	// No artifact names the subject, so the list is empty.
 	assert.Empty(t, ref.Referrers)
 
 	arch, err := client.UpdateImageStorageClass(ctx, &ecr.UpdateImageStorageClassInput{
@@ -339,7 +321,6 @@ func TestECR_ListImageReferrersAndStorageClass(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, ecrtypes.ImageStatusActivating, restore.ImageStatus)
 
-	// An unknown image raises ImageNotFound.
 	_, err = client.UpdateImageStorageClass(ctx, &ecr.UpdateImageStorageClassInput{
 		RepositoryName:     aws.String(repo),
 		ImageId:            &ecrtypes.ImageIdentifier{ImageDigest: aws.String("sha256:" + "0000000000000000000000000000000000000000000000000000000000000000")},

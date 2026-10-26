@@ -10,9 +10,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// An event source mapping carries tags of its own, which CreateEventSourceMapping
-// sets and ListTags, TagResource and UntagResource address by the mapping's
-// ARN.
+// An event source mapping carries its own tags, which CreateEventSourceMapping
+// sets and ListTags, TagResource and UntagResource address by its ARN.
 func TestLambda_EventSourceMappingTags(t *testing.T) {
 	t.Parallel()
 	lc := lambdaClient()

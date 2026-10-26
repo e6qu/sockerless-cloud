@@ -24,11 +24,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// AWS authorizes the service's tagging action as well as the create when a
-// create carries tags, and sets <service>:CreateAction on that check to the
-// create's name. These tests hold a principal allowed to create but not to tag
-// to untagged creates, and a tagging grant scoped on CreateAction to the
-// tagging of exactly the create it names.
+// When a create carries tags, AWS also authorizes the service's tagging action,
+// with <service>:CreateAction set to the create's name. These tests hold a
+// principal allowed to create but not tag to untagged creates, and a tagging
+// grant scoped on CreateAction to tagging exactly the create it names.
 
 func tagOnCreateConfig(t *testing.T, user, policy string) aws.Config {
 	t.Helper()
@@ -171,8 +170,8 @@ func TestTagOnCreate_EC2CreateActionScopesTheTaggingGrant(t *testing.T) {
 	_, _ = ec2Client().DeleteVpc(ctx, &ec2.DeleteVpcInput{VpcId: vpc.Vpc.VpcId})
 }
 
-// The Go SDK speaks RPC v2 CBOR to Amazon CloudWatch, so the tags it carries
-// have to be read from that encoding.
+// The Go SDK speaks RPC v2 CBOR to CloudWatch, so the tags it carries are read
+// from that encoding.
 func TestTagOnCreate_CloudWatchAlarmWithTagsNeedsTagResource(t *testing.T) {
 	t.Parallel()
 	restricted := cloudwatch.NewFromConfig(tagOnCreateConfig(t, "cw-alarm-no-tag",
@@ -254,11 +253,10 @@ func TestTagOnCreate_AssumeRoleWithSessionTagsNeedsTagSession(t *testing.T) {
 		"the trust policy allows tagging the session")
 }
 
-// A create that mints a resource under a parent its own action names
-// authorizes its tagging against the type it mints: an Elastic Load Balancing
-// listener under its load balancer, a rule under its listener. A tagging grant
-// scoped to the created type allows the tagged create, and one scoped to the
-// parent does not.
+// A create that mints a resource under a parent its action names authorizes
+// its tagging against the minted type: an Elastic Load Balancing listener under
+// its load balancer, a rule under its listener. A tagging grant scoped to the
+// created type allows the tagged create, and one scoped to the parent does not.
 func TestTagOnCreate_ELBListenerAndRuleTaggingIsScopedToTheCreatedType(t *testing.T) {
 	t.Parallel()
 	ec2c, elb := ec2Client(), elbv2Client()

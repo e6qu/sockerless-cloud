@@ -16,9 +16,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Each test writes a policy whose condition tests one key the gate builds for
-// an action, and drives a request the condition allows and one it refuses
-// through the SDK. A key missing from the gate's context would refuse both.
+// Each test writes a policy whose condition tests one key the gate builds for an
+// action, and sends a request the condition allows and one it refuses; a key
+// missing from the gate's context would refuse both.
 
 func keyConfig(akid, secret string) aws.Config {
 	return aws.Config{Region: "us-east-1", Credentials: credentials.NewStaticCredentialsProvider(akid, secret, "")}
@@ -87,9 +87,9 @@ func TestECS_RegisterTaskDefinitionSizeScopesTheGrant(t *testing.T) {
 }
 
 // TestIAM_PermissionsBoundaryOfTheNamedRoleScopesTheGrant covers
-// iam:PermissionsBoundary on a request that attaches no boundary: it is the
-// boundary the named role already carries, which is how an administrator lets
-// a delegate edit only the roles that stay inside the boundary.
+// iam:PermissionsBoundary on a request that attaches no boundary: the key is
+// the named role's existing boundary, which lets an administrator have a
+// delegate edit only the roles inside it.
 func TestIAM_PermissionsBoundaryOfTheNamedRoleScopesTheGrant(t *testing.T) {
 	t.Parallel()
 	admin := iamClient()
@@ -128,8 +128,8 @@ func TestIAM_PermissionsBoundaryOfTheNamedRoleScopesTheGrant(t *testing.T) {
 }
 
 // TestS3_ObjectTaggedOnPutScopesReads covers s3:ExistingObjectTag/<key> on an
-// object whose tags arrived with the PutObject that wrote it, in the
-// x-amz-tagging header: a policy lets a caller read objects tagged public only.
+// object whose tags came with its PutObject's x-amz-tagging header: a policy
+// lets a caller read only objects tagged public.
 func TestS3_ObjectTaggedOnPutScopesReads(t *testing.T) {
 	t.Parallel()
 	admin := s3Client()

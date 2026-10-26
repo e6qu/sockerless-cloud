@@ -14,10 +14,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestECS_TaskDefinitionSecretsInjected covers the ECS secrets contract: a
-// container definition's `secrets` array (valueFrom → SecretsManager) must be
-// resolved at task launch and injected as the named environment variable,
-// indistinguishable from a plain `environment` entry to the container.
+// TestECS_TaskDefinitionSecretsInjected expects a container definition's
+// `secrets` (valueFrom a Secrets Manager secret) resolved at launch into the
+// named environment variable, as a plain `environment` entry would be.
 func TestECS_TaskDefinitionSecretsInjected(t *testing.T) {
 	t.Parallel()
 	family := uniquename.New("ecs-secrets")

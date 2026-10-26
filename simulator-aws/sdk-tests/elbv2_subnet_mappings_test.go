@@ -14,12 +14,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestELBv2_SubnetMappings covers what CreateLoadBalancer and SetSubnets do
-// with SubnetMappings: a Network Load Balancer holds the Elastic IP address,
-// private IPv4 address or IPv6 address each mapping names and lists it under
+// TestELBv2_SubnetMappings expects a Network Load Balancer to hold the Elastic
+// IP address, private IPv4 or IPv6 address each mapping names and list it under
 // the subnet's LoadBalancerAddresses; an Application Load Balancer takes no
-// Elastic IP address; a request naming both Subnets and SubnetMappings, an
-// unknown allocation, and an address outside the subnet are refused.
+// Elastic IP address; and both Subnets and SubnetMappings, an unknown
+// allocation, or an address outside the subnet are refused.
 func TestELBv2_SubnetMappings(t *testing.T) {
 	t.Parallel()
 	ec2c := ec2Client()
@@ -102,7 +101,6 @@ func TestELBv2_SubnetMappings(t *testing.T) {
 	var duplicate *elbtypes.DuplicateLoadBalancerNameException
 	require.ErrorAs(t, err, &duplicate)
 
-	// SetSubnets replaces the mappings; DescribeLoadBalancers reads them back.
 	set, err := elb.SetSubnets(ctx, &elbv2.SetSubnetsInput{
 		LoadBalancerArn: aws.String(lbArn), IpAddressType: elbtypes.IpAddressTypeDualstack,
 		SubnetMappings: []elbtypes.SubnetMapping{{

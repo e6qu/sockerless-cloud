@@ -12,11 +12,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestELBv2_HTTPSListenerCertificateRoundTrip verifies an HTTPS listener
-// created with an ACM certificate reports that certificate from
-// DescribeListeners. The cert arrives as the structured
-// Certificates.member.N.CertificateArn parameter; reading it as a flat scalar
-// dropped it, so the standard "read cert off the listener" pattern got nothing.
+// TestELBv2_HTTPSListenerCertificateRoundTrip expects DescribeListeners to
+// return the ACM certificate the listener was created with, which arrives as
+// the structured Certificates.member.N.CertificateArn parameter.
 func TestELBv2_HTTPSListenerCertificateRoundTrip(t *testing.T) {
 	t.Parallel()
 	tgName := uniquename.New("https-lis-tg")

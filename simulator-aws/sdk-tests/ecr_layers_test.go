@@ -13,8 +13,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestECR_RepositoryPolicy covers the `aws_ecr_repository_policy` surface
-// : Set → Get round-trip + Delete.
 func TestECR_RepositoryPolicy(t *testing.T) {
 	t.Parallel()
 	c := ecrClient()
@@ -40,9 +38,9 @@ func TestECR_RepositoryPolicy(t *testing.T) {
 	require.Error(t, err, "policy must be gone after delete")
 }
 
-// TestECR_LayerUploadPipeline covers the image-layer data plane:
-// Initiate → UploadPart → Complete (content-addressed) → GetDownloadUrl, with
-// BatchCheckLayerAvailability reflecting the real store before/after.
+// TestECR_LayerUploadPipeline covers Initiate, UploadPart, a content-addressed
+// Complete and GetDownloadUrl, with BatchCheckLayerAvailability reading the
+// store before and after.
 func TestECR_LayerUploadPipeline(t *testing.T) {
 	t.Parallel()
 	c := ecrClient()
@@ -53,7 +51,7 @@ func TestECR_LayerUploadPipeline(t *testing.T) {
 	blob := []byte("the-layer-bytes-content-for-sha256")
 	digest := ecrLayerDigest(blob)
 
-	// Before any upload the layer is UNAVAILABLE (no longer a blanket AVAILABLE).
+	// Before any upload the layer is UNAVAILABLE.
 	avail, err := c.BatchCheckLayerAvailability(ctx, &ecr.BatchCheckLayerAvailabilityInput{
 		RepositoryName: aws.String(repo),
 		LayerDigests:   []string{digest},
@@ -84,7 +82,6 @@ func TestECR_LayerUploadPipeline(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, digest, aws.ToString(comp.LayerDigest))
 
-	// Now AVAILABLE.
 	avail2, err := c.BatchCheckLayerAvailability(ctx, &ecr.BatchCheckLayerAvailabilityInput{
 		RepositoryName: aws.String(repo),
 		LayerDigests:   []string{digest},
@@ -100,7 +97,6 @@ func TestECR_LayerUploadPipeline(t *testing.T) {
 	assert.Equal(t, digest, aws.ToString(dl.LayerDigest))
 	assert.NotEmpty(t, aws.ToString(dl.DownloadUrl))
 
-	// A digest that doesn't match the uploaded bytes is rejected.
 	bad, err := c.InitiateLayerUpload(ctx, &ecr.InitiateLayerUploadInput{RepositoryName: aws.String(repo)})
 	require.NoError(t, err)
 	_, err = c.UploadLayerPart(ctx, &ecr.UploadLayerPartInput{
@@ -123,9 +119,8 @@ func ecrLayerDigest(b []byte) string {
 	return fmt.Sprintf("sha256:%x", sha256.Sum256(b))
 }
 
-// TestECR_RepositoryConfiguration covers the aws_ecr_repository read-back fields
-// — image tag mutability, scan-on-push, and encryption config
-// round-trip through CreateRepository + DescribeRepositories.
+// TestECR_RepositoryConfiguration covers the image tag mutability,
+// scan-on-push and encryption configuration aws_ecr_repository reads back.
 func TestECR_RepositoryConfiguration(t *testing.T) {
 	t.Parallel()
 	defaultRepo := uniquename.New("config-default-repo")
@@ -153,7 +148,7 @@ func TestECR_RepositoryConfiguration(t *testing.T) {
 	require.NotNil(t, got.EncryptionConfiguration)
 	assert.Equal(t, ecrtypes.EncryptionTypeAes256, got.EncryptionConfiguration.EncryptionType)
 
-	// A bare repository gets the AWS defaults (MUTABLE / AES256 / no scan).
+	// A bare repository gets AWS's defaults: MUTABLE, AES256, no scan.
 	def, err := c.CreateRepository(ctx, &ecr.CreateRepositoryInput{RepositoryName: aws.String(defaultRepo)})
 	require.NoError(t, err)
 	assert.Equal(t, ecrtypes.ImageTagMutabilityMutable, def.Repository.ImageTagMutability)

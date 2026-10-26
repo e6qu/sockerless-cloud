@@ -17,11 +17,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestLambda_AsyncFailureDestinationRuntime_SDK proves event-invoke
-// configuration controls the real asynchronous runtime: a failing function
-// with zero retries emits the canonical invocation record to its Amazon SQS
-// OnFailure destination, sent as the execution role, whose policy allows
-// sqs:SendMessage.
+// TestLambda_AsyncFailureDestinationRuntime_SDK expects a failing function with
+// zero retries to send its invocation record to the Amazon SQS OnFailure
+// destination, as the execution role, whose policy allows sqs:SendMessage.
 func TestLambda_AsyncFailureDestinationRuntime_SDK(t *testing.T) {
 	t.Parallel()
 	lambdaClient := lambdaClient()
@@ -91,11 +89,10 @@ func TestLambda_AsyncFailureDestinationRuntime_SDK(t *testing.T) {
 	assert.Contains(t, record.ResponsePayload["errorMessage"], "destination failure")
 }
 
-// TestLambda_AsyncDestinationNeedsTheRolesPermission_SDK proves AWS Lambda
-// sends an invocation record as the function's execution role: a role whose
-// policies do not allow sqs:SendMessage delivers nothing to the Amazon SQS
-// destination, and the function's DestinationDeliveryFailures metric counts
-// the refused delivery.
+// TestLambda_AsyncDestinationNeedsTheRolesPermission_SDK expects AWS Lambda to
+// send an invocation record as the execution role: a role not allowed
+// sqs:SendMessage delivers nothing, and DestinationDeliveryFailures counts the
+// refusal.
 func TestLambda_AsyncDestinationNeedsTheRolesPermission_SDK(t *testing.T) {
 	t.Parallel()
 	lambdaAPI := lambdaClient()
@@ -124,8 +121,8 @@ func TestLambda_AsyncDestinationNeedsTheRolesPermission_SDK(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Both outcomes name the queue, so the invocation's own result decides
-	// nothing: whichever record Lambda sends, the role may not send it.
+	// Both outcomes name the queue, so whichever record Lambda sends, the role may
+	// not send it.
 	queueARN := aws.String(attributes.Attributes[string(sqstypes.QueueAttributeNameQueueArn)])
 	_, err = lambdaAPI.PutFunctionEventInvokeConfig(ctx, &lambda.PutFunctionEventInvokeConfigInput{
 		FunctionName:         aws.String(functionName),
@@ -146,8 +143,8 @@ func TestLambda_AsyncDestinationNeedsTheRolesPermission_SDK(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, int32(202), invoked.StatusCode)
 
-	// CloudWatch offers nothing to wait on for a metric, so the metric is
-	// polled until the delivery attempt has been counted.
+	// CloudWatch has nothing to wait on for a metric, so poll until the attempt is
+	// counted.
 	require.Eventually(t, func() bool {
 		return lambdaDestinationDeliveryFailures(t, functionName, invokedAt) >= 1
 	}, 2*time.Minute, time.Second, "the refused delivery must count in DestinationDeliveryFailures")

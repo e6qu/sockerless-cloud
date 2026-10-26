@@ -11,14 +11,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestAPIGwV2_CreateDeployment_RoutesPastS3 locks the invariant from
-// POST /v2/apis/{apiId}/deployments must
-// route to the API Gateway v2 handler (registered explicitly), not
-// fall through to S3's wildcard POST /{bucket}/{key...} dispatcher.
-// Pre-fix, the request hit handleS3PostObjectDispatch and got an
-// S3-shaped "InvalidRequest: POST on an object requires ?uploads"
-// envelope. Post-fix, the v2 deployment endpoint is registered AND
-// S3 gates by known-bucket so a regression here can't slip through.
+// TestAPIGwV2_CreateDeployment_RoutesPastS3 expects
+// POST /v2/apis/{apiId}/deployments to reach API Gateway v2, not Amazon S3's
+// wildcard POST /{bucket}/{key...} route, which would answer with an S3
+// InvalidRequest envelope.
 func TestAPIGwV2_CreateDeployment_RoutesPastS3(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

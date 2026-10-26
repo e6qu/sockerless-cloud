@@ -10,9 +10,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestECS_DescribeCapacityProviders covers the read-back for capacity
-// providers — the built-in FARGATE/FARGATE_SPOT always resolve ACTIVE,
-// and an unknown name comes back as a failure rather than a phantom ACTIVE.
+// TestECS_DescribeCapacityProviders expects FARGATE and FARGATE_SPOT ACTIVE and
+// an unknown name back as a failure.
 func TestECS_DescribeCapacityProviders(t *testing.T) {
 	t.Parallel()
 	c := ecsClient()
@@ -35,9 +34,8 @@ func TestECS_DescribeCapacityProviders(t *testing.T) {
 	assert.Equal(t, "MISSING", aws.ToString(missing.Failures[0].Reason))
 }
 
-// TestECS_ListTaskDefinitionFamilies covers the family aggregation:
-// after registering a task definition its family is listed, honouring
-// familyPrefix.
+// TestECS_ListTaskDefinitionFamilies expects a registered family listed,
+// honouring familyPrefix.
 func TestECS_ListTaskDefinitionFamilies(t *testing.T) {
 	t.Parallel()
 	c := ecsClient()

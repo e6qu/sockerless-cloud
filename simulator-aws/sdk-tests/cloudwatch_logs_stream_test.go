@@ -15,19 +15,18 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// cwLogsStreamClient is a stock CloudWatch Logs client pointed at the
-// simulator's logs endpoint coordinate. StartLiveTail and GetLogObject carry
-// the modeled `@endpoint(hostPrefix: "stream-")` trait, so the SDK sends and
-// signs them against `stream-logs.localhost` exactly as it sends them to
-// `stream-logs.us-east-1.amazonaws.com` against real AWS.
+// cwLogsStreamClient is a stock CloudWatch Logs client at the simulator's
+// endpoint. StartLiveTail and GetLogObject carry the modeled
+// `@endpoint(hostPrefix: "stream-")` trait, so the SDK signs them for
+// `stream-logs.localhost` as it does for `stream-logs.us-east-1.amazonaws.com`.
 func cwLogsStreamClient() *cloudwatchlogs.Client {
 	return cloudwatchlogs.NewFromConfig(sdkConfig(), func(o *cloudwatchlogs.Options) {
 		o.BaseEndpoint = aws.String(simEndpoint("logs"))
 	})
 }
 
-// seedLogGroupWithEvents creates a log group + stream and ingests events,
-// returning the group ARN. The streaming ops surface this stored history.
+// seedLogGroupWithEvents creates a log group and stream holding events, and
+// returns the group ARN.
 func seedLogGroupWithEvents(t *testing.T, cw *cloudwatchlogs.Client, group, stream string, messages []string) string {
 	t.Helper()
 	_, err := cw.CreateLogGroup(ctx, &cloudwatchlogs.CreateLogGroupInput{
@@ -63,9 +62,9 @@ func seedLogGroupWithEvents(t *testing.T, cw *cloudwatchlogs.Client, group, stre
 	return aws.ToString(desc.LogGroups[0].Arn)
 }
 
-// TestLogs_StartLiveTail opens a Live Tail session over the event stream and
-// reassembles its sessionStart and sessionUpdate frames: the session carries
-// the events ingested after it started, and not the history stored before it.
+// TestLogs_StartLiveTail reassembles a Live Tail session's sessionStart and
+// sessionUpdate frames: the session carries events ingested after it started,
+// not the stored history.
 func TestLogs_StartLiveTail(t *testing.T) {
 	t.Parallel()
 	cw := cwLogsStreamClient()
@@ -73,9 +72,7 @@ func TestLogs_StartLiveTail(t *testing.T) {
 	stream := "livetail-stream"
 	groupArn := seedLogGroupWithEvents(t, cw, group, stream, []string{"stored before the session"})
 
-	// StartLiveTail carries the modeled `stream-` endpoint host prefix, so the
-	// request the SDK signs and sends addresses stream-logs.<endpoint> — the
-	// same host shape real AWS serves it on.
+	// The `stream-` host prefix makes the SDK address stream-logs.<endpoint>.
 	var sent capturedRequest
 	out, err := cw.StartLiveTail(ctx, &cloudwatchlogs.StartLiveTailInput{
 		LogGroupIdentifiers: []string{groupArn},
@@ -124,9 +121,9 @@ func TestLogs_StartLiveTail(t *testing.T) {
 		"the session must carry the events ingested after it started and nothing stored before it")
 }
 
-// TestLogs_StartLiveTail_FilterPattern evaluates logEventFilterPattern with
-// CloudWatch Logs filter-pattern syntax: a JSON pattern selects on a field, so
-// a plain-text line that merely contains the value is not streamed.
+// TestLogs_StartLiveTail_FilterPattern expects a JSON filter pattern to select
+// on a field, so a plain-text line that merely contains the value is not
+// streamed.
 func TestLogs_StartLiveTail_FilterPattern(t *testing.T) {
 	t.Parallel()
 	cw := cwLogsStreamClient()
@@ -172,8 +169,8 @@ func TestLogs_StartLiveTail_FilterPattern(t *testing.T) {
 	assert.Equal(t, []string{`{"level":"error","msg":"second"}`, `{"level":"error","msg":"third"}`}, collected)
 }
 
-// TestLogs_StartLiveTail_MalformedFilterPattern refuses an unparseable
-// structured pattern before the stream opens.
+// TestLogs_StartLiveTail_MalformedFilterPattern expects an unparseable
+// structured pattern refused before the stream opens.
 func TestLogs_StartLiveTail_MalformedFilterPattern(t *testing.T) {
 	t.Parallel()
 	cw := cwLogsStreamClient()
@@ -185,18 +182,17 @@ func TestLogs_StartLiveTail_MalformedFilterPattern(t *testing.T) {
 	requireAWSErrorCode(t, err, "InvalidParameterException")
 }
 
-// awaitLogLine waits for a line containing want to reach a log group and
-// returns its message. It opens a Live Tail session first and then reads the
-// stored events, so a line written before the session opened is found in the
-// history and one written after arrives on the session.
+// awaitLogLine waits for a line containing want and returns its message. It
+// opens a Live Tail session before reading stored events, so a line written
+// before the session is in the history and one written after arrives on it.
 func awaitLogLine(t *testing.T, cw *cloudwatchlogs.Client, group, want string, timeout time.Duration) string {
 	t.Helper()
 	return awaitLogLineTailing(t, cw, cwLogsStreamClient(), group, want, timeout)
 }
 
 // awaitLogLineTailing is awaitLogLine with the client that opens the Live Tail
-// session, which must address the logs endpoint by a host name the SDK can
-// give its `stream-` prefix.
+// session, which must address the logs endpoint by a host name that takes the
+// `stream-` prefix.
 func awaitLogLineTailing(t *testing.T, cw, tailClient *cloudwatchlogs.Client, group, want string, timeout time.Duration) string {
 	t.Helper()
 	groups, err := cw.DescribeLogGroups(ctx, &cloudwatchlogs.DescribeLogGroupsInput{LogGroupNamePrefix: aws.String(group)})
@@ -240,8 +236,8 @@ func awaitLogLineTailing(t *testing.T, cw, tailClient *cloudwatchlogs.Client, gr
 	return ""
 }
 
-// TestLogs_StartLiveTail_UnknownGroup returns a ResourceNotFoundException
-// before the stream opens for an unresolvable log group.
+// TestLogs_StartLiveTail_UnknownGroup expects ResourceNotFoundException before
+// the stream opens.
 func TestLogs_StartLiveTail_UnknownGroup(t *testing.T) {
 	t.Parallel()
 	cw := cwLogsStreamClient()
@@ -251,8 +247,8 @@ func TestLogs_StartLiveTail_UnknownGroup(t *testing.T) {
 	requireAWSErrorCode(t, err, "ResourceNotFoundException")
 }
 
-// TestLogs_GetLogObject streams a stored log object back over the event stream
-// and asserts the FieldsData carries the referenced event's bytes.
+// TestLogs_GetLogObject expects the streamed FieldsData to carry the referenced
+// event's bytes.
 func TestLogs_GetLogObject(t *testing.T) {
 	t.Parallel()
 	cw := cwLogsStreamClient()
@@ -263,7 +259,7 @@ func TestLogs_GetLogObject(t *testing.T) {
 		"object-line-1",
 	})
 
-	// The pointer the sim honors is "<group>:<stream>:<index>".
+	// The pointer is "<group>:<stream>:<index>".
 	pointer := group + ":" + stream + ":1"
 	out, err := cw.GetLogObject(ctx, &cloudwatchlogs.GetLogObjectInput{
 		LogObjectPointer: aws.String(pointer),

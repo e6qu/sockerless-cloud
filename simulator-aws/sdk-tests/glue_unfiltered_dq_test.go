@@ -11,10 +11,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestGlue_UnfilteredMetadata_SDK exercises the Lake Formation credential-vending
-// reads (GetUnfilteredTableMetadata / GetUnfilteredPartitionMetadata /
-// GetUnfilteredPartitionsMetadata). The simulator vends the full catalog row with
-// every column authorized and no Lake Formation registration.
+// TestGlue_UnfilteredMetadata_SDK covers the AWS Lake Formation
+// credential-vending reads; with no Lake Formation registration the full
+// catalog row comes back with every column authorized.
 func TestGlue_UnfilteredMetadata_SDK(t *testing.T) {
 	t.Parallel()
 	c := glueClient()
@@ -56,7 +55,6 @@ func TestGlue_UnfilteredMetadata_SDK(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// GetUnfilteredTableMetadata: full table + all columns authorized.
 	tm, err := c.GetUnfilteredTableMetadata(ctx, &glue.GetUnfilteredTableMetadataInput{
 		CatalogId:                aws.String("123456789012"),
 		DatabaseName:             aws.String(db),
@@ -69,7 +67,6 @@ func TestGlue_UnfilteredMetadata_SDK(t *testing.T) {
 	assert.ElementsMatch(t, []string{"id", "name"}, tm.AuthorizedColumns)
 	assert.False(t, tm.IsRegisteredWithLakeFormation)
 
-	// GetUnfilteredPartitionMetadata: full partition + all columns authorized.
 	pm, err := c.GetUnfilteredPartitionMetadata(ctx, &glue.GetUnfilteredPartitionMetadataInput{
 		CatalogId:                aws.String("123456789012"),
 		DatabaseName:             aws.String(db),
@@ -83,7 +80,6 @@ func TestGlue_UnfilteredMetadata_SDK(t *testing.T) {
 	assert.ElementsMatch(t, []string{"id", "name"}, pm.AuthorizedColumns)
 	assert.False(t, pm.IsRegisteredWithLakeFormation)
 
-	// GetUnfilteredPartitionsMetadata: one unfiltered partition entry.
 	pms, err := c.GetUnfilteredPartitionsMetadata(ctx, &glue.GetUnfilteredPartitionsMetadataInput{
 		CatalogId:                aws.String("123456789012"),
 		DatabaseName:             aws.String(db),
@@ -98,18 +94,15 @@ func TestGlue_UnfilteredMetadata_SDK(t *testing.T) {
 	assert.False(t, pms.UnfilteredPartitions[0].IsRegisteredWithLakeFormation)
 }
 
-// TestGlue_DQAnnotations_SDK round-trips the Data Quality statistic/profile
-// annotations: BatchPutDataQualityStatisticAnnotation +
-// PutDataQualityProfileAnnotation store, ListDataQualityStatisticAnnotations
-// reads back, and a bad batch entry surfaces in FailedInclusionAnnotations.
+// TestGlue_DQAnnotations_SDK expects statistic and profile annotations to be
+// stored and listed back, and a bad batch entry in FailedInclusionAnnotations.
 func TestGlue_DQAnnotations_SDK(t *testing.T) {
 	t.Parallel()
 	c := glueClient()
 	statisticID := "glue-dq-stat-sdk"
 
-	// The profile an evaluation wrote its statistics to, obtained the only way
-	// a caller can: run one, and read the profile off the result. An
-	// annotation names a profile, and one nothing issued names nothing.
+	// An annotation names a profile, so run an evaluation and read the profile it
+	// wrote statistics to off the result: a profile nothing issued names nothing.
 	_, err := c.StartDataQualityRulesetEvaluationRun(ctx, &glue.StartDataQualityRulesetEvaluationRunInput{
 		Role:         aws.String(serviceRole(t, "glue.amazonaws.com")),
 		RulesetNames: []string{"glue-dq-annotations-ruleset"},
@@ -132,8 +125,7 @@ func TestGlue_DQAnnotations_SDK(t *testing.T) {
 	}
 	require.NotEmpty(t, profileID)
 
-	// BatchPutDataQualityStatisticAnnotation: one good entry, one missing
-	// StatisticId which must come back as a FailedInclusionAnnotation.
+	// One entry lacks StatisticId and comes back in FailedInclusionAnnotations.
 	batch, err2 := c.BatchPutDataQualityStatisticAnnotation(ctx, &glue.BatchPutDataQualityStatisticAnnotationInput{
 		InclusionAnnotations: []gluetypes.DatapointInclusionAnnotation{
 			{
@@ -152,15 +144,12 @@ func TestGlue_DQAnnotations_SDK(t *testing.T) {
 	assert.Equal(t, profileID, aws.ToString(batch.FailedInclusionAnnotations[0].ProfileId))
 	assert.NotEmpty(t, aws.ToString(batch.FailedInclusionAnnotations[0].FailureReason))
 
-	// PutDataQualityProfileAnnotation: annotate the whole profile.
 	_, err = c.PutDataQualityProfileAnnotation(ctx, &glue.PutDataQualityProfileAnnotationInput{
 		ProfileId:           aws.String(profileID),
 		InclusionAnnotation: gluetypes.InclusionAnnotationValueInclude,
 	})
 	require.NoError(t, err)
 
-	// ListDataQualityStatisticAnnotations: read back the stored statistic
-	// annotation, filtered by profile.
 	list, err := c.ListDataQualityStatisticAnnotations(ctx, &glue.ListDataQualityStatisticAnnotationsInput{
 		ProfileId: aws.String(profileID),
 	})
@@ -174,8 +163,8 @@ func TestGlue_DQAnnotations_SDK(t *testing.T) {
 	assert.Equal(t, gluetypes.InclusionAnnotationValueInclude, a.InclusionAnnotation.Value)
 	require.NotNil(t, a.InclusionAnnotation.LastModifiedOn)
 
-	// An entry naming a profile nothing issued fails as that entry, and the
-	// batch's other work is unaffected.
+	// An entry naming a profile nothing issued fails alone; the rest of the batch
+	// applies.
 	unknown, err := c.BatchPutDataQualityStatisticAnnotation(ctx, &glue.BatchPutDataQualityStatisticAnnotationInput{
 		InclusionAnnotations: []gluetypes.DatapointInclusionAnnotation{{
 			ProfileId:           aws.String("no-such-profile"),
@@ -187,9 +176,8 @@ func TestGlue_DQAnnotations_SDK(t *testing.T) {
 	require.Len(t, unknown.FailedInclusionAnnotations, 1)
 	assert.Contains(t, aws.ToString(unknown.FailedInclusionAnnotations[0].FailureReason), "no-such-profile")
 
-	// Nor can a profile nothing issued be annotated whole, or asked for a
-	// model: a model is trained from statistics this simulator never collects,
-	// so no profile has one.
+	// A profile nothing issued cannot be annotated whole or asked for a model: a
+	// model trains on statistics the simulator never collects.
 	_, err = c.PutDataQualityProfileAnnotation(ctx, &glue.PutDataQualityProfileAnnotationInput{
 		ProfileId:           aws.String("no-such-profile"),
 		InclusionAnnotation: gluetypes.InclusionAnnotationValueInclude,
@@ -209,7 +197,6 @@ func TestGlue_DQAnnotations_SDK(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "EntityNotFoundException")
 
-	// Filtering by a non-matching statistic returns nothing.
 	none, err := c.ListDataQualityStatisticAnnotations(ctx, &glue.ListDataQualityStatisticAnnotationsInput{
 		ProfileId:   aws.String(profileID),
 		StatisticId: aws.String("does-not-exist"),

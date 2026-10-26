@@ -14,17 +14,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestRDS_Snapshot_Lifecycle exercises the snapshot family
-// — CreateDBSnapshot → DescribeDBSnapshots → RestoreDBInstanceFromDBSnapshot
-// → DeleteDBSnapshot — and asserts the state machine documented in
-// RDSSnapshot's docstring. Real RDS transitions a snapshot through
-// creating → available → deleted (or failed), and so does the sim: the
-// create answers "creating" and settles asynchronously once the instance's
-// data is captured, so the test waits for "available" the way a client must.
+// Amazon RDS takes a snapshot from creating to available, or failed, and
+// deletes it; the create answers "creating", so a client waits for
+// "available".
 
-// waitForRDSSnapshotAvailable polls until the snapshot's asynchronous capture
-// settles — the create answers "creating", exactly as real RDS does, and
-// nothing (restore in particular) may act on it before "available".
+// waitForRDSSnapshotAvailable waits for the snapshot's capture to settle;
+// nothing, a restore in particular, may act on it before.
 func waitForRDSSnapshotAvailable(t *testing.T, c *rds.Client, ctx context.Context, id string) {
 	t.Helper()
 	require.NoError(t, rds.NewDBSnapshotAvailableWaiter(c, func(o *rds.DBSnapshotAvailableWaiterOptions) {
@@ -39,7 +34,6 @@ func TestRDS_Snapshot_Lifecycle(t *testing.T) {
 	c := rdsClient()
 	ctx := context.Background()
 
-	// Source instance.
 	_, err := c.CreateDBInstance(ctx, &rds.CreateDBInstanceInput{
 		DBInstanceIdentifier: aws.String("snap-src"),
 		DBInstanceClass:      aws.String("db.t3.micro"),
@@ -57,7 +51,6 @@ func TestRDS_Snapshot_Lifecycle(t *testing.T) {
 	})
 	waitForRDSInstanceAvailable(t, c, ctx, "snap-src")
 
-	// CreateDBSnapshot.
 	createOut, err := c.CreateDBSnapshot(ctx, &rds.CreateDBSnapshotInput{
 		DBSnapshotIdentifier: aws.String("snap-1"),
 		DBInstanceIdentifier: aws.String("snap-src"),
@@ -70,7 +63,6 @@ func TestRDS_Snapshot_Lifecycle(t *testing.T) {
 		"sim emits SnapshotType=manual for client-initiated snapshots")
 	waitForRDSSnapshotAvailable(t, c, ctx, "snap-1")
 
-	// DescribeDBSnapshots round-trips.
 	desc, err := c.DescribeDBSnapshots(ctx, &rds.DescribeDBSnapshotsInput{
 		DBSnapshotIdentifier: aws.String("snap-1"),
 	})
@@ -86,8 +78,7 @@ func TestRDS_Snapshot_Lifecycle(t *testing.T) {
 	require.NotNil(t, attrs.DBSnapshotAttributesResult)
 	assert.Equal(t, "snap-1", aws.ToString(attrs.DBSnapshotAttributesResult.DBSnapshotIdentifier))
 
-	// RestoreDBInstanceFromDBSnapshot creates a new instance from the
-	// snapshot; the new instance inherits engine + version + storage.
+	// The restored instance inherits the snapshot's engine, version and storage.
 	restoreOut, err := c.RestoreDBInstanceFromDBSnapshot(ctx, &rds.RestoreDBInstanceFromDBSnapshotInput{
 		DBInstanceIdentifier: aws.String("snap-restored"),
 		DBSnapshotIdentifier: aws.String("snap-1"),
@@ -103,7 +94,6 @@ func TestRDS_Snapshot_Lifecycle(t *testing.T) {
 		})
 	})
 
-	// DeleteDBSnapshot transitions to deleted + removes from store.
 	delOut, err := c.DeleteDBSnapshot(ctx, &rds.DeleteDBSnapshotInput{
 		DBSnapshotIdentifier: aws.String("snap-1"),
 	})
@@ -111,9 +101,9 @@ func TestRDS_Snapshot_Lifecycle(t *testing.T) {
 	assert.Equal(t, "deleted", aws.ToString(delOut.DBSnapshot.Status),
 		"final state-machine transition before removal")
 
-	// Subsequent identifier-addressed Describe returns the real RDS
-	// not-found fault; the instance's manual snapshots list empty, beside the
-	// automated snapshot its creation took.
+	// Describing the deleted snapshot answers the not-found fault, and the
+	// instance's manual snapshots list empty beside the automated snapshot its
+	// creation took.
 	_, err = c.DescribeDBSnapshots(ctx, &rds.DescribeDBSnapshotsInput{
 		DBSnapshotIdentifier: aws.String("snap-1"),
 	})
@@ -126,9 +116,8 @@ func TestRDS_Snapshot_Lifecycle(t *testing.T) {
 	assert.Empty(t, desc2.DBSnapshots)
 }
 
-// TestRDS_RestoreFromSnapshot_PortFromEngine proves a snapshot restore derives
-// the new instance's port from the source engine, not a hardcoded 5432. A MySQL
-// snapshot must restore to port 3306.
+// TestRDS_RestoreFromSnapshot_PortFromEngine expects a restored MySQL snapshot
+// on the engine's port, not 5432.
 func TestRDS_RestoreFromSnapshot_PortFromEngine(t *testing.T) {
 	t.Parallel()
 	c := rdsClient()
@@ -182,14 +171,12 @@ func TestRDS_RestoreFromSnapshot_PortFromEngine(t *testing.T) {
 	address := aws.ToString(described.DBInstances[0].Endpoint.Address)
 	port := aws.ToInt32(described.DBInstances[0].Endpoint.Port)
 	if strings.HasSuffix(address, ".rds.amazonaws.com") {
-		// Modeled tier: the endpoint is nominal, so the port must derive from
-		// the engine — 3306 for MySQL, never a hardcoded 5432.
+		// A nominal endpoint carries the engine's default port.
 		assert.Equal(t, int32(3306), port,
 			"MySQL snapshot must restore to port 3306, not a hardcoded 5432")
 	} else {
-		// Engine tier: the endpoint is REAL — the port is wherever the
-		// restored MySQL actually listens, so the honest assertion is that it
-		// accepts a connection, not that it equals a number.
+		// A served endpoint's port is wherever the restored MySQL listens, so assert
+		// it accepts a connection rather than a number.
 		require.NotZero(t, port)
 		conn, dialErr := net.DialTimeout("tcp", net.JoinHostPort(address, strconv.Itoa(int(port))), 5*time.Second)
 		require.NoError(t, dialErr, "an available restored MySQL endpoint %s:%d must accept a connection", address, port)
@@ -197,11 +184,9 @@ func TestRDS_RestoreFromSnapshot_PortFromEngine(t *testing.T) {
 	}
 }
 
-// TestRDS_DeleteDBInstance_FinalSnapshotContract proves DeleteDBInstance
-// enforces RDS's final-snapshot parameters — SkipFinalSnapshot and
-// FinalDBSnapshotIdentifier are mutually exclusive, one of them is required —
-// and that a requested final snapshot is a real snapshot: it settles to
-// available and remains after the instance is gone.
+// TestRDS_DeleteDBInstance_FinalSnapshotContract expects DeleteDBInstance to
+// require exactly one of SkipFinalSnapshot and FinalDBSnapshotIdentifier, and a
+// requested final snapshot to settle available and outlive the instance.
 func TestRDS_DeleteDBInstance_FinalSnapshotContract(t *testing.T) {
 	t.Parallel()
 	c := rdsClient()
@@ -224,8 +209,7 @@ func TestRDS_DeleteDBInstance_FinalSnapshotContract(t *testing.T) {
 	})
 	waitForRDSInstanceAvailable(t, c, ctx, "final-snap-src")
 
-	// Neither skipping nor naming a final snapshot is the contract violation
-	// RDS rejects.
+	// Neither skipping nor naming a final snapshot is refused.
 	_, err = c.DeleteDBInstance(ctx, &rds.DeleteDBInstanceInput{
 		DBInstanceIdentifier: aws.String("final-snap-src"),
 	})
@@ -240,9 +224,8 @@ func TestRDS_DeleteDBInstance_FinalSnapshotContract(t *testing.T) {
 	assertAWSAPIErrorCode(t, err, "InvalidParameterCombination")
 
 	// Naming the final snapshot deletes the instance and leaves the snapshot,
-	// which settles through the same capture as CreateDBSnapshot. The
-	// instance is deleting until then, and its identifier is free once it is
-	// gone.
+	// which settles through the same capture as CreateDBSnapshot. The instance is
+	// deleting until then, and its identifier is free once it is gone.
 	deleted, err := c.DeleteDBInstance(ctx, &rds.DeleteDBInstanceInput{
 		DBInstanceIdentifier:      aws.String("final-snap-src"),
 		FinalDBSnapshotIdentifier: aws.String("final-snap-1"),
@@ -275,9 +258,8 @@ func TestRDS_DeleteDBInstance_FinalSnapshotContract(t *testing.T) {
 	}).Wait(ctx, &rds.DescribeDBInstancesInput{DBInstanceIdentifier: aws.String("final-snap-src")}, 90*time.Second))
 }
 
-// TestRDS_DeleteDBCluster_FinalSnapshotContract proves DeleteDBCluster
-// enforces the same parameter contract and records the final cluster
-// snapshot.
+// TestRDS_DeleteDBCluster_FinalSnapshotContract expects DeleteDBCluster to
+// enforce the same contract and keep the final cluster snapshot.
 func TestRDS_DeleteDBCluster_FinalSnapshotContract(t *testing.T) {
 	t.Parallel()
 	c := rdsClient()

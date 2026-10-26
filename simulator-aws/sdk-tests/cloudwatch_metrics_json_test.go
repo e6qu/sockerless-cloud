@@ -11,11 +11,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestCloudWatch_AwsJsonMetrics drives the CloudWatch metrics awsJson1.0 surface
-// directly — the protocol current botocore / aws CLI use
-// (X-Amz-Target: GraniteServiceVersion20100801.<Op>, application/x-amz-json-1.0).
-// This is version-independent coverage: the CLI-driven test only exercises this
-// path when the installed CLI is new enough, so assert it at the wire level.
+// TestCloudWatch_AwsJsonMetrics drives the awsJson1.0 metrics protocol botocore
+// and the aws CLI speak (X-Amz-Target: GraniteServiceVersion20100801.<Op>,
+// application/x-amz-json-1.0) at the wire, whatever CLI is installed.
 func TestCloudWatch_AwsJsonMetrics(t *testing.T) {
 	t.Parallel()
 	namespace := uniquename.New("MyApp/JSON")
@@ -55,7 +53,7 @@ func TestCloudWatch_AwsJsonMetrics(t *testing.T) {
 	require.True(t, ok, "Datapoints present")
 	require.Len(t, dps, 1)
 	dp := dps[0].(map[string]any)
-	// Emitted as a JSON number with a decimal so botocore reads it as a Double.
+	// A JSON number with a decimal, so botocore reads a Double.
 	assert.Equal(t, float64(42), dp["Sum"])
 	assert.Equal(t, "Count", dp["Unit"])
 

@@ -52,8 +52,8 @@ func elbv2FidLoadBalancer(t *testing.T, elb *elbv2.Client, subnets []string, nam
 }
 
 // TestELBv2_ListenerAuthAndForwardSDK covers the authenticate-oidc default
-// action (the Pomerium/IAP proxy ALB shape), the weighted ForwardConfig on a
-// rule, and SetRulePriorities — none of which round-tripped before.
+// action (the Pomerium and IAP proxy ALB shape), a rule's weighted
+// ForwardConfig and SetRulePriorities.
 func TestELBv2_ListenerAuthAndForwardSDK(t *testing.T) {
 	t.Parallel()
 	elb := elbv2Client()
@@ -62,7 +62,6 @@ func TestELBv2_ListenerAuthAndForwardSDK(t *testing.T) {
 	tg2 := elbv2FidTargetGroup(t, elb, vpcID, "fid-auth-tg2")
 	lbArn := elbv2FidLoadBalancer(t, elb, subnets, "fid-auth-alb", elbtypes.LoadBalancerTypeEnumApplication)
 	certArn := importELBv2Certificate(t, "auth.example.test")
-	// HTTPS listener whose default action authenticates via OIDC, then forwards.
 	var ln *elbv2.CreateListenerOutput
 	listenerPort := elbv2CreateListenerOnFreePort(t, func(port int32) error {
 		out, err := elb.CreateListener(ctx, &elbv2.CreateListenerInput{
@@ -107,10 +106,9 @@ func TestELBv2_ListenerAuthAndForwardSDK(t *testing.T) {
 	assert.Equal(t, "openid email", aws.ToString(oidc.Scope))
 	assert.Equal(t, int64(3600), aws.ToInt64(oidc.SessionTimeout))
 	assert.Equal(t, "login", oidc.AuthenticationRequestExtraParams["prompt"])
-	// ClientSecret is write-only — real ELBv2 never returns it from Describe.
+	// ClientSecret is write-only; ELBv2 never returns it.
 	assert.Empty(t, aws.ToString(oidc.ClientSecret), "ClientSecret must NOT be echoed")
 
-	// Weighted forward on a routing rule + target-group stickiness.
 	rule, err := elb.CreateRule(ctx, &elbv2.CreateRuleInput{
 		ListenerArn: aws.String(listenerArn), Priority: aws.Int32(10),
 		Conditions: []elbtypes.RuleCondition{{
@@ -141,7 +139,6 @@ func TestELBv2_ListenerAuthAndForwardSDK(t *testing.T) {
 	assert.True(t, aws.ToBool(fwd.TargetGroupStickinessConfig.Enabled))
 	assert.Equal(t, int32(600), aws.ToInt32(fwd.TargetGroupStickinessConfig.DurationSeconds))
 
-	// SetRulePriorities reorders the rule.
 	_, err = elb.SetRulePriorities(ctx, &elbv2.SetRulePrioritiesInput{
 		RulePriorities: []elbtypes.RulePriorityPair{{RuleArn: aws.String(ruleArn), Priority: aws.Int32(20)}},
 	})
@@ -151,10 +148,9 @@ func TestELBv2_ListenerAuthAndForwardSDK(t *testing.T) {
 	assert.Equal(t, "20", aws.ToString(rules.Rules[0].Priority), "SetRulePriorities must persist")
 }
 
-// TestELBv2_ListenerCertsAndMutualAuthSDK covers AddListenerCertificates /
-// DescribeListenerCertificates / RemoveListenerCertificates (the
-// aws_lb_listener_certificate resource), ModifyListener SslPolicy, and the
-// mutual_authentication round-trip.
+// TestELBv2_ListenerCertsAndMutualAuthSDK covers aws_lb_listener_certificate's
+// operations, ModifyListener's SslPolicy and the mutual_authentication
+// round-trip.
 func TestELBv2_ListenerCertsAndMutualAuthSDK(t *testing.T) {
 	t.Parallel()
 	elb := elbv2Client()
@@ -182,13 +178,11 @@ func TestELBv2_ListenerCertsAndMutualAuthSDK(t *testing.T) {
 	_ = listenerPort
 	listenerArn := aws.ToString(ln.Listeners[0].ListenerArn)
 
-	// mutual_authentication round-trips.
 	ma := ln.Listeners[0].MutualAuthentication
 	require.NotNil(t, ma, "mutual_authentication must round-trip")
 	assert.Equal(t, "verify", aws.ToString(ma.Mode))
 	assert.True(t, aws.ToBool(ma.IgnoreClientCertificateExpiry))
 
-	// ModifyListener changes the SSL policy.
 	_, err := elb.ModifyListener(ctx, &elbv2.ModifyListenerInput{
 		ListenerArn: aws.String(listenerArn), SslPolicy: aws.String("ELBSecurityPolicy-TLS13-1-2-2021-06"),
 	})
@@ -197,7 +191,6 @@ func TestELBv2_ListenerCertsAndMutualAuthSDK(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "ELBSecurityPolicy-TLS13-1-2-2021-06", aws.ToString(desc.Listeners[0].SslPolicy), "ModifyListener SslPolicy must persist")
 
-	// SNI certificate lifecycle.
 	_, err = elb.AddListenerCertificates(ctx, &elbv2.AddListenerCertificatesInput{
 		ListenerArn: aws.String(listenerArn), Certificates: []elbtypes.Certificate{{CertificateArn: aws.String(sniCert)}},
 	})

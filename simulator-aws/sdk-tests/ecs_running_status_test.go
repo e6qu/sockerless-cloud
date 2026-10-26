@@ -10,16 +10,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// lastStatus and healthStatus answer different questions. lastStatus is where
-// the task is in its lifecycle; healthStatus is whether the application inside
-// is well, and Amazon ECS only has an opinion about that when the container
+// lastStatus is where the task is in its lifecycle; healthStatus is whether the
+// application is well, which Amazon ECS judges only when the container
 // definition declares a healthCheck. A task whose application takes minutes to
-// bind its ports is RUNNING the moment its container runs — the wait belongs to
-// healthStatus, or to nothing at all.
-//
-// Gating lastStatus on readiness instead is not a delay but a failure: a caller
-// that waits for RUNNING times out and stops a task that was serving perfectly
-// well (GitHub issue #904).
+// bind its ports is RUNNING as soon as its container runs. Gating lastStatus on
+// readiness makes a caller waiting for RUNNING time out and stop a task that
+// was serving.
 func TestECS_RunTask_RunningDoesNotWaitForTheApplication(t *testing.T) {
 	t.Parallel()
 	client := ecsClient()
@@ -32,8 +28,8 @@ func TestECS_RunTask_RunningDoesNotWaitForTheApplication(t *testing.T) {
 	})
 	subnetID := createECSTestSubnet(t, "running-status-sdk")
 
-	// The container runs immediately and binds nothing for a minute — the shape
-	// of a slow-starting workload, with no healthCheck declared.
+	// The container binds nothing for a minute, as a slow-starting workload does,
+	// with no healthCheck declared.
 	tdOut, err := client.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{
 		Family:                  aws.String("running-status-sdk-task"),
 		RequiresCompatibilities: []ecstypes.Compatibility{ecstypes.CompatibilityFargate},
@@ -64,7 +60,6 @@ func TestECS_RunTask_RunningDoesNotWaitForTheApplication(t *testing.T) {
 	taskArn := aws.ToString(runOut.Tasks[0].TaskArn)
 	cleanupECSTask(t, client, clusterName, taskArn)
 
-	// Well inside the minute the container spends binding nothing.
 	running := waitForECSTasksRunning(t, client, clusterName, 30*time.Second, taskArn)
 	// A task with no healthCheck has no health opinion to report.
 	require.Empty(t, string(running.Tasks[0].HealthStatus),

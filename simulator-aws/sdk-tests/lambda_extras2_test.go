@@ -10,8 +10,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestLambda_EventInvokeConfig exercises Put/Get/Update/Delete/List of the
-// function event-invoke config (async-invoke retry/age/destinations).
+// TestLambda_EventInvokeConfig covers the function's asynchronous invoke
+// configuration: retries, event age and destinations.
 func TestLambda_EventInvokeConfig(t *testing.T) {
 	t.Parallel()
 	lc := lambdaClient()
@@ -39,7 +39,7 @@ func TestLambda_EventInvokeConfig(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t, int32(2), aws.ToInt32(upd.MaximumRetryAttempts))
-	// Update merges: the age set on Put survives.
+	// Update merges, so the age Put set survives.
 	assert.Equal(t, int32(120), aws.ToInt32(upd.MaximumEventAgeInSeconds))
 
 	lst, err := lc.ListFunctionEventInvokeConfigs(ctx, &lambda.ListFunctionEventInvokeConfigsInput{
@@ -54,8 +54,6 @@ func TestLambda_EventInvokeConfig(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestLambda_ProvisionedConcurrency exercises Put/Get/Delete/List of the
-// per-qualifier provisioned concurrency config against a published version.
 func TestLambda_ProvisionedConcurrency(t *testing.T) {
 	t.Parallel()
 	lc := lambdaClient()
@@ -93,8 +91,6 @@ func TestLambda_ProvisionedConcurrency(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestLambda_CodeSigningConfigs exercises the account-level code-signing
-// config CRUD plus the per-function attachment ops.
 func TestLambda_CodeSigningConfigs(t *testing.T) {
 	t.Parallel()
 	lc := lambdaClient()
@@ -146,7 +142,6 @@ func TestLambda_CodeSigningConfigs(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, lst.CodeSigningConfigs)
 
-	// Per-function attachment.
 	fn := "csc-fn"
 	lambdaExtrasFunc(t, lc, fn)
 	_, err = lc.PutFunctionCodeSigningConfig(ctx, &lambda.PutFunctionCodeSigningConfigInput{
@@ -167,16 +162,12 @@ func TestLambda_CodeSigningConfigs(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestLambda_RuntimeManagementAndRecursion covers GetRuntimeManagementConfig /
-// PutRuntimeManagementConfig and GetFunctionRecursionConfig /
-// PutFunctionRecursionConfig.
 func TestLambda_RuntimeManagementAndRecursion(t *testing.T) {
 	t.Parallel()
 	lc := lambdaClient()
 	fn := "rtm-fn"
 	lambdaExtrasFunc(t, lc, fn)
 
-	// Default runtime management is Auto.
 	def, err := lc.GetRuntimeManagementConfig(ctx, &lambda.GetRuntimeManagementConfigInput{
 		FunctionName: aws.String(fn),
 	})
@@ -198,7 +189,7 @@ func TestLambda_RuntimeManagementAndRecursion(t *testing.T) {
 	assert.Equal(t, lambdatypes.UpdateRuntimeOnManual, got.UpdateRuntimeOn)
 	assert.Equal(t, rtmArn, aws.ToString(got.RuntimeVersionArn))
 
-	// Recursion config: defaults Terminate, can be set to Allow.
+	// Recursion defaults to Terminate and can be set to Allow.
 	rdef, err := lc.GetFunctionRecursionConfig(ctx, &lambda.GetFunctionRecursionConfigInput{
 		FunctionName: aws.String(fn),
 	})
@@ -213,7 +204,6 @@ func TestLambda_RuntimeManagementAndRecursion(t *testing.T) {
 	assert.Equal(t, lambdatypes.RecursiveLoopAllow, rput.RecursiveLoop)
 }
 
-// TestLambda_AccountSettings covers GetAccountSettings.
 func TestLambda_AccountSettings(t *testing.T) {
 	t.Parallel()
 	lc := lambdaClient()
@@ -224,8 +214,6 @@ func TestLambda_AccountSettings(t *testing.T) {
 	assert.NotZero(t, got.AccountLimit.ConcurrentExecutions)
 }
 
-// TestLambda_LayerVersionPermissions covers Add/Get/Remove of a layer-version
-// resource policy statement.
 func TestLambda_LayerVersionPermissions(t *testing.T) {
 	t.Parallel()
 	lc := lambdaClient()

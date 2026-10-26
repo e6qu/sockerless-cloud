@@ -80,10 +80,9 @@ func verifySNSHTTPEnvelope(t *testing.T, envelope map[string]any) {
 	require.NoError(t, rsa.VerifyPKCS1v15(publicKey, crypto.SHA1, digest[:], signature))
 }
 
-// TestSNS_HTTPSubscriptionDelivery_SDK exercises the complete public Amazon
-// SNS HTTP flow through an official SDK client and a real HTTP listener:
-// signed confirmation, ConfirmSubscription, signed notification, and raw
-// message delivery.
+// TestSNS_HTTPSubscriptionDelivery_SDK covers the Amazon SNS HTTP flow against
+// a real listener: signed confirmation, ConfirmSubscription, signed
+// notification and raw message delivery.
 func TestSNS_HTTPSubscriptionDelivery_SDK(t *testing.T) {
 	t.Parallel()
 	deliveries := make(chan snsHTTPDelivery, 4)

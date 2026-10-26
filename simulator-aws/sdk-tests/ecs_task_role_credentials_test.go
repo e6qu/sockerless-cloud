@@ -15,10 +15,9 @@ import (
 )
 
 // TestECS_TaskRoleCredentialsAuthorizeWorkloadAWSCLI runs the AWS CLI in an
-// awsvpc task and in a bridge-mode task, each under a task role, and calls
-// STS with nothing but the CLI's default credential chain: the chain finds
-// the container credentials endpoint the Amazon ECS agent names in the task's
-// environment and accepts it, and the call is made as the task role.
+// awsvpc and a bridge-mode task, each under a task role: the CLI's default
+// chain finds the container credentials endpoint the Amazon ECS agent names in
+// the environment, and STS sees the task role.
 func TestECS_TaskRoleCredentialsAuthorizeWorkloadAWSCLI(t *testing.T) {
 	t.Parallel()
 	for _, mode := range []ecstypes.NetworkMode{ecstypes.NetworkModeAwsvpc, ecstypes.NetworkModeBridge} {

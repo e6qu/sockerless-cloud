@@ -19,8 +19,8 @@ import (
 
 const batchJobImage = "mirror.gcr.io/library/alpine:3"
 
-// batchHoldCommand runs until Batch stops its container, and exits on the
-// SIGTERM that stop sends: a shell running as PID 1 ignores SIGTERM unless it
+// batchHoldCommand runs until Batch stops its container and exits on the
+// SIGTERM the stop sends: a shell running as PID 1 ignores SIGTERM unless it
 // traps it.
 var batchHoldCommand = []string{"sh", "-c", `trap "exit 143" TERM; sleep 300 & wait`}
 
@@ -31,8 +31,8 @@ func createBatchQueue(t *testing.T, c *batch.Client, name string, state batchtyp
 	return createBatchQueueWithPolicy(t, c, name, state, maxVCPUs, "")
 }
 
-// createBatchQueueWithPolicy is createBatchQueue for a queue that
-// schedulingPolicyArn, when set, schedules by fair share.
+// createBatchQueueWithPolicy is createBatchQueue for a queue that schedules by
+// fair share when schedulingPolicyArn is set.
 func createBatchQueueWithPolicy(t *testing.T, c *batch.Client, name string, state batchtypes.CEState, maxVCPUs int32, schedulingPolicyArn string) string {
 	t.Helper()
 	input := &batch.CreateComputeEnvironmentInput{
@@ -126,7 +126,7 @@ func batchAttemptLog(t *testing.T, stream string) string {
 }
 
 // A failed attempt with attempts left returns the job to RUNNABLE and runs the
-// next attempt in a new container, which sees its attempt number in
+// next attempt in a new container, which reads its number from
 // AWS_BATCH_JOB_ATTEMPT; the request's retryStrategy overrides the job
 // definition's.
 func TestBatch_RetryStrategyRunsEachAttemptInANewContainer_SDK(t *testing.T) {
@@ -274,8 +274,8 @@ func TestBatch_ArrayJobRunsAChildPerIndex_SDK(t *testing.T) {
 	assert.True(t, listedParent, "the queue lists the failed array parent")
 }
 
-// A job waits in RUNNABLE while its queue's compute environments cannot place
-// it — here the only one is DISABLED, later full — and runs once one can.
+// A job waits in RUNNABLE while no compute environment of its queue can place
+// it (the only one is DISABLED, later full), and runs once one can.
 func TestBatch_JobWaitsRunnableUntilAComputeEnvironmentPlacesIt_SDK(t *testing.T) {
 	t.Parallel()
 	c := batchClient()

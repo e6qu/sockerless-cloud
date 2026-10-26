@@ -25,9 +25,10 @@ import (
 )
 
 // TestSFNTestStateDifferentialAgainstAWS sends the same Amazon States Language
-// states through the simulator and the real AWS Step Functions TestState API.
-// The clients differ only in endpoint and credentials. This suite is compiled
-// only by the live-aws-conformance workflow, where credentials are mandatory.
+// states to the simulator and to AWS Step Functions' TestState API, with
+// clients differing only in endpoint and credentials. Only the
+// live-aws-conformance workflow compiles this suite, and it requires
+// credentials.
 func TestSFNTestStateDifferentialAgainstAWS(t *testing.T) {
 	t.Parallel()
 	liveConfig, err := config.LoadDefaultConfig(ctx)
@@ -672,8 +673,8 @@ func TestSFNControlPlaneDifferentialAgainstAWS(t *testing.T) {
 	require.Equal(t, results["real-aws"], results["simulator"])
 }
 
-// TestAWSLiveEnvironmentIsExplicit prevents an accidental local invocation
-// from silently using an unintended account or Region.
+// TestAWSLiveEnvironmentIsExplicit stops a local run from using an unintended
+// account or Region.
 func TestAWSLiveEnvironmentIsExplicit(t *testing.T) {
 	t.Parallel()
 	require.NotEmpty(t, os.Getenv("AWS_REGION"), "AWS_REGION is required for live AWS conformance")
@@ -801,10 +802,10 @@ func TestLambdaZIPAndLayerDifferentialAgainstAWS(t *testing.T) {
 	require.JSONEq(t, results["real-aws"].output, results["simulator"].output)
 }
 
-// TestLambdaVersionAliasDifferentialAgainstAWS verifies that published
-// versions are immutable executable snapshots, aliases invoke the selected
-// version, and current configuration fields round-trip identically through
-// the same official SDK calls against real AWS Lambda and the simulator.
+// TestLambdaVersionAliasDifferentialAgainstAWS expects, through the same SDK
+// calls against AWS Lambda and the simulator, published versions to be
+// immutable snapshots, aliases to invoke their version, and configuration
+// fields to round-trip identically.
 func TestLambdaVersionAliasDifferentialAgainstAWS(t *testing.T) {
 	t.Parallel()
 	roleARN := os.Getenv("AWS_LIVE_LAMBDA_ROLE_ARN")

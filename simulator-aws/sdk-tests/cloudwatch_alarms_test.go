@@ -13,16 +13,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestCloudWatch_MetricAlarms covers PutMetricAlarm / DescribeAlarms /
-// DeleteAlarms over the Go SDK (rpc-v2-cbor): an alarm's StateValue is
-// evaluated from the live metric data — ALARM when a breaching datapoint
-// exists, OK when missing data is treated as not-breaching — and tags round-trip.
+// TestCloudWatch_MetricAlarms covers PutMetricAlarm, DescribeAlarms and
+// DeleteAlarms over rpc-v2-cbor: StateValue derives from the metric data (ALARM
+// with a breaching datapoint, OK when missing data is not breaching), and tags
+// round-trip.
 func TestCloudWatch_MetricAlarms(t *testing.T) {
 	t.Parallel()
 	client := cloudwatchClient()
 	ns := "Custom/AlarmsSDK"
 
-	// A breaching datapoint (value 5 > threshold 0).
 	_, err := client.PutMetricData(ctx, &cloudwatch.PutMetricDataInput{
 		Namespace: aws.String(ns),
 		MetricData: []cwtypes.MetricDatum{
@@ -47,22 +46,20 @@ func TestCloudWatch_MetricAlarms(t *testing.T) {
 	require.NoError(t, err)
 
 	// A new alarm starts in INSUFFICIENT_DATA and reaches ALARM when CloudWatch
-	// evaluates it against the breaching datapoint — the transition is the
-	// service's, so it is waited for rather than expected of the create.
+	// evaluates the breaching datapoint, so wait for the transition.
 	a := awaitAlarmState(ctx, t, client, "sdk-alarm", cwtypes.StateValueAlarm, "value 5 > threshold 0 → ALARM")
 	assert.Equal(t, "sdk-alarm", aws.ToString(a.AlarmName))
 	assert.Contains(t, aws.ToString(a.AlarmArn), ":alarm:sdk-alarm")
 	assert.Equal(t, "GreaterThanThreshold", string(a.ComparisonOperator))
 	assert.InDelta(t, 0, aws.ToFloat64(a.Threshold), 0.001)
 
-	// Tags round-trip via the transparent-tagging read path.
 	tags, err := client.ListTagsForResource(ctx, &cloudwatch.ListTagsForResourceInput{ResourceARN: a.AlarmArn})
 	require.NoError(t, err)
 	require.Len(t, tags.Tags, 1)
 	assert.Equal(t, "env", aws.ToString(tags.Tags[0].Key))
 	assert.Equal(t, "test", aws.ToString(tags.Tags[0].Value))
 
-	// An alarm whose metric has no data + notBreaching evaluates to OK.
+	// With no data and notBreaching, the alarm evaluates to OK.
 	_, err = client.PutMetricAlarm(ctx, &cloudwatch.PutMetricAlarmInput{
 		AlarmName:          aws.String("sdk-alarm-ok"),
 		Namespace:          aws.String(ns),
@@ -77,7 +74,6 @@ func TestCloudWatch_MetricAlarms(t *testing.T) {
 	require.NoError(t, err)
 	awaitAlarmState(ctx, t, client, "sdk-alarm-ok", cwtypes.StateValueOk, "no data + notBreaching → OK")
 
-	// DeleteAlarms removes them.
 	_, err = client.DeleteAlarms(ctx, &cloudwatch.DeleteAlarmsInput{AlarmNames: []string{"sdk-alarm", "sdk-alarm-ok"}})
 	require.NoError(t, err)
 	gone, err := client.DescribeAlarms(ctx, &cloudwatch.DescribeAlarmsInput{AlarmNames: []string{"sdk-alarm"}})
@@ -85,11 +81,10 @@ func TestCloudWatch_MetricAlarms(t *testing.T) {
 	assert.Empty(t, gone.MetricAlarms)
 }
 
-// TestCloudWatch_MetricAlarmValidation asserts PutMetricAlarm rejects the
-// required numeric parameters CloudWatch validates server-side rather than
-// silently defaulting them to 0: EvaluationPeriods must be >= 1, and a
-// single-metric alarm (MetricName set) requires Period. EvaluationPeriods/Period
-// are not model-required, so the SDK passes a 0 straight through to the service.
+// TestCloudWatch_MetricAlarmValidation expects PutMetricAlarm to reject what
+// CloudWatch validates rather than default to 0: EvaluationPeriods below 1, and
+// a single-metric alarm without Period. The model does not require either, so
+// the SDK sends a 0 through.
 func TestCloudWatch_MetricAlarmValidation(t *testing.T) {
 	t.Parallel()
 	client := cloudwatchClient()

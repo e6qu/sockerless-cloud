@@ -18,12 +18,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestELBv2_NLBRawTCPRoundTrip drives the Network Load Balancer raw-TCP data
-// plane end-to-end through the real sim: create an NLB + TCP target group + TCP
-// listener, register a live raw-TCP target, then discover the reachable endpoint
-// the way a real client does (DescribeLoadBalancers -> DNSName) and prove a raw
-// byte stream round-trips through to the target (the SSH-through-NLB shape). No
-// HTTP is involved on the data path.
+// TestELBv2_NLBRawTCPRoundTrip registers a raw-TCP target behind a Network Load
+// Balancer, reaches it as a client does (DescribeLoadBalancers, then DNSName)
+// and round-trips a byte stream to it with no HTTP involved, the
+// SSH-through-NLB shape.
 func TestELBv2_NLBRawTCPRoundTrip(t *testing.T) {
 	t.Parallel()
 	lbName := uniquename.New("nlb-rawtcp")
@@ -40,7 +38,7 @@ func TestELBv2_NLBRawTCPRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	subnetID := aws.ToString(sn.Subnet.SubnetId)
 
-	// A raw-TCP echo backend (not HTTP): reads a line, writes "echo:<line>".
+	// A raw-TCP echo backend: reads a line, writes "echo:<line>".
 	backend, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	defer backend.Close()
@@ -75,9 +73,8 @@ func TestELBv2_NLBRawTCPRoundTrip(t *testing.T) {
 	})
 	require.NoError(t, err)
 	lbArn := aws.ToString(nlb.LoadBalancers[0].LoadBalancerArn)
-	// Delete the NLB at the end so its stream proxy (bound on the listener port)
-	// and the DNS hosts entry it injects into workload containers don't leak into
-	// the rest of the shared-sim test suite and interfere with later tests.
+	// Delete the NLB so its stream proxy on the listener port and the DNS hosts
+	// entry it gives workload containers stay out of later tests.
 	defer elb.DeleteLoadBalancer(ctx, &elbv2.DeleteLoadBalancerInput{LoadBalancerArn: aws.String(lbArn)})
 
 	tg, err := elb.CreateTargetGroup(ctx, &elbv2.CreateTargetGroupInput{
@@ -86,7 +83,6 @@ func TestELBv2_NLBRawTCPRoundTrip(t *testing.T) {
 	})
 	require.NoError(t, err)
 	tgArn := aws.ToString(tg.TargetGroups[0].TargetGroupArn)
-	// A TCP target group carries no Matcher (issue #685).
 	assert.Nil(t, tg.TargetGroups[0].Matcher, "TCP target group carries no Matcher")
 
 	_, err = elb.RegisterTargets(ctx, &elbv2.RegisterTargetsInput{
@@ -102,18 +98,15 @@ func TestELBv2_NLBRawTCPRoundTrip(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// #691: DescribeLoadBalancers returns the stable AWS-shaped hostname, never a
-	// host:port. (The full shape/stability contract is asserted in the SDK
-	// idempotency test below; here we just take the DNS name to resolve.)
+	// TestELBv2_NLBDescribeStableHostname asserts the DNSName's shape and
+	// stability; here it is only resolved.
 	desc, err := elb.DescribeLoadBalancers(ctx, &elbv2.DescribeLoadBalancersInput{LoadBalancerArns: []string{lbArn}})
 	require.NoError(t, err)
 	dnsName := aws.ToString(desc.LoadBalancers[0].DNSName)
 	require.NotContains(t, dnsName, ":", "DNSName must be a hostname, not host:port")
 
-	// Reach the data plane the way a client does: resolve the DNS name through
-	// the resolver and connect on the listener port.
-	// The listener forwards only to a target the health checker has put in
-	// service, so wait for the registration to pass its first health check.
+	// The listener forwards only to a target in service, so wait for the first
+	// health check to pass.
 	waitForELBv2TargetHealth(t, tgArn,
 		elbtypes.TargetDescription{Id: aws.String(backendHost), Port: aws.Int32(int32(backendPort))},
 		elbtypes.TargetHealthStateEnumHealthy)
@@ -131,10 +124,9 @@ func TestELBv2_NLBRawTCPRoundTrip(t *testing.T) {
 	assert.Equal(t, "echo:hello-nlb\n", got, "raw TCP byte stream must round-trip through the NLB to the target")
 }
 
-// TestELBv2_NLBDescribeStableHostname is the #691 contract guard: an NLB's
-// DescribeLoadBalancers DNSName is a stable AWS-shaped hostname (never a
-// host:port), unchanged across calls, and a CanonicalHostedZoneId is present so
-// a Route53 alias target can reference it.
+// TestELBv2_NLBDescribeStableHostname expects an NLB's DNSName to be a stable
+// AWS-shaped hostname, never a host:port, alongside a CanonicalHostedZoneId a
+// Route 53 alias target can name.
 func TestELBv2_NLBDescribeStableHostname(t *testing.T) {
 	t.Parallel()
 	lbName := uniquename.New("nlb-stable")
@@ -155,7 +147,7 @@ func TestELBv2_NLBDescribeStableHostname(t *testing.T) {
 	})
 	require.NoError(t, err)
 	lbArn := aws.ToString(nlb.LoadBalancers[0].LoadBalancerArn)
-	// Clean up so this NLB's proxy/host-entry doesn't leak into the shared suite.
+	// Delete the NLB so its proxy and hosts entry stay out of later tests.
 	defer elb.DeleteLoadBalancer(ctx, &elbv2.DeleteLoadBalancerInput{LoadBalancerArn: aws.String(lbArn)})
 
 	tg, err := elb.CreateTargetGroup(ctx, &elbv2.CreateTargetGroupInput{
@@ -183,7 +175,7 @@ func TestELBv2_NLBDescribeStableHostname(t *testing.T) {
 	assert.Equal(t, "Z26RNL4JYFTOTI", aws.ToString(desc1.LoadBalancers[0].CanonicalHostedZoneId),
 		"a Network Load Balancer in us-east-1 reports that Region's Network Load Balancer hosted zone")
 
-	// A second describe returns the SAME DNSName (no ephemeral-port drift).
+	// A second describe returns the same DNSName.
 	desc2, err := elb.DescribeLoadBalancers(ctx, &elbv2.DescribeLoadBalancersInput{LoadBalancerArns: []string{lbArn}})
 	require.NoError(t, err)
 	dns2 := aws.ToString(desc2.LoadBalancers[0].DNSName)

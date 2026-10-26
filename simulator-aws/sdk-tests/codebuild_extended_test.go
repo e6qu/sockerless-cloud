@@ -17,8 +17,7 @@ import (
 )
 
 // cbCreateBuildspecProject creates a NO_SOURCE project with a one-command
-// buildspec (and optional report group) so build/batch round-trips have a real
-// project to run against.
+// buildspec.
 func cbCreateBuildspecProject(t *testing.T, c *codebuild.Client, name, buildspec string) {
 	t.Helper()
 	_, err := c.CreateProject(ctx, &codebuild.CreateProjectInput{
@@ -32,16 +31,14 @@ func cbCreateBuildspecProject(t *testing.T, c *codebuild.Client, name, buildspec
 	t.Cleanup(func() { _, _ = c.DeleteProject(ctx, &codebuild.DeleteProjectInput{Name: aws.String(name)}) })
 }
 
-// cbBatchRole creates a role CodeBuild may assume to start, stop and retry a
-// batch's builds, as a batch build's service role must.
+// cbBatchRole creates the role a batch build's service role must be: one
+// CodeBuild may assume to start, stop and retry the batch's builds.
 func cbBatchRole(t *testing.T, extra ...string) string {
 	t.Helper()
 	actions := append([]string{"codebuild:StartBuild", "codebuild:StopBuild", "codebuild:RetryBuild"}, extra...)
 	return createServiceRole(t, uniquename.New("cb-batch"), "codebuild.amazonaws.com", actions...)
 }
 
-// cbCreateBatchProject creates a NO_SOURCE project whose buildspec carries a
-// batch section, with a buildBatchConfig naming a batch service role.
 func cbCreateBatchProject(t *testing.T, c *codebuild.Client, name, buildspec string) {
 	t.Helper()
 	_, err := c.CreateProject(ctx, &codebuild.CreateProjectInput{
@@ -76,7 +73,6 @@ func cbBuildIDFromArn(arn string) string {
 	return arn[strings.Index(arn, ":build/")+len(":build/"):]
 }
 
-// cbBuildLog returns what a build printed to its CloudWatch Logs stream.
 func cbBuildLog(t *testing.T, build cbtypes.Build) string {
 	t.Helper()
 	events, err := cwLogsClient().FilterLogEvents(ctx, &cloudwatchlogs.FilterLogEventsInput{
@@ -91,10 +87,9 @@ func cbBuildLog(t *testing.T, build cbtypes.Build) string {
 	return strings.Join(lines, "\n")
 }
 
-// TestCodeBuild_BuildBatches_SDK covers StartBuildBatch, BatchGetBuildBatches,
-// ListBuildBatches, ListBuildBatchesForProject, StopBuildBatch, RetryBuildBatch,
-// DeleteBuildBatch, plus BatchDeleteBuilds: a build-list batch starts one
-// build per task, each a member of the batch with the task's variables.
+// TestCodeBuild_BuildBatches_SDK covers the build-batch operations and
+// BatchDeleteBuilds: a build-list batch starts one build per task, each a
+// member of the batch with the task's variables.
 func TestCodeBuild_BuildBatches_SDK(t *testing.T) {
 	t.Parallel()
 	c := codebuildClient()
@@ -153,8 +148,8 @@ func TestCodeBuild_BuildBatches_SDK(t *testing.T) {
 	assert.Contains(t, del.BuildsDeleted, buildID)
 }
 
-// A build-graph task waits for the tasks it depends on: the second build
-// starts after the first one ends.
+// A build-graph task waits for the tasks it depends on, so the second build
+// starts after the first ends.
 func TestCodeBuild_BuildGraphOrdersBuilds_SDK(t *testing.T) {
 	t.Parallel()
 	c := codebuildClient()
@@ -203,9 +198,9 @@ func TestCodeBuild_BuildBatchRestrictions_SDK(t *testing.T) {
 	assert.Empty(t, batch.BuildGroups)
 }
 
-// StartBuild's imageOverride chooses the image the build runs: the project's
-// busybox image has no /etc/os-release and the override's Alpine image does.
-// A repeated request with the same idempotencyToken answers the same build.
+// StartBuild's imageOverride chooses the build's image: the project's busybox
+// image has no /etc/os-release and the override's Alpine image does. A repeated
+// request with the same idempotencyToken answers the same build.
 func TestCodeBuild_StartBuildOverrides_SDK(t *testing.T) {
 	t.Parallel()
 	c := codebuildClient()
@@ -250,8 +245,6 @@ func TestCodeBuild_StartBuildOverrides_SDK(t *testing.T) {
 	assert.Contains(t, cbBuildLog(t, build), "ID=alpine")
 }
 
-// TestCodeBuild_Fleets_SDK covers CreateFleet, UpdateFleet, BatchGetFleets,
-// ListFleets, DeleteFleet.
 func TestCodeBuild_Fleets_SDK(t *testing.T) {
 	t.Parallel()
 	c := codebuildClient()
@@ -292,10 +285,6 @@ func TestCodeBuild_Fleets_SDK(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestCodeBuild_SandboxesAndCommands_SDK covers StartSandbox, BatchGetSandboxes,
-// ListSandboxes, ListSandboxesForProject, StartSandboxConnection,
-// StartCommandExecution, BatchGetCommandExecutions,
-// ListCommandExecutionsForSandbox, StopSandbox.
 func TestCodeBuild_SandboxesAndCommands_SDK(t *testing.T) {
 	t.Parallel()
 	c := codebuildClient()
@@ -358,7 +347,6 @@ func TestCodeBuild_SandboxesAndCommands_SDK(t *testing.T) {
 	assert.Equal(t, "STOPPED", aws.ToString(stop.Sandbox.Status))
 }
 
-// TestCodeBuild_Webhooks_SDK covers CreateWebhook, UpdateWebhook, DeleteWebhook.
 func TestCodeBuild_Webhooks_SDK(t *testing.T) {
 	t.Parallel()
 	c := codebuildClient()
@@ -390,10 +378,9 @@ func TestCodeBuild_Webhooks_SDK(t *testing.T) {
 }
 
 // cbReportBuildspec builds a buildspec whose build phase writes raw report
-// files into the build container and whose reports section declares them, the
-// way a real project does: the framework writes the results, the reports
-// section names where they are and what format they are in. The content is
-// carried base64-encoded so the YAML and the shell both leave it alone.
+// files and whose reports section names where they are and in what format, as
+// a real project does. The content rides base64 so neither the YAML nor the
+// shell alters it.
 func cbReportBuildspec(entries string, files map[string]string) string {
 	commands := "      - mkdir -p test-results\n"
 	names := make([]string, 0, len(files))
@@ -429,7 +416,7 @@ const cbJaCoCoReportFile = `<?xml version="1.0" encoding="UTF-8"?>
 </report>`
 
 // cbWaitForBuildReports runs a build and returns the report ARNs it produced
-// once it has settled.
+// once settled.
 func cbWaitForBuildReports(t *testing.T, c *codebuild.Client, project string) []string {
 	t.Helper()
 	start, err := c.StartBuild(ctx, &codebuild.StartBuildInput{ProjectName: aws.String(project)})
@@ -452,11 +439,9 @@ func cbWaitForBuildReports(t *testing.T, c *codebuild.Client, project string) []
 }
 
 // TestCodeBuild_ReportInsights_SDK covers DeleteReport, DescribeTestCases,
-// DescribeCodeCoverages and GetReportGroupTrend against reports produced by a
-// build that actually wrote the raw result files its buildspec declared. Every
-// assertion here is about what those files contained: a test case the build did
-// not run, or a coverage figure no file reported, is the defect this test
-// exists to catch.
+// DescribeCodeCoverages and GetReportGroupTrend over reports from a build that
+// wrote the raw result files its buildspec declared; every assertion is about
+// what those files held.
 func TestCodeBuild_ReportInsights_SDK(t *testing.T) {
 	t.Parallel()
 	c := codebuildClient()
@@ -480,8 +465,8 @@ func TestCodeBuild_ReportInsights_SDK(t *testing.T) {
 	require.Len(t, reportArns, 1)
 	reportArn := reportArns[0]
 
-	// One case passed and one failed, so the report is FAILED — "Some of the
-	// test cases were not successful".
+	// One case passed and one failed, so the report is FAILED: "Some of the test
+	// cases were not successful".
 	reports, err := c.BatchGetReports(ctx, &codebuild.BatchGetReportsInput{ReportArns: []string{reportArn}})
 	require.NoError(t, err)
 	require.Len(t, reports.Reports, 1)
@@ -509,7 +494,7 @@ func TestCodeBuild_ReportInsights_SDK(t *testing.T) {
 	assert.Equal(t, "FAILED", aws.ToString(failed.Status))
 	assert.Equal(t, "expected 400, got 200", aws.ToString(failed.Message))
 
-	// The filter is applied to what the file held, not to an invented set.
+	// The filter applies to what the file held.
 	onlyFailures, err := c.DescribeTestCases(ctx, &codebuild.DescribeTestCasesInput{
 		ReportArn: aws.String(reportArn),
 		Filter:    &cbtypes.TestCaseFilter{Status: aws.String("FAILED")},
@@ -518,8 +503,7 @@ func TestCodeBuild_ReportInsights_SDK(t *testing.T) {
 	require.Len(t, onlyFailures.TestCases, 1)
 	assert.Equal(t, "rejectsAnEmptyBasket", aws.ToString(onlyFailures.TestCases[0].Name))
 
-	// A TEST report has no code coverage: the build wrote no coverage file, so
-	// the answer is empty rather than a fabricated hundred-percent row.
+	// A TEST report has no code coverage, and the build wrote no coverage file.
 	cov, err := c.DescribeCodeCoverages(ctx, &codebuild.DescribeCodeCoveragesInput{ReportArn: aws.String(reportArn)})
 	require.NoError(t, err)
 	assert.Empty(t, cov.CodeCoverages)
@@ -543,14 +527,13 @@ func TestCodeBuild_ReportInsights_SDK(t *testing.T) {
 
 	_, err = c.DeleteReport(ctx, &codebuild.DeleteReportInput{Arn: aws.String(reportArn)})
 	require.NoError(t, err)
-	// A deleted report takes its test cases with it.
 	_, err = c.DescribeTestCases(ctx, &codebuild.DescribeTestCasesInput{ReportArn: aws.String(reportArn)})
 	assert.Error(t, err)
 }
 
-// TestCodeBuild_CodeCoverageReport_SDK proves a code coverage report carries
-// the figures the JaCoCo file held, and that naming a new report group by name
-// creates "<project-name>-<report-group-name>" the way the service documents.
+// TestCodeBuild_CodeCoverageReport_SDK expects a code coverage report to carry
+// the JaCoCo file's figures, and naming a new report group by name to create
+// "<project-name>-<report-group-name>", as the service documents.
 func TestCodeBuild_CodeCoverageReport_SDK(t *testing.T) {
 	t.Parallel()
 	c := codebuildClient()
@@ -596,9 +579,8 @@ func TestCodeBuild_CodeCoverageReport_SDK(t *testing.T) {
 }
 
 // TestCodeBuild_ReportsWithoutRawData_SDK covers the two ways a build produces
-// no results: a buildspec with no reports section produces no report at all,
-// and a reports entry whose files match nothing produces an INCOMPLETE report
-// carrying nothing. Neither may answer with an invented test case.
+// no results: no reports section yields no report, and a reports entry whose
+// files match nothing yields an INCOMPLETE report with nothing in it.
 func TestCodeBuild_ReportsWithoutRawData_SDK(t *testing.T) {
 	t.Parallel()
 	c := codebuildClient()
@@ -634,8 +616,6 @@ func TestCodeBuild_ReportsWithoutRawData_SDK(t *testing.T) {
 	assert.Empty(t, cov.CodeCoverages, "a report with no raw data file must carry no coverage")
 }
 
-// TestCodeBuild_ResourcePolicy_SDK covers PutResourcePolicy, GetResourcePolicy,
-// DeleteResourcePolicy, ListSharedProjects, ListSharedReportGroups.
 func TestCodeBuild_ResourcePolicy_SDK(t *testing.T) {
 	t.Parallel()
 	c := codebuildClient()
@@ -668,7 +648,7 @@ func TestCodeBuild_ResourcePolicy_SDK(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, lsp.Projects, projARN)
 
-	// A shared report group is surfaced once its ARN carries a policy.
+	// A report group counts as shared once its ARN carries a policy.
 	rgArn := "arn:aws:codebuild:us-east-1:123456789012:report-group/" + proj + "-rg"
 	_, err = c.PutResourcePolicy(ctx, &codebuild.PutResourcePolicyInput{
 		ResourceArn: aws.String(rgArn),
@@ -686,8 +666,6 @@ func TestCodeBuild_ResourcePolicy_SDK(t *testing.T) {
 	require.Error(t, err)
 }
 
-// TestCodeBuild_ProjectControls_SDK covers UpdateProjectVisibility,
-// InvalidateProjectCache, and ListCuratedEnvironmentImages.
 func TestCodeBuild_ProjectControls_SDK(t *testing.T) {
 	t.Parallel()
 	c := codebuildClient()

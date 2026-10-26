@@ -12,23 +12,18 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// ecsControlPlaneBudget is the ceiling for a single Amazon ECS control-plane
-// call in this test. Every one of them is a control-plane record read or write;
-// none of them waits for the service scheduler, so they answer in
-// milliseconds. The budget is set far above that so it fails only on the
-// regression it guards: a handler that runs a scheduler pass — task placement,
-// Elastic Load Balancing health probes, AWS Cloud Map registration — on the
-// request path, which costs seconds to tens of seconds per call.
+// ecsControlPlaneBudget caps one Amazon ECS control-plane call. Each reads or
+// writes a record without waiting on the scheduler and answers in
+// milliseconds, so the budget fails only on a handler that runs a scheduler
+// pass (task placement, ELB health probes, Cloud Map registration) on the
+// request path, which costs seconds.
 const ecsControlPlaneBudget = 5 * time.Second
 
-// TestECS_Service_ControlPlaneAnswersWhileTheSchedulerConverges proves the
-// Amazon ECS control plane answers from recorded state while its scheduler
-// converges the service underneath. CreateService reports the service as
-// requested with runningCount 0 and an IN_PROGRESS PRIMARY deployment,
-// DescribeServices stays answerable throughout the rollout, UpdateService
-// records a new desired count and returns, and the service still reaches
-// steady state through the scheduler — observed the way a client observes it,
-// by polling DescribeServices.
+// TestECS_Service_ControlPlaneAnswersWhileTheSchedulerConverges expects the
+// control plane to answer from recorded state while the scheduler converges:
+// CreateService reports runningCount 0 and an IN_PROGRESS PRIMARY deployment,
+// DescribeServices answers throughout, UpdateService records a new count and
+// returns, and the service still reaches steady state.
 func TestECS_Service_ControlPlaneAnswersWhileTheSchedulerConverges(t *testing.T) {
 	t.Parallel()
 	client := ecsClient()
@@ -80,10 +75,9 @@ func TestECS_Service_ControlPlaneAnswersWhileTheSchedulerConverges(t *testing.T)
 	assert.Equal(t, ecstypes.DeploymentRolloutStateInProgress,
 		created.Service.Deployments[0].RolloutState)
 
-	// Wait the way a client waits, with the ServicesStable waiter, and time
-	// every describe it sends: while the scheduler places tasks, probes their
-	// health and completes the deployment, the read must keep answering
-	// promptly.
+	// Wait with the ServicesStable waiter and time each describe it sends: while
+	// the scheduler places tasks, probes their health and completes the
+	// deployment, reads keep answering promptly.
 	timed := ecs.New(client.Options(), func(o *ecs.Options) {
 		o.HTTPClient = budgetedHTTPClient{inner: o.HTTPClient, t: t, budget: ecsControlPlaneBudget}
 	})
@@ -111,7 +105,6 @@ func TestECS_Service_ControlPlaneAnswersWhileTheSchedulerConverges(t *testing.T)
 	describeSteady(1)
 }
 
-// budgetedHTTPClient fails the test when a single request outlasts budget.
 type budgetedHTTPClient struct {
 	inner  ecs.HTTPClient
 	t      *testing.T

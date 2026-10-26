@@ -10,11 +10,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestEC2_VpcEndpointsRoundTrip exercises the VPC-endpoint control plane:
-// CreateVpcEndpoint (gateway + interface), DescribeVpcEndpoints (by id and by
-// filter), and DeleteVpcEndpoints. It asserts the fields aws_vpc_endpoint reads
-// back: type, service name, state, route/subnet/security-group sets, DNS
-// entries, and the unsuccessful set on a bad delete.
+// TestEC2_VpcEndpointsRoundTrip covers the fields aws_vpc_endpoint reads back:
+// type, service name, state, route table, subnet and security group sets, DNS
+// entries, and the unsuccessful set of a bad delete.
 func TestEC2_VpcEndpointsRoundTrip(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -39,7 +37,7 @@ func TestEC2_VpcEndpointsRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	sgID := aws.ToString(sg.GroupId)
 
-	// Gateway endpoint (e.g. S3) — programmed into route tables, no ENIs.
+	// A gateway endpoint programs route tables and has no ENIs.
 	gw, err := c.CreateVpcEndpoint(ctx, &ec2.CreateVpcEndpointInput{
 		VpcId:           aws.String(vpcID),
 		ServiceName:     aws.String("com.amazonaws.us-east-1.s3"),
@@ -55,7 +53,7 @@ func TestEC2_VpcEndpointsRoundTrip(t *testing.T) {
 	assert.Contains(t, gw.VpcEndpoint.RouteTableIds, rtID)
 	gwID := aws.ToString(gw.VpcEndpoint.VpcEndpointId)
 
-	// Interface endpoint — gets an ENI per subnet plus a DNS entry.
+	// An interface endpoint gets an ENI per subnet and a DNS entry.
 	iface, err := c.CreateVpcEndpoint(ctx, &ec2.CreateVpcEndpointInput{
 		VpcId:             aws.String(vpcID),
 		ServiceName:       aws.String("com.amazonaws.us-east-1.ecr.api"),
@@ -77,7 +75,6 @@ func TestEC2_VpcEndpointsRoundTrip(t *testing.T) {
 	assert.NotEmpty(t, aws.ToString(ifaceEP.DnsEntries[0].DnsName))
 	ifaceID := aws.ToString(ifaceEP.VpcEndpointId)
 
-	// Describe by id.
 	d, err := c.DescribeVpcEndpoints(ctx, &ec2.DescribeVpcEndpointsInput{
 		VpcEndpointIds: []string{gwID},
 	})
@@ -86,7 +83,6 @@ func TestEC2_VpcEndpointsRoundTrip(t *testing.T) {
 	assert.Equal(t, gwID, aws.ToString(d.VpcEndpoints[0].VpcEndpointId))
 	assert.Equal(t, types.StateAvailable, d.VpcEndpoints[0].State)
 
-	// Describe by vpc-id filter returns both.
 	df, err := c.DescribeVpcEndpoints(ctx, &ec2.DescribeVpcEndpointsInput{
 		Filters: []types.Filter{{Name: aws.String("vpc-id"), Values: []string{vpcID}}},
 	})
@@ -98,14 +94,12 @@ func TestEC2_VpcEndpointsRoundTrip(t *testing.T) {
 	assert.True(t, ids[gwID])
 	assert.True(t, ids[ifaceID])
 
-	// Delete both — successful deletes leave an empty unsuccessful set.
 	del, err := c.DeleteVpcEndpoints(ctx, &ec2.DeleteVpcEndpointsInput{
 		VpcEndpointIds: []string{gwID, ifaceID},
 	})
 	require.NoError(t, err)
 	assert.Empty(t, del.Unsuccessful)
 
-	// They are gone.
 	after, err := c.DescribeVpcEndpoints(ctx, &ec2.DescribeVpcEndpointsInput{
 		Filters: []types.Filter{{Name: aws.String("vpc-id"), Values: []string{vpcID}}},
 	})
@@ -113,7 +107,7 @@ func TestEC2_VpcEndpointsRoundTrip(t *testing.T) {
 	assert.Empty(t, after.VpcEndpoints)
 
 	// Deleting an unknown endpoint returns it in the unsuccessful set, not a
-	// top-level error (matches real AWS).
+	// top-level error.
 	bad, err := c.DeleteVpcEndpoints(ctx, &ec2.DeleteVpcEndpointsInput{
 		VpcEndpointIds: []string{"vpce-doesnotexist"},
 	})

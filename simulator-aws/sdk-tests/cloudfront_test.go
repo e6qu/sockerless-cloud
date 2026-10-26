@@ -25,7 +25,6 @@ func TestCloudFrontDistributionLifecycle(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	// Create
 	caller := "sdk-test-" + time.Now().Format("150405.000000")
 	createOut, err := c.CreateDistribution(ctx, &cloudfront.CreateDistributionInput{
 		DistributionConfig: &cftypes.DistributionConfig{
@@ -91,14 +90,12 @@ func TestCloudFrontDistributionLifecycle(t *testing.T) {
 	assert.Equal(t, "Deployed", aws.ToString(createOut.Distribution.Status))
 	assert.Equal(t, caller, aws.ToString(createOut.Distribution.DistributionConfig.CallerReference))
 
-	// Get
 	getOut, err := c.GetDistribution(ctx, &cloudfront.GetDistributionInput{Id: aws.String(id)})
 	require.NoError(t, err)
 	require.NotNil(t, getOut.Distribution)
 	assert.Equal(t, id, aws.ToString(getOut.Distribution.Id))
 	assert.Equal(t, etag, aws.ToString(getOut.ETag))
 
-	// List
 	listOut, err := c.ListDistributions(ctx, &cloudfront.ListDistributionsInput{})
 	require.NoError(t, err)
 	require.NotNil(t, listOut.DistributionList)
@@ -112,7 +109,7 @@ func TestCloudFrontDistributionLifecycle(t *testing.T) {
 	}
 	assert.True(t, found, "expected new distribution %q in list", id)
 
-	// Update (set Enabled=false so we can delete)
+	// CloudFront deletes only a disabled distribution.
 	cfg := *getOut.Distribution.DistributionConfig
 	cfg.Enabled = aws.Bool(false)
 	cfg.Comment = aws.String("disabled for cleanup")
@@ -126,21 +123,18 @@ func TestCloudFrontDistributionLifecycle(t *testing.T) {
 	require.NotEmpty(t, newETag)
 	require.NotEqual(t, etag, newETag, "ETag must rotate on update")
 
-	// Delete with stale ETag → PreconditionFailed
 	_, err = c.DeleteDistribution(ctx, &cloudfront.DeleteDistributionInput{
 		Id:      aws.String(id),
 		IfMatch: aws.String(etag),
 	})
 	require.Error(t, err, "stale ETag must fail")
 
-	// Delete with current ETag → succeeds
 	_, err = c.DeleteDistribution(ctx, &cloudfront.DeleteDistributionInput{
 		Id:      aws.String(id),
 		IfMatch: aws.String(newETag),
 	})
 	require.NoError(t, err)
 
-	// Get after delete → NoSuchDistribution
 	_, err = c.GetDistribution(ctx, &cloudfront.GetDistributionInput{Id: aws.String(id)})
 	require.Error(t, err, "GetDistribution after delete must fail")
 }
@@ -196,10 +190,8 @@ func TestCloudFrontDistributionRejectsInvalidConfig(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	// Missing required CallerReference → server returns InvalidArgument.
-	// (SDK normally enforces field-presence, so submit via lower-level path
-	// would be needed for an empty-CallerReference test. Instead drive a
-	// realistic spec-violation: zero origins.)
+	// The SDK enforces CallerReference's presence, so violate the spec with zero
+	// origins instead.
 	_, err := c.CreateDistribution(ctx, &cloudfront.CreateDistributionInput{
 		DistributionConfig: &cftypes.DistributionConfig{
 			CallerReference: aws.String("bad-" + time.Now().Format("150405.000000")),
@@ -215,9 +207,7 @@ func TestCloudFrontDistributionRejectsInvalidConfig(t *testing.T) {
 			},
 		},
 	})
-	// Named rather than merely non-nil: a bare error assertion is satisfied by
-	// a transport failure or a 500, neither of which shows the service
-	// validated the distribution at all.
+	// Name the code: a bare error also passes on a transport failure or a 500.
 	assert.Equal(t, "InvalidArgument", errCode(t, err),
 		"zero origins must be rejected as an invalid argument, not silently accepted")
 }

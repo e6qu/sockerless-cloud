@@ -14,11 +14,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestLambda_SQSEventSourceMappingRuntime_SDK proves an event source mapping is
-// an active AWS Lambda poller rather than control-plane metadata: an official
-// Amazon SQS client sends a message, the Lambda runtime receives the canonical
-// Records event, CloudWatch Logs contains the application output, and the
-// successfully processed message is deleted.
+// TestLambda_SQSEventSourceMappingRuntime_SDK expects an event source mapping to
+// poll: a message sent to the queue reaches the function as a Records event, its
+// output lands in CloudWatch Logs, and the processed message is deleted.
 func TestLambda_SQSEventSourceMappingRuntime_SDK(t *testing.T) {
 	t.Parallel()
 	lambdaClient := lambdaClient()
@@ -88,9 +86,8 @@ func TestLambda_SQSEventSourceMappingRuntime_SDK(t *testing.T) {
 	logGroup := "/aws/lambda/" + functionName
 	awaitLogLine(t, logsClient, logGroup, "esm-message-from-official-sdk", 10*time.Second)
 
-	// The mapping reported the batch OK, and AWS Lambda deletes a batch it
-	// processed before it reports the result: the message is gone, neither
-	// visible nor in flight.
+	// AWS Lambda deletes a processed batch before reporting it OK, so the message
+	// is neither visible nor in flight.
 	remaining, err := sqsClient.GetQueueAttributes(ctx, &sqs.GetQueueAttributesInput{
 		QueueUrl: aws.String(queueURL),
 		AttributeNames: []sqstypes.QueueAttributeName{
