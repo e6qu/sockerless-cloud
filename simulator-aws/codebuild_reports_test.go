@@ -7,11 +7,7 @@ import (
 	"testing"
 )
 
-// The report readers are exercised here against the raw result files real test
-// and coverage frameworks write, so what DescribeTestCases and
-// DescribeCodeCoverages answer with is what the files said. The end-to-end flow
-// — a build writing these files and the two operations reading them back
-// through the AWS SDK — is TestCodeBuild_ReportInsights_SDK.
+// TestCodeBuild_ReportInsights_SDK covers the end-to-end flow through the SDK.
 
 const cbJUnitFixture = `<?xml version="1.0" encoding="UTF-8"?>
 <testsuites>
@@ -186,9 +182,8 @@ func TestCodeBuildReports_CoberturaXMLAccumulatesTheClassesOfAFile(t *testing.T)
 	}
 }
 
-// A file that is not the format the buildspec declared is an error, not an
-// empty report: answering with nothing would report a passing build with no
-// tests where the raw data was there and unreadable.
+// An unreadable file is an error: an empty report would pass a build whose raw
+// data was there.
 func TestCodeBuildReports_AMisdeclaredFormatIsAnError(t *testing.T) {
 	if _, err := cbParseJUnitXML([]byte(`<report name="cart"/>`)); err == nil {
 		t.Error("a JaCoCo document read as JUNITXML returned no error")
@@ -322,8 +317,6 @@ func TestCodeBuildReports_ACoverageReportCarriesNoTestCases(t *testing.T) {
 	}
 }
 
-// A format AWS documents but this slice does not read fails with a message
-// naming it, rather than producing an empty or an invented report.
 func TestCodeBuildReports_AnUnreadFormatFailsByName(t *testing.T) {
 	for _, format := range []string{"NUNITXML", "NUNIT3XML", "TESTNGXML", "VISUALSTUDIOTRX", "CLOVERXML", "SIMPLECOV", "LCOVINFO"} {
 		_, _, err := cbIngestReport(t.TempDir(),

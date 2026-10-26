@@ -13,15 +13,9 @@ import (
 	"testing"
 )
 
-// These tests are lever 1 of the #652 "silent incompleteness" prevention work:
-// the vendored Smithy model is the source of truth for which input members are
-// @required, and CI fails if the simulator under-validates one. A missing
-// required member must be a loud ValidationException — never an accepted request
-// that succeeds with plausible-wrong / absent data.
+// The vendored Smithy model decides which input members are @required, and a
+// missing one must be a ValidationException.
 
-// loadDDBRequiredMembers reads the vendored DynamoDB Smithy model and returns,
-// per operation, the sorted set of top-level input members carrying the
-// smithy.api#required trait.
 func loadDDBRequiredMembers(t *testing.T) map[string][]string {
 	t.Helper()
 	path := filepath.Join("..", "specs", "cloud-api", "aws", "dynamodb.smithy.json.gz")
@@ -87,11 +81,8 @@ func ddbRegisteredOps(jsonRouter interface{ Targets() []string }) []string {
 	return ops
 }
 
-// TestDDBRequiredMembersMatchSpec is the completeness guard: the simulator's
-// required-member registry must list exactly the @required top-level input
-// members the Smithy model declares for every registered DynamoDB operation.
-// If AWS marks a new member required (or the registry drifts), this fails — so a
-// required member can't silently go unvalidated.
+// The registry must list exactly the model's @required top-level members for
+// every registered operation.
 func TestDDBRequiredMembersMatchSpec(t *testing.T) {
 	spec := loadDDBRequiredMembers(t)
 	_, jsonRouter, _ := buildConformanceSimulator(t)
@@ -106,11 +97,8 @@ func TestDDBRequiredMembersMatchSpec(t *testing.T) {
 	}
 }
 
-// TestDDBRequiredMembersEnforced drives each registered DynamoDB operation with
-// raw awsJson and, for every @required input member, sends an otherwise-complete
-// request that omits exactly that member, asserting a 400 ValidationException
-// that names the member. Validation runs before any handler logic, so the
-// placeholder values for the other members never need to be type-valid.
+// Omit each @required member from an otherwise complete request. Validation
+// runs before the handler, so the other placeholders need not be type-valid.
 func TestDDBRequiredMembersEnforced(t *testing.T) {
 	spec := loadDDBRequiredMembers(t)
 	_, jsonRouter, _ := buildConformanceSimulator(t)
@@ -121,7 +109,7 @@ func TestDDBRequiredMembersEnforced(t *testing.T) {
 			body := map[string]any{}
 			for _, m := range required {
 				if m != omit {
-					body[m] = "x" // any non-null placeholder; the handler is never reached
+					body[m] = "x"
 				}
 			}
 			raw, _ := json.Marshal(body)

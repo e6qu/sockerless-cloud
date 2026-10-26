@@ -99,8 +99,8 @@ func TestDynamoDBDescribeTableReportsItemAndIndexUsage(t *testing.T) {
 		ddbTTLCall(t, handleDDBPutItem, map[string]any{"TableName": table, "Item": item})
 	}
 
-	// The request path never reads the items: the first describe reports zero,
-	// as a new DynamoDB table does, and starts one background refresh.
+	// The first describe reports zero, as a new DynamoDB table does, and starts
+	// one background refresh.
 	bg.Await()
 	// Read before the describe: its refresh can finish before the next line runs.
 	before := ddbUsageRefreshes.Load()

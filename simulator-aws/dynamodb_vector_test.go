@@ -9,9 +9,7 @@ import (
 	"testing"
 )
 
-// The three distance functions the model declares, each against vectors whose
-// answer is known by hand rather than by running the code and recording what it
-// said.
+// Expected values are worked by hand.
 func TestDDBVectorScoreComputesEachDistanceFunction(t *testing.T) {
 	for _, tc := range []struct {
 		name, fn         string
@@ -40,9 +38,7 @@ func TestDDBVectorScoreComputesEachDistanceFunction(t *testing.T) {
 	}
 }
 
-// A zero vector has no direction, so it has no cosine similarity to anything.
-// Scoring it 0 would rank it as merely orthogonal — a claim the geometry does
-// not support — so it is refused and the item is not a neighbour.
+// A zero vector has no cosine similarity, so the item is not a neighbour.
 func TestDDBVectorScoreRefusesACosineWithoutDirection(t *testing.T) {
 	if _, ok := ddbVectorScore("COSINE", []float64{0, 0}, []float64{1, 1}); ok {
 		t.Error("a zero vector was given a cosine similarity")
@@ -53,9 +49,7 @@ func TestDDBVectorScoreRefusesACosineWithoutDirection(t *testing.T) {
 	}
 }
 
-// Mismatched dimensions are not comparable, and an unknown function is refused
-// rather than defaulted — defaulting would score by a measure the caller did
-// not ask for, and the answer would look valid.
+// Mismatched dimensions and unknown functions are refused, never defaulted.
 func TestDDBVectorScoreRefusesWhatItCannotCompare(t *testing.T) {
 	if _, ok := ddbVectorScore("COSINE", []float64{1, 2}, []float64{1, 2, 3}); ok {
 		t.Error("vectors of different dimensions were scored")
@@ -65,8 +59,7 @@ func TestDDBVectorScoreRefusesWhatItCannotCompare(t *testing.T) {
 	}
 }
 
-// Which way a score sorts is the difference between the nearest neighbours and
-// the furthest. A similarity ranks larger-first; a distance ranks smaller-first.
+// A similarity ranks larger-first; a distance smaller-first.
 func TestDDBVectorNearerFirstFollowsTheMeasure(t *testing.T) {
 	for fn, want := range map[string]bool{"COSINE": true, "DOT_PRODUCT": true, "EUCLIDEAN": false} {
 		if got := ddbVectorNearerFirst(fn); got != want {
@@ -75,9 +68,7 @@ func TestDDBVectorNearerFirstFollowsTheMeasure(t *testing.T) {
 	}
 }
 
-// A vector is read out of the item's own attribute value — the list of numbers
-// DynamoDB already stores — rather than from a parallel copy that could drift
-// from what a Put wrote.
+// The vector comes from the item's own attribute, not a parallel copy.
 func TestDDBItemVectorReadsTheStoredAttribute(t *testing.T) {
 	item := map[string]any{
 		"pk":        map[string]any{"S": "doc-1"},
@@ -96,8 +87,6 @@ func TestDDBItemVectorReadsTheStoredAttribute(t *testing.T) {
 	}
 }
 
-// The index's required members are required, and a distance function outside
-// the model's three is refused.
 func TestDDBParseVectorIndexRequiresWhatTheModelMarksRequired(t *testing.T) {
 	valid := map[string]any{
 		"IndexName":        "by-embedding",
@@ -140,8 +129,7 @@ func TestDDBParseVectorIndexRequiresWhatTheModelMarksRequired(t *testing.T) {
 	}
 }
 
-// UpdateTable's VectorIndexUpdates create and drop one index each, and refuse
-// the cases that would leave the table's indexes ambiguous.
+// Each update creates or drops one index and refuses ambiguous cases.
 func TestDDBVectorIndexUpdatesCreateAndDelete(t *testing.T) {
 	create := map[string]any{"Create": map[string]any{
 		"IndexName":        "by-embedding",
@@ -179,8 +167,6 @@ func TestDDBVectorIndexUpdatesCreateAndDelete(t *testing.T) {
 	}
 }
 
-// ddbVectorCall drives one DynamoDB operation through the registered router,
-// the way an SDK client reaches it.
 func ddbVectorCall(t *testing.T, router interface {
 	ServeHTTP(http.ResponseWriter, *http.Request)
 }, op, body string) (int, map[string]any) {
@@ -195,13 +181,9 @@ func ddbVectorCall(t *testing.T, router interface {
 	return rec.Code, out
 }
 
-// The end-to-end claim: a search returns the nearest items, in order, with the
-// score the comparison produced — not the items in the order they were stored.
-//
-// The three documents are placed so the answer is decidable by hand. Under
-// EUCLIDEAN the query [0,0] is nearest to near (1 away), then mid (5), then far
-// (13); the items are written in the opposite order, so storage order and the
-// right answer disagree and only one of them can produce this result.
+// Under EUCLIDEAN the query [0,0] is nearest to near (1), then mid (5), then
+// far (13); the items are written in the opposite order, so storage order
+// cannot produce the answer.
 func TestDDBSearchVectorsReturnsTheNearestNeighboursInOrder(t *testing.T) {
 	_, jsonRouter, _ := buildConformanceSimulator(t)
 
@@ -215,7 +197,7 @@ func TestDDBSearchVectorsReturnsTheNearestNeighboursInOrder(t *testing.T) {
 		t.Fatalf("CreateTable with a vector index = %d", code)
 	}
 
-	// Written furthest-first, so storage order is the wrong answer.
+	// Written furthest-first.
 	for _, item := range []struct{ pk, x, y, kind string }{
 		{"far", "5", "12", "archived"},
 		{"mid", "3", "4", "live"},
@@ -256,10 +238,8 @@ func TestDDBSearchVectorsReturnsTheNearestNeighboursInOrder(t *testing.T) {
 	}
 }
 
-// SearchConditionExpression narrows what is searched, so an item excluded by it
-// is not a neighbour however near it lies. Here the nearest document is
-// archived, and asking only for live ones must answer with the next nearest
-// rather than with the archived one.
+// The nearest document is archived; a search for live ones must answer with
+// the next nearest.
 func TestDDBSearchVectorsHonoursItsCondition(t *testing.T) {
 	_, jsonRouter, _ := buildConformanceSimulator(t)
 	ddbVectorCall(t, jsonRouter, "CreateTable", `{
@@ -295,10 +275,8 @@ func TestDDBSearchVectorsHonoursItsCondition(t *testing.T) {
 	}
 }
 
-// A query vector of the wrong length is not comparable to anything the index
-// holds, and an index the table does not have is not searchable. Both are
-// refused rather than answered with an empty result, which a caller could not
-// tell from "no neighbours".
+// Both are refused: an empty result is indistinguishable from "no
+// neighbours".
 func TestDDBSearchVectorsRefusesWhatItCannotAnswer(t *testing.T) {
 	_, jsonRouter, _ := buildConformanceSimulator(t)
 	ddbVectorCall(t, jsonRouter, "CreateTable", `{
@@ -325,8 +303,6 @@ func TestDDBSearchVectorsRefusesWhatItCannotAnswer(t *testing.T) {
 	}
 }
 
-// DescribeTable reports the table's vector indexes, so a client can discover
-// what is searchable rather than having to remember what it created.
 func TestDDBDescribeTableReportsItsVectorIndexes(t *testing.T) {
 	_, jsonRouter, _ := buildConformanceSimulator(t)
 	ddbVectorCall(t, jsonRouter, "CreateTable", `{

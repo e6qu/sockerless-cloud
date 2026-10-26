@@ -8,8 +8,7 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// DynamoDB condition / filter / key-condition expression language — a faithful
-// implementation of the real grammar:
+// The DynamoDB condition, filter and key-condition expression grammar:
 //
 //	expr     = or
 //	or       = and { OR and }
@@ -25,26 +24,18 @@ import (
 //	operand  = path | ":valueRef" | size(path)
 //	path     = name { "." name | "[" index "]" }       (names may be #aliases)
 //
-// Operands resolve to DynamoDB attribute values ({"S":…}/{"N":…}/{"M":…}/…);
-// conditions resolve to bool. A malformed expression — or one that references a
-// #name / :value not present in ExpressionAttributeNames / -Values — is a loud
-// error (the caller surfaces it as a ValidationException, exactly as real
-// DynamoDB does), never a silent non-match that returns plausible-wrong data.
+// A malformed expression, or a #name / :value missing from the attribute
+// maps, is an error the caller returns as a ValidationException, never a
+// silent non-match.
 
-// ddbCompiledExpr is a parsed, validated condition/filter expression ready to be
-// evaluated against many items. A nil *ddbCompiledExpr matches every item (the
-// empty-expression case).
+// A nil *ddbCompiledExpr (empty expression) matches every item.
 type ddbCompiledExpr struct {
 	node   ddbCond
 	names  map[string]string
 	values map[string]any
 }
 
-// ddbCompileExpr parses and validates a DynamoDB condition/filter/key-condition
-// expression. kind names the expression for the error message (e.g.
-// "ConditionExpression", "FilterExpression"). An empty expression compiles to a
-// nil *ddbCompiledExpr (matches everything). A syntax error, or a reference to
-// an undefined #name / :value, returns an error — never a silent non-match.
+// kind names the expression in the error. An empty expression compiles to nil.
 func ddbCompileExpr(kind, expr string, names map[string]string, values map[string]any) (*ddbCompiledExpr, error) {
 	expr = strings.TrimSpace(expr)
 	if expr == "" {
@@ -68,10 +59,8 @@ func ddbCompileExpr(kind, expr string, names map[string]string, values map[strin
 	return &ddbCompiledExpr{node: node, names: names, values: values}, nil
 }
 
-// match reports whether the compiled expression holds for item. `exists`
-// reports whether the item currently exists (for attribute_exists /
-// attribute_not_exists on a Put condition where item may be empty). A nil
-// receiver (empty expression) matches every item.
+// exists says whether the item exists, for attribute_exists and
+// attribute_not_exists on a Put condition.
 func (e *ddbCompiledExpr) match(item map[string]any, exists bool) bool {
 	if e == nil {
 		return true
@@ -79,8 +68,6 @@ func (e *ddbCompiledExpr) match(item map[string]any, exists bool) bool {
 	return e.node.eval(&ddbEvalCtx{item: item, exists: exists, names: e.names, values: e.values})
 }
 
-// ddbEvalExpr compiles and evaluates an expression against a single item. It is
-// the one-shot convenience form used where there is exactly one item to test.
 func ddbEvalExpr(item map[string]any, exists bool, expr string, names map[string]string, values map[string]any) (bool, error) {
 	c, err := ddbCompileExpr("expression", expr, names, values)
 	if err != nil {
@@ -95,8 +82,6 @@ type ddbEvalCtx struct {
 	names  map[string]string
 	values map[string]any
 }
-
-// ── AST ────────────────────────────────────────────────────────────────────
 
 type ddbCond interface{ eval(*ddbEvalCtx) bool }
 
@@ -162,8 +147,8 @@ func (n ddbCondIn) eval(c *ddbEvalCtx) bool {
 
 type ddbCondFunc struct {
 	name string
-	path string     // path argument
-	arg  ddbOperand // optional second argument (begins_with/contains/attribute_type)
+	path string
+	arg  ddbOperand // Optional second argument of begins_with, contains and attribute_type.
 }
 
 func (n ddbCondFunc) eval(c *ddbEvalCtx) bool {
@@ -190,9 +175,8 @@ func (n ddbCondFunc) eval(c *ddbEvalCtx) bool {
 				}
 				return false
 			}
-			// Set membership: contains(set, :v) tests whether :v is an element
-			// of a string/number/binary set. Number-set members compare
-			// numerically (canonical form), strings/binary by value.
+			// contains on a set tests membership; number-set members compare
+			// numerically.
 			for _, st := range []string{"SS", "NS", "BS"} {
 				if set, isSet := valMap[st].([]any); isSet {
 					target := ddbScalarString(want)
@@ -226,8 +210,6 @@ func (n ddbCondFunc) eval(c *ddbEvalCtx) bool {
 	return false
 }
 
-// ── operands ───────────────────────────────────────────────────────────────
-
 type ddbOperand interface {
 	eval(*ddbEvalCtx) (any, bool)
 }
@@ -254,8 +236,6 @@ func (o ddbOperandSize) eval(c *ddbEvalCtx) (any, bool) {
 	}
 	return map[string]any{"N": strconv.Itoa(ddbAttrSize(v))}, true
 }
-
-// ── tokenizer ──────────────────────────────────────────────────────────────
 
 type ddbTokKind int
 
@@ -333,28 +313,21 @@ func ddbExprTokenize(s string) []ddbExprTok {
 	return append(toks, ddbExprTok{ddbTokEOF, ""})
 }
 
-// ── parser ─────────────────────────────────────────────────────────────────
-
 type ddbExprParser struct {
 	toks  []ddbExprTok
 	pos   int
 	guard *sim.ParseGuard
 
-	// err holds the first structural parse error. Once set, the remaining parse
-	// produces sentinel nodes that are never evaluated (the caller checks err
-	// before eval), so the first error is the one reported.
+	// After the first error the parse yields sentinel nodes the caller never
+	// evaluates, so the first error is the one reported.
 	err error
-	// valueRefs / paths record every :value reference and attribute path the
-	// parse encountered, so checkRefs can verify each resolves against the
-	// supplied ExpressionAttributeValues / -Names maps.
+	// checkRefs verifies these against the attribute maps.
 	valueRefs map[string]bool
 	paths     []string
 }
 
-// ddbValidComparator reports whether op is one of DynamoDB's six comparison
-// operators. The tokenizer greedily combines '=' '<' '>' runs, so it can yield
-// non-operators like "==" or ">>"; those are syntax errors, not silent
-// always-false comparisons.
+// The tokenizer greedily joins '=' '<' '>' runs, so "==" or ">>" must be a
+// syntax error here.
 func ddbValidComparator(op string) bool {
 	switch op {
 	case "=", "<>", "<", "<=", ">", ">=":
@@ -363,7 +336,6 @@ func ddbValidComparator(op string) bool {
 	return false
 }
 
-// fail records the first structural parse error.
 func (p *ddbExprParser) fail(format string, args ...any) {
 	if p.err == nil {
 		p.err = fmt.Errorf(format, args...)
@@ -383,10 +355,8 @@ func (p *ddbExprParser) recordPath(path string) {
 	}
 }
 
-// checkRefs verifies every :value and #name the expression uses is defined.
-// Real DynamoDB rejects an undefined reference with a ValidationException rather
-// than silently treating the operand as absent (which would skew a filter or
-// flip a condition).
+// DynamoDB rejects an undefined reference rather than treating the operand as
+// absent.
 func (p *ddbExprParser) checkRefs(names map[string]string, values map[string]any) error {
 	for ref := range p.valueRefs {
 		if _, ok := values[ref]; !ok {
@@ -403,11 +373,8 @@ func (p *ddbExprParser) checkRefs(names map[string]string, values map[string]any
 	return nil
 }
 
-// maxExprParseDepth bounds parenthesis nesting so a pathological expression
-// (thousands of `(`) can't overflow the goroutine stack and crash the whole sim
-// process — a recover() can't catch a Go stack-overflow fatal error. The shared
-// ParseGuard enforces this depth cap (the node cap is left effectively unbounded
-// so only parenthesis depth gates the parse, exactly as before).
+// A Go stack overflow is fatal and cannot be recovered, so bound parenthesis
+// nesting; the node cap is effectively unbounded.
 const maxExprParseDepth = 1000
 
 func (p *ddbExprParser) peek() ddbExprTok { return p.toks[p.pos] }
@@ -456,7 +423,6 @@ func (p *ddbExprParser) parseTerm() ddbCond {
 		}
 		return inner
 	}
-	// Boolean functions.
 	if p.peek().kind == ddbTokWord {
 		switch strings.ToLower(p.peek().text) {
 		case "attribute_exists", "attribute_not_exists":
@@ -469,7 +435,6 @@ func (p *ddbExprParser) parseTerm() ddbCond {
 			return ddbCondFunc{name: fn, path: path, arg: arg}
 		}
 	}
-	// operand <comparator|BETWEEN|IN> ...
 	left := p.parseOperand()
 	switch p.peek().kind {
 	case ddbTokOp:
@@ -513,7 +478,6 @@ func (p *ddbExprParser) parseTerm() ddbCond {
 
 func (p *ddbExprParser) parseOperand() ddbOperand {
 	if p.peek().kind == ddbTokWord && strings.ToLower(p.peek().text) == "size" {
-		// size(path)
 		p.next()
 		path := p.parseParenPath()
 		return ddbOperandSize{path: path}
@@ -536,7 +500,6 @@ func (p *ddbExprParser) parseOperand() ddbOperand {
 	return ddbOperandPath{path: w}
 }
 
-// parseParenPath consumes "( path )" and returns the path text.
 func (p *ddbExprParser) parseParenPath() string {
 	if p.peek().kind == ddbTokLParen {
 		p.next()
@@ -558,7 +521,6 @@ func (p *ddbExprParser) parseParenPath() string {
 	return path
 }
 
-// parseParenPathArg consumes "( path , operand )".
 func (p *ddbExprParser) parseParenPathArg() (string, ddbOperand) {
 	if p.peek().kind == ddbTokLParen {
 		p.next()
@@ -586,10 +548,7 @@ func (p *ddbExprParser) parseParenPathArg() (string, ddbOperand) {
 	return path, arg
 }
 
-// ── path / attribute-value helpers ─────────────────────────────────────────
-
-// ddbResolvePath walks a document path ("a.b[0].c", names #aliased) into the
-// item, descending through M (map) and L (list) attribute values.
+// Descend through M and L values; names may be #aliases.
 func ddbResolvePath(item map[string]any, path string, names map[string]string) (any, bool) {
 	segs := ddbSplitPath(path)
 	if len(segs) == 0 {
@@ -628,7 +587,6 @@ func ddbResolvePath(item map[string]any, path string, names map[string]string) (
 	return cur, true
 }
 
-// ddbSplitPath splits "a.b[0].c" into ["a","b","[0]","c"].
 func ddbSplitPath(path string) []string {
 	var segs []string
 	cur := strings.Builder{}
@@ -658,8 +616,6 @@ func ddbSplitPath(path string) []string {
 	return segs
 }
 
-// ddbAttrTypeCode returns the DynamoDB type code (S/N/B/BOOL/NULL/M/L/SS/NS/BS)
-// of an attribute value, for attribute_type().
 func ddbAttrTypeCode(v any) string {
 	m, ok := v.(map[string]any)
 	if !ok {
@@ -673,8 +629,7 @@ func ddbAttrTypeCode(v any) string {
 	return ""
 }
 
-// ddbAttrSize returns the size() of an attribute value: string/binary length,
-// or element count for sets, lists and maps.
+// String or binary length, or element count for sets, lists and maps.
 func ddbAttrSize(v any) int {
 	m, ok := v.(map[string]any)
 	if !ok {

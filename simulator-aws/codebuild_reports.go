@@ -13,11 +13,9 @@ import (
 	"strings"
 )
 
-// AWS CodeBuild reports — reading the raw result files a build produced.
-//
-// A build's buildspec declares its reports in the `reports:` section, keyed by
-// report-group name or ARN, each naming the files that hold the raw results and
-// the format they are written in:
+// A buildspec's `reports:` section names, per report group, the raw result
+// files and their format; `file-format` defaults to JUNITXML and is case
+// insensitive.
 //
 //	reports:
 //	  {{report-group-name-or-arn}}:
@@ -27,40 +25,17 @@ import (
 //	    discard-paths: no | yes
 //	    file-format: {{report-format}}
 //
-// The service reads those files out of the build environment and reports what
-// they contain. `file-format` is "Optional mapping. Represents the report file
-// format. If not specified, JUNITXML is used. This value is not case
-// sensitive." (Build specification reference for CodeBuild.)
+// This slice reads JUNITXML and CUCUMBERJSON (test cases) and JACOCOXML and
+// COBERTURAXML (coverage). A build declaring another documented format
+// (NUNITXML, NUNIT3XML, TESTNGXML, VISUALSTUDIOTRX, SIMPLECOV, CLOVERXML,
+// LCOVINFO) fails with a message naming it.
 //
-// Formats this AWS service slice reads:
-//
-//	JUNITXML       JUnit XML          test cases
-//	CUCUMBERJSON   Cucumber JSON      test cases
-//	JACOCOXML      JaCoCo XML         code coverage
-//	COBERTURAXML   Cobertura XML      code coverage
-//
-// Formats AWS documents that this slice does NOT read: NUNITXML, NUNIT3XML,
-// TESTNGXML and VISUALSTUDIOTRX (test), SIMPLECOV, CLOVERXML and LCOVINFO
-// (code coverage). A build that declares one of them fails with a message
-// naming it, rather than producing an empty or an invented report.
-//
-// Statuses follow the service's published meanings (Test report statuses):
-// SUCCEEDED "All test cases were successful", FAILED "Some of the test cases
-// were not successful", and INCOMPLETE "The test report was not completed …
-// the path to the test cases under the report group in the buildspec file
-// might be incorrect" — which is what a `files` pattern matching nothing is.
-// A test case's own status is one of SUCCEEDED, FAILED, ERROR, SKIPPED or
-// UNKNOWN, where UNKNOWN is "The test case returned a status other than
-// SUCCEEDED, FAILED, ERROR, or SKIPPED".
-//
-// "A test report can have a maximum of 500 test case results. If more than 500
-// test cases are run, CodeBuild prioritizes tests with the status FAILED and
-// truncates the test case results." — cbTestCaseLimit below.
+// A `files` pattern matching nothing yields INCOMPLETE: "the path to the test
+// cases … might be incorrect". "A test report can have a maximum of 500 test
+// case results … CodeBuild prioritizes tests with the status FAILED".
 
 const cbTestCaseLimit = 500
 
-// cbReportFormats maps every file-format token AWS documents to the report type
-// it produces, and whether this slice reads it.
 var cbReportFormats = map[string]struct {
 	reportType string
 	read       bool
@@ -78,7 +53,6 @@ var cbReportFormats = map[string]struct {
 	"LCOVINFO":        {"CODE_COVERAGE", false},
 }
 
-// CBTestCase mirrors the CodeBuild TestCase shape.
 type CBTestCase struct {
 	ReportArn             string `json:"reportArn"`
 	TestRawDataPath       string `json:"testRawDataPath"`
@@ -90,7 +64,6 @@ type CBTestCase struct {
 	TestSuiteName         string `json:"testSuiteName,omitempty"`
 }
 
-// CBCodeCoverage mirrors the CodeBuild CodeCoverage shape.
 type CBCodeCoverage struct {
 	ID                       string  `json:"id"`
 	ReportARN                string  `json:"reportARN"`
@@ -103,18 +76,16 @@ type CBCodeCoverage struct {
 	BranchesMissed           int     `json:"branchesMissed"`
 }
 
-// CBReportResults holds what one report's raw data files contained. It is
-// stored under the report's ARN, which is how DescribeTestCases and
-// DescribeCodeCoverages address it.
+// Stored under the report's ARN, which DescribeTestCases and
+// DescribeCodeCoverages address.
 type CBReportResults struct {
 	Arn           string           `json:"arn"`
 	TestCases     []CBTestCase     `json:"testCases"`
 	CodeCoverages []CBCodeCoverage `json:"codeCoverages"`
 }
 
-// cbReportSpec is one entry of the buildspec `reports:` section.
 type cbReportSpec struct {
-	// Key is the report-group-name-or-arn exactly as the buildspec wrote it.
+	// Key is exactly as the buildspec wrote it.
 	Key           string   `yaml:"-" json:"key"`
 	Files         []string `yaml:"files" json:"files"`
 	BaseDirectory string   `yaml:"base-directory" json:"baseDirectory"`
@@ -122,8 +93,7 @@ type cbReportSpec struct {
 	FileFormat    string   `yaml:"file-format" json:"fileFormat"`
 }
 
-// format returns the spec's effective file-format token, upper-cased. AWS:
-// "If not specified, JUNITXML is used. This value is not case sensitive."
+// Upper-cased; JUNITXML when unset.
 func (s cbReportSpec) format() string {
 	if s.FileFormat == "" {
 		return "JUNITXML"
@@ -131,9 +101,8 @@ func (s cbReportSpec) format() string {
 	return strings.ToUpper(strings.TrimSpace(s.FileFormat))
 }
 
-// cbValidateReportSpecs rejects a buildspec whose reports section names a
-// file-format AWS does not define, the way the service rejects an invalid
-// buildspec before the build starts.
+// Reject an undefined file-format before the build starts, as the service
+// rejects an invalid buildspec.
 func cbValidateReportSpecs(specs []cbReportSpec) error {
 	for _, spec := range specs {
 		if _, ok := cbReportFormats[spec.format()]; !ok {
@@ -146,11 +115,8 @@ func cbValidateReportSpecs(specs []cbReportSpec) error {
 	return nil
 }
 
-// cbReportGroupForSpec resolves the report group a spec names, creating it when
-// the spec named a new group. AWS: "Specify the ARN of an existing report
-// group, or the name of a new report group. If you specify a name, CodeBuild
-// creates a report group using your project name and the name you specify in
-// the format <project-name>-<report-group-name>." Caller holds cbMu.
+// A name creates "<project-name>-<report-group-name>"; an ARN must name an
+// existing group. Caller holds cbMu.
 func cbReportGroupForSpec(spec cbReportSpec, projectName string) (CBReportGroup, error) {
 	reportType := cbReportFormats[spec.format()].reportType
 	if strings.HasPrefix(spec.Key, "arn:") {
@@ -178,13 +144,8 @@ func cbReportGroupForSpec(spec cbReportSpec, projectName string) (CBReportGroup,
 	return group, nil
 }
 
-// cbCollectReportFiles returns the raw data files a report spec matches inside
-// the build workspace, as workspace-relative slash paths, sorted.
-//
-// AWS: files entries are "relative to the original build location or, if set,
-// the base-directory", and base-directory "Represents one or more top-level
-// directories, relative to the original build location, that CodeBuild uses to
-// determine where to find the raw test files."
+// files entries are relative to base-directory when set, else to the build
+// location. Returns sorted workspace-relative slash paths.
 func cbCollectReportFiles(workspace string, spec cbReportSpec) ([]string, error) {
 	root := workspace
 	if spec.BaseDirectory != "" {
@@ -192,8 +153,7 @@ func cbCollectReportFiles(workspace string, spec cbReportSpec) ([]string, error)
 	}
 	info, err := os.Stat(root)
 	if err != nil || !info.IsDir() {
-		// A base-directory that the build never produced is exactly the
-		// "path … might be incorrect" configuration problem, so no file matches.
+		// A base-directory the build never produced matches nothing.
 		return nil, nil
 	}
 	var matched []string
@@ -224,11 +184,7 @@ func cbCollectReportFiles(workspace string, spec cbReportSpec) ([]string, error)
 	return matched, nil
 }
 
-// cbReportPathMatches applies one buildspec files pattern to a relative path.
-// AWS documents a single wildcard beyond path.Match's: "'**/*' represents all
-// files recursively" and "{{my-subdirectory}}/**/* represents all files
-// recursively starting from a subdirectory", so "**" matches any run of path
-// segments including none.
+// "**" matches any run of path segments, including none.
 func cbReportPathMatches(pattern, rel string) bool {
 	return cbGlobSegments(strings.Split(pattern, "/"), strings.Split(rel, "/"))
 }
@@ -254,12 +210,7 @@ func cbGlobSegments(pattern, name []string) bool {
 	return cbGlobSegments(pattern[1:], name[1:])
 }
 
-// cbReportRawDataPath is the path the service records for a raw result file:
-// the file's path under the report's base directory, flattened to its base name
-// when the spec sets discard-paths. AWS: "If this contains yes, all of the test
-// files are placed in the same output directory. For example, if a path to a
-// test result is com/myapp/mytests/TestResult.xml, specifying yes will place
-// this file in /TestResult.xml."
+// discard-paths flattens the path to its base name.
 func cbReportRawDataPath(spec cbReportSpec, rel string) string {
 	if spec.DiscardPaths {
 		return "/" + path.Base(rel)
@@ -267,8 +218,6 @@ func cbReportRawDataPath(spec cbReportSpec, rel string) string {
 	return rel
 }
 
-// cbIngestReport reads a report spec's raw data files out of the build
-// workspace and returns the results plus the report status those results imply.
 func cbIngestReport(workspace string, spec cbReportSpec, reportArn string) (CBReportResults, string, error) {
 	format := spec.format()
 	definition, ok := cbReportFormats[format]
@@ -324,9 +273,7 @@ func cbIngestReport(workspace string, spec cbReportSpec, reportArn string) (CBRe
 		}
 	}
 	if len(files) == 0 {
-		// "INCOMPLETE: The test report was not completed. … A problem with the
-		// configuration of the report group … the path to the test cases under
-		// the report group in the buildspec file might be incorrect."
+		// Nothing matched: the path in the buildspec may be wrong.
 		return results, "INCOMPLETE", nil
 	}
 	if definition.reportType == "CODE_COVERAGE" {
@@ -342,9 +289,7 @@ func cbIngestReport(workspace string, spec cbReportSpec, reportArn string) (CBRe
 	return results, status, nil
 }
 
-// cbTruncateTestCases applies the service's 500-case ceiling: "CodeBuild
-// prioritizes tests with the status FAILED and truncates the test case
-// results." Returns the retained cases and whether truncation happened.
+// Keep FAILED cases first when truncating.
 func cbTruncateTestCases(cases []CBTestCase) ([]CBTestCase, bool) {
 	if len(cases) <= cbTestCaseLimit {
 		return cases, false
@@ -406,9 +351,7 @@ type cbJUnitOutcome struct {
 	Body    string `xml:",chardata"`
 }
 
-// cbParseJUnitXML reads a JUnit XML result file. The document root is either a
-// <testsuites> wrapper or a bare <testsuite>, both of which real frameworks
-// emit; a suite may nest further suites.
+// The root is a <testsuites> wrapper or a bare <testsuite>; suites may nest.
 func cbParseJUnitXML(data []byte) ([]CBTestCase, error) {
 	var suites cbJUnitTestSuites
 	if err := xml.Unmarshal(data, &suites); err == nil && suites.XMLName.Local == "testsuites" {
@@ -445,9 +388,7 @@ func cbJUnitSuiteCases(suite cbJUnitTestSuite) []CBTestCase {
 			status, message = "SKIPPED", cbJUnitOutcomeMessage(testCase.Skipped)
 		}
 		out = append(out, CBTestCase{
-			// The prefix is "a string that is applied to a series of related
-			// test cases … The prefix depends on the framework used" — for
-			// JUnit XML that grouping is the case's classname.
+			// For JUnit XML the framework's grouping is the case's classname.
 			Prefix:                testCase.ClassName,
 			Name:                  testCase.Name,
 			Status:                status,
@@ -496,11 +437,9 @@ type cbCucumberStep struct {
 	} `json:"result"`
 }
 
-// cbParseCucumberJSON reads a Cucumber JSON result file: a list of features,
-// each holding scenario elements whose steps carry the outcome. A scenario is
-// one test case — it fails on its first failing step, errors on an undefined or
-// ambiguous one, and is skipped when no step ran. Cucumber reports step
-// duration in nanoseconds, which is the unit TestCase already uses.
+// A scenario is one test case: it fails on its first failing step, errors on
+// an undefined or ambiguous one, and is skipped when no step ran. Durations
+// are nanoseconds, as TestCase expects.
 func cbParseCucumberJSON(data []byte) ([]CBTestCase, error) {
 	var features []cbCucumberFeature
 	if err := json.Unmarshal(data, &features); err != nil {
@@ -586,9 +525,7 @@ type cbJaCoCoCounter struct {
 	Covered int    `xml:"covered,attr"`
 }
 
-// cbParseJaCoCoXML reads a JaCoCo XML coverage report. Per-file coverage lives
-// in each package's <sourcefile> counters: the LINE counter gives lines covered
-// and missed, the BRANCH counter the conditional branches.
+// The LINE and BRANCH counters of each <sourcefile> give per-file coverage.
 func cbParseJaCoCoXML(data []byte) ([]CBCodeCoverage, error) {
 	var report cbJaCoCoReport
 	if err := xml.Unmarshal(data, &report); err != nil {
@@ -637,12 +574,9 @@ type cbCoberturaLine struct {
 	ConditionCoverage string `xml:"condition-coverage,attr"`
 }
 
-// cbParseCoberturaXML reads a Cobertura XML coverage report. Each class names
-// the source file it covers and lists its lines; a line is covered when it was
-// hit, and a branch line's condition-coverage attribute carries the covered and
-// total branch counts as "NN% (covered/total)". Several classes may cover the
-// same file (one per class in the file), so their line and branch counts
-// accumulate per file.
+// A line is covered when hit; condition-coverage carries "NN%
+// (covered/total)". Several classes may cover one file, so counts accumulate
+// per file.
 func cbParseCoberturaXML(data []byte) ([]CBCodeCoverage, error) {
 	var report cbCoberturaCoverage
 	if err := xml.Unmarshal(data, &report); err != nil {
@@ -686,8 +620,6 @@ func cbParseCoberturaXML(data []byte) ([]CBCodeCoverage, error) {
 	return out, nil
 }
 
-// cbCoberturaConditionCounts reads the "(covered/total)" tail of a Cobertura
-// condition-coverage attribute, e.g. "50% (1/2)".
 func cbCoberturaConditionCounts(attr string) (int, int, bool) {
 	open := strings.Index(attr, "(")
 	closing := strings.Index(attr, ")")
@@ -709,9 +641,8 @@ func cbCoberturaConditionCounts(attr string) (int, int, bool) {
 	return coveredValue, totalValue, true
 }
 
-// cbWithCoveragePercentages fills the two percentage members from the counts.
-// AWS: "line coverage = (total lines covered)/(total number of lines)" and
-// "branch coverage = (total branches covered)/(total number of branches)".
+// line coverage = lines covered / lines; branch coverage = branches covered /
+// branches.
 func cbWithCoveragePercentages(coverage CBCodeCoverage) CBCodeCoverage {
 	if lines := coverage.LinesCovered + coverage.LinesMissed; lines > 0 {
 		coverage.LineCoveragePercentage = float64(coverage.LinesCovered) * 100 / float64(lines)

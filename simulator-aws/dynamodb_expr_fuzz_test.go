@@ -2,8 +2,7 @@ package main
 
 import "testing"
 
-// FuzzDDBEvalExpr fuzzes the DynamoDB condition/update expression parser+evaluator.
-// A malformed or hostile expression must degrade to a non-match, never panic.
+// A malformed or hostile expression must never panic.
 func FuzzDDBEvalExpr(f *testing.F) {
 	seeds := []string{
 		"",
@@ -31,9 +30,7 @@ func FuzzDDBEvalExpr(f *testing.F) {
 		",",
 		"NOT NOT NOT",
 		"size(a) = size(b)",
-		// contains()/begins_with()/attribute_type() on attribute values that are
-		// NOT well-formed {"S":...} maps — a malformed PutItem can store a bare
-		// scalar or list as an attribute value; the evaluator must not panic.
+		// A malformed PutItem can store a bare scalar or list as an attribute value.
 		"contains(c, :v)",
 		"contains(d, :v)",
 		"contains(e, :v)",
@@ -45,9 +42,6 @@ func FuzzDDBEvalExpr(f *testing.F) {
 	for _, s := range seeds {
 		f.Add(s)
 	}
-	// Items intentionally include malformed attribute values (bare scalars, a raw
-	// list, a nil) alongside well-formed ones to stress the type assertions in the
-	// evaluator's path/contains/type handling.
 	items := []map[string]any{
 		{
 			"a": map[string]any{"S": "hello"},
@@ -69,8 +63,6 @@ func FuzzDDBEvalExpr(f *testing.F) {
 	values := map[string]any{":v": map[string]any{"S": "hello"}, ":p": map[string]any{"S": "he"}, ":n": map[string]any{"N": "0"}}
 	f.Fuzz(func(t *testing.T, expr string) {
 		for _, item := range items {
-			// A malformed expression returns a loud error (not a crash, not a
-			// silent non-match); the goal here is that it never panics.
 			_, _ = ddbEvalExpr(item, true, expr, names, values)
 			_, _ = ddbEvalExpr(item, false, expr, names, values)
 		}

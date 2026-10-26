@@ -60,16 +60,14 @@ func TestDDBEvalExpr_FullGrammar(t *testing.T) {
 		}
 	}
 
-	// Condition on a not-yet-existing item: attribute_not_exists(PK) is the
-	// classic put-if-absent guard.
+	// attribute_not_exists(PK) on an absent item is the put-if-absent guard.
 	if got, err := ddbEvalExpr(map[string]any{}, false, "attribute_not_exists(PK)", nil, nil); err != nil || !got {
 		t.Errorf("attribute_not_exists(PK) must hold for a new item (got %v, err %v)", got, err)
 	}
 }
 
-// TestDDBEvalExpr_FailsLoud asserts that a malformed expression, or one
-// referencing an undefined #name / :value, is a loud error — never a silent
-// non-match returning plausible-wrong data.
+// A malformed expression or undefined reference is an error, never a silent
+// non-match.
 func TestDDBEvalExpr_FailsLoud(t *testing.T) {
 	item := map[string]any{"PK": map[string]any{"S": "row1"}}
 	names := map[string]string{"#n": "name"}
@@ -94,8 +92,7 @@ func TestDDBEvalExpr_FailsLoud(t *testing.T) {
 		}
 	}
 
-	// A well-formed expression whose defined references simply don't match the
-	// item is NOT an error — it's a legitimate non-match.
+	// A well-formed expression that does not match is not an error.
 	if got, err := ddbEvalExpr(item, true, `#n = :v`, names, values); err != nil || got {
 		t.Errorf("defined-but-non-matching expr: got %v, err %v; want false, nil", got, err)
 	}

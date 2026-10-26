@@ -7,10 +7,8 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/workloadhost"
 )
 
-// cbEnvironmentImage returns the image a build environment runs: a curated
-// CodeBuild image, named `aws/codebuild/<name>:<tag>` in a project, is the
-// image AWS publishes for it on the Amazon ECR Public Gallery,
-// `public.ecr.aws/codebuild/<name>:<tag>`; any other image runs as named.
+// A curated image `aws/codebuild/<name>:<tag>` runs as the image AWS publishes
+// on Amazon ECR Public, `public.ecr.aws/codebuild/<name>:<tag>`.
 func cbEnvironmentImage(image string) string {
 	if rest, ok := strings.CutPrefix(image, "aws/codebuild/"); ok {
 		return "public.ecr.aws/codebuild/" + rest
@@ -18,14 +16,9 @@ func cbEnvironmentImage(image string) string {
 	return image
 }
 
-// cbEnvironmentServiceEnv is the environment every build environment gets so
-// the AWS CLI and SDKs a buildspec runs reach the services of this simulator:
-// the service endpoint at the address the environment can reach the
-// simulator on (real CodeBuild leaves AWS_ENDPOINT_URL unset and resolves
-// the regional hosts; here the services live in this process), and the
-// container credentials endpoint serving sessions of the project's service
-// role to holder, in sessions named for the build. A build environment is a
-// container on cbEnvironmentBackend.
+// Point the AWS CLI and SDKs in the build at this simulator, since its
+// services live in this process, and serve the service role's sessions from
+// the container credentials endpoint, named for the build.
 func cbEnvironmentServiceEnv(network awsWorkloadNetwork, holder, serviceRole, buildID string) (containerCredentials, error) {
 	addr, err := workloadhost.CallbackAddr(simCallbackListenAddr)
 	if err != nil {

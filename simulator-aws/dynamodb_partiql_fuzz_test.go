@@ -2,11 +2,8 @@ package main
 
 import "testing"
 
-// FuzzDDBPartiQLParse feeds arbitrary statement strings (with a small set of
-// positional parameters) to the PartiQL parser entrypoint. The parser must never
-// panic, stack-overflow, or hang regardless of input — sim.Scanner makes the
-// lexer index-safe and sim.ParseGuard bounds recursion/work. A malformed
-// statement is expected to return an error, not crash.
+// The parser must never panic, overflow or hang; a malformed statement returns
+// an error.
 func FuzzDDBPartiQLParse(f *testing.F) {
 	seeds := []string{
 		`SELECT * FROM "t" WHERE pk = 'a'`,
@@ -30,16 +27,12 @@ func FuzzDDBPartiQLParse(f *testing.F) {
 	for _, s := range seeds {
 		f.Add(s)
 	}
-	// A couple of small parameter fixtures used for every input; ? placeholders
-	// bind positionally from these.
 	params := []map[string]any{
 		{"S": "a"},
 		{"N": "3"},
 		{"BOOL": true},
 	}
 	f.Fuzz(func(t *testing.T, statement string) {
-		// Must not panic. The result (stmt or error) is irrelevant to fuzzing —
-		// only the absence of a crash matters.
 		_, _ = parsePartiQL(statement, params)
 	})
 }

@@ -11,26 +11,17 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// Amazon DynamoDB vector search.
-//
-// A vector index names an attribute holding a fixed-dimension vector, a
-// distance function, and a projection. SearchVectors compares a query vector
-// against every indexed item's vector under that function and answers with the
-// nearest TopK, each carrying the score the comparison produced.
-//
-// The search is arithmetic, and doing it for real is the whole point: returning
-// items in storage order, or a score that is not the distance, produces
-// neighbours a caller cannot tell from the nearest ones. That is the failure
-// this simulator treats as a defect rather than an approximation.
+// SearchVectors scores every indexed item's vector against the query under the
+// index's distance function and returns the nearest TopK with their scores.
+// Storage order or a score that is not the distance would yield neighbours a
+// caller cannot tell from the nearest.
 
-// DDBVectorAttributeDefinition names the item attribute holding the vector.
 type DDBVectorAttributeDefinition struct {
 	AttributeName string `json:"AttributeName"`
 }
 
-// DDBVectorIndexDescription is a vector index as DescribeTable reports it. The
-// member names are the wire's, so the description round-trips through the SDK
-// as the modelled shape.
+// Member names are the wire's, so the description round-trips through the
+// SDK.
 type DDBVectorIndexDescription struct {
 	IndexName        string                       `json:"IndexName"`
 	VectorAttribute  DDBVectorAttributeDefinition `json:"VectorAttribute"`
@@ -44,18 +35,15 @@ type DDBVectorIndexDescription struct {
 	IndexSizeBytes   int64                        `json:"IndexSizeBytes"`
 }
 
-// ddbVectorDistanceFunctions is the set the model declares. An unknown function
-// is refused rather than defaulted, because defaulting would score by a measure
-// the caller did not ask for and the answer would look valid.
+// Refuse an unknown function: a default would score by a measure the caller
+// did not ask for.
 var ddbVectorDistanceFunctions = map[string]bool{"COSINE": true, "DOT_PRODUCT": true, "EUCLIDEAN": true}
 
-// ddbVectorIndexARN is the index's own ARN, under its table's.
 func ddbVectorIndexARN(tableName, indexName string) string {
 	return ddbTableArn(tableName) + "/vector-index/" + indexName
 }
 
-// ddbParseVectorIndex reads a CreateVectorIndexAction, or the VectorIndex form
-// CreateTable takes, and validates what the model marks required.
+// Accepts a CreateVectorIndexAction or CreateTable's VectorIndex form.
 func ddbParseVectorIndex(tableName string, raw map[string]any) (DDBVectorIndexDescription, error) {
 	var idx DDBVectorIndexDescription
 	idx.IndexName, _ = raw["IndexName"].(string)
@@ -98,8 +86,7 @@ func ddbParseVectorIndex(tableName string, raw map[string]any) (DDBVectorIndexDe
 	return idx, nil
 }
 
-// ddbNumberOf reads a JSON number that may have decoded as float64 or as the
-// string DynamoDB uses for numeric attribute values.
+// The number may decode as float64 or as DynamoDB's numeric string.
 func ddbNumberOf(v any) (float64, bool) {
 	switch n := v.(type) {
 	case float64:
@@ -115,9 +102,7 @@ func ddbNumberOf(v any) (float64, bool) {
 	return 0, false
 }
 
-// ddbItemVector reads an item's vector attribute. DynamoDB carries a vector as
-// a list of numbers (L of N), which is what the item already stores, so the
-// vector is read out of the real attribute value rather than a parallel copy.
+// DynamoDB stores a vector as an L of N; read it from the attribute itself.
 func ddbItemVector(item map[string]any, attribute string) ([]float64, bool) {
 	raw, ok := item[attribute].(map[string]any)
 	if !ok {
@@ -142,10 +127,8 @@ func ddbItemVector(item map[string]any, attribute string) ([]float64, bool) {
 	return out, true
 }
 
-// ddbVectorScore compares two vectors under one of the model's distance
-// functions. The score is the measure itself: a similarity for COSINE and
-// DOT_PRODUCT, where larger is nearer, and a distance for EUCLIDEAN, where
-// smaller is. ddbVectorNearerFirst is what knows which way each one sorts.
+// COSINE and DOT_PRODUCT are similarities, larger nearer; EUCLIDEAN is a
+// distance, smaller nearer.
 func ddbVectorScore(fn string, query, candidate []float64) (float64, bool) {
 	if len(query) != len(candidate) || len(query) == 0 {
 		return 0, false
@@ -172,9 +155,8 @@ func ddbVectorScore(fn string, query, candidate []float64) (float64, bool) {
 			cn += candidate[i] * candidate[i]
 		}
 		if qn == 0 || cn == 0 {
-			// A zero vector has no direction, so it has no cosine similarity to
-			// anything. Scoring it 0 would rank it as merely orthogonal, which
-			// is a claim the geometry does not support.
+			// A zero vector has no direction and so no cosine similarity; 0 would rank it
+			// as orthogonal.
 			return 0, false
 		}
 		return dot / (math.Sqrt(qn) * math.Sqrt(cn)), true
@@ -182,10 +164,8 @@ func ddbVectorScore(fn string, query, candidate []float64) (float64, bool) {
 	return 0, false
 }
 
-// ddbVectorNearerFirst reports whether a higher score means a nearer neighbour.
 func ddbVectorNearerFirst(fn string) bool { return fn != "EUCLIDEAN" }
 
-// ddbTableVectorIndex finds a table's vector index by name.
 func ddbTableVectorIndex(t DDBTable, indexName string) (DDBVectorIndexDescription, bool) {
 	for _, idx := range t.VectorIndexes {
 		if idx.IndexName == indexName {
@@ -195,8 +175,7 @@ func ddbTableVectorIndex(t DDBTable, indexName string) (DDBVectorIndexDescriptio
 	return DDBVectorIndexDescription{}, false
 }
 
-// ddbApplyVectorIndexUpdates applies UpdateTable's VectorIndexUpdates, each of
-// which creates or deletes exactly one index.
+// Each update creates or deletes exactly one index.
 func ddbApplyVectorIndexUpdates(t *DDBTable, updates []map[string]any) error {
 	for _, update := range updates {
 		create, hasCreate := update["Create"].(map[string]any)
@@ -282,8 +261,7 @@ func handleDDBSearchVectors(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// The condition narrows which items are searched, so it is compiled once
-	// and a malformed one is refused before anything is scored.
+	// Refuse a malformed condition before scoring anything.
 	condition, err := ddbCompileExpr("SearchConditionExpression", req.SearchConditionExpression,
 		req.ExpressionAttributeNames, req.ExpressionAttributeValues)
 	if err != nil {
@@ -302,8 +280,7 @@ func handleDDBSearchVectors(w http.ResponseWriter, r *http.Request) {
 		}
 		vector, ok := ddbItemVector(item, idx.VectorAttribute.AttributeName)
 		if !ok || len(vector) != len(query) {
-			// An item without a vector of the index's shape is not indexed, so
-			// it is not a neighbour — skipping it is what the index means.
+			// An item without a vector of the index's shape is not indexed.
 			continue
 		}
 		score, ok := ddbVectorScore(idx.DistanceFunction, query, vector)
@@ -337,8 +314,7 @@ func handleDDBSearchVectors(w http.ResponseWriter, r *http.Request) {
 		searchBytes += float64(ddbItemSizeBytes(m.item))
 	}
 	out := map[string]any{"SearchResults": results}
-	// Vector search reports its capacity in bytes rather than in the read units
-	// the rest of the API uses, which is why it has its own capacity shape.
+	// Vector search reports capacity in bytes, not read units.
 	if !strings.EqualFold(req.ReturnConsumedCapacity, "") && !strings.EqualFold(req.ReturnConsumedCapacity, "NONE") {
 		out["ConsumedCapacity"] = map[string]any{"VectorSearchRequestBytes": searchBytes}
 	}

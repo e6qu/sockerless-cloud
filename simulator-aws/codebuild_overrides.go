@@ -12,8 +12,6 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// cbBuildOverrides holds the members StartBuildInput and StartBuildBatchInput
-// share.
 type cbBuildOverrides struct {
 	ProjectName                      string           `json:"projectName"`
 	SecondarySourcesOverride         []map[string]any `json:"secondarySourcesOverride,omitempty"`
@@ -62,8 +60,7 @@ type cbStartBuildBatchInput struct {
 	BuildBatchConfigOverride       map[string]any `json:"buildBatchConfigOverride,omitempty"`
 }
 
-// cbIdempotencyWindow is how long a StartBuild or StartBuildBatch
-// idempotencyToken stays valid, per the members' documentation.
+// The idempotencyToken window the members' documentation gives.
 const cbIdempotencyWindow = 5 * time.Minute
 
 type cbIdempotencyRecord struct {
@@ -74,8 +71,7 @@ type cbIdempotencyRecord struct {
 
 var cbIdempotencyTokens sim.Store[cbIdempotencyRecord]
 
-// cbRequestDigest is what a repeated request must match to reuse a token: the
-// request's members, the token itself left out.
+// A repeated request must match the members, the token left out.
 func cbRequestDigest(request any) string {
 	encoded, err := json.Marshal(request)
 	if err != nil {
@@ -85,10 +81,8 @@ func cbRequestDigest(request any) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// cbIdempotentID returns the id an earlier request with the same token
-// created, false when the token is new or older than its window, or an error
-// when the token arrived with different parameters. The caller serializes the
-// operation's requests.
+// false when the token is new or expired; an error when it arrived with
+// different parameters. The caller serializes the operation's requests.
 func cbIdempotentID(operation, token, digest string) (string, bool, error) {
 	if token == "" {
 		return "", false, nil
@@ -103,7 +97,6 @@ func cbIdempotentID(operation, token, digest string) (string, bool, error) {
 	return record.ID, true, nil
 }
 
-// cbRecordIdempotencyToken stores what token answers.
 func cbRecordIdempotencyToken(operation, token, digest, id string) {
 	if token == "" {
 		return
@@ -111,12 +104,9 @@ func cbRecordIdempotencyToken(operation, token, digest, id string) {
 	cbIdempotencyTokens.Put(operation+"\x00"+token, cbIdempotencyRecord{Digest: digest, ID: id, Created: time.Now()})
 }
 
-// cbReportStatusSourceTypes are the source providers a build reports its
-// status to; reportBuildStatusOverride names any other one invalid.
+// reportBuildStatusOverride rejects any other provider.
 var cbReportStatusSourceTypes = []string{"GITHUB", "GITHUB_ENTERPRISE", "GITLAB", "GITLAB_SELF_MANAGED", "BITBUCKET"}
 
-// cbReportBatchStatusSourceTypes are the source providers a batch build
-// reports its status to.
 var cbReportBatchStatusSourceTypes = []string{"GITHUB", "GITHUB_ENTERPRISE", "BITBUCKET"}
 
 func cbValidateRange(member string, value *int, low, high int) error {
@@ -139,8 +129,7 @@ func cbCopyMap(m map[string]any) map[string]any {
 	return maps.Clone(m)
 }
 
-// cbApplyOverrides returns project as a build of it runs: each override the
-// request carries replaces the project's setting for this build only.
+// Each override replaces the project's setting for this build only.
 func cbApplyOverrides(project CBProject, o cbBuildOverrides) (CBProject, error) {
 	if err := cbValidateRange("queuedTimeoutInMinutesOverride", o.QueuedTimeoutInMinutesOverride, 5, 480); err != nil {
 		return CBProject{}, err
@@ -232,8 +221,6 @@ func cbApplyOverrides(project CBProject, o cbBuildOverrides) (CBProject, error) 
 	return effective, nil
 }
 
-// cbApplyBuildOverrides is cbApplyOverrides plus the members only StartBuild
-// carries.
 func cbApplyBuildOverrides(project CBProject, input cbStartBuildInput) (CBProject, error) {
 	if err := cbValidateRange("timeoutInMinutesOverride", input.TimeoutInMinutesOverride, 5, 2160); err != nil {
 		return CBProject{}, err
@@ -277,9 +264,8 @@ func cbSourceTypeIn(project CBProject, types []string) bool {
 	return false
 }
 
-// cbMergeEnvironmentVariables lays overrides over a project's
-// environmentVariables: a variable of the same name takes the override's
-// value and type, any other is added after the project's.
+// A same-named variable takes the override's value and type; others are
+// appended.
 func cbMergeEnvironmentVariables(project any, overrides []map[string]any) []any {
 	var merged []any
 	index := map[string]int{}
@@ -303,9 +289,8 @@ func cbMergeEnvironmentVariables(project any, overrides []map[string]any) []any 
 	return merged
 }
 
-// cbBuildArtifacts is the BuildArtifacts a build reports for the
-// ProjectArtifacts it ran with. The service slice uploads no artifacts, so
-// the build reports their settings and no location or checksums.
+// The simulator uploads no artifacts, so the build reports settings without
+// location or checksums.
 func cbBuildArtifacts(artifacts map[string]any) map[string]any {
 	reported := map[string]any{}
 	for _, member := range []string{"artifactIdentifier", "overrideArtifactName", "encryptionDisabled", "bucketOwnerAccess"} {
@@ -327,9 +312,8 @@ func cbBuildArtifactsList(artifacts []map[string]any) []map[string]any {
 	return reported
 }
 
-// cbDebugSession is the DebugSession of a build started with
-// debugSessionEnabled. The service slice opens no Session Manager session, so
-// it names no sessionTarget.
+// The simulator opens no Session Manager session, so there is no
+// sessionTarget.
 func cbDebugSession(enabled *bool) map[string]any {
 	if enabled == nil {
 		return nil
