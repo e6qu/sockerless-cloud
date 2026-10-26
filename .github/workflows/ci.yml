@@ -1551,6 +1551,11 @@ jobs:
             tf_timeout: 600s
             tf_run: TestTerraformMissingResourceGroupRefusesApply
             timeout_minutes: 12
+          - suite: azure redis cache
+            cloud: azure
+            tf_timeout: 600s
+            tf_run: TestTerraformRedisCacheServesItsHostName
+            timeout_minutes: 12
           - suite: azure front-end forwarded headers
             cloud: azure
             tf_timeout: 600s

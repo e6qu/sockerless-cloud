@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/testutil/baseimage"
+	"github.com/e6qu/sockerless-cloud/testutil/freeports"
 	"github.com/e6qu/sockerless-cloud/testutil/scratchimage"
 	"github.com/e6qu/sockerless-cloud/testutil/simready"
 )
@@ -39,6 +40,10 @@ var (
 	// workload's Volume{StorageType: AzureFile} bind-mounts, so it is where a
 	// file uploaded with `az storage file upload` has to land.
 	azureFilesDataDir string
+	// simAzureDNSAddr is the simulator's DNS front (SIM_AZURE_DNS_LISTEN_ADDR),
+	// which resolves the host names the simulator registers, such as an Azure
+	// Cache for Redis hostName.
+	simAzureDNSAddr string
 
 	subscriptionID = "00000000-0000-0000-0000-000000000001"
 	resourceGroup  = "cli-test-rg"
@@ -144,6 +149,13 @@ func TestMain(m *testing.M) {
 	advertisedEndpoints := fmt.Sprintf(
 		`{"storage":{"blob":"http://{account}.blob.cli-shim.localhost:%d/","file":"http://{account}.file.cli-shim.localhost:%d/","queue":"http://{account}.queue.cli-shim.localhost:%d/","table":"http://{account}.table.cli-shim.localhost:%d/"},"keyVault":"https://{vault}.vault.cli-shim.localhost:%d/","serviceBus":"https://{namespace}.servicebus.cli-shim.localhost:%d/","acr":"http://{name}.azurecr.cli-shim.localhost:%d/"}`,
 		port, port, port, port, port, port, port)
+	// The DNS front serves UDP and TCP at one port, so the port must be free
+	// on both.
+	dnsPort, err := freeports.TCPUDP()
+	if err != nil {
+		log.Fatalf("Failed to find free DNS port: %v", err)
+	}
+	simAzureDNSAddr = fmt.Sprintf("127.0.0.1:%d", dnsPort)
 	azureFilesDataDir, err = os.MkdirTemp("", "sockerless-sim-azure-files-cli-*")
 	if err != nil {
 		log.Fatalf("Failed to create Azure Files data dir: %v", err)
@@ -152,6 +164,7 @@ func TestMain(m *testing.M) {
 		fmt.Sprintf("SIM_LISTEN_ADDR=:%d", port),
 		fmt.Sprintf("SIM_AZURE_FILES_DATA_DIR=%s", azureFilesDataDir),
 		"SIM_AZURE_ARM_EXTERNAL_DATA_PLANE_URLS_JSON="+advertisedEndpoints,
+		"SIM_AZURE_DNS_LISTEN_ADDR="+simAzureDNSAddr,
 	)
 	simCmd.Stdout = os.Stdout
 	if err := simready.Start(simCmd, os.Stderr); err != nil {

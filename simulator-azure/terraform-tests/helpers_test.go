@@ -38,6 +38,10 @@ var (
 	simPort     int
 	gatewayPort int
 	caCertFile  string
+	// simAzureDNSAddr is the simulator's DNS front (SIM_AZURE_DNS_LISTEN_ADDR),
+	// which resolves the host names it registers, such as an Azure Cache for
+	// Redis hostname.
+	simAzureDNSAddr string
 )
 
 // simShutdownGrace bounds the orderly shutdown SIGTERM starts, in which the
@@ -137,6 +141,13 @@ func TestMain(m *testing.M) {
 	}
 	simPort, gatewayPort = ports[0], ports[1]
 	gatewayAdminPort := ports[2]
+	// The DNS front serves UDP and TCP at one port, so the port must be free
+	// on both.
+	dnsPort, err := freeports.TCPUDP()
+	if err != nil {
+		log.Fatalf("Failed to find a free DNS port: %v", err)
+	}
+	simAzureDNSAddr = fmt.Sprintf("127.0.0.1:%d", dnsPort)
 	caCertFile = filepath.Join(gatewayDir, "data", "caddy", "pki", "authorities", "local", "root.crt")
 
 	simCmd = exec.Command(binaryPath)
@@ -146,6 +157,7 @@ func TestMain(m *testing.M) {
 	simCmd.Env = append(os.Environ(),
 		fmt.Sprintf("SIM_LISTEN_ADDR=:%d", simPort),
 		"SIM_AZURE_ARM_EXTERNAL_DATA_PLANE_URLS_JSON="+azureGatewayDataPlaneEndpoints(gatewayPort),
+		"SIM_AZURE_DNS_LISTEN_ADDR="+simAzureDNSAddr,
 	)
 	simCmd.Stdout = os.Stdout
 	if err := simready.Start(simCmd, os.Stderr); err != nil {

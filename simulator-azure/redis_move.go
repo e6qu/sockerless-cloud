@@ -18,7 +18,8 @@ import (
 // the resource group, so a naive re-key would silently rotate the password
 // every Redis client authenticates with. Real Azure never rotates a cache's
 // keys on a move, so the material listKeys serves is pinned onto the moved ID;
-// the next regenerateKey clears the pin and derives fresh material.
+// the next regenerateKey clears the pin and derives fresh material. The
+// cache's engine follows it onto the new ID and keeps serving.
 
 // moveRedisCacheARM re-homes one Azure Cache for Redis instance's ARM plane
 // onto a new resource ID, pinning its access keys so the credential an
@@ -34,6 +35,7 @@ func moveRedisCacheARM(oldID, newID string) {
 	redisCaches.Delete(oldID)
 	cache.ID = newID
 	redisCaches.Put(cache.ID, cache)
+	redisMoveEngine(oldID, newID)
 
 	oldSub, newSub := oldID+"/", newID+"/"
 	rekeyRowsByPrefix(redisFirewallRules, oldSub, newSub, func(f *RedisFirewallRule) *string { return &f.ID })

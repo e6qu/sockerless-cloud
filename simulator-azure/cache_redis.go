@@ -1,18 +1,16 @@
 package main
 
 import (
+	"log"
 	"net/http"
 	"strings"
 
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// Microsoft.Cache/Redis ARM control plane. Real Azure exposes a
-// full instance lifecycle (create / get / list / patch / delete)
-// plus FirewallRule + LinkedServer + Access Policy sub-resources;
-// the sim implements the load-bearing CRUD slice. Data plane
-// (the actual Redis protocol) is out of scope — terraform's
-// `azurerm_redis_cache` resource only needs the ARM lifecycle.
+// Microsoft.Cache/Redis: the Azure Resource Manager lifecycle of a cache and
+// its sub-resources, and the cache's data plane, a real Redis engine
+// (cache_redis_engine.go).
 
 // RedisCache mirrors RedisResource: sku lives under properties
 // (RedisProperties allOf RedisCreateProperties), never at the top level.
@@ -67,6 +65,7 @@ func registerCacheRedis(srv *sim.Server) {
 	redisLinkedServers = sim.MakeStore[RedisSubResource](srv.DB(), "redis_linked_servers")
 	redisPatchSchedules = sim.MakeStore[RedisSubResource](srv.DB(), "redis_patch_schedules")
 	redisPrivateConns = sim.MakeStore[RedisSubResource](srv.DB(), "redis_private_endpoint_connections")
+	redisEngineRecords = sim.MakeStore[redisEngineRecord](srv.DB(), "redis_engines")
 
 	const armBase = "/subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Cache/Redis"
 
@@ -122,6 +121,15 @@ func registerCacheRedis(srv *sim.Server) {
 	srv.HandleFunc("DELETE "+armBase+"/{name}/privateEndpointConnections/{pec}", handleRedisPECDelete)
 	srv.HandleFunc("GET "+armBase+"/{name}/privateEndpointConnections", handleRedisPECList)
 	srv.HandleFunc("GET "+armBase+"/{name}/privateLinkResources", handleRedisPrivateLinkResources)
+
+	// A persistent control-plane restart rebinds every cache's ports and
+	// re-adopts the engine workloads the earlier process left. The API-only
+	// tier runs no engines.
+	if redisRunsEngines() {
+		if err := redisRecoverEngines(); err != nil {
+			log.Fatalf("recover Azure Cache for Redis data planes: %v", err)
+		}
+	}
 }
 
 func redisCacheID(sub, rg, name string) string {
@@ -242,6 +250,23 @@ func handleRedisCacheCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := armResourceID(sub, rg, "Microsoft.Cache", "Redis", name)
+	if _, exists := redisCaches.Get(id); exists {
+		// ARM's PUT is create-or-update: on an existing cache it updates.
+		redisCacheUpdate(w, r, id, req)
+		return
+	}
+	requested, _ := req.Properties["redisVersion"].(string)
+	version, image, known := redisEngineVersion(requested)
+	if !known {
+		AzureErrorf(w, "BadRequest", http.StatusBadRequest,
+			"redisVersion %q is not a supported Redis version; supported versions are 4.0 and 6.0 (latest).", requested)
+		return
+	}
+	if shards, _ := req.Properties["shardCount"].(float64); shards > 0 {
+		AzureErrorf(w, "BadRequest", http.StatusBadRequest,
+			"shardCount %v: this simulator serves no clustered cache; the specification states no port a shard's instances answer on.", shards)
+		return
+	}
 	cache := RedisCache{
 		ID:       id,
 		Name:     name,
@@ -249,28 +274,36 @@ func handleRedisCacheCreate(w http.ResponseWriter, r *http.Request) {
 		Location: req.Location,
 		Tags:     req.Tags,
 		Properties: map[string]any{
-			"provisioningState": "Creating",
-			"redisVersion":      "6.0",
-			"sslPort":           6380,
-			"port":              6379,
-			"hostName":          azureEndpointHostname(r, name, "redis", "cache"),
+			"enableNonSslPort": false,
+			"sslPort":          redisSSLPort,
+			"port":             redisNonSSLPort,
+			"hostName":         azureEndpointHostname(r, name, "redis", "cache"),
 		},
 	}
 	// Merge operator-supplied properties (e.g. sku, redisConfiguration).
-	if req.Properties != nil {
-		for k, v := range req.Properties {
-			cache.Properties[k] = v
-		}
-		cache.Properties["provisioningState"] = "Creating"
+	for k, v := range req.Properties {
+		cache.Properties[k] = v
+	}
+	cache.Properties["redisVersion"] = version
+	cache.Properties["provisioningState"] = "Creating"
+	plane, err := redisInstallEngine(cache, image)
+	if err != nil {
+		AzureErrorf(w, "InternalServerError", http.StatusInternalServerError, "start the cache's engine: %v", err)
+		return
 	}
 	redisCaches.Put(id, cache)
-	opID := issueAzureAsyncOperation(func() {
-		redisCaches.Update(id, func(stored *RedisCache) {
-			if stored.Properties == nil {
-				stored.Properties = map[string]any{}
+	opID := startAzureAsyncOperationOutcome(func() *AsyncOperationError {
+		state, failure := "Succeeded", (*AsyncOperationError)(nil)
+		if plane != nil {
+			if err := redisStartEngine(plane); err != nil {
+				redisLogEngineFailure(id, err)
+				state, failure = "Failed", &AsyncOperationError{Code: "InternalServerError", Message: "The cache's engine did not start: " + err.Error()}
+			} else {
+				redisSaveEngine(id, plane)
 			}
-			stored.Properties["provisioningState"] = "Succeeded"
-		})
+		}
+		redisCaches.Update(id, func(stored *RedisCache) { stored.Properties["provisioningState"] = state })
+		return failure
 	})
 	opURL := azureAsyncOperationHeader(r, sub, "Microsoft.Cache", cache.Location, "asyncOperations", opID, r.URL.Query().Get("api-version"))
 	writeAzureAsyncCreateHeaders(w, opID, opURL, azureCurrentRequestURL(r))
@@ -292,6 +325,71 @@ func handleRedisCachePatch(w http.ResponseWriter, r *http.Request) {
 		AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
 		return
 	}
+	redisCacheUpdate(w, r, id, req)
+}
+
+// redisCacheUpdate applies an update to a cache and its engine: the non-SSL
+// port opens or closes, the replica count follows the SKU, and the Redis
+// directives of redisConfiguration apply live.
+func redisCacheUpdate(w http.ResponseWriter, r *http.Request, id string, req RedisCache) {
+	current, _ := redisCaches.Get(id)
+	if state, _ := current.Properties["provisioningState"].(string); state != "Succeeded" && state != "" {
+		AzureErrorf(w, "Conflict", http.StatusConflict,
+			"The cache %s is %s; it takes an update once it has Succeeded.", current.Name, state)
+		return
+	}
+	if shards, _ := req.Properties["shardCount"].(float64); shards > 0 {
+		AzureErrorf(w, "BadRequest", http.StatusBadRequest,
+			"shardCount %v: this simulator serves no clustered cache; the specification states no port a shard's instances answer on.", shards)
+		return
+	}
+	version, _ := current.Properties["redisVersion"].(string)
+	upgrade := ""
+	if requested, set := req.Properties["redisVersion"].(string); set {
+		resolved, image, known := redisEngineVersion(requested)
+		switch {
+		case !known:
+			AzureErrorf(w, "BadRequest", http.StatusBadRequest,
+				"redisVersion %q is not a supported Redis version; supported versions are 4.0 and 6.0 (latest).", requested)
+			return
+		case resolved < version:
+			AzureErrorf(w, "BadRequest", http.StatusBadRequest,
+				"redisVersion %q: a cache's Redis version cannot be downgraded from %s.", requested, version)
+			return
+		case resolved != version:
+			version, upgrade = resolved, image
+		}
+	}
+	next := map[string]any{}
+	for k, v := range current.Properties {
+		next[k] = v
+	}
+	for k, v := range req.Properties {
+		next[k] = v
+	}
+	next["redisVersion"] = version
+	if plane, ok := redisLoadEngine(id); ok {
+		var err error
+		if upgrade != "" {
+			if err = plane.Restart(nil, upgrade); err == nil {
+				redisEngineRecords.Update(id, func(record *redisEngineRecord) { record.Image = upgrade })
+			}
+		}
+		if err == nil {
+			err = redisSetNonSSLPort(id, plane, redisNonSSLEnabled(next))
+		}
+		if err == nil {
+			err = plane.Configure(redisEngineDirectives(next))
+		}
+		if err == nil && redisReplicaCount(next) != len(plane.Replicas()) {
+			err = plane.ResizeInstance(redisReplicaCount(next))
+			redisSaveEngine(id, plane)
+		}
+		if err != nil {
+			AzureErrorf(w, "InternalServerError", http.StatusInternalServerError, "update the cache's engine: %v", err)
+			return
+		}
+	}
 	redisCaches.Update(id, func(cache *RedisCache) {
 		if req.Location != "" {
 			cache.Location = req.Location
@@ -299,15 +397,8 @@ func handleRedisCachePatch(w http.ResponseWriter, r *http.Request) {
 		if req.Tags != nil {
 			cache.Tags = req.Tags
 		}
-		if req.Properties != nil {
-			if cache.Properties == nil {
-				cache.Properties = map[string]any{}
-			}
-			for k, v := range req.Properties {
-				cache.Properties[k] = v
-			}
-			cache.Properties["provisioningState"] = "Succeeded"
-		}
+		cache.Properties = next
+		cache.Properties["provisioningState"] = "Succeeded"
 	})
 	cache, _ := redisCaches.Get(id)
 	sim.WriteJSON(w, http.StatusOK, cache)
@@ -332,11 +423,13 @@ func handleRedisCacheDelete(w http.ResponseWriter, r *http.Request) {
 	rg := sim.PathParam(r, "resourceGroupName")
 	name := sim.PathParam(r, "name")
 	id := armResourceID(sub, rg, "Microsoft.Cache", "Redis", name)
-	if !redisCaches.Delete(id) {
+	if _, ok := redisCaches.Get(id); !ok {
 		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 			"The Resource 'Microsoft.Cache/Redis/%s' under resource group '%s' was not found.", name, rg)
 		return
 	}
+	redisRemoveEngine(id)
+	redisCaches.Delete(id)
 	azureDropKeyGens(id, "primary", "secondary")
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -413,6 +506,16 @@ func handleRedisCacheRegenerateKey(w http.ResponseWriter, r *http.Request) {
 			"keyType must be 'Primary' or 'Secondary', got %q", req.KeyType)
 		return
 	}
+	if plane, ok := redisLoadEngine(id); ok && plane.Running() {
+		err := plane.SetPassword(azureKeyMaterial32(id, "primary"))
+		if err == nil {
+			err = plane.ApplyUsers(plane.Nodes())
+		}
+		if err != nil {
+			AzureErrorf(w, "InternalServerError", http.StatusInternalServerError, "rotate the cache's access key: %v", err)
+			return
+		}
+	}
 	sim.WriteJSON(w, http.StatusOK, redisAccessKeysBody(id))
 }
 
@@ -433,6 +536,27 @@ func handleRedisForceReboot(w http.ResponseWriter, r *http.Request) {
 	if err := sim.ReadJSON(r, &req); err != nil {
 		AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 		return
+	}
+	if plane, ok := redisLoadEngine(redisCacheID(sub, rg, name)); ok {
+		var nodes []int
+		switch req.RebootType {
+		case "PrimaryNode":
+			nodes = []int{plane.Primary()}
+		case "SecondaryNode":
+			nodes = plane.Replicas()
+		case "AllNodes":
+			nodes = plane.Nodes()
+		default:
+			AzureErrorf(w, "BadRequest", http.StatusBadRequest,
+				"rebootType must be 'PrimaryNode', 'SecondaryNode' or 'AllNodes', got %q", req.RebootType)
+			return
+		}
+		if len(nodes) > 0 {
+			if err := plane.Reboot(nodes); err != nil {
+				AzureErrorf(w, "InternalServerError", http.StatusInternalServerError, "reboot the cache's nodes: %v", err)
+				return
+			}
+		}
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
 		"message": "Reboot operation has been initiated on the requested Redis node(s).",
@@ -489,14 +613,20 @@ func handleRedisExportData(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-// handleRedisFlushCache deletes all keys in the cache (long-running, completed
-// synchronously).
+// handleRedisFlushCache deletes every key of the cache inside the request, so
+// the operation completes as it answers.
 func handleRedisFlushCache(w http.ResponseWriter, r *http.Request) {
 	sub := sim.PathParam(r, "subscriptionId")
 	rg := sim.PathParam(r, "resourceGroupName")
 	name := sim.PathParam(r, "name")
 	if !redisCacheExists(w, sub, rg, name) {
 		return
+	}
+	if plane, ok := redisLoadEngine(redisCacheID(sub, rg, name)); ok {
+		if err := plane.Flush(); err != nil {
+			AzureErrorf(w, "InternalServerError", http.StatusInternalServerError, "flush the cache: %v", err)
+			return
+		}
 	}
 	w.WriteHeader(http.StatusOK)
 }

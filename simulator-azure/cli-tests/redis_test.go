@@ -1,10 +1,32 @@
 package azure_cli_test
 
 import (
+	"context"
+	"crypto/tls"
+	"net"
+	"strconv"
 	"testing"
+	"time"
 
+	goredis "github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
 )
+
+// redisCLIResolve resolves a cache's hostName through the simulator's DNS
+// front, the resolver a deployment points its clients at.
+func redisCLIResolve(t *testing.T, hostName string) string {
+	t.Helper()
+	resolver := &net.Resolver{PreferGo: true, Dial: func(ctx context.Context, network, _ string) (net.Conn, error) {
+		dialer := net.Dialer{Timeout: 5 * time.Second}
+		return dialer.DialContext(ctx, network, simAzureDNSAddr)
+	}}
+	lookupCtx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	defer cancel()
+	addresses, err := resolver.LookupHost(lookupCtx, hostName)
+	require.NoError(t, err)
+	require.NotEmpty(t, addresses)
+	return addresses[0]
+}
 
 func TestRedisCLI_ARMResources(t *testing.T) {
 	t.Parallel()
@@ -50,6 +72,21 @@ func TestRedisCLI_ARMResources(t *testing.T) {
 	parseJSON(t, keysOut, &keys)
 	require.NotEmpty(t, keys.PrimaryKey)
 	require.NotEqual(t, keys.PrimaryKey, keys.SecondaryKey)
+
+	// The cache answers at its hostName's sslPort to its primary key. Azure
+	// presents a certificate a public root signs; the client checks
+	// encryption, not the chain.
+	address := redisCLIResolve(t, cache.Properties.HostName)
+	client := goredis.NewClient(&goredis.Options{
+		Addr:      net.JoinHostPort(address, strconv.Itoa(cache.Properties.SSLPort)),
+		Password:  keys.PrimaryKey,
+		TLSConfig: &tls.Config{ServerName: cache.Properties.HostName, MinVersion: tls.VersionTLS12, InsecureSkipVerify: true}, //nolint:gosec // see above
+	})
+	t.Cleanup(func() { client.Close() })
+	require.NoError(t, client.Set(t.Context(), "cli-greeting", "from az", 0).Err())
+	value, err := client.Get(t.Context(), "cli-greeting").Result()
+	require.NoError(t, err)
+	require.Equal(t, "from az", value)
 
 	ruleURL := armURL("Microsoft.Cache", "Redis/"+name+"/firewallRules/allow-ci", "2024-11-01")
 	ruleOut := runCLI(t, azRest("PUT", ruleURL, `{
