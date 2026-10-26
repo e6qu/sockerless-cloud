@@ -7,10 +7,9 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/workload"
 )
 
-// acaStartGroup places main and then each sidecar in main's network
-// namespace, so a sidecar listening on localhost:<port> is reachable from
-// main on the same address. When any member fails to start, the members
-// already started are cancelled and the error names the member.
+// acaStartGroup places each sidecar in main's network namespace, so a sidecar
+// on localhost:<port> is reachable from main. When a member fails to start,
+// the members already started are cancelled.
 func acaStartGroup(ctx context.Context, main workload.Container, sidecars []workload.Container, sink sim.LogSink) (*workload.Group, error) {
 	backend, err := azurePlacementBackend(placementContainerApps)
 	if err != nil {
@@ -32,7 +31,6 @@ func acaStartGroup(ctx context.Context, main workload.Container, sidecars []work
 	return group, nil
 }
 
-// acaCancelGroup cancels every member of a group whose start failed.
 func acaCancelGroup(g *workload.Group) {
 	for _, h := range g.Sidecars {
 		h.Cancel()

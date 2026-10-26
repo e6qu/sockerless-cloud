@@ -10,10 +10,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestNetworkApplicationSecurityGroups_CRUD covers the whole
-// Microsoft.Network/applicationSecurityGroups surface through the official
-// armnetwork client: create, get, retag, list by resource group, list by
-// subscription, delete.
+// TestNetworkApplicationSecurityGroups_CRUD covers create, get, retag, both
+// lists and delete.
 func TestNetworkApplicationSecurityGroups_CRUD(t *testing.T) {
 	t.Parallel()
 	rg := "asg-rg"
@@ -38,7 +36,7 @@ func TestNetworkApplicationSecurityGroups_CRUD(t *testing.T) {
 	got, err := client.Get(ctx, rg, "web-tier", nil)
 	require.NoError(t, err)
 	assert.Equal(t, *created.ID, *got.ID)
-	// The resource GUID is minted once and must not change between reads.
+	// The resource GUID is minted once.
 	assert.Equal(t, *created.Properties.ResourceGUID, *got.Properties.ResourceGUID)
 
 	tagged, err := client.UpdateTags(ctx, rg, "web-tier", armnetwork.TagsObject{
@@ -46,7 +44,7 @@ func TestNetworkApplicationSecurityGroups_CRUD(t *testing.T) {
 	}, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "test", *tagged.Tags["env"])
-	// Retagging must not re-mint the resource GUID.
+	// Retagging keeps the resource GUID.
 	assert.Equal(t, *created.Properties.ResourceGUID, *tagged.Properties.ResourceGUID)
 
 	assert.Contains(t, applicationSecurityGroupNames(t, client, rg), "web-tier")
@@ -84,11 +82,9 @@ func applicationSecurityGroupNames(t *testing.T, client *armnetwork.ApplicationS
 	return names
 }
 
-// TestNetworkApplicationSecurityGroup_NSGRuleReference proves a security rule
-// can be written against application security groups rather than addresses: the
-// group references survive the round trip on both the source and the
-// destination side of the rule, which is what the packet filter resolves
-// membership from.
+// TestNetworkApplicationSecurityGroup_NSGRuleReference: a security rule naming
+// application security groups on either side round-trips the references the
+// packet filter resolves membership from.
 func TestNetworkApplicationSecurityGroup_NSGRuleReference(t *testing.T) {
 	t.Parallel()
 	rg := "asg-nsg-rg"
@@ -145,9 +141,8 @@ func TestNetworkApplicationSecurityGroup_NSGRuleReference(t *testing.T) {
 	assert.Equal(t, *web.ID, *read.Properties.SourceApplicationSecurityGroups[0].ID)
 }
 
-// TestNetworkVirtualNetworkTaps_CRUD covers the whole
-// Microsoft.Network/virtualNetworkTaps surface, including the rejection of a
-// tap that names no collector destination.
+// TestNetworkVirtualNetworkTaps_CRUD covers the tap, including the rejection
+// of one that names no collector destination.
 func TestNetworkVirtualNetworkTaps_CRUD(t *testing.T) {
 	t.Parallel()
 	rg := "tap-rg"
@@ -156,7 +151,7 @@ func TestNetworkVirtualNetworkTaps_CRUD(t *testing.T) {
 	client, err := armnetwork.NewVirtualNetworkTapsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 
-	// A tap with no destination is rejected before anything is stored.
+	// A tap with no destination is refused before anything is stored.
 	badPoller, err := client.BeginCreateOrUpdate(ctx, rg, "tap-nowhere", armnetwork.VirtualNetworkTap{
 		Location:   to.Ptr("eastus"),
 		Properties: &armnetwork.VirtualNetworkTapPropertiesFormat{},
@@ -183,7 +178,7 @@ func TestNetworkVirtualNetworkTaps_CRUD(t *testing.T) {
 	assert.Equal(t, int32(4789), *created.Properties.DestinationPort)
 	require.NotNil(t, created.Properties.DestinationNetworkInterfaceIPConfiguration)
 	assert.Equal(t, collector, *created.Properties.DestinationNetworkInterfaceIPConfiguration.ID)
-	// Nothing mirrors to a freshly created tap.
+	// Nothing mirrors to a new tap.
 	assert.Empty(t, created.Properties.NetworkInterfaceTapConfigurations)
 
 	got, err := client.Get(ctx, rg, "mirror-tap", nil)
@@ -230,10 +225,9 @@ func TestNetworkVirtualNetworkTaps_CRUD(t *testing.T) {
 	require.Error(t, err)
 }
 
-// TestNetworkVirtualNetworkTap_ReportsMirroringInterfaces proves the tap's
-// read-only networkInterfaceTapConfigurations collection is resolved from the
-// interface tap configurations that actually reference the tap: attaching one
-// makes it appear, removing it takes it away.
+// TestNetworkVirtualNetworkTap_ReportsMirroringInterfaces: the read-only
+// networkInterfaceTapConfigurations follows the interface tap configurations
+// that reference the tap.
 func TestNetworkVirtualNetworkTap_ReportsMirroringInterfaces(t *testing.T) {
 	t.Parallel()
 	rg := "tap-attach-rg"
@@ -300,9 +294,8 @@ func TestNetworkVirtualNetworkTap_ReportsMirroringInterfaces(t *testing.T) {
 		"removing the interface tap configuration must take it off the tap")
 }
 
-// TestNetworkServiceEndpointPolicies_CRUDAndDefinitions covers the policy
-// surface and its definition sub-resource, and proves a definition written
-// through the sub-resource client is reported by the policy's own read.
+// TestNetworkServiceEndpointPolicies_CRUDAndDefinitions: a definition written
+// through the sub-resource client shows in the policy's own read.
 func TestNetworkServiceEndpointPolicies_CRUDAndDefinitions(t *testing.T) {
 	t.Parallel()
 	rg := "sep-rg"
@@ -419,9 +412,8 @@ func TestNetworkServiceEndpointPolicies_CRUDAndDefinitions(t *testing.T) {
 	require.Error(t, err)
 }
 
-// TestNetworkServiceEndpointPolicy_ReportsEnforcingSubnets proves the policy's
-// read-only subnets collection is resolved from the subnets that reference it,
-// which is where the policy is actually enforced.
+// TestNetworkServiceEndpointPolicy_ReportsEnforcingSubnets: the read-only
+// subnets collection follows the subnets that reference the policy.
 func TestNetworkServiceEndpointPolicy_ReportsEnforcingSubnets(t *testing.T) {
 	t.Parallel()
 	rg := "sep-subnet-rg"
@@ -468,7 +460,6 @@ func TestNetworkServiceEndpointPolicy_ReportsEnforcingSubnets(t *testing.T) {
 	assert.Equal(t, *subnet.ID, *enforced.Properties.Subnets[0].ID)
 }
 
-// requireResourceGroup creates the resource group a test writes into.
 func requireResourceGroup(t *testing.T, name string) {
 	t.Helper()
 	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
@@ -477,8 +468,8 @@ func requireResourceGroup(t *testing.T, name string) {
 	require.NoError(t, err)
 }
 
-// requireSubnet creates a virtual network and one subnet in it, returning the
-// subnet's resource id.
+// requireSubnet creates a virtual network with one subnet and returns the
+// subnet's ID.
 func requireSubnet(t *testing.T, rg, vnetName, vnetPrefix, subnetName, subnetPrefix string) string {
 	t.Helper()
 	vnetClient, err := armnetwork.NewVirtualNetworksClient(subscriptionID, &fakeCredential{}, clientOpts())

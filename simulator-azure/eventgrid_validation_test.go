@@ -13,9 +13,6 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
-// eventGridCreateWebhookSubscription creates a topic and a webhook
-// subscription on it, returning the subscription URL and the operation URL the
-// create advertised.
 func eventGridCreateWebhookSubscription(t *testing.T, srv *sim.Server, topic, hookURL, schema string) (string, string) {
 	t.Helper()
 	topicURL := "http://localhost:4568/subscriptions/sub/resourceGroups/rg/providers/Microsoft.EventGrid/topics/" + topic + "?api-version=2022-06-15"
@@ -63,9 +60,6 @@ func eventGridOperation(t *testing.T, srv *sim.Server, opURL string) AsyncOperat
 	return op
 }
 
-// An endpoint that answers the SubscriptionValidationEvent without echoing its
-// code leaves the subscription AwaitingManualAction, receiving nothing, until
-// its validationUrl is visited.
 func TestEventGridWebhookManualValidation(t *testing.T) {
 	srv := newEventGridTestServer(t)
 	validationURLs := make(chan string, 1)
@@ -135,8 +129,6 @@ func TestEventGridWebhookManualValidation(t *testing.T) {
 	}
 }
 
-// An endpoint that refuses the handshake fails the subscription and its
-// operation with Event Grid's Url validation error.
 func TestEventGridWebhookValidationFailure(t *testing.T) {
 	srv := newEventGridTestServer(t)
 	hook := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -155,8 +147,6 @@ func TestEventGridWebhookValidationFailure(t *testing.T) {
 	}
 }
 
-// A CloudEvents subscription validates through the abuse-protection OPTIONS
-// handshake: an endpoint allowing Event Grid's origin succeeds.
 func TestEventGridCloudEventsAbuseProtectionHandshake(t *testing.T) {
 	srv := newEventGridTestServer(t)
 	hook := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

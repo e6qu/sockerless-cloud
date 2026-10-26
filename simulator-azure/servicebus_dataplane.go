@@ -15,8 +15,8 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/msgq"
 )
 
-// Microsoft.ServiceBus REST data plane. Routed by Host header
-// (`{namespace}.servicebus.<sim-host>:<port>`). Real Azure exposes:
+// The Service Bus REST data plane, routed by Host
+// (`{namespace}.servicebus.<sim-host>:<port>`):
 //
 //   POST   /{entity}/messages                           Send Message          → 201
 //   DELETE /{entity}/messages/head                      Receive and Delete    → 200 (body) or 204
@@ -25,17 +25,10 @@ import (
 //   PUT    /{entity}/messages/{id}/{lockToken}          Unlock (abandon)      → 200
 //   POST   /{entity}/messages/{id}/{lockToken}          Renew-Lock            → 200
 //
-// where {entity} is a queue, a topic (send only), `{topic}/subscriptions/{sub}`,
-// or either one's `$DeadLetterQueue`.
-//
-// The AMQP data plane is exposed as raw AMQP/TLS on the configured
-// Service Bus AMQP listener and as AMQP-over-WebSocket on
-// `/$servicebus/websocket` for clients that opt into that transport.
-// The AMQP slice implements SASL anonymous, CBS claim negotiation,
-// entity sender/receiver links, and accepted delivery dispositions.
+// {entity} is a queue, a topic (send only), `{topic}/subscriptions/{sub}`, or
+// either one's `$DeadLetterQueue`. AMQP is served as raw AMQP/TLS on the
+// Service Bus AMQP listener and over WebSocket at `/$servicebus/websocket`.
 
-// registerServiceBusDataPlane wires the subdomain dispatcher. Requests
-// arriving with a `{namespace}.servicebus.<host>` Host route here.
 func registerServiceBusDataPlane(srv *sim.Server) {
 	sbQueueDurable = sim.MakeStore[sbQueueRecord](srv.DB(), "servicebus_queue_messages")
 	if err := sbMigrateQueues(srv.DB()); err != nil {
@@ -54,8 +47,7 @@ func registerServiceBusDataPlane(srv *sim.Server) {
 				return
 			}
 			if strings.Trim(r.URL.Path, "/") == "$servicebus/websocket" {
-				// The AMQP transport authenticates through the CBS
-				// put-token handshake once the connection is established.
+				// The AMQP transport authenticates through CBS put-token once connected.
 				handleSBAMQPWebSocket(w, r, parts[0])
 				return
 			}
@@ -70,12 +62,9 @@ func registerServiceBusDataPlane(srv *sim.Server) {
 	})
 }
 
-// authorizeSBHTTPRequest verifies the Shared Access Signature every Service
-// Bus HTTP caller — REST data plane and ATOM admin plane alike — presents in
-// the Authorization header, and writes the service's 401 when it does not
-// hold. The token must be signed with the current key of an authorization
-// rule at the addressed namespace or entity, so a rotated key takes effect
-// immediately.
+// Every Service Bus HTTP caller, REST and ATOM admin alike, presents a SAS
+// signed with the current key of a rule at the namespace or entity, so a
+// rotated key takes effect at once.
 func authorizeSBHTTPRequest(w http.ResponseWriter, r *http.Request, namespace string) bool {
 	// A trusted Microsoft service writing on its own behalf, as Event Grid
 	// delivers to a queue or topic, is admitted without a signature.
@@ -100,8 +89,8 @@ func authorizeSBHTTPRequest(w http.ResponseWriter, r *http.Request, namespace st
 	return true
 }
 
-// writeSBUnauthorized emits the `<Error><Code>401</Code><Detail>…</Detail></Error>`
-// body Service Bus returns for a refused token.
+// The `<Error><Code>401</Code><Detail>…</Detail></Error>` body Service Bus
+// returns for a refused token.
 func writeSBUnauthorized(w http.ResponseWriter, detail string) {
 	w.Header().Set("Content-Type", "application/xml; charset=utf-8")
 	w.WriteHeader(http.StatusUnauthorized)
@@ -115,8 +104,8 @@ func handleSBRESTDataPlane(w http.ResponseWriter, r *http.Request, namespace str
 		AzureError(w, "BadRequest", "Missing path", http.StatusBadRequest)
 		return
 	}
-	// The entity path runs up to the `messages` segment: a queue or topic, a
-	// topic's subscriptions/{sub}, and either one's $DeadLetterQueue.
+	// The entity path runs up to `messages`: a queue or topic, a topic's
+	// subscriptions/{sub}, and either one's $DeadLetterQueue.
 	i := 0
 	for i < len(segs) && !strings.EqualFold(segs[i], "messages") {
 		i++
@@ -143,8 +132,7 @@ func handleSBRESTDataPlane(w http.ResponseWriter, r *http.Request, namespace str
 	dispatchSBMessagesOp(w, r, namespace, dataPath, segs[i+1:])
 }
 
-// dispatchSBMessagesOp handles the /messages/... tail. `tail` is the
-// remaining path segments after `messages`.
+// tail is the path segments after `messages`.
 func dispatchSBMessagesOp(w http.ResponseWriter, r *http.Request, namespace, path string, tail []string) {
 	switch {
 	case r.Method == http.MethodPost && len(tail) == 0:
@@ -162,8 +150,6 @@ func dispatchSBMessagesOp(w http.ResponseWriter, r *http.Request, namespace, pat
 	}
 }
 
-// sbSenderProperties is the part of a REST sender's BrokerProperties header
-// the broker acts on.
 type sbSenderProperties struct {
 	MessageID               string  `json:"MessageId"`
 	TimeToLive              float64 `json:"TimeToLive"`
@@ -173,8 +159,7 @@ type sbSenderProperties struct {
 
 func handleSBSendMessage(w http.ResponseWriter, r *http.Request, namespace, path string) {
 	defer r.Body.Close()
-	// The message body is opaque; its metadata travels in the
-	// BrokerProperties header.
+	// The body is opaque; its metadata travels in BrokerProperties.
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		AzureError(w, "BadRequest", "Failed to read body: "+err.Error(), http.StatusBadRequest)
@@ -217,11 +202,9 @@ func handleSBSendMessage(w http.ResponseWriter, r *http.Request, namespace, path
 	w.WriteHeader(http.StatusCreated)
 }
 
-// sbRESTReceiveDefaultTimeout is how long a receive without `timeout` waits
-// for a message.
 const sbRESTReceiveDefaultTimeout = 60 * time.Second
 
-// sbRESTReceiveTimeout reads the `timeout` query parameter, in whole seconds.
+// In whole seconds.
 func sbRESTReceiveTimeout(r *http.Request) (time.Duration, bool) {
 	v := r.URL.Query().Get("timeout")
 	if v == "" {
@@ -234,12 +217,11 @@ func sbRESTReceiveTimeout(r *http.Request) (time.Duration, bool) {
 	return time.Duration(n) * time.Second, true
 }
 
-// handleSBReceive answers Receive and Delete (DELETE …/messages/head) and
-// Peek-Lock (POST …/messages/head). Both wait up to `timeout` for a message
-// to become receivable and answer 204 when none does.
+// Both wait up to `timeout` for a receivable message and answer 204 when none
+// arrives.
 func handleSBReceive(w http.ResponseWriter, r *http.Request, namespace, path string, peekLock bool) {
-	// The REST plane has no way to accept a session, so it cannot receive from
-	// an entity whose messages only a session's lock holder may take.
+	// The REST plane cannot accept a session, so it cannot receive from an entity
+	// that only a session lock holder may take from.
 	if !sbIsDeadLetterPath(path) && sbSettings(namespace, path).requiresSession {
 		AzureError(w, "BadRequest", errSBSessionfulEntity.Error(), http.StatusBadRequest)
 		return
@@ -262,15 +244,15 @@ func handleSBReceive(w http.ResponseWriter, r *http.Request, namespace, path str
 		writeSBMessageResponse(w, m, "", http.StatusOK)
 		return
 	}
-	// Service Bus emits Location as `https://{ns}/{entity}/messages/{messageID}/{lockToken}`;
-	// the client DELETEs it verbatim to complete the message.
+	// Service Bus emits Location as
+	// `https://{ns}/{entity}/messages/{messageID}/{lockToken}`; the client DELETEs
+	// it verbatim to complete the message.
 	location := fmt.Sprintf("https://%s/%s/messages/%s/%s", r.Host, sbRESTEntityPath(path), m.ID, m.Receipt)
 	writeSBMessageResponse(w, m, location, http.StatusCreated)
 }
 
-// sbAwaitReceive receives one message from path, waiting up to timeout for
-// one to be sent, scheduled into view, abandoned or freed by an expired lock.
-// It returns nothing when the timeout ends or the caller goes away first.
+// Waits for a message to be sent, scheduled into view, abandoned or freed by an
+// expired lock; returns nothing on timeout or when the caller leaves.
 func sbAwaitReceive(ctx context.Context, namespace, path string, timeout time.Duration, peekLock bool) []msgq.Message[sbPayload] {
 	sim.DeclareWait(ctx, timeout)
 	var got []msgq.Message[sbPayload]
@@ -283,16 +265,14 @@ func sbAwaitReceive(ctx context.Context, namespace, path string, timeout time.Du
 	return got
 }
 
-// sbArmStoredQueues arms the next change of every stored entity, so its AMQP
-// receivers are handed each scheduled or locked message when it becomes
-// receivable, which the timers of the process that stored them no longer do.
+// The timers of the process that stored them are gone, so arm each entity's
+// next change for its AMQP receivers.
 func sbArmStoredQueues() {
 	for _, kv := range sbQueueDurable.ListPrefix("") {
 		sbReceivers.Arm(kv.ID)
 	}
 }
 
-// sbRESTEntityPath spells a store path the way the REST plane addresses it.
 func sbRESTEntityPath(path string) string {
 	dead := sbIsDeadLetterPath(path)
 	if dead {
@@ -307,8 +287,7 @@ func sbRESTEntityPath(path string) string {
 	return path
 }
 
-// handleSBLockedMessage settles a locked message: DELETE completes it, PUT
-// unlocks it, POST renews its lock.
+// DELETE completes, PUT unlocks, POST renews the lock.
 func handleSBLockedMessage(w http.ResponseWriter, r *http.Request, namespace, path, messageID, lockToken string) {
 	if !sbLockNamesMessage(namespace, path, messageID, lockToken) {
 		AzureError(w, "MessageLockLost", errSBLockLost.Error(), http.StatusGone)
@@ -340,9 +319,7 @@ func handleSBLockedMessage(w http.ResponseWriter, r *http.Request, namespace, pa
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// sbLockNamesMessage reports whether lockToken is the live lock of the
-// message with the given id (or sequence number, which the REST API also
-// accepts in that position).
+// The REST API also accepts the sequence number in the id position.
 func sbLockNamesMessage(namespace, path, messageID, lockToken string) bool {
 	rec, _ := sbQueueDurable.Get(sbQueueKey(namespace, path))
 	m := rec.Queue.ByReceipt(lockToken, sbSettings(namespace, path).policy(), time.Now())
@@ -352,9 +329,8 @@ func sbLockNamesMessage(namespace, path, messageID, lockToken string) bool {
 	return m.ID == messageID || strconv.FormatUint(m.Seq, 10) == messageID
 }
 
-// writeSBMessageResponse emits the Receive response: the BrokerProperties
-// header — the sender's properties with the broker's own over them — the
-// Location header for a Peek-Lock, and the body.
+// BrokerProperties is the sender's properties with the broker's own over them;
+// Location only for a Peek-Lock.
 func writeSBMessageResponse(w http.ResponseWriter, m msgq.Message[sbPayload], location string, status int) {
 	brokerProps := map[string]any{}
 	if m.Payload.BrokerHeader != "" {
@@ -388,6 +364,6 @@ func writeSBMessageResponse(w http.ResponseWriter, m msgq.Message[sbPayload], lo
 	}
 	w.WriteHeader(status)
 	// A failed write after the status line means the client went away; the
-	// response is committed and the request logger records the close.
+	// request logger records the close.
 	_, _ = w.Write(m.Payload.Body)
 }

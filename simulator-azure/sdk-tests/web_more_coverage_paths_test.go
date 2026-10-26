@@ -1,15 +1,10 @@
 package azure_sdk_test
 
-// Literal ARM path coverage doc for the broadened Microsoft.Web (App Service /
-// Web Apps) ratchet. The armappservice SDK round-trips in web_more_test.go
-// exercise these routes, but the azure-sdk-for-go ARM clients build their
-// request URLs internally, so the literal "METHOD /path" tokens never appear in
-// the test source. This block records every route mounted in
-// simulator-azure/web_more.go and simulator-azure/web_more_extra.go so the
-// simulator-testing-contract hook (which greps changed test files for each
-// route's literal path) can see the coverage. Each line is a real registered
-// route; site-level handlers and their /slots/{slot} mirrors share one handler
-// keyed by the resource ID.
+// The ARM clients build request URLs internally, so the literal routes these
+// tests drive never appear in test source. List them for
+// scripts/check-simulator-tests.sh, which matches a newly mounted route's
+// literal path in the changed test files. Site handlers and their
+// /slots/{slot} mirrors share one handler keyed by resource ID.
 //
 //   DELETE /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Web/sites/{siteName}/deployments/{id}
 //   DELETE /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Web/sites/{siteName}/functions/{functionName}

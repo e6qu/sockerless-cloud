@@ -15,24 +15,22 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
-// Event Grid proves a webhook endpoint wants its events before it delivers
-// any. Creating a subscription, or pointing one at a new endpoint, is a
-// long-running operation: an Event Grid schema subscription sends the endpoint
-// a SubscriptionValidationEvent and succeeds when the response echoes its
-// validationCode as validationResponse; an endpoint that answers without the
-// echo leaves the subscription AwaitingManualAction until someone GETs the
-// event's validationUrl, which stays valid for five minutes. A CloudEvents
-// subscription runs the CloudEvents abuse-protection handshake instead: an
-// OPTIONS request carrying WebHook-Request-Origin, which the endpoint allows by
-// answering WebHook-Allowed-Origin. Any other answer fails the subscription.
+// Event Grid proves a webhook wants its events before delivering any. Creating
+// a subscription, or pointing one at a new endpoint, is a long-running
+// operation: an Event Grid schema subscription sends a
+// SubscriptionValidationEvent and succeeds when the response echoes its
+// validationCode; without the echo the subscription waits AwaitingManualAction
+// until someone GETs the event's validationUrl, valid for five minutes. A
+// CloudEvents subscription instead sends an OPTIONS with
+// WebHook-Request-Origin, which the endpoint allows with
+// WebHook-Allowed-Origin. Any other answer fails the subscription.
 
 const (
 	eventGridValidationWindow = 5 * time.Minute
 	eventGridRequestOrigin    = "eventgrid.azure.net"
 )
 
-// eventGridValidation is a webhook subscription's handshake awaiting a visit to
-// its validation URL, keyed by its validation code.
+// Keyed by validation code.
 type eventGridValidation struct {
 	Code           string    `json:"code"`
 	Token          string    `json:"token"`
@@ -59,8 +57,7 @@ func registerEventGridValidation(srv *sim.Server) {
 	srv.HandleFunc("GET /eventsubscriptions/{eventSubscriptionName}/validate", handleEventGridValidationURL)
 }
 
-// eventGridNeedsValidation reports whether a create or update of es must run
-// the handshake: its destination is a webhook it has not already validated.
+// A webhook destination not already validated needs the handshake.
 func eventGridNeedsValidation(es EventGridEventSubscription, prior *EventGridEventSubscription) bool {
 	dest, _ := es.Properties["destination"].(map[string]any)
 	if endpointType, _ := dest["endpointType"].(string); !strings.EqualFold(endpointType, "WebHook") {
@@ -75,8 +72,6 @@ func eventGridNeedsValidation(es EventGridEventSubscription, prior *EventGridEve
 	return eventGridWebhookEndpoint(*prior) != eventGridWebhookEndpoint(es)
 }
 
-// startEventGridValidation runs es's handshake in the background and returns
-// the operation that reports it.
 func startEventGridValidation(r *http.Request, es EventGridEventSubscription) string {
 	opID := sim.NewUUID()
 	azureAsyncOps.Put(opID, AsyncOperationStatus{
@@ -94,7 +89,6 @@ func startEventGridValidation(r *http.Request, es EventGridEventSubscription) st
 	return opID
 }
 
-// writeEventGridValidationAccepted advertises the handshake's operation.
 func writeEventGridValidationAccepted(w http.ResponseWriter, r *http.Request, location, opID string) {
 	if location == "" {
 		location = "global"
@@ -144,9 +138,7 @@ func eventGridHandshake(es EventGridEventSubscription, opID, code, token, valida
 	}
 }
 
-// eventGridPostValidationEvent delivers the SubscriptionValidationEvent and
-// returns the validationResponse the endpoint echoed, if any. A transport
-// failure or a status outside 2xx is an error.
+// A transport failure or a status outside 2xx is an error.
 func eventGridPostValidationEvent(es EventGridEventSubscription, endpoint, code, validationURL string) (string, error) {
 	payload, err := json.Marshal([]map[string]any{{
 		"id":        sim.NewUUID(),
@@ -195,8 +187,6 @@ func eventGridPostValidationEvent(es EventGridEventSubscription, endpoint, code,
 	return answer.ValidationResponse, nil
 }
 
-// eventGridAbuseProtectionHandshake runs the CloudEvents webhook validation:
-// the endpoint must allow Event Grid's origin.
 func eventGridAbuseProtectionHandshake(endpoint string) error {
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodOptions, endpoint, nil)
 	if err != nil {
@@ -242,8 +232,6 @@ func eventGridFailValidation(subscriptionID, opID, message string) {
 	})
 }
 
-// handleEventGridValidationURL completes a manual validation: a GET of the
-// validationUrl a SubscriptionValidationEvent carried.
 func handleEventGridValidationURL(w http.ResponseWriter, r *http.Request) {
 	code := r.URL.Query().Get("id")
 	v, ok := eventGridValidations.Get(code)

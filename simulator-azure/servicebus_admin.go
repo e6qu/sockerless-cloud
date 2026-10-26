@@ -324,9 +324,8 @@ func sbAdminIsMessagePath(segs []string) bool {
 }
 
 func sbAdminNamespaceID(namespace string) string {
-	// A namespace name is a hostname, so one row answers — from an index keyed
-	// by the store's generation, because every Service Bus admin request
-	// resolves its namespace.
+	// A namespace name is a hostname, so one row answers, from a
+	// generation-keyed index because every admin request resolves its namespace.
 	if ns, ok := sbNamespacesByName.Lookup(sbNamespaces, namespace,
 		func(n SBNamespace) []string { return []string{n.Name} }); ok {
 		return ns.ID
@@ -437,8 +436,7 @@ func handleSBAdminListTopics(w http.ResponseWriter, r *http.Request, namespace s
 	prefix := sbAdminNamespaceID(namespace) + "/topics/"
 	var topics []SBTopic
 	for _, topic := range sbTopicsUnder(prefix) {
-		// A topic's own identifier ends at its name; anything deeper is a
-		// child resource, not a topic of this namespace.
+		// Anything deeper than the topic's name is a child resource.
 		if !strings.Contains(strings.TrimPrefix(topic.ID, prefix), "/") {
 			topics = append(topics, topic)
 		}
@@ -573,9 +571,8 @@ func handleSBAdminListRules(w http.ResponseWriter, r *http.Request, namespace, t
 	})
 }
 
-// sbDefaultQueueProperties returns the server-assigned property defaults
-// real Azure stamps on a queue when the client omits them. The ARM create
-// handler applies these first, then overlays the client's explicit values.
+// The defaults Azure stamps when the client omits them; the ARM create handler
+// overlays the client's values.
 func sbDefaultQueueProperties() map[string]any {
 	return map[string]any{
 		"status":                              "Active",
@@ -593,8 +590,7 @@ func sbDefaultQueueProperties() map[string]any {
 	}
 }
 
-// sbDefaultTopicProperties returns the server-assigned property defaults
-// real Azure stamps on a topic when the client omits them.
+// The defaults Azure stamps when the client omits them.
 func sbDefaultTopicProperties() map[string]any {
 	return map[string]any{
 		"status":                              "Active",
@@ -609,8 +605,7 @@ func sbDefaultTopicProperties() map[string]any {
 	}
 }
 
-// sbDefaultSubscriptionProperties returns the server-assigned property
-// defaults real Azure stamps on a subscription when the client omits them.
+// The defaults Azure stamps when the client omits them.
 func sbDefaultSubscriptionProperties() map[string]any {
 	return map[string]any{
 		"status":                                    "Active",
@@ -774,10 +769,8 @@ func sbAdminURL(r *http.Request, namespace, path string) string {
 	return fmt.Sprintf("%s://%s/%s", scheme, r.Host, strings.TrimPrefix(path, "/"))
 }
 
-// sbAdminQueueDescriptionFor renders a queue's admin-plane description.
-// MessageCount, ActiveMessageCount, DeadLetterMessageCount and
-// ScheduledMessageCount reflect the queue's data-plane state; the transfer
-// counts are zero because the simulator does not forward messages.
+// The message counts reflect the data plane; the transfer counts are zero
+// because the simulator does not auto-forward.
 func sbAdminQueueDescriptionFor(namespace, name string, q SBQueue) sbAdminQueueDescription {
 	scheduled, transferDead, transfer := sbScheduledCount(namespace, name), int32(0), int32(0)
 	size := sbQueueBytes(namespace, name)
@@ -816,8 +809,7 @@ func sbAdminQueueDescriptionFor(namespace, name string, q SBQueue) sbAdminQueueD
 	}
 }
 
-// sbAdminTopicDescriptionFor renders a topic's admin-plane description. A
-// topic keeps its messages in its subscriptions, so its size is theirs.
+// A topic keeps its messages in its subscriptions, so its size is theirs.
 func sbAdminTopicDescriptionFor(namespace, name string, topic SBTopic) sbAdminTopicDescription {
 	subs := sbAMQPTopicSubscriptions(namespace, name)
 	scheduled := sbTopicScheduledCount(namespace, name, subs)
@@ -849,8 +841,7 @@ func sbAdminTopicDescriptionFor(namespace, name string, topic SBTopic) sbAdminTo
 	}
 }
 
-// sbAdminSubscriptionDescriptionFor renders a topic subscription's admin-plane
-// description with real data-plane message counts, like the queue equivalent.
+// With real data-plane message counts, like the queue's.
 func sbAdminSubscriptionDescriptionFor(namespace, topic, subName string, sub SBSubscription) sbAdminSubscriptionDescription {
 	transferDead, transfer := int32(0), int32(0)
 	scheduled := sbScheduledCount(namespace, topic+"/"+subName)

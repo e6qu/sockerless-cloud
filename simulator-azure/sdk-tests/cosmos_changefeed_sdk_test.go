@@ -11,21 +11,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Cosmos change feed + conflict feed.
-//
-// The azcosmos SDK (v1.4.2) exposes no change-feed pager, so the faithful client
-// surface is the REST data plane: a documents read with the `A-IM: Incremental
-// feed` header, paged via `x-ms-max-item-count`, with the continuation carried
-// in `If-None-Match` and advanced in the response `etag`. These tests drive that
-// exact wire shape and assert faithful incremental semantics — a fresh feed
-// returns every document; after consuming, a new change returns only the new
-// document; no change returns 304.
-//
-// Conflict feed: /dbs/{db}/colls/{coll}/conflicts read. Single-region → always
-// empty (the correct faithful result), but the resource + shape round-trip.
+// azcosmos v1.4.2 has no change-feed pager, so these tests drive the REST data
+// plane as the feed works on the wire: a documents read with
+// `A-IM: Incremental feed`, paged by `x-ms-max-item-count`, the continuation
+// sent in `If-None-Match` and returned in `etag`. The conflict feed
+// (/dbs/{db}/colls/{coll}/conflicts) of a single-region account is empty.
 
-// cosmosChangeFeedPage issues one change-feed read and returns the documents,
-// the advanced continuation (response etag), and the HTTP status.
+// cosmosChangeFeedPage returns the documents, the advanced continuation (the
+// response etag) and the HTTP status.
 func cosmosChangeFeedPage(t *testing.T, account, coll, continuation string, maxItems int) ([]map[string]any, string, int) {
 	t.Helper()
 	req, err := http.NewRequest("GET", baseURL+"/dbs/cfdb/colls/"+coll+"/docs", nil)
@@ -76,7 +69,6 @@ func itoa(n int) string {
 	return string(b[i:])
 }
 
-// cosmosSeedDoc creates a document via the data plane.
 func cosmosSeedDoc(t *testing.T, account, coll, doc string) {
 	t.Helper()
 	resp := cosmosScript(t, "POST", account, "/dbs/cfdb/colls/"+coll+"/docs", doc, nil)
@@ -84,10 +76,9 @@ func cosmosSeedDoc(t *testing.T, account, coll, doc string) {
 	resp.Body.Close()
 }
 
-// TestCosmosChangeFeed_Incremental proves the faithful incremental semantics:
-// a fresh feed returns every document; after consuming with the returned
-// continuation, only a newly-created document comes back; and a read with the
-// current continuation when nothing changed is 304 Not Modified.
+// TestCosmosChangeFeed_Incremental: a fresh feed returns every document; from
+// the returned continuation only a newly created one comes back; with nothing
+// changed the read is 304 Not Modified.
 func TestCosmosChangeFeed_Incremental(t *testing.T) {
 	t.Parallel()
 	account := uniquename.Alnum("sdkcosmoschangefeed")
@@ -96,19 +87,17 @@ func TestCosmosChangeFeed_Incremental(t *testing.T) {
 	cosmosSeedDoc(t, account, coll, `{"id":"e1","pk":"p","seq":1}`)
 	cosmosSeedDoc(t, account, coll, `{"id":"e2","pk":"p","seq":2}`)
 
-	// Fresh feed → both documents, in creation order.
+	// Both documents, in creation order.
 	docs, cont, _ := cosmosChangeFeedPage(t, account, coll, "", 0)
 	require.Len(t, docs, 2, "fresh feed returns every document")
 	assert.Equal(t, "e1", docs[0]["id"])
 	assert.Equal(t, "e2", docs[1]["id"])
 	require.NotEmpty(t, cont, "feed advances a continuation")
 
-	// No change since the continuation → 304.
 	docs, cont2, status := cosmosChangeFeedPage(t, account, coll, cont, 0)
 	assert.Equal(t, http.StatusNotModified, status, "no changes → 304 Not Modified")
 	require.Empty(t, docs)
 
-	// A new document → only it comes back from the continuation.
 	cosmosSeedDoc(t, account, coll, `{"id":"e3","pk":"p","seq":3}`)
 	docs, cont3, status := cosmosChangeFeedPage(t, account, coll, cont2, 0)
 	require.Equal(t, http.StatusOK, status)
@@ -116,13 +105,12 @@ func TestCosmosChangeFeed_Incremental(t *testing.T) {
 	assert.Equal(t, "e3", docs[0]["id"])
 	require.NotEmpty(t, cont3)
 
-	// And it's exhausted again.
 	_, _, status = cosmosChangeFeedPage(t, account, coll, cont3, 0)
 	assert.Equal(t, http.StatusNotModified, status)
 }
 
-// TestCosmosChangeFeed_Paginated proves max-item-count paging: the feed walks
-// every document one page at a time via the advancing continuation, in order.
+// TestCosmosChangeFeed_Paginated walks every document one page at a time
+// through the advancing continuation, in order.
 func TestCosmosChangeFeed_Paginated(t *testing.T) {
 	t.Parallel()
 	account := uniquename.Alnum("sdkcosmoschangefeedpage")
@@ -153,9 +141,8 @@ func TestCosmosChangeFeed_Paginated(t *testing.T) {
 	assert.Equal(t, want, got, "the feed walks every doc in order, one per page")
 }
 
-// TestCosmosConflictFeed_EmptySingleRegion proves the conflict-feed resource
-// exists and returns an empty, correctly-shaped feed for the single-region sim.
-// References /dbs/{database}/colls/{container}/conflicts (the route token).
+// TestCosmosConflictFeed_EmptySingleRegion: the conflict feed of a
+// single-region account is empty and correctly shaped.
 func TestCosmosConflictFeed_EmptySingleRegion(t *testing.T) {
 	t.Parallel()
 	account := "sdkcosmosconflicts"

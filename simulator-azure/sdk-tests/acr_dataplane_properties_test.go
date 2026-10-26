@@ -11,7 +11,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// SDK coverage for the Azure Container Registry data plane's properties APIs:
+// Everything the Azure Container Registry properties APIs report is read from
+// the registry: pushes and deletes through the Docker protocol move the counts,
+// digests, sizes and tags. Only the attributes are client-set, and the
+// registry honours them.
 //
 //	GET /acr/v1/{name}
 //	PATCH /acr/v1/{name}
@@ -22,11 +25,6 @@ import (
 //	GET /acr/v1/{name}/_tags/{reference}
 //	PATCH /acr/v1/{name}/_tags/{reference}
 //	DELETE /acr/v1/{name}/_tags/{reference}
-//
-// Everything these report is read from the registry: what it holds decides the
-// counts, the digests, the sizes and the tags, and pushing or deleting through
-// the Docker protocol moves them. The one thing they add is the attributes a
-// client sets, which the registry then honours.
 func TestACR_DataPlanePropertiesReadTheRegistry(t *testing.T) {
 	t.Parallel()
 	fixture := newACRRegistryFixture(t, "acr-props-rg", "acrpropsregistry",
@@ -35,8 +33,8 @@ func TestACR_DataPlanePropertiesReadTheRegistry(t *testing.T) {
 	client, err := azcontainerregistry.NewClient(fixture.endpoint(), &fakeCredential{}, acrClientOptions())
 	require.NoError(t, err)
 
-	// A repository nothing was pushed to is not in the registry, which is the
-	// negative control for every count that follows.
+	// A repository nothing was pushed to is absent: the negative control for every
+	// count that follows.
 	_, err = client.GetRepositoryProperties(ctx, "sdk/absent", nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not in this registry")
@@ -48,8 +46,7 @@ func TestACR_DataPlanePropertiesReadTheRegistry(t *testing.T) {
 	require.NoError(t, err)
 	digest := *first.DockerContentDigest
 
-	// The repository describes what the registry holds: one manifest under one
-	// tag, and the same manifest counted once however many names point at it.
+	// One manifest under one tag, counted once however many names point at it.
 	props, err := client.GetRepositoryProperties(ctx, repo, nil)
 	require.NoError(t, err)
 	require.NotNil(t, props.ManifestCount)
@@ -58,7 +55,6 @@ func TestACR_DataPlanePropertiesReadTheRegistry(t *testing.T) {
 	require.NotNil(t, props.CreatedOn)
 	assert.False(t, props.CreatedOn.IsZero(), "the registry knows when it received the manifest")
 
-	// A second tag on the same content adds a tag, not a manifest.
 	_, err = client.UploadManifest(ctx, repo, "latest",
 		azcontainerregistry.ContentTypeApplicationVndDockerDistributionManifestV2JSON,
 		nopSeekCloser(strings.NewReader(acrAuthTestManifest)), nil)
@@ -69,8 +65,6 @@ func TestACR_DataPlanePropertiesReadTheRegistry(t *testing.T) {
 	assert.EqualValues(t, 1, *props.ManifestCount, "two names for one manifest is still one manifest")
 	assert.EqualValues(t, 2, *props.TagCount)
 
-	// The manifest reports the size of the document the registry stored and the
-	// tags currently pointing at it.
 	manifest, err := client.GetManifestProperties(ctx, repo, digest, nil)
 	require.NoError(t, err)
 	require.NotNil(t, manifest.Manifest)
@@ -82,21 +76,19 @@ func TestACR_DataPlanePropertiesReadTheRegistry(t *testing.T) {
 	}
 	assert.ElementsMatch(t, []string{"v1", "latest"}, tags)
 
-	// The manifest list is the same rows, keyed by digest.
 	listed, err := client.NewListManifestsPager(repo, nil).NextPage(ctx)
 	require.NoError(t, err)
 	require.Len(t, listed.Attributes, 1)
 	assert.Equal(t, digest, *listed.Attributes[0].Digest)
 
-	// A tag names the manifest it points at.
 	tag, err := client.GetTagProperties(ctx, repo, "v1", nil)
 	require.NoError(t, err)
 	require.NotNil(t, tag.Tag)
 	assert.Equal(t, digest, *tag.Tag.Digest)
 	assert.Equal(t, "v1", *tag.Tag.Name)
 
-	// The attributes are the state a client sets, and they come back on the
-	// next read rather than only in the response that set them.
+	// The attributes come back on the next read, not only in the response that
+	// set them.
 	_, err = client.UpdateTagProperties(ctx, repo, "v1",
 		&azcontainerregistry.ClientUpdateTagPropertiesOptions{
 			Value: &azcontainerregistry.TagWriteableProperties{CanDelete: to.Ptr(false)},
@@ -107,7 +99,7 @@ func TestACR_DataPlanePropertiesReadTheRegistry(t *testing.T) {
 	assert.False(t, *tag.Tag.ChangeableAttributes.CanDelete)
 	assert.True(t, *tag.Tag.ChangeableAttributes.CanRead, "a member the update left out keeps the value it had")
 
-	// And the registry honours them: a tag that cannot be deleted is not.
+	// The registry honours them: an undeletable tag is not deleted.
 	_, err = client.DeleteTag(ctx, repo, "v1", nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "deletion disabled")
@@ -118,8 +110,7 @@ func TestACR_DataPlanePropertiesReadTheRegistry(t *testing.T) {
 		})
 	require.NoError(t, err)
 
-	// Deleting a tag removes the name and leaves the manifest addressable by
-	// digest — untagged, not gone.
+	// Deleting a tag leaves the manifest addressable by digest: untagged, not gone.
 	_, err = client.DeleteTag(ctx, repo, "v1", nil)
 	require.NoError(t, err)
 	_, err = client.GetTagProperties(ctx, repo, "v1", nil)
@@ -133,7 +124,6 @@ func TestACR_DataPlanePropertiesReadTheRegistry(t *testing.T) {
 	require.NoError(t, err)
 	assert.EqualValues(t, 1, *props.TagCount, "the deleted tag is gone from the count")
 
-	// The manifest's own attributes work the same way.
 	_, err = client.UpdateManifestProperties(ctx, repo, digest,
 		&azcontainerregistry.ClientUpdateManifestPropertiesOptions{
 			Value: &azcontainerregistry.ManifestWriteableProperties{CanWrite: to.Ptr(false)},
@@ -143,7 +133,7 @@ func TestACR_DataPlanePropertiesReadTheRegistry(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, *manifest.Manifest.ChangeableAttributes.CanWrite)
 
-	// So do the repository's, and a repository that cannot be deleted is not.
+	// The repository's attributes work the same way.
 	_, err = client.UpdateRepositoryProperties(ctx, repo,
 		&azcontainerregistry.ClientUpdateRepositoryPropertiesOptions{
 			Value: &azcontainerregistry.RepositoryWriteableProperties{CanDelete: to.Ptr(false)},
@@ -161,8 +151,7 @@ func TestACR_DataPlanePropertiesReadTheRegistry(t *testing.T) {
 	_, err = client.DeleteRepository(ctx, repo, nil)
 	require.NoError(t, err)
 
-	// Deleting the repository takes everything under it, so the registry no
-	// longer holds the manifest either.
+	// Deleting the repository takes the manifest with it.
 	_, err = client.GetRepositoryProperties(ctx, repo, nil)
 	require.Error(t, err)
 	_, err = client.GetManifestProperties(ctx, repo, digest, nil)

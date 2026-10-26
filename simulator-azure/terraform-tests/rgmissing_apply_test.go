@@ -8,10 +8,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestTerraformMissingResourceGroupRefusesApply applies an
-// azurerm_user_assigned_identity whose resource group was never created. Azure
-// Resource Manager refuses the create with ResourceGroupNotFound, so the apply
-// fails and the identity never reaches the state.
+// TestTerraformMissingResourceGroupRefusesApply: Azure Resource Manager refuses
+// an identity in a group that was never created with ResourceGroupNotFound, so
+// the apply fails and the identity never reaches the state.
 func TestTerraformMissingResourceGroupRefusesApply(t *testing.T) {
 	dir := tfWorkspaceFrom(t, mustAbs("rgmissing"))
 	out, err := runTimed(t, "terraform init", terraformCmd(dir, "init"))

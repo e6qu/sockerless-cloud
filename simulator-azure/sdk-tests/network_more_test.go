@@ -12,10 +12,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestNetwork_PublicIPDdosAndCloudServiceReservation covers the public-IP
-// operations beyond CRUD: the DDoS protection status (the sim does not model
-// DDoS plans, so an IP is reported as not workload-protected) and the
-// cloud-service reserve / disassociate operations.
+// TestNetwork_PublicIPDdosAndCloudServiceReservation covers the DDoS protection
+// status (no DDoS plan, so not workload-protected) and the cloud service
+// reserve and disassociate operations.
 func TestNetwork_PublicIPDdosAndCloudServiceReservation(t *testing.T) {
 	t.Parallel()
 	rg := "pip-ops-rg"
@@ -62,10 +61,9 @@ func TestNetwork_PublicIPDdosAndCloudServiceReservation(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestNetwork_LoadBalancerExtraOps covers the load-balancer operations beyond
-// CRUD: the associated network-interface list (empty with no NICs), the VIP
-// swap, the inbound-NAT port-mapping query, the per-rule health (zero backends
-// → 0 up / 0 down) and the NIC→IP-based pool migration.
+// TestNetwork_LoadBalancerExtraOps covers the load balancer operations beyond
+// CRUD: the network interface list, the VIP swap, the inbound NAT port-mapping
+// query, per-rule health and the migration to an IP-based pool.
 func TestNetwork_LoadBalancerExtraOps(t *testing.T) {
 	t.Parallel()
 	rg := "lb-extra-rg"
@@ -127,7 +125,7 @@ func TestNetwork_LoadBalancerExtraOps(t *testing.T) {
 	_, err = lbPoller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 
-	// LoadBalancerNetworkInterfaces_List — no NICs reference the pool.
+	// No NICs reference the pool.
 	nicListClient, err := armnetwork.NewLoadBalancerNetworkInterfacesClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	nicPager := nicListClient.NewListPager(rg, "extra-lb", nil)
@@ -136,7 +134,7 @@ func TestNetwork_LoadBalancerExtraOps(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, nicPage.Value)
 
-	// LoadBalancers_SwapPublicIpAddresses — reassign the frontend's public IP.
+	// Reassign the frontend's public IP.
 	swapPoller, err := lbClient.BeginSwapPublicIPAddresses(ctx, "eastus", armnetwork.LoadBalancerVipSwapRequest{
 		FrontendIPConfigurations: []*armnetwork.LoadBalancerVipSwapRequestFrontendIPConfiguration{{
 			ID: to.Ptr(frontendID),
@@ -155,7 +153,7 @@ func TestNetwork_LoadBalancerExtraOps(t *testing.T) {
 	require.NotNil(t, gotLB.Properties.FrontendIPConfigurations[0].Properties.PublicIPAddress)
 	assert.Equal(t, *pip2, *gotLB.Properties.FrontendIPConfigurations[0].Properties.PublicIPAddress.ID)
 
-	// LoadBalancers_ListInboundNatRulePortMappings — no inbound NAT rules.
+	// The load balancer has no inbound NAT rules.
 	mapPoller, err := lbClient.BeginListInboundNatRulePortMappings(ctx, rg, "extra-lb", "pool", armnetwork.QueryInboundNatRulePortMappingRequest{
 		IPAddress: to.Ptr("10.0.0.9"),
 	}, nil)
@@ -164,7 +162,7 @@ func TestNetwork_LoadBalancerExtraOps(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, mapResp.InboundNatRulePortMappings)
 
-	// LoadBalancerLoadBalancingRules_Health — zero backends → 0 up / 0 down.
+	// Zero backends: 0 up, 0 down.
 	ruleClient, err := armnetwork.NewLoadBalancerLoadBalancingRulesClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	healthPoller, err := ruleClient.BeginHealth(ctx, rg, "extra-lb", "rule", nil)
@@ -176,7 +174,6 @@ func TestNetwork_LoadBalancerExtraOps(t *testing.T) {
 	assert.Equal(t, int32(0), *healthResp.Up)
 	assert.Equal(t, int32(0), *healthResp.Down)
 
-	// LoadBalancers_MigrateToIpBased — the named pool exists, so it migrates.
 	migResp, err := lbClient.MigrateToIPBased(ctx, rg, "extra-lb", &armnetwork.LoadBalancersClientMigrateToIPBasedOptions{
 		Parameters: &armnetwork.MigrateLoadBalancerToIPBasedRequest{Pools: []*string{to.Ptr("pool")}},
 	})
@@ -185,19 +182,11 @@ func TestNetwork_LoadBalancerExtraOps(t *testing.T) {
 	assert.Equal(t, "pool", *migResp.MigratedPools.MigratedPools[0])
 }
 
-// TestNetwork_SubnetLinksAndVnetDdos covers the subnet resource/service
-// association link reads (empty for a subnet with no delegated services) and
-// the virtual-network DDoS protection status (empty with no attached public
-// IPs).
-//
-// The virtual network and subnet are created first, and that is the point of
-// the test rather than setup detail. An "empty collection" assertion against a
-// subnet that was never created is satisfied by a handler that answers
-// {"value":[]} for every URL of the right shape — which is what these two
-// handlers were — and it simultaneously blesses the simulator answering 200
-// where the real service answers ResourceNotFound. So the empty reads run
-// against a subnet that exists, and the refusal for one that does not is
-// asserted beside them.
+// TestNetwork_SubnetLinksAndVnetDdos reads the subnet resource and service
+// association links (empty with no delegated services) and the virtual
+// network DDoS protection status (empty with no attached public IPs) on a
+// subnet that exists, and checks a missing subnet answers ResourceNotFound: a
+// handler answering {"value":[]} to any URL of that shape would otherwise pass.
 func TestNetwork_SubnetLinksAndVnetDdos(t *testing.T) {
 	t.Parallel()
 	rg := "links-rg"
@@ -239,9 +228,8 @@ func TestNetwork_SubnetLinksAndVnetDdos(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, svcResp.Value, "a subnet no service has delegated carries no service association links")
 
-	// The link collections belong to the subnet, so a subnet that does not
-	// exist has no collection to read. This is the discriminator that separates
-	// "genuinely empty" from "answers empty to anything".
+	// The link collections belong to the subnet, which separates "empty" from
+	// "answers empty to anything".
 	_, err = navClient.List(ctx, rg, "links-vnet", "no-such-subnet", nil)
 	requireAzureNotFound(t, err, "resource navigation links under a subnet that does not exist")
 	_, err = svcClient.List(ctx, rg, "links-vnet", "no-such-subnet", nil)
@@ -252,8 +240,7 @@ func TestNetwork_SubnetLinksAndVnetDdos(t *testing.T) {
 	ddosPager, err := ddosPoller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 	require.NotNil(t, ddosPager)
-	// The operation's result is the paged list, so it has to be drained: a
-	// non-nil pager is produced by the SDK whatever the service answered.
+	// Drain the pager: the SDK returns a non-nil pager whatever the service said.
 	statuses := 0
 	for ddosPager.More() {
 		page, err := ddosPager.NextPage(ctx)
@@ -264,10 +251,8 @@ func TestNetwork_SubnetLinksAndVnetDdos(t *testing.T) {
 		"no public IP is attached to this network, so no address has a DDoS protection status to report")
 }
 
-// requireAzureNotFound asserts a call was refused with Azure's ResourceNotFound
-// rather than merely failing: a transport error, a 500, or a deserialization
-// failure all satisfy a bare require.Error and none of them prove the service
-// looked the resource up.
+// requireAzureNotFound demands ResourceNotFound: a transport error, a 500 or a
+// deserialization failure would satisfy a bare require.Error.
 func requireAzureNotFound(t *testing.T, err error, what string) {
 	t.Helper()
 	require.Error(t, err, "%s must be refused", what)
@@ -277,9 +262,9 @@ func requireAzureNotFound(t *testing.T, err error, what string) {
 	require.Equal(t, "ResourceNotFound", respErr.ErrorCode, "%s must be refused as ResourceNotFound, got %v", what, err)
 }
 
-// TestNetwork_InterfaceLoadBalancerAssociations exercises the bidirectional
-// load-balancer ⇄ network-interface association lists with a real network
-// interface whose IP configuration joins the load balancer's backend pool.
+// TestNetwork_InterfaceLoadBalancerAssociations: a network interface whose IP
+// configuration joins the load balancer's backend pool shows in both
+// association lists.
 func TestNetwork_InterfaceLoadBalancerAssociations(t *testing.T) {
 	t.Parallel()
 	rg := "assoc-rg"
@@ -342,7 +327,6 @@ func TestNetwork_InterfaceLoadBalancerAssociations(t *testing.T) {
 	_, err = nicPoller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 
-	// NetworkInterfaceLoadBalancers_List — the LB whose pool the NIC joined.
 	nicLBClient, err := armnetwork.NewInterfaceLoadBalancersClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	nicLBPager := nicLBClient.NewListPager(rg, "assoc-nic", nil)
@@ -352,7 +336,6 @@ func TestNetwork_InterfaceLoadBalancerAssociations(t *testing.T) {
 	require.Len(t, nicLBPage.Value, 1)
 	assert.Equal(t, "assoc-lb", *nicLBPage.Value[0].Name)
 
-	// LoadBalancerNetworkInterfaces_List — the NIC referencing the LB's pool.
 	lbNICClient, err := armnetwork.NewLoadBalancerNetworkInterfacesClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	lbNICPager := lbNICClient.NewListPager(rg, "assoc-lb", nil)

@@ -13,13 +13,10 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// Workflow Definition Language expressions, as the Logic Apps expression
-// functions reference defines them. A string that starts with @ is one
-// expression, @@ escapes a literal @, and @{...} interpolates an expression's
-// value into a string. A function the evaluator does not implement fails the
-// evaluation with InvalidTemplate, naming it.
+// Workflow Definition Language expressions: a string starting with @ is one
+// expression, @@ escapes a literal @, and @{...} interpolates. An
+// unimplemented function fails with InvalidTemplate, naming it.
 
-// evaluate resolves every expression in a definition value.
 func (run *logicRun) evaluate(v any) (any, error) {
 	switch t := v.(type) {
 	case string:
@@ -53,9 +50,8 @@ type logicPredicateSpec struct {
 	args []any
 }
 
-// logicPredicate recognizes the designer's condition object — a single key
-// naming a logical or comparison function, whose value is its arguments —
-// such as {"and": [{"equals": ["@variables('x')", 1]}]}.
+// The designer's condition object: one key naming a logical or comparison
+// function, its value the arguments, as {"and": [{"equals": ["@variables('x')", 1]}]}.
 func logicPredicate(m map[string]any) (logicPredicateSpec, bool) {
 	if len(m) != 1 {
 		return logicPredicateSpec{}, false
@@ -73,8 +69,8 @@ func logicPredicate(m map[string]any) (logicPredicateSpec, bool) {
 	return logicPredicateSpec{}, false
 }
 
-// evaluateCondition evaluates an If action's expression: an expression
-// string, or the designer's condition object, nested to any depth.
+// An expression string, or the designer's condition object nested to any
+// depth.
 func (run *logicRun) evaluateCondition(v any) (any, error) {
 	m, ok := v.(map[string]any)
 	if !ok {
@@ -126,8 +122,7 @@ func (run *logicRun) evaluateString(s string) (any, error) {
 	}
 }
 
-// logicMatchingBrace finds the brace closing an interpolation, skipping
-// quoted strings.
+// Skips quoted strings.
 func logicMatchingBrace(s string, from int) int {
 	depth, quoted := 1, false
 	for i := from; i < len(s); i++ {
@@ -311,8 +306,7 @@ func (p *logicParser) primary() (any, error) {
 	}
 }
 
-// logicIndex reads a property or element. The ? operator makes a missing
-// property null instead of an error.
+// The ? operator makes a missing property null instead of an error.
 func logicIndex(value, index any, optional bool) (any, error) {
 	switch v := value.(type) {
 	case map[string]any:
@@ -442,7 +436,6 @@ func logicStringArg(name string, v any) (string, error) {
 	return s, nil
 }
 
-// logicCall runs one expression function.
 func logicCall(run *logicRun, name string, args []any) (any, error) {
 	switch name {
 	case "equals":
@@ -802,8 +795,7 @@ func logicCall(run *logicRun, name string, args []any) (any, error) {
 	return nil, logicErrorf("The template function '%s' is not defined or not valid.", name)
 }
 
-// logicDotNetLayout translates the .NET format strings utcNow accepts for
-// its common specifiers.
+// The .NET format strings utcNow accepts, for the common specifiers.
 func logicDotNetLayout(format string) string {
 	switch format {
 	case "", "o":

@@ -12,9 +12,8 @@ import (
 )
 
 // TestEventHubsARM_SDKNamespaceLifecycleAndMessagingSurfaces exercises the
-// Event Hubs namespace list-by-subscription / PATCH / private endpoint
-// connection / network rule set surfaces plus the authorization-rule key
-// operations through the official armeventhub SDK.
+// Azure Event Hubs namespace list, PATCH, private endpoint connections, network
+// rule set and authorization rule keys through armeventhub.
 func TestEventHubsARM_SDKNamespaceLifecycleAndMessagingSurfaces(t *testing.T) {
 	t.Parallel()
 	rg := "eh-msg-rg"
@@ -43,7 +42,6 @@ func TestEventHubsARM_SDKNamespaceLifecycleAndMessagingSurfaces(t *testing.T) {
 		}
 	})
 
-	// List by subscription includes the namespace just created.
 	subPager := namespaces.NewListPager(nil)
 	foundInSub := false
 	for subPager.More() {
@@ -57,7 +55,6 @@ func TestEventHubsARM_SDKNamespaceLifecycleAndMessagingSurfaces(t *testing.T) {
 	}
 	assert.True(t, foundInSub, "namespace should appear in list-by-subscription")
 
-	// PATCH the namespace tags.
 	updated, err := namespaces.Update(ctx, rg, ns, armeventhub.EHNamespace{
 		Tags: map[string]*string{"env": to.Ptr("prod"), "team": to.Ptr("messaging")},
 	}, nil)
@@ -65,7 +62,7 @@ func TestEventHubsARM_SDKNamespaceLifecycleAndMessagingSurfaces(t *testing.T) {
 	require.NotNil(t, updated.Tags)
 	assert.Equal(t, "prod", *updated.Tags["env"])
 
-	// Authorization-rule key surfaces on the auto-provisioned root rule.
+	// The root rule is provisioned with the namespace.
 	keys, err := namespaces.ListKeys(ctx, rg, ns, "RootManageSharedAccessKey", nil)
 	require.NoError(t, err)
 	require.NotNil(t, keys.PrimaryConnectionString)
@@ -77,7 +74,6 @@ func TestEventHubsARM_SDKNamespaceLifecycleAndMessagingSurfaces(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, regen.PrimaryKey)
 
-	// Network rule set: default read, PUT update, list.
 	defaultRules, err := namespaces.GetNetworkRuleSet(ctx, rg, ns, nil)
 	require.NoError(t, err)
 	require.NotNil(t, defaultRules.Properties)
@@ -102,7 +98,6 @@ func TestEventHubsARM_SDKNamespaceLifecycleAndMessagingSurfaces(t *testing.T) {
 	require.Len(t, listRules.Value, 1)
 	assert.Equal(t, armeventhub.DefaultActionDeny, *listRules.Value[0].Properties.DefaultAction)
 
-	// Private endpoint connection round-trip.
 	pecClient := clientFactory.NewPrivateEndpointConnectionsClient()
 	pec, err := pecClient.CreateOrUpdate(ctx, rg, ns, "pec1", armeventhub.PrivateEndpointConnection{
 		Properties: &armeventhub.PrivateEndpointConnectionProperties{
@@ -132,7 +127,8 @@ func TestEventHubsARM_SDKNamespaceLifecycleAndMessagingSurfaces(t *testing.T) {
 	_, err = delPECPoller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 
-	// DR alias surfaces the primary namespace's authorization rules.
+	// The disaster recovery alias surfaces the primary namespace's authorization
+	// rules.
 	drClient := clientFactory.NewDisasterRecoveryConfigsClient()
 	drRulePager := drClient.NewListAuthorizationRulesPager(rg, ns, "sdkdr", nil)
 	require.True(t, drRulePager.More())

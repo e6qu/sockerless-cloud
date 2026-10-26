@@ -12,22 +12,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// cosmosEmulatorKey is the well-known Azure Cosmos DB emulator master key — the
-// same key used against Microsoft's emulator, so the differential test drives
-// the sim and the emulator with identical client code differing only in endpoint.
+// cosmosEmulatorKey is the published Azure Cosmos DB emulator master key, so
+// the differential tests drive the simulator and the emulator with the same
+// client code.
 const cosmosEmulatorKey = "C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b8mGGyPMbIZnqyMsEcaGQy67XIw/Jw=="
 
-// newCosmosSDKClient builds the REAL azcosmos client (NewClientWithKey) pointed
-// at a Cosmos endpoint — the sim or the emulator — differing only in the two
-// coordinates a client is configured with: the endpoint and the account key
-// that signs its requests. Driving the official SDK (not raw HTTP) is the
-// compliance proof: the sim must serve the SDK's account-discovery +
-// data-plane contract, signature verification included. `dial` names the
-// address the request is actually sent to when the endpoint is an account
-// hostname the test host does not resolve; the endpoint's own host is used
-// when it is empty.
-// cosmosRawSDKClient builds the same client without a *testing.T, for the
-// emulator warm-up that runs before any test does.
+// cosmosRawSDKClient builds the azcosmos client without a *testing.T, for the
+// emulator warm-up that runs before any test.
 func cosmosRawSDKClient(endpoint, key string) (*azcosmos.Client, error) {
 	cred, err := azcosmos.NewKeyCredential(key)
 	if err != nil {
@@ -39,6 +30,9 @@ func cosmosRawSDKClient(endpoint, key string) (*azcosmos.Client, error) {
 	})
 }
 
+// newCosmosSDKClient builds the azcosmos client for the simulator or the
+// emulator, differing only in endpoint and key. dial names the address to send
+// to when the endpoint's account hostname does not resolve on the test host.
 func newCosmosSDKClient(t *testing.T, endpoint, key, dial string) *azcosmos.Client {
 	t.Helper()
 	cred, err := azcosmos.NewKeyCredential(key)
@@ -51,14 +45,10 @@ func newCosmosSDKClient(t *testing.T, endpoint, key, dial string) *azcosmos.Clie
 	return c
 }
 
-// TestCosmos_RealSDKDataPlane proves the official azcosmos SDK performs the full
-// document lifecycle against the sim — account discovery, create/read/replace/
-// upsert/patch/delete, and a parameterized query — driven exactly as it would be
-// against real Cosmos (differing only in the endpoint). Previously the sim's data
-// plane could only be reached via a raw-HTTP `x-ms-cosmos-account` shortcut.
-//
-// CreateDatabase below drives the account-discovery route "GET /{$}" (azcosmos's
-// global-endpoint-manager reads the account root on its first request).
+// TestCosmos_RealSDKDataPlane drives the document lifecycle through the
+// official azcosmos SDK: account discovery (CreateDatabase first reads the
+// account root, "GET /{$}"), create, read, replace, upsert, patch, delete,
+// and a parameterized query.
 func TestCosmos_RealSDKDataPlane(t *testing.T) {
 	t.Parallel()
 	dataPlaneAccount := uniquename.Alnum("sdkdataplane")
@@ -78,10 +68,8 @@ func TestCosmos_RealSDKDataPlane(t *testing.T) {
 	container, err := client.NewContainer("sdkdb", "people")
 	require.NoError(t, err)
 
-	// A database and a container that were created read back; names nobody
-	// created do not. Answering 200 for any name told a caller that every
-	// database it asked about was already there — and contradicted the listing
-	// beside it, which enumerates only what exists.
+	// A created database and container read back; names nobody created do not,
+	// matching the listing.
 	_, err = db.Read(ctx, nil)
 	require.NoError(t, err, "a database that was created must read back")
 	_, err = container.Read(ctx, nil)
@@ -114,7 +102,6 @@ func TestCosmos_RealSDKDataPlane(t *testing.T) {
 		require.NoError(t, err, "CreateItem %s", p.ID)
 	}
 
-	// ReadItem round-trip.
 	got, err := container.ReadItem(ctx, pk, "a", nil)
 	require.NoError(t, err, "ReadItem")
 	var a person
@@ -122,24 +109,20 @@ func TestCosmos_RealSDKDataPlane(t *testing.T) {
 	assert.Equal(t, "alice", a.Name)
 	assert.NotEmpty(t, got.ETag, "read must surface the ETag header")
 
-	// ReplaceItem.
 	a.Score = 99
 	raw, _ := json.Marshal(a)
 	_, err = container.ReplaceItem(ctx, pk, "a", raw, nil)
 	require.NoError(t, err, "ReplaceItem")
 
-	// UpsertItem (new id).
 	raw, _ = json.Marshal(person{"c", "platform", 7, "carol"})
 	_, err = container.UpsertItem(ctx, pk, raw, nil)
 	require.NoError(t, err, "UpsertItem")
 
-	// PatchItem (increment).
 	patch := azcosmos.PatchOperations{}
 	patch.AppendIncrement("/score", 1)
 	_, err = container.PatchItem(ctx, pk, "b", patch, nil)
 	require.NoError(t, err, "PatchItem")
 
-	// Parameterized query.
 	pager := container.NewQueryItemsPager(
 		"SELECT * FROM c WHERE c.team = @t AND c.score > @s",
 		pk,
@@ -157,34 +140,30 @@ func TestCosmos_RealSDKDataPlane(t *testing.T) {
 			ids = append(ids, p.ID)
 		}
 	}
-	// a(99) and b(11) are >5; c(7) is >5 too. All platform with score>5.
+	// a(99), b(11) and c(7) all score above 5.
 	assert.ElementsMatch(t, []string{"a", "b", "c"}, ids)
 
-	// DeleteItem.
 	_, err = container.DeleteItem(ctx, pk, "c", nil)
 	require.NoError(t, err, "DeleteItem")
 	_, err = container.ReadItem(ctx, pk, "c", nil)
 	require.Error(t, err, "deleted item must not be readable")
 }
 
-// TestCosmos_AccountRootServesOnlyCosmosClients pins both halves of the API root
-// Azure Cosmos DB owns. The azcosmos SDK's global endpoint manager reads the
-// account root on its first request, so the route must keep answering account
-// properties for a real Cosmos client; a request carrying none of Cosmos's
-// data-plane markers is not addressed to Cosmos and must not be answered with
-// them. That second half is what lets the simulator hand a browser at the bare
-// origin to the console instead of a bare 404, without Cosmos losing the root.
+// TestCosmos_AccountRootServesOnlyCosmosClients: the azcosmos global endpoint
+// manager reads the account root on its first request, so the root answers
+// account properties to a Cosmos client; a request with none of Cosmos's
+// data-plane markers is not Cosmos's to answer, which leaves the bare origin to
+// the console.
 func TestCosmos_AccountRootServesOnlyCosmosClients(t *testing.T) {
 	t.Parallel()
 	dataPlaneAccount := uniquename.Alnum("sdkdataplane")
-	// A real Cosmos client: CreateDatabase drives account discovery first.
+	// CreateDatabase drives account discovery first.
 	client := cosmosSimClient(t, dataPlaneAccount)
 	_, err := client.CreateDatabase(ctx, azcosmos.DatabaseProperties{ID: "rootdiscoverydb"}, nil)
 	require.NoError(t, err, "CreateDatabase must still drive account discovery on GET /{$}")
 
-	// A plain client with none of Cosmos's markers. Redirects are not followed:
-	// where the console is registered the answer is a redirect to it, and where
-	// it is not the root is genuinely nothing — neither may be Cosmos's.
+	// Do not follow redirects: where the console is registered the root redirects
+	// to it, and where it is not the root serves nothing; neither is Cosmos's.
 	plain := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
 		return http.ErrUseLastResponse
 	}}

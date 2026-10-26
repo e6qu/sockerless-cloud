@@ -45,10 +45,7 @@ func armCall(t *testing.T, srv scheduleTestSimulator, method, path, body string)
 	return rec
 }
 
-// TestContainerAppsScheduledJobStartsExecutions drives the job schedule ticker
-// at chosen instants: a Schedule-triggered job starts an execution at each
-// occurrence of its UTC cronExpression, and a malformed cronExpression is
-// refused when the job is written.
+// A malformed cronExpression is refused when the job is written.
 func TestContainerAppsScheduledJobStartsExecutions(t *testing.T) {
 	srv := buildScheduleTestSimulator(t)
 	const jobPath = "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg/providers/Microsoft.App/jobs/nightly?api-version=2024-03-01"
@@ -147,9 +144,7 @@ func TestLogicRecurrenceOccurrences(t *testing.T) {
 	}
 }
 
-// TestLogicRecurrenceTriggerRunsTheWorkflow drives the recurrence ticker: an
-// enabled workflow's Recurrence trigger runs it at each occurrence, and a
-// disabled workflow does not run.
+// A disabled workflow does not run.
 func TestLogicRecurrenceTriggerRunsTheWorkflow(t *testing.T) {
 	srv := buildScheduleTestSimulator(t)
 	const path = "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg/providers/Microsoft.Logic/workflows/hourly?api-version=2019-05-01"

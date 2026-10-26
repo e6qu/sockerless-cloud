@@ -32,10 +32,10 @@ func TestResourceGroup_CreateAndGet(t *testing.T) {
 	assert.Equal(t, "test-rg-4a8c", *getResp.Name)
 }
 
-// Deleting a resource group is a long-running operation that takes the group's
-// resources with it. The poller follows the Location the delete answers with,
-// GET /subscriptions/{subscriptionId}/operationresults/{operationId}, until
-// the group is gone.
+// Deleting a resource group is a long-running operation that takes its
+// resources with it; the poller follows the Location
+// (/subscriptions/{subscriptionId}/operationresults/{operationId}) until the
+// group is gone.
 func TestResourceGroup_Delete(t *testing.T) {
 	t.Parallel()
 	client, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
@@ -86,8 +86,8 @@ func TestResourceGroup_DeleteMissingGroup(t *testing.T) {
 	assert.Equal(t, "ResourceGroupNotFound", missing.ErrorCode)
 }
 
-// Azure Resource Manager refuses a request for a resource in a group that does
-// not exist before the resource provider sees it.
+// Azure Resource Manager refuses a request for a resource in a missing group
+// before the resource provider sees it.
 func TestResourceGroup_MissingGroupRefusesItsResources(t *testing.T) {
 	t.Parallel()
 	identities, err := armmsi.NewUserAssignedIdentitiesClient(subscriptionID, &fakeCredential{}, clientOpts())

@@ -15,10 +15,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The marketplace catalog the Compute resource provider publishes under
-// locations/{location}/publishers: what it lists is what a machine's
-// imageReference resolves against, so a client discovers an image the same
-// way it does in Azure, and an image the catalog does not carry is refused
+// A machine's imageReference resolves against the marketplace catalog under
+// locations/{location}/publishers, and an image the catalog lacks is refused
 // with the resource provider's own NotFound.
 func TestCompute_VirtualMachineImagesCatalog(t *testing.T) {
 	t.Parallel()
@@ -66,8 +64,8 @@ func TestCompute_VirtualMachineImagesCatalog(t *testing.T) {
 	assert.Contains(t, err.Error(), "NotFound")
 }
 
-// A machine the catalog cannot resolve is refused at request validation, as
-// the Compute resource provider refuses it, never as a failed operation.
+// The Compute resource provider refuses an unresolvable image at request
+// validation, never as a failed operation.
 func TestCompute_VirtualMachineWithUnknownImageIsRefused(t *testing.T) {
 	t.Parallel()
 	const rg = "vm-noimage-rg"
@@ -92,8 +90,8 @@ func TestCompute_VirtualMachineWithUnknownImageIsRefused(t *testing.T) {
 	assert.Contains(t, err.Error(), "PlatformImageNotFound")
 }
 
-// runInGuest runs a command in the machine through the Custom Script
-// extension and returns what it wrote.
+// runInGuest runs a command through the Custom Script extension and returns
+// what it wrote.
 func runInGuest(t *testing.T, rg, vmName, name, command string) string {
 	t.Helper()
 	extClient, err := armcompute.NewVirtualMachineExtensionsClient(subscriptionID, &fakeCredential{}, clientOpts())
@@ -117,9 +115,8 @@ func runInGuest(t *testing.T, rg, vmName, name, command string) string {
 	return strings.Join(output, "\n")
 }
 
-// A machine runs the script its customData carries once at boot, and reaches
-// the Instance Metadata Service through its own network, which answers with
-// the machine's own identity and interface.
+// A machine runs its customData script once at boot and reaches the Instance
+// Metadata Service through its own network.
 func TestCompute_VirtualMachineRunsCustomDataAndReadsItsMetadata(t *testing.T) {
 	t.Parallel()
 	const rg = "vm-init-rg"
@@ -143,8 +140,8 @@ func TestCompute_VirtualMachineRunsCustomDataAndReadsItsMetadata(t *testing.T) {
 	require.NoError(t, err)
 	address := derefString(nic.Properties.IPConfigurations[0].Properties.PrivateIPAddress)
 
-	// The guest reaches the Instance Metadata Service at the endpoint its
-	// environment names, over plain TCP from a shell with no HTTP client.
+	// Reach the Instance Metadata Service over plain TCP from a shell with no
+	// HTTP client.
 	read := func(step, path string) string {
 		return runInGuest(t, rg, vmName, step, `bash -c 'host=${AZURE_INSTANCE_METADATA_ENDPOINT#http://}; host=${host%%/*}; `+
 			`exec 3<>/dev/tcp/$host/80; printf "GET `+path+` HTTP/1.0\r\nHost: 169.254.169.254\r\nMetadata: true\r\n\r\n" >&3; cat <&3'`)
@@ -155,8 +152,7 @@ func TestCompute_VirtualMachineRunsCustomDataAndReadsItsMetadata(t *testing.T) {
 	assert.Contains(t, imds, `"userData":"`+base64.StdEncoding.EncodeToString([]byte("for-imds-only"))+`"`)
 	assert.Contains(t, imds, `"offer":"debian-12"`)
 
-	// The interface's MAC is the one the network interface resource reports,
-	// and the guest's own.
+	// The guest's MAC is the one the network interface resource reports.
 	mac := strings.ReplaceAll(derefString(nic.Properties.MacAddress), "-", "")
 	require.NotEmpty(t, mac)
 	assert.Contains(t, imds, `"macAddress":"`+mac+`"`)
@@ -177,8 +173,8 @@ func TestCompute_VirtualMachineRunsCustomDataAndReadsItsMetadata(t *testing.T) {
 	assert.Contains(t, network, `"macAddress":"`+mac+`"`)
 	attested := read("attested", "/metadata/attested/document?api-version=2020-09-01&nonce=1234567890")
 	assert.Contains(t, attested, `"encoding":"pkcs7"`)
-	// The nonce is inside what was signed, so a document minted for one
-	// challenge cannot answer another.
+	// The nonce is inside what was signed, so a document minted for one challenge
+	// cannot answer another.
 	signed := regexp.MustCompile(`"signature":"([^"]+)"`)
 	first := signed.FindStringSubmatch(attested)
 	require.Len(t, first, 2, "the attested document carries a signature: %s", attested)
@@ -190,9 +186,8 @@ func TestCompute_VirtualMachineRunsCustomDataAndReadsItsMetadata(t *testing.T) {
 	assert.Contains(t, identity, `"tenantId":"`+derefString(vm.Identity.TenantID)+`"`, "the metadata service names the tenant of the machine's identity")
 }
 
-// A deallocated machine keeps its OS disk and starts again on it; an image
-// created from the generalized machine carries that disk, and a machine
-// created from the image boots it.
+// A deallocated machine keeps its OS disk; an image from the generalized
+// machine carries that disk, and a machine from the image boots it.
 func TestCompute_VirtualMachineDeallocateKeepsTheOSDiskAndAnImageCapturesIt(t *testing.T) {
 	t.Parallel()
 	const rg = "vm-disk-rg"
@@ -251,8 +246,7 @@ func TestCompute_VirtualMachineDeallocateKeepsTheOSDiskAndAnImageCapturesIt(t *t
 	}
 	assert.Contains(t, names, "vm-disk-image")
 
-	// A machine from the image boots the captured disk: the file written
-	// into the source machine is in it.
+	// The file written into the source machine is on the new machine's disk.
 	nicClient, err := armnetwork.NewInterfacesClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	subnetID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/virtualNetworks/vm-disk-vnet/subnets/vm-disk-subnet", subscriptionID, rg)
@@ -279,10 +273,8 @@ func TestCompute_VirtualMachineDeallocateKeepsTheOSDiskAndAnImageCapturesIt(t *t
 		"the machine created from the image does not carry the captured disk")
 }
 
-// A machine receives what the network security group on its interface
-// allows and nothing else: a neighbour in the virtual network reaches the
-// port a rule allows and not one a rule denies, and a rule added while the
-// machine runs allows its port at once.
+// A machine receives only what its interface's network security group allows,
+// and a rule added while it runs applies at once.
 func TestCompute_NetworkSecurityGroupFiltersWhatAMachineReceives(t *testing.T) {
 	t.Parallel()
 	const rg = "vm-nsg-rg"
@@ -307,7 +299,6 @@ func TestCompute_NetworkSecurityGroupFiltersWhatAMachineReceives(t *testing.T) {
 	nsg, err := nsgPoller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 
-	// The server's interface carries the group; the client's carries none.
 	nicClient, err := armnetwork.NewInterfacesClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	nic, err := nicClient.Get(ctx, rg, "vm-nsg-nic", nil)

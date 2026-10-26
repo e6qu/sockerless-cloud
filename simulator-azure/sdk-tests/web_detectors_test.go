@@ -14,8 +14,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// SDK coverage for the App Service diagnostics family, which the simulator
-// computes from the site's live workload container and its own records:
+// The simulator computes App Service diagnostics from the site's live
+// workload container and its own records.
 //
 //	GET  .../sites/{siteName}/diagnostics (+ slot)
 //	GET  .../sites/{siteName}/diagnostics/{diagnosticCategory} (+ slot)
@@ -28,19 +28,12 @@ import (
 //	GET  .../sites/{siteName}/detectors (+ slot)
 //	GET  .../sites/{siteName}/detectors/{detectorName} (+ slot)
 
-// TestSDK_Diagnostics_DetectorsMeasureTheWorkloadContainer proves the
-// detectors report measurements rather than canned answers:
-//
-//   - before the site's container starts, every container-backed detector says
-//     it measured nothing — the negative control;
-//   - once it is running, the memory detector reports the engine's own limit
-//     and usage counters and the thread detector reports the container's real
-//     process table;
-//   - the restart detector reports nothing until the site is actually
-//     restarted, and reports that restart afterwards;
-//   - a detector of Microsoft's catalog whose input the simulator does not
-//     hold answers a declared gap naming that input, and a name that is not a
-//     detector at all is a 404.
+// TestSDK_Diagnostics_DetectorsMeasureTheWorkloadContainer: before the
+// container starts, every container-backed detector measured nothing; once it
+// runs, the memory detector reports the engine's limit and usage and the
+// thread detector its process table; the restart detector reports a restart
+// only after one; a catalog detector whose input the simulator lacks names
+// that input, and a non-detector name is 404.
 func TestSDK_Diagnostics_DetectorsMeasureTheWorkloadContainer(t *testing.T) {
 	t.Parallel()
 	rg := uniquename.New("sdk-detector-rg")
@@ -62,8 +55,7 @@ func TestSDK_Diagnostics_DetectorsMeasureTheWorkloadContainer(t *testing.T) {
 	}, nil)
 	require.NoError(t, err)
 
-	// The site publishes the one diagnostic category the simulator can
-	// measure, and nothing else exists.
+	// The site publishes the one category the simulator can measure.
 	categories := pagerAll(t, client.NewListSiteDiagnosticCategoriesPager(rg, site, nil),
 		func(p armappservice.DiagnosticsClientListSiteDiagnosticCategoriesResponse) []*armappservice.DiagnosticCategory {
 			return p.Value
@@ -77,8 +69,8 @@ func TestSDK_Diagnostics_DetectorsMeasureTheWorkloadContainer(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "ResourceNotFound")
 
-	// Negative control: with no container started, the container-backed
-	// detectors report that they measured nothing rather than zeros.
+	// With no container started, the container-backed detectors report they
+	// measured nothing, not zeros.
 	before := executeDetector(t, client, rg, site, "sitememoryanalysis")
 	assert.False(t, *before.Properties.IssueDetected)
 	assert.Empty(t, before.Properties.Data,
@@ -87,7 +79,7 @@ func TestSDK_Diagnostics_DetectorsMeasureTheWorkloadContainer(t *testing.T) {
 	assert.False(t, *beforeCrashes.Properties.IssueDetected)
 	assert.Empty(t, beforeCrashes.Properties.AbnormalTimePeriods)
 
-	// Start the container the way a request to the site does.
+	// A request to the site starts its container.
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/api/function", strings.NewReader("{}"))
 	require.NoError(t, err)
 	req.Header.Set("Content-Type", "application/json")
@@ -98,8 +90,7 @@ func TestSDK_Diagnostics_DetectorsMeasureTheWorkloadContainer(t *testing.T) {
 	resp.Body.Close()
 	require.Equal(t, http.StatusOK, resp.StatusCode, "invoking the site must start its container: %s", body)
 
-	// The detector catalog is Microsoft's, named and ranked the way its own
-	// listing names and ranks it.
+	// The catalog is Microsoft's, named and ranked as its own listing does.
 	detectors := pagerAll(t, client.NewListSiteDetectorsPager(rg, site, "availability", nil),
 		func(p armappservice.DiagnosticsClientListSiteDetectorsResponse) []*armappservice.DetectorDefinitionResource {
 			return p.Value
@@ -117,7 +108,7 @@ func TestSDK_Diagnostics_DetectorsMeasureTheWorkloadContainer(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "Site Crash Events", *single.Properties.DisplayName)
 
-	// Memory: the numbers are the container engine's own counters.
+	// The memory figures are the container engine's own counters.
 	memory := executeDetector(t, client, rg, site, "sitememoryanalysis")
 	require.NotEmpty(t, memory.Properties.Data, "a running container has a memory sample")
 	limit := detectorValue(t, memory.Properties.Data[0], "MemoryLimitBytes")
@@ -128,7 +119,7 @@ func TestSDK_Diagnostics_DetectorsMeasureTheWorkloadContainer(t *testing.T) {
 	assert.False(t, *memory.Properties.IssueDetected,
 		"a container the kernel has not killed reports no memory issue")
 
-	// Threads: the count is the container's real process table.
+	// The thread count is the container's process table.
 	threads := executeDetector(t, client, rg, site, "threadcount")
 	require.NotEmpty(t, threads.Properties.Data, "a running container has processes")
 	require.NotEmpty(t, threads.Properties.Metrics)
@@ -136,12 +127,12 @@ func TestSDK_Diagnostics_DetectorsMeasureTheWorkloadContainer(t *testing.T) {
 	assert.Positive(t, *threads.Properties.Metrics[0].Values[0].Total,
 		"a running container has at least one thread")
 
-	// CPU: sampled with the engine's throttling counters beside it.
+	// CPU is sampled with the engine's throttling counters beside it.
 	cpu := executeDetector(t, client, rg, site, "sitecpuanalysis")
 	require.NotEmpty(t, cpu.Properties.Data)
 	assert.NotEmpty(t, detectorValue(t, cpu.Properties.Data[0], "CpuPercentage"))
 
-	// Restarts: nothing until the site is restarted, then exactly that restart.
+	// No restart is reported until the site restarts, then exactly that one.
 	quiet := executeDetector(t, client, rg, site, "siterestartuserinitiated")
 	assert.False(t, *quiet.Properties.IssueDetected,
 		"a site nobody restarted reports no restart")
@@ -158,7 +149,7 @@ func TestSDK_Diagnostics_DetectorsMeasureTheWorkloadContainer(t *testing.T) {
 	require.Len(t, restarted.Properties.AbnormalTimePeriods, 1)
 	assert.Equal(t, armappservice.IssueTypeUserIssue, *restarted.Properties.AbnormalTimePeriods[0].Type)
 
-	// The analysis aggregates the detectors it names and carries their events.
+	// The analysis aggregates the detectors it names and their events.
 	analyses := pagerAll(t, client.NewListSiteAnalysesPager(rg, site, "availability", nil),
 		func(p armappservice.DiagnosticsClientListSiteAnalysesResponse) []*armappservice.AnalysisDefinition {
 			return p.Value
@@ -181,7 +172,7 @@ func TestSDK_Diagnostics_DetectorsMeasureTheWorkloadContainer(t *testing.T) {
 	require.NotEmpty(t, analysis.Properties.AbnormalTimePeriods,
 		"the restart the analysis aggregates must appear as an abnormal period")
 
-	// The site's own detector collection renders the same measurements.
+	// The site's detector collection renders the same measurements.
 	responses := pagerAll(t, client.NewListSiteDetectorResponsesPager(rg, site, nil),
 		func(p armappservice.DiagnosticsClientListSiteDetectorResponsesResponse) []*armappservice.DetectorResponse {
 			return p.Value
@@ -194,8 +185,7 @@ func TestSDK_Diagnostics_DetectorsMeasureTheWorkloadContainer(t *testing.T) {
 	require.Contains(t, byName, "sitecrashes")
 	require.NotNil(t, byName["sitecrashes"].Properties.Status)
 	assert.NotEmpty(t, *byName["sitecrashes"].Properties.Status.Message)
-	// The restart this test performed is in the table the detector renders —
-	// the same measurement, in the other family's shape.
+	// The restart shows in the table the detector renders.
 	one, err := client.GetSiteDetectorResponse(ctx, rg, site, "siterestartuserinitiated", nil)
 	require.NoError(t, err)
 	require.NotEmpty(t, one.Properties.Dataset)
@@ -203,9 +193,8 @@ func TestSDK_Diagnostics_DetectorsMeasureTheWorkloadContainer(t *testing.T) {
 	require.Len(t, one.Properties.Dataset[0].Table.Rows, 1)
 	assert.Equal(t, armappservice.InsightStatusInfo, *one.Properties.Status.StatusID)
 
-	// Declared gaps: a detector of Microsoft's catalog the simulator cannot
-	// measure names the input it would need; a name that is no detector at all
-	// is not found.
+	// A catalog detector the simulator cannot measure names the input it needs; a
+	// name that is no detector is not found.
 	for _, gap := range []string{"servicehealth", "siteswap", "workeravailability", "committedmemoryusage"} {
 		_, err = client.GetSiteDetectorResponse(ctx, rg, site, gap, nil)
 		require.Error(t, err, gap)
@@ -222,7 +211,7 @@ func TestSDK_Diagnostics_DetectorsMeasureTheWorkloadContainer(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "ResourceNotFound")
 
-	// The slot spelling of the family is mounted on the site's slots.
+	// The slot spelling is mounted on the site's slots.
 	slotPoller, err := webApps.BeginCreateOrUpdateSlot(ctx, rg, site, "staging", armappservice.Site{
 		Location: to.Ptr("eastus"),
 	}, nil)
@@ -240,17 +229,13 @@ func TestSDK_Diagnostics_DetectorsMeasureTheWorkloadContainer(t *testing.T) {
 	assert.Contains(t, *slotDetector.ID, "/slots/staging/detectors/sitecrashes")
 }
 
-// TestSDK_Diagnostics_HostingEnvironmentPublishesNoDetectors covers the two
-// environment-scoped diagnostics operations. Every detector the simulator
-// computes measures one site's workload container, and an environment has
-// none of its own, so it publishes an empty collection and reports any name
-// asked of it as absent.
+// TestSDK_Diagnostics_HostingEnvironmentPublishesNoDetectors: every detector
+// measures one site's container and an environment has none, so it publishes
+// an empty collection and answers any name as absent.
 func TestSDK_Diagnostics_HostingEnvironmentPublishesNoDetectors(t *testing.T) {
 	t.Parallel()
-	// An App Service Environment is placed in a virtual network subnet, and
-	// creating a real subnet needs the Linux network capabilities the
-	// simulator's fabric is built on. A host that cannot provide them skips;
-	// Linux runs the test.
+	// An App Service Environment needs a subnet, which needs the Linux network
+	// capabilities the simulator's fabric uses.
 	requireResourceGroup(t, aseRG)
 	subnetID := requireSubnet(t, aseRG, "sdk-ase-diag-vnet", "10.62.0.0/16", "ase-diag-subnet", "10.62.1.0/24")
 	environments := environmentsClient(t)
@@ -297,7 +282,6 @@ func executeDetector(t *testing.T, client *armappservice.DiagnosticsClient, rg, 
 	return res
 }
 
-// detectorValue reads one named column out of a detector's data row.
 func detectorValue(t *testing.T, row []*armappservice.NameValuePair, column string) string {
 	t.Helper()
 	for _, pair := range row {

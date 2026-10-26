@@ -11,9 +11,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// A query reads only the rows a table's interactive retention holds:
-// ingesting a row older than the workspace's 30 days leaves it out of every
-// query until the table's retention grows to cover it.
+// A query reads only rows within a table's interactive retention: a row older
+// than the workspace's 30 days stays out of every query until the table's
+// retention covers it.
 func TestMonitor_QueryReadsWithinTheTableRetention(t *testing.T) {
 	t.Parallel()
 	p := newLogsPipeline(t, "monitor-retention-rg", "Retained_CL", "Job", "Log")

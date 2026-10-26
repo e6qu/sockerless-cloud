@@ -9,12 +9,10 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// Additional Microsoft.DBforPostgreSQL/flexibleServers control-plane
-// surface: server-instance lifecycle actions (start/stop/restart), the
-// PATCH update LRO, subscription-wide listing, name availability, and the
-// nested Administrator / Backup / Replica / VirtualEndpoint resources.
+// Server start, stop and restart, the PATCH update, subscription-wide listing,
+// name availability, and the nested Administrator, Backup, Replica and
+// VirtualEndpoint resources.
 
-// PGAdministrator mirrors armpostgresqlflexibleservers.ActiveDirectoryAdministrator.
 type PGAdministrator struct {
 	ID         string         `json:"id"`
 	Name       string         `json:"name"`
@@ -22,7 +20,6 @@ type PGAdministrator struct {
 	Properties map[string]any `json:"properties,omitempty"`
 }
 
-// PGBackup mirrors armpostgresqlflexibleservers.ServerBackup.
 type PGBackup struct {
 	ID         string         `json:"id"`
 	Name       string         `json:"name"`
@@ -30,7 +27,6 @@ type PGBackup struct {
 	Properties map[string]any `json:"properties,omitempty"`
 }
 
-// PGVirtualEndpoint mirrors armpostgresqlflexibleservers.VirtualEndpointResource.
 type PGVirtualEndpoint struct {
 	ID         string         `json:"id"`
 	Name       string         `json:"name"`
@@ -52,41 +48,33 @@ func registerPGFlexibleServerMore(srv *sim.Server) {
 	const armBase = "/subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.DBforPostgreSQL/flexibleServers"
 	const subProvider = "/subscriptions/{subscriptionId}/providers/Microsoft.DBforPostgreSQL"
 
-	// Servers_List (subscription-wide) + Servers_Update (PATCH LRO).
 	srv.HandleFunc("GET "+subProvider+"/flexibleServers", handlePGListServersBySub)
 	srv.HandleFunc("PATCH "+armBase+"/{name}", handlePGUpdateServer)
 
-	// Server lifecycle actions (POST, Azure-AsyncOperation LRO, empty body).
+	// POST, Azure-AsyncOperation operation, empty body.
 	srv.HandleFunc("POST "+armBase+"/{name}/start", pgServerAction("Ready"))
 	srv.HandleFunc("POST "+armBase+"/{name}/stop", pgServerAction("Stopped"))
 	srv.HandleFunc("POST "+armBase+"/{name}/restart", pgServerAction("Ready"))
 
-	// CheckNameAvailability (subscription scope + location scope). The SDK
-	// sends `checkNameAvailability`; AzurePathNormalizationMiddleware folds it
-	// to lowercase, so the routes register lowercase.
+	// AzurePathNormalizationMiddleware lowercases `checkNameAvailability`.
 	srv.HandleFunc("POST "+subProvider+"/checknameavailability", handlePGCheckNameAvailability)
 	srv.HandleFunc("POST "+subProvider+"/locations/{locationName}/checknameavailability", handlePGCheckNameAvailability)
 
-	// Configurations_Update (PATCH LRO) — Configurations_Put (PUT) lives in
-	// the base file; PATCH shares the same persisted row.
+	// PATCH shares the PUT's persisted row.
 	srv.HandleFunc("PATCH "+armBase+"/{name}/configurations/{cfg}", handlePGPatchConfiguration)
 
-	// Administrators.
 	srv.HandleFunc("GET "+armBase+"/{name}/administrators", handlePGListAdministrators)
 	srv.HandleFunc("GET "+armBase+"/{name}/administrators/{objectId}", handlePGGetAdministrator)
 	srv.HandleFunc("PUT "+armBase+"/{name}/administrators/{objectId}", handlePGCreateAdministrator)
 	srv.HandleFunc("DELETE "+armBase+"/{name}/administrators/{objectId}", handlePGDeleteAdministrator)
 
-	// Backups.
 	srv.HandleFunc("GET "+armBase+"/{name}/backups", handlePGListBackups)
 	srv.HandleFunc("GET "+armBase+"/{name}/backups/{backupName}", handlePGGetBackup)
 	srv.HandleFunc("PUT "+armBase+"/{name}/backups/{backupName}", handlePGCreateBackup)
 	srv.HandleFunc("DELETE "+armBase+"/{name}/backups/{backupName}", handlePGDeleteBackup)
 
-	// Replicas (read-only list of replica servers).
 	srv.HandleFunc("GET "+armBase+"/{name}/replicas", handlePGListReplicas)
 
-	// VirtualEndpoints.
 	srv.HandleFunc("GET "+armBase+"/{name}/virtualendpoints", handlePGListVirtualEndpoints)
 	srv.HandleFunc("GET "+armBase+"/{name}/virtualendpoints/{ve}", handlePGGetVirtualEndpoint)
 	srv.HandleFunc("PUT "+armBase+"/{name}/virtualendpoints/{ve}", handlePGCreateVirtualEndpoint)
@@ -96,11 +84,9 @@ func registerPGFlexibleServerMore(srv *sim.Server) {
 	registerPGFlexibleServerCompletion(srv)
 }
 
-// pgWriteActionAccepted answers a server lifecycle action (start/stop/restart)
-// with the LRO contract those operations declare: 202 Accepted, no body, and an
-// Azure-AsyncOperation header only. No Location header — the SDK action pollers
-// (FinalStateViaLocation) would otherwise issue a stray final GET against the
-// action URL, which has no resource to read back.
+// 202, no body, Azure-AsyncOperation only: with a Location the SDK's action
+// pollers (FinalStateViaLocation) would GET the action URL, which has nothing
+// to read back.
 func pgWriteActionAccepted(w http.ResponseWriter, r *http.Request, sub, location, opID string) {
 	opURL := azureAsyncOperationHeader(r, sub, "Microsoft.DBforPostgreSQL", location, "operationStatuses", opID, r.URL.Query().Get("api-version"))
 	w.Header().Set("Azure-AsyncOperation", opURL)
@@ -159,9 +145,7 @@ func handlePGUpdateServer(w http.ResponseWriter, r *http.Request) {
 		AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
 		return
 	}
-	// administratorLoginPassword is write-only (x-ms-secret): a PATCH that
-	// carries it rotates the sealed credential and never stores it in the
-	// properties a GET echoes back.
+	// A PATCH carrying the x-ms-secret password rotates the sealed credential.
 	var rotatedPassword string
 	var rotate bool
 	if req.Properties != nil {
@@ -196,9 +180,8 @@ func handlePGUpdateServer(w http.ResponseWriter, r *http.Request) {
 	})
 	location := pgServerLocation(id)
 	if rotate {
-		// A server that gains its first credential through PATCH gets its
-		// data plane now; a running engine applies the rotation through the
-		// update's own long-running operation.
+		// A server gaining its first credential through PATCH gets its data plane now;
+		// a running engine applies the rotation through the update's operation.
 		azurePGInstallOrExplain(sub, rg, name)
 		opID := startAzureAsyncOperationOutcome(func() *AsyncOperationError {
 			if err := azurePGRotateAdminPasswordIfRunning(sub, rg, name, rotatedPassword); err != nil {
@@ -384,10 +367,8 @@ func handlePGCreateBackup(w http.ResponseWriter, r *http.Request) {
 		},
 	}
 	pgBackups.Put(b.ID, b)
-	// The capture runs through the backup's own long-running operation —
-	// completedTime lands, and the poll succeeds, only once the server's
-	// volume is actually captured. A failed capture fails the operation and
-	// withdraws the backup.
+	// completedTime lands, and the poll succeeds, only once the volume is
+	// captured; a failed capture fails the operation and withdraws the backup.
 	backupVolume := azurePGBackupVolume(rg, serverName, backupName)
 	opID := startAzureAsyncOperationOutcome(func() *AsyncOperationError {
 		if err := azurePGCaptureVolume(rg, serverName, backupVolume); err != nil {
@@ -401,8 +382,7 @@ func handlePGCreateBackup(w http.ResponseWriter, r *http.Request) {
 			}
 			backup.Properties["completedTime"] = time.Now().UTC().Format(time.RFC3339Nano)
 		}) {
-			// The backup was deleted while its capture ran; the volume, if
-			// the capture made one, goes with it.
+			// The backup was deleted mid-capture; any volume goes with it.
 			azurePGRemoveBackupVolume(backupVolume)
 		}
 		return nil
@@ -425,13 +405,9 @@ func handlePGDeleteBackup(w http.ResponseWriter, r *http.Request) {
 	pgWriteAsyncAccepted(w, r, sub, pgServerLocation(serverID), issueAzureAsyncOperation(nil))
 }
 
-// handlePGListReplicas lists the read replicas of a server: every flexible
-// server whose replicationRole marks it a replica and whose top-level
-// properties.sourceServerResourceId — where ServerProperties carries it —
-// points at this server (Replicas_ListByServer). The role check keeps
-// restored servers out of the list: a PointInTimeRestore or GeoRestore create
-// also records the sourceServerResourceId it was built from, and a restored
-// server is not a replica.
+// Replicas_ListByServer: servers whose replicationRole marks a replica and
+// whose properties.sourceServerResourceId names this server. The role check
+// excludes restored servers, which record a source too.
 func handlePGListReplicas(w http.ResponseWriter, r *http.Request) {
 	serverID := pgServerID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"))
 	out := pgServers.Filter(func(s PGFlexibleServer) bool {
@@ -506,7 +482,6 @@ func pgPutVirtualEndpoint(w http.ResponseWriter, r *http.Request) {
 	if _, ok := props["endpointType"]; !ok {
 		props["endpointType"] = "ReadWrite"
 	}
-	// virtualEndpoints is a read-only list of the endpoint's hostnames.
 	props["virtualEndpoints"] = []string{azureEndpointHostname(r, veName, "postgres", "database")}
 	v := PGVirtualEndpoint{
 		ID:         id,

@@ -1,10 +1,8 @@
 package azure_sdk_test
 
-// Literal path coverage for the routes an Azure SDK poller or a returned link
-// reaches. The simulator advertises each URL in a response header or body and
-// the client follows it, so the literal path never appears in test source;
-// this block records the "METHOD /path" tokens for the
-// simulator-testing-contract hook, naming the test that drives each one.
+// The simulator advertises these URLs in a response header or body and the
+// client follows them, so their literal paths never appear in test source.
+// List them for scripts/check-simulator-tests.sh, with the test driving each.
 //
 //   GET /subscriptions/{subscriptionId}/providers/{provider}/locations/{location}/operationStatuses/{opId}
 //     — TestSDK_ContainerAppsApps_DeleteLROEnvelope (Azure-AsyncOperation poll)

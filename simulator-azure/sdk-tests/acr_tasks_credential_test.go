@@ -16,14 +16,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// An ACR Tasks run pushes its output into the registry it runs in as the run
-// itself, holding the registry's push scope the way a real run does: the
-// registry refuses an anonymous push and an anonymous read, and the image the
-// run pushed is there for a client that authenticates.
-// acrTasksPushImage builds an image from a public base and pushes it into the
-// registry through an ACR Tasks run, as a consumer's overlay build does. It
-// returns the registry's login server and the pushed reference. Linux only:
-// the container engine pushes to the registry's login server itself.
+// acrTasksPushImage builds an image from a public base and pushes it through
+// an Azure Container Registry Tasks run, returning the login server and the
+// pushed reference. Linux only: the container engine pushes to the login
+// server itself.
 func acrTasksPushImage(t *testing.T, rg, regName, account, repository string) (string, string) {
 	t.Helper()
 	if runtime.GOOS != "linux" {
@@ -75,10 +71,9 @@ func acrTasksPushImage(t *testing.T, rg, regName, account, repository string) (s
 	return loginServer, imageName
 }
 
-// An ACR Tasks run pushes its output into the registry it runs in as the run
-// itself, holding the registry's push scope the way a real run does: the
-// registry refuses an anonymous read, and the image the run pushed is there
-// for a client that authenticates.
+// An ACR Tasks run pushes into its registry as the run, holding the push
+// scope: the registry refuses an anonymous read, and an authenticated client
+// finds the pushed image.
 func TestACRTasks_RunPushesIntoItsRegistryAsTheRun(t *testing.T) {
 	t.Parallel()
 	loginServer, imageName := acrTasksPushImage(t, "acr-tasks-cred-rg", "acrtaskcredreg", "acrtaskcredacct", "sockerless-overlay/aca")

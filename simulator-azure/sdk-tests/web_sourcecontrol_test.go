@@ -11,9 +11,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// SDK coverage for deployment from source control: configuring a repository
-// and branch deploys the branch's head into the app, and a sync redeploys its
-// current head, each recorded as a deployment under the commit's ID.
+// Configuring a repository and branch deploys the branch head into the app,
+// and a sync redeploys its current head, each recorded as a deployment under
+// the commit ID.
 //
 //	PUT /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Web/sites/{siteName}/sourcecontrols/web
 //	POST /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Web/sites/{siteName}/sync
@@ -64,8 +64,8 @@ func TestSDK_WebApps_SourceControlDeploysTheRepository(t *testing.T) {
 	assert.Equal(t, "ada@example.com", *d.Properties.AuthorEmail)
 	assert.Equal(t, "First page", *d.Properties.Message)
 
-	// A sync deploys the branch's current head with Kudu's sync semantics: a
-	// file the new commit removed leaves the app.
+	// A sync deploys the current head with Kudu's sync semantics: a file the new
+	// commit removed leaves the app.
 	repo.Remove("docs/notes.txt")
 	second := repo.Commit("main", "Second page", map[string]string{"index.html": "second"})
 	_, err = client.SyncRepository(ctx, rg, name, nil)
@@ -78,8 +78,7 @@ func TestSDK_WebApps_SourceControlDeploysTheRepository(t *testing.T) {
 	assert.True(t, *deployments[second].Properties.Active)
 	assert.False(t, *deployments[first].Properties.Active, "the previous deployment is no longer active")
 
-	// A branch that does not exist fails the deployment and leaves the app
-	// on what it ran.
+	// A missing branch fails the deployment and leaves the app on what it ran.
 	poller, err = client.BeginCreateOrUpdateSourceControl(ctx, rg, name, armappservice.SiteSourceControl{
 		Properties: &armappservice.SiteSourceControlProperties{
 			RepoURL:             to.Ptr(repo.URL),
@@ -116,7 +115,6 @@ func siteFile(t *testing.T, host, name string) string {
 	return body
 }
 
-// siteDeployments reads an app's deployments by ID.
 func siteDeployments(t *testing.T, client *armappservice.WebAppsClient, rg, name string) map[string]*armappservice.Deployment {
 	t.Helper()
 	out := map[string]*armappservice.Deployment{}

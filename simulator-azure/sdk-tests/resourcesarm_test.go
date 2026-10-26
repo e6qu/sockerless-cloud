@@ -138,8 +138,7 @@ func TestAzureResources_MoveResources(t *testing.T) {
 	_, err = rgClient.CreateOrUpdate(ctx, dstRG, armresources.ResourceGroup{Location: to.Ptr("eastus")}, nil)
 	require.NoError(t, err)
 
-	// The move operates on the real stores, so the moved resource must
-	// exist: an App Service plan created under the source group.
+	// The moved resource must exist: an App Service plan under the source group.
 	planID := webMoreEnsurePlan(t, srcRG, "move-plan")
 
 	client, err := armresources.NewClient(subscriptionID, &fakeCredential{}, clientOpts())
@@ -159,8 +158,6 @@ func TestAzureResources_MoveResources(t *testing.T) {
 	_, err = movePoller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 
-	// The plan now answers under the destination group and is gone from the
-	// source group.
 	plans, err := armappservice.NewPlansClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	moved, err := plans.Get(ctx, dstRG, "move-plan", nil)
@@ -170,8 +167,8 @@ func TestAzureResources_MoveResources(t *testing.T) {
 		t.Fatalf("plan still resolves under the source group after the move: %+v", stale)
 	}
 
-	// A resource that does not exist refuses to validate — the same
-	// pre-flight real Azure Resource Manager runs.
+	// Validation refuses a resource that does not exist, as Azure Resource Manager
+	// does.
 	missing := armresources.MoveInfo{
 		Resources:           []*string{to.Ptr("/subscriptions/" + subscriptionID + "/resourceGroups/" + srcRG + "/providers/Microsoft.Web/serverfarms/never-created")},
 		TargetResourceGroup: to.Ptr("/subscriptions/" + subscriptionID + "/resourceGroups/" + dstRG),
@@ -180,13 +177,10 @@ func TestAzureResources_MoveResources(t *testing.T) {
 	require.Error(t, err, "validating a move of an absent resource must fail")
 }
 
-// TestAzureResources_MoveStorageAccountAndMixedBatch drives the
-// Microsoft.Storage move hook end to end: real blob bytes written through the
-// storage SDK before the move read back after it, the ARM account record and
-// its container child relocate, listKeys serves the same key material under
-// the destination group, a mixed batch moves a Microsoft.Web site and plan
-// together with the account, and a type Azure Resource Manager does not move
-// (an Azure Container Instances container group) still answers
+// TestAzureResources_MoveStorageAccountAndMixedBatch: blob bytes written before
+// the move read back after it, the account and its container relocate,
+// listKeys serves the same keys, a mixed batch moves a site and plan with the
+// account, and an Azure Container Instances container group still answers
 // ResourceMoveNotSupported.
 func TestAzureResources_MoveStorageAccountAndMixedBatch(t *testing.T) {
 	t.Parallel()
@@ -197,11 +191,8 @@ func TestAzureResources_MoveStorageAccountAndMixedBatch(t *testing.T) {
 	account := uniquename.Alnum("movemixed")
 	accounts := createStorageAccountForARM(t, srcRG, account)
 
-	// A container created through the Azure Resource Manager plane, with real
-	// blob bytes written into it on the data plane before the move. One create
-	// is all it takes: the container the Azure Resource Manager plane creates
-	// IS the container the account's blob endpoint serves, so creating it a
-	// second time there is refused as ContainerAlreadyExists.
+	// The container the ARM plane creates is the one the blob endpoint serves, so
+	// creating it again there answers ContainerAlreadyExists.
 	bcClient, err := armstorage.NewBlobContainersClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	const containerName = "move-mixed-container"
@@ -218,8 +209,7 @@ func TestAzureResources_MoveStorageAccountAndMixedBatch(t *testing.T) {
 	keysBefore := listStorageKeys(t, srcRG, account)
 	require.Len(t, keysBefore, 2)
 
-	// Tags written at the account's scope before the move — Azure Resource
-	// Manager moves a resource's tags with the resource.
+	// Azure Resource Manager moves a resource's tags with it.
 	acctID := "/subscriptions/" + subscriptionID + "/resourceGroups/" + srcRG + "/providers/Microsoft.Storage/storageAccounts/" + account
 	tagsClient, err := armresources.NewTagsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
@@ -228,7 +218,7 @@ func TestAzureResources_MoveStorageAccountAndMixedBatch(t *testing.T) {
 	}, nil)
 	require.NoError(t, err)
 
-	// The mixed batch: a Microsoft.Web site and its plan alongside the account.
+	// A Microsoft.Web site and its plan alongside the account.
 	planID := webMoreEnsurePlan(t, srcRG, "move-mixed-plan")
 	webApps, err := armappservice.NewWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
@@ -250,8 +240,7 @@ func TestAzureResources_MoveStorageAccountAndMixedBatch(t *testing.T) {
 	_, err = movePoller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 
-	// The ARM record relocated: the account answers under the destination
-	// group with its ID rewritten, and no longer under the source group.
+	// The account answers under the destination group with its ID rewritten.
 	movedAcct, err := accounts.GetProperties(ctx, dstRG, account, nil)
 	require.NoError(t, err)
 	require.NotNil(t, movedAcct.ID)
@@ -259,7 +248,6 @@ func TestAzureResources_MoveStorageAccountAndMixedBatch(t *testing.T) {
 	_, err = accounts.GetProperties(ctx, srcRG, account, nil)
 	require.Error(t, err, "the moved account must no longer resolve under the source group")
 
-	// The ARM container child moved with the account.
 	movedContainer, err := bcClient.Get(ctx, dstRG, account, containerName, nil)
 	require.NoError(t, err)
 	require.NotNil(t, movedContainer.ID)
@@ -267,19 +255,16 @@ func TestAzureResources_MoveStorageAccountAndMixedBatch(t *testing.T) {
 	_, err = bcClient.Get(ctx, srcRG, account, containerName, nil)
 	require.Error(t, err, "the moved container child must no longer resolve under the source group")
 
-	// The account keys are a property of the account, not of its resource
-	// group: listKeys under the destination group serves the same material.
+	// The keys belong to the account, not its group.
 	keysAfter := listStorageKeys(t, dstRG, account)
 	assert.Equal(t, keysBefore, keysAfter, "a cross-group move must not rotate the account keys")
 
-	// The tags written at the account's old scope answer at the new one.
 	movedTags, err := tagsClient.GetAtScope(ctx, *movedAcct.ID, nil)
 	require.NoError(t, err)
 	require.NotNil(t, movedTags.Properties)
 	require.NotNil(t, movedTags.Properties.Tags["team"])
 	assert.Equal(t, "storage", *movedTags.Properties.Tags["team"], "tags must move with the resource")
 
-	// The bytes written before the move read back through the data plane.
 	download, err := blobClient.DownloadStream(ctx, containerName, "moved.txt", nil)
 	require.NoError(t, err)
 	got, err := io.ReadAll(download.Body)
@@ -287,7 +272,7 @@ func TestAzureResources_MoveStorageAccountAndMixedBatch(t *testing.T) {
 	require.NoError(t, download.Body.Close())
 	assert.Equal(t, payload, string(got), "blob bytes must survive the account move")
 
-	// The site in the same batch moved too, with its plan reference following.
+	// The site moved too, its plan reference following.
 	movedSite, err := webApps.Get(ctx, dstRG, "move-mixed-site", nil)
 	require.NoError(t, err)
 	require.NotNil(t, movedSite.Properties.ServerFarmID)
@@ -296,7 +281,7 @@ func TestAzureResources_MoveStorageAccountAndMixedBatch(t *testing.T) {
 	require.Error(t, err, "the moved site must no longer resolve under the source group")
 
 	// A type Azure Resource Manager does not move still answers
-	// ResourceMoveNotSupported with the 409 a real validation failure reports.
+	// ResourceMoveNotSupported with 409.
 	_, err = client.BeginValidateMoveResources(ctx, srcRG, armresources.MoveInfo{
 		Resources:           []*string{to.Ptr("/subscriptions/" + subscriptionID + "/resourceGroups/" + srcRG + "/providers/Microsoft.ContainerInstance/containerGroups/never-movable")},
 		TargetResourceGroup: to.Ptr("/subscriptions/" + subscriptionID + "/resourceGroups/" + dstRG),

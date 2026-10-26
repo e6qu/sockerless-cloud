@@ -46,9 +46,8 @@ func containerAppIngressStatus(t *testing.T, method, host, path string) int {
 	return resp.StatusCode
 }
 
-// awaitReplicaContainer reads the revision's one replica as the portal does,
-// once a second, until its main container satisfies done; Container Apps
-// offers nothing to wait on for a probe's verdict.
+// awaitReplicaContainer reads the revision's replica as the portal does, once
+// a second: Container Apps offers nothing to wait on for a probe's verdict.
 func awaitReplicaContainer(t *testing.T, rg, app, revision string, done func(*armappcontainers.ReplicaContainer) bool) {
 	t.Helper()
 	deadline := time.Now().Add(90 * time.Second)

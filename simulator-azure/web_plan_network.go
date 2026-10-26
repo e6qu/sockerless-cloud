@@ -13,26 +13,21 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/placement"
 )
 
-// web_plan_network.go serves the App Service plan networking and worker tail:
-// the plan-level Virtual Network connection views, VNet routes and gateways,
-// the plan-level hybrid connection views (assembled from the site-level
-// hybrid connection stores in web_hybrid.go), the capability/SKU catalogs, and
-// the worker-instance surface. Everything plan-level is a view over real
-// state: sites on the plan hold the VNet connections and hybrid connections,
-// and their containers are the plan's worker instances.
+// App Service plan networking and workers: plan VNet connection views, routes
+// and gateways, hybrid connection views (from web_hybrid.go's site stores),
+// capability and SKU catalogs, and worker instances. Every plan view reads real
+// state: the plan's sites hold the connections, and their containers are its
+// workers.
 
 var webPlanVnetRoutes sim.Store[WebVnetRoute]
 
 const webPlanBase = "/subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Web/serverfarms/{planName}"
 
-// webPlanID is the canonical (lowercase serverfarms segment) plan resource id
-// for the addressed request — the spelling appserviceplan.go stores plans under.
+// The lowercase-serverfarms spelling appserviceplan.go stores plans under.
 func webPlanID(r *http.Request) string {
 	return armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Web", "serverfarms", sim.PathParam(r, "planName"))
 }
 
-// canonicalServerFarmID rewrites the serverFarms path segment (either casing
-// clients send) to the canonical lowercase spelling plan state is keyed by.
 func canonicalServerFarmID(id string) string {
 	const marker = "/providers/microsoft.web/serverfarms/"
 	i := sim.CaseInsensitiveIndex(id, marker)
@@ -42,7 +37,6 @@ func canonicalServerFarmID(id string) string {
 	return id[:i] + "/providers/Microsoft.Web/serverfarms/" + id[i+len(marker):]
 }
 
-// webPlanSites lists the sites and deployment slots assigned to a plan.
 func webPlanSites(planID string) []Site {
 	onPlan := func(s Site) bool {
 		return strings.EqualFold(canonicalServerFarmID(s.Properties.ServerFarmID), planID)
@@ -53,8 +47,7 @@ func webPlanSites(planID string) []Site {
 	return out
 }
 
-// webPlanVnetConnections assembles the plan-level view of the VNet
-// connections the plan's sites actually have, one entry per connection name.
+// One entry per connection name.
 func webPlanVnetConnections(planID string) []WebVnetConnection {
 	byName := map[string]WebVnetConnection{}
 	for _, site := range webPlanSites(planID) {
@@ -77,8 +70,7 @@ func webPlanVnetConnections(planID string) []WebVnetConnection {
 	return out
 }
 
-// planVnetRoutes lists the routes recorded for one plan VNet connection,
-// sorted by id. serverFarmID accepts either casing clients send.
+// Sorted by ID; serverFarmID may be in either casing.
 func planVnetRoutes(serverFarmID, vnetName string) []WebVnetRoute {
 	if webPlanVnetRoutes == nil {
 		return nil
@@ -89,9 +81,7 @@ func planVnetRoutes(serverFarmID, vnetName string) []WebVnetRoute {
 	return out
 }
 
-// webPlanHybridConnections assembles the plan-level view of the Service Bus
-// relay hybrid connections configured on the plan's sites, one entry per
-// namespace/relay pair.
+// One entry per namespace/relay pair.
 func webPlanHybridConnections(planID string) []WebHybridConnection {
 	byRelay := map[string]WebHybridConnection{}
 	for _, site := range webPlanSites(planID) {
@@ -115,8 +105,7 @@ func webPlanHybridConnections(planID string) []WebHybridConnection {
 	return out
 }
 
-// webPlanWorker is one live worker instance of a plan: a running container of
-// a site on the plan. Its instance name is the container's identity.
+// A running container of a site on the plan, named by its identity.
 type webPlanWorker struct {
 	site   Site
 	handle placement.Handle
@@ -126,16 +115,13 @@ func (wk webPlanWorker) containerID() string { return wk.handle.ID() }
 
 func (wk webPlanWorker) instanceName() string { return webInstanceName(wk.containerID()) }
 
-// webInstanceName names a worker from its placement identity. The document
-// holds an instance name to ^[a-zA-Z0-9]+$, and a guest's identity carries
-// hyphens, so the name is a digest of the identity rather than a prefix of it.
+// The document holds instance names to ^[a-zA-Z0-9]+$ and a guest's identity
+// carries hyphens, so the name is a digest.
 func webInstanceName(id string) string {
 	sum := sha256.Sum256([]byte(id))
 	return hex.EncodeToString(sum[:6])
 }
 
-// webPlanWorkers lists the plan's live worker instances from real container
-// state.
 func webPlanWorkers(planID string) []webPlanWorker {
 	var out []webPlanWorker
 	for _, site := range webPlanSites(planID) {
@@ -224,7 +210,7 @@ func registerAppServicePlanNetworking(srv *sim.Server) {
 		}
 		sim.WriteJSON(w, http.StatusOK, routes)
 	})
-	// The contract returns an ARRAY for the single-route read.
+	// The contract returns an array for the single-route read.
 	srv.HandleFunc("GET "+webPlanBase+"/virtualNetworkConnections/{vnetName}/routes/{routeName}", func(w http.ResponseWriter, r *http.Request) {
 		if !planExists(w, r) {
 			return
@@ -328,8 +314,8 @@ func registerAppServicePlanNetworking(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, stripSendKeyValue(hc))
 	})
 
-	// Plan-level delete removes the hybrid connection from every site on the
-	// plan — the plan groups what its apps configured.
+	// The plan groups what its apps configured, so remove the connection from
+	// every site on it.
 	srv.HandleFunc("DELETE "+webPlanBase+"/hybridConnectionNamespaces/{namespaceName}/relays/{relayName}", func(w http.ResponseWriter, r *http.Request) {
 		if !planExists(w, r) {
 			return
@@ -429,9 +415,7 @@ func registerAppServicePlanNetworking(srv *sim.Server) {
 		if capacity < 1 {
 			capacity = 1
 		}
-		// The selectable-SKU catalog the simulator can vouch for: the SKU the
-		// plan really runs, shaped as SkuInfos (resourceType + GlobalCsmSkuDescription
-		// entries) like the subscription-global catalog.
+		// The SKU the plan runs, as SkuInfos like the subscription-global catalog.
 		sim.WriteJSON(w, http.StatusOK, map[string]any{
 			"resourceType": "Microsoft.Web/serverfarms",
 			"skus": []map[string]any{{
@@ -451,9 +435,8 @@ func registerAppServicePlanNetworking(srv *sim.Server) {
 		})
 	})
 
-	// The plan's instance details come from real container state: sites on the
-	// plan run real containers, each one a worker instance. A plan with no
-	// running instances answers the honest empty set.
+	// Each running container of a site on the plan is a worker instance; a plan
+	// with none answers the empty set.
 	srv.HandleFunc("POST "+webPlanBase+"/listinstances", func(w http.ResponseWriter, r *http.Request) {
 		if !planExists(w, r) {
 			return
@@ -483,8 +466,7 @@ func registerAppServicePlanNetworking(srv *sim.Server) {
 			if !strings.EqualFold(wk.instanceName(), name) {
 				continue
 			}
-			// A worker reboot is the real thing: the container is torn down;
-			// the site's next invoke starts a fresh one on its recorded
+			// Tear the container down; the site's next invoke starts a fresh one on its
 			// VNet-integration networks.
 			inst := azfInstanceFor(wk.site.Name)
 			inst.teardown()
@@ -522,9 +504,8 @@ func registerAppServicePlanNetworking(srv *sim.Server) {
 		})
 	})
 
-	// The simulator's plan workers are Linux containers; there is no Windows
-	// Container worker to hold an RDP session, so the operation reports that
-	// truthfully rather than minting a password nothing accepts.
+	// The workers are Linux containers with no RDP session, so report that rather
+	// than mint a password nothing accepts.
 	srv.HandleFunc("POST "+webPlanBase+"/getrdppassword", func(w http.ResponseWriter, r *http.Request) {
 		if !planExists(w, r) {
 			return
@@ -535,9 +516,8 @@ func registerAppServicePlanNetworking(srv *sim.Server) {
 	})
 }
 
-// hybridConnectionPlanLimit is the per-plan hybrid connection quota real App
-// Service enforces by tier (Basic 5, Standard 25, Premium and Isolated 220);
-// tiers without hybrid connection support answer 0.
+// App Service's per-plan quota by tier: Basic 5, Standard 25, Premium and
+// Isolated 220; other tiers 0.
 func hybridConnectionPlanLimit(tier string) int {
 	switch {
 	case strings.EqualFold(tier, "Basic"):
@@ -551,9 +531,8 @@ func hybridConnectionPlanLimit(tier string) int {
 	}
 }
 
-// webPlanCapabilities reports the capabilities the simulator's plans really
-// have: whether workers are Linux (the plan's reserved flag), the always-on
-// persistent site container, and regional VNet integration.
+// Linux workers (the reserved flag), the always-on site container, and
+// regional VNet integration.
 func webPlanCapabilities(plan AppServicePlan) []map[string]any {
 	return []map[string]any{
 		{"name": "LinuxWorkers", "value": fmt.Sprintf("%t", plan.Properties.Reserved)},

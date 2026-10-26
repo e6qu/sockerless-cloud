@@ -38,12 +38,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Client certificates through the two front ends. The front end terminates
-// TLS, so the test runs a TLS-terminated simulator with the full workload
-// runtime and reaches the site and the container app by their hostnames over
-// it, presenting a client certificate or none.
+// The front end terminates TLS, so these tests run a TLS simulator with the
+// full workload runtime and reach the site and the container app by hostname,
+// presenting a client certificate or none.
 
-// writeTLSCertForHosts issues a self-signed server certificate naming hosts.
 func writeTLSCertForHosts(t *testing.T, dir string, hosts []string) (string, string) {
 	t.Helper()
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
@@ -70,7 +68,6 @@ func writeTLSCertForHosts(t *testing.T, dir string, hosts []string) (string, str
 	return certPath, keyPath
 }
 
-// newClientCertificate issues the self-signed certificate a client presents.
 func newClientCertificate(t *testing.T, commonName string) tls.Certificate {
 	t.Helper()
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
@@ -92,8 +89,6 @@ func newClientCertificate(t *testing.T, commonName string) tls.Certificate {
 	return tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key, Leaf: leaf}
 }
 
-// startTLSWorkloadSimulator runs a TLS-terminated simulator with the full
-// workload runtime and returns its port.
 func startTLSWorkloadSimulator(t *testing.T, certPath, keyPath string) string {
 	t.Helper()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -117,8 +112,8 @@ func startTLSWorkloadSimulator(t *testing.T, certPath, keyPath string) string {
 	return port
 }
 
-// tlsSimCredential acquires tokens from the TLS simulator's own token
-// endpoint through the client_credentials grant.
+// tlsSimCredential acquires tokens from the TLS simulator's own token endpoint
+// through the client_credentials grant.
 type tlsSimCredential struct {
 	base   string
 	client *http.Client
@@ -151,9 +146,9 @@ func (c *tlsSimCredential) GetToken(_ context.Context, opts policy.TokenRequestO
 	return azcore.AccessToken{Token: out.AccessToken, ExpiresOn: time.Now().Add(time.Duration(out.ExpiresIn) * time.Second)}, nil
 }
 
-// trustedClient trusts the simulator's certificate and presents clientCert
-// when given, naming serverName in the handshake as a client resolving that
-// hostname to the front end does.
+// trustedClient trusts the simulator's certificate, presents clientCert when
+// given, and names serverName in the handshake as a client resolving that
+// hostname does.
 func trustedClient(t *testing.T, certPath, serverName string, clientCert *tls.Certificate) *http.Client {
 	t.Helper()
 	pemBytes, err := os.ReadFile(certPath)
@@ -167,9 +162,8 @@ func trustedClient(t *testing.T, certPath, serverName string, clientCert *tls.Ce
 	return &http.Client{Timeout: 2 * time.Minute, Transport: &http.Transport{TLSClientConfig: cfg}}
 }
 
-// frontEndOverTLS sends GET path to the TLS simulator carrying host, with or
-// without a client certificate, and returns the status and the headers the
-// echoing workload received (nil unless the status is 200).
+// frontEndOverTLS returns the status and, on 200, the headers the echoing
+// workload received.
 func frontEndOverTLS(t *testing.T, certPath, port, host, path string, clientCert *tls.Certificate) (int, http.Header, error) {
 	t.Helper()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://127.0.0.1:"+port+path, nil)
@@ -190,11 +184,10 @@ func frontEndOverTLS(t *testing.T, certPath, port, host, path string, clientCert
 	return resp.StatusCode, echoed, nil
 }
 
-// App Service with client certificates enabled asks the client for one at the
-// TLS handshake and forwards it to the app as X-ARR-ClientCert, base64
-// encoded; Required answers 403 to a request without one outside the
-// exclusion paths, which are never asked for a certificate; Optional lets a
-// request without one through.
+// App Service with client certificates enabled asks for one at the TLS
+// handshake and forwards it base64-encoded as X-ARR-ClientCert. Required
+// answers 403 without one outside the exclusion paths, which never ask;
+// Optional lets a request without one through.
 func TestSDK_WebApps_ClientCertificates(t *testing.T) {
 	t.Parallel()
 	siteName := uniquename.New("sdk-mtls-app")
@@ -286,7 +279,6 @@ func TestSDK_WebApps_ClientCertificates(t *testing.T) {
 	assert.Equal(t, base64.StdEncoding.EncodeToString(clientCert.Leaf.Raw), echoed.Get("X-ARR-ClientCert"))
 }
 
-// ensureRGOver creates a resource group through the given ARM origin.
 func ensureRGOver(t *testing.T, client *http.Client, armBase, rg string) {
 	t.Helper()
 	cred := &tlsSimCredential{base: armBase, client: client}

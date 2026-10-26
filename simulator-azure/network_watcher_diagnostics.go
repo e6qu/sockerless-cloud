@@ -12,14 +12,10 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/netrules"
 )
 
-// Network Watcher's on-demand diagnostics. Every verdict here is computed from
-// the network the simulator actually holds — the network security groups
-// attached to an interface and to its subnet, the platform default rules, the
-// route table attached to the subnet, the address space of the virtual network,
-// and the interfaces that live in it. There is no diagnostic table: IP flow
-// verify runs the same rule evaluation that decides whether a packet is
-// dropped, next hop runs the same longest-prefix route lookup that decides
-// where it goes, and the connectivity check opens a real connection.
+// Network Watcher's on-demand diagnostics compute every verdict from the
+// network the simulator holds: IP flow verify runs the rule evaluation that
+// drops packets, next hop the longest-prefix route lookup that routes them,
+// and the connectivity check opens a real connection.
 
 func registerNetworkWatcherDiagnostics(srv *sim.Server) {
 	base := azureNetworkArmBase() + "/networkWatchers/{networkWatcherName}"
@@ -38,12 +34,8 @@ func registerNetworkWatcherDiagnostics(srv *sim.Server) {
 	srv.HandleFunc("POST "+base+"/azureReachabilityReport", handleNetworkWatcherReachabilityReport)
 }
 
-// Target resolution
-
-// networkWatcherTargetNICs resolves the interfaces a diagnostic runs against.
-// A target is either a network interface or a virtual machine, in which case
-// every interface of the machine is in scope unless the request narrows it to
-// one.
+// A target is an interface or a virtual machine, whose every interface is in
+// scope unless the request narrows it to one.
 func networkWatcherTargetNICs(targetResourceID, targetNICResourceID string) ([]NetworkInterface, bool) {
 	if azureNICs == nil {
 		return nil, false
@@ -74,8 +66,6 @@ func networkWatcherTargetNICs(targetResourceID, targetNICResourceID string) ([]N
 	return nics, len(nics) > 0
 }
 
-// networkWatcherResolveTarget answers a diagnostic request's target, writing
-// ARM's not-found error when nothing in the simulator holds it.
 func networkWatcherResolveTarget(w http.ResponseWriter, targetResourceID, targetNICResourceID string) ([]NetworkInterface, bool) {
 	nics, ok := networkWatcherTargetNICs(targetResourceID, targetNICResourceID)
 	if !ok {
@@ -110,10 +100,8 @@ func networkWatcherNICAddress(nic NetworkInterface) string {
 	return ""
 }
 
-// Security rule evaluation
-
-// azureSecurityFlow is one packet an evaluation is run for, in the direction
-// the rules are written in: source and destination, never local and remote.
+// In the direction rules are written: source and destination, never local and
+// remote.
 type azureSecurityFlow struct {
 	protocol        string
 	sourceIP        string
@@ -123,24 +111,20 @@ type azureSecurityFlow struct {
 	direction       string
 }
 
-// azureSecurityGroupVerdict is what one network security group decided about a
-// flow, and which of its rules decided it.
 type azureSecurityGroupVerdict struct {
 	nsg       NetworkSecurityGroup
 	appliedTo string
 	rule      SecurityRule
-	// qualifier is the collection the deciding rule came from, which is what
-	// the ruleName of a verify-IP-flow answer is prefixed with.
+	// The collection the deciding rule came from, which prefixes a verify-IP-flow
+	// answer's ruleName.
 	qualifier string
 	access    string
-	// evaluations records, per rule of the group, which parts of the flow the
-	// rule matched — the detail the network configuration diagnostic reports.
+	// Per rule, which parts of the flow it matched, as the network configuration
+	// diagnostic reports.
 	evaluations []map[string]any
 }
 
-// azureAttachedSecurityGroups returns the network security groups that govern an
-// interface, each with the resource it is applied to: the interface's own group
-// first, then the group on its subnet.
+// The interface's own group first, then its subnet's.
 func azureAttachedSecurityGroups(nic NetworkInterface) []struct {
 	nsg       NetworkSecurityGroup
 	appliedTo string
@@ -172,11 +156,9 @@ func azureAttachedSecurityGroups(nic NetworkInterface) []struct {
 	return out
 }
 
-// azureEvaluateSecurityGroups runs a flow through every network security group
-// that governs the interface. Azure evaluates the subnet's group and the
-// interface's group independently and a deny by either one stops the packet, so
-// the first denying group is the verdict; when every group allows, the first
-// group's allowing rule is the one reported.
+// Azure evaluates the subnet's and the interface's groups independently and a
+// deny by either stops the packet: the first denying group is the verdict, and
+// when all allow, the first group's allowing rule is reported.
 func azureEvaluateSecurityGroups(nic NetworkInterface, flow azureSecurityFlow) []azureSecurityGroupVerdict {
 	var verdicts []azureSecurityGroupVerdict
 	for _, attached := range azureAttachedSecurityGroups(nic) {
@@ -185,8 +167,6 @@ func azureEvaluateSecurityGroups(nic NetworkInterface, flow azureSecurityFlow) [
 	return verdicts
 }
 
-// azureDecideSecurityGroups reduces a set of per-group verdicts to the one that
-// governs the packet.
 func azureDecideSecurityGroups(verdicts []azureSecurityGroupVerdict) (azureSecurityGroupVerdict, bool) {
 	if len(verdicts) == 0 {
 		return azureSecurityGroupVerdict{}, false
@@ -199,10 +179,8 @@ func azureDecideSecurityGroups(verdicts []azureSecurityGroupVerdict) (azureSecur
 	return verdicts[0], true
 }
 
-// azureEvaluateSecurityGroup runs a flow through one network security group's
-// rules in priority order — the caller's rules first, then the platform default
-// rules, exactly as the group is evaluated — and returns the first rule that
-// matches every part of the flow.
+// The caller's rules then the platform defaults, in priority order; the first
+// rule matching every part of the flow wins.
 func azureEvaluateSecurityGroup(nsg NetworkSecurityGroup, appliedTo string, nic NetworkInterface, flow azureSecurityFlow) azureSecurityGroupVerdict {
 	verdict := azureSecurityGroupVerdict{nsg: nsg, appliedTo: appliedTo}
 	type candidate struct {
@@ -246,7 +224,6 @@ func azureEvaluateSecurityGroup(nsg NetworkSecurityGroup, appliedTo string, nic 
 	return verdict
 }
 
-// azureSecurityRuleMatch records which parts of a flow one rule matched.
 type azureSecurityRuleMatch struct {
 	protocol        bool
 	source          bool
@@ -259,9 +236,7 @@ func (m azureSecurityRuleMatch) all() bool {
 	return m.protocol && m.source && m.sourcePort && m.destination && m.destinationPort
 }
 
-// azureSecurityRuleMatches evaluates one rule against a flow, part by part, so
-// a diagnostic can report which part failed rather than only that the rule did
-// not apply.
+// Part by part, so a diagnostic reports which part failed.
 func azureSecurityRuleMatches(props SecurityRuleProperties, nic NetworkInterface, flow azureSecurityFlow) azureSecurityRuleMatch {
 	sources := azureSecurityRuleEndpoints(props.SourceApplicationSecurityGroups,
 		props.SourceAddressPrefix, props.SourceAddressPrefixes)
@@ -274,17 +249,16 @@ func azureSecurityRuleMatches(props SecurityRuleProperties, nic NetworkInterface
 		sourcePort:      azureSecurityPortMatches(azurePortRanges(props.SourcePortRange, props.SourcePortRanges), flow.sourcePort),
 		destinationPort: azureSecurityPortMatches(azurePortRanges(props.DestinationPortRange, props.DestinationPortRanges), flow.destinationPort),
 	}
-	// A rule scoped to destination application security groups governs only the
-	// interfaces that belong to them.
+	// A rule scoped to destination application security groups governs only their
+	// member interfaces.
 	if len(props.DestinationApplicationSecurityGroups) > 0 && !azureNICInApplicationSecurityGroups(nic, props.DestinationApplicationSecurityGroups) {
 		match.destination = false
 	}
 	return match
 }
 
-// azureSecurityRuleEndpoints resolves one side of a rule to the address
-// prefixes it stands for: the members of the application security groups it
-// names, or the address prefixes it declares.
+// The members of the application security groups named, or the declared
+// prefixes.
 func azureSecurityRuleEndpoints(groups []SubResource, single string, many []string) []string {
 	if len(groups) > 0 {
 		return azureApplicationSecurityGroupMemberIPs(groups)
@@ -300,8 +274,6 @@ func azureSecurityRuleEndpoints(groups []SubResource, single string, many []stri
 	return values
 }
 
-// azureSecurityProtocolMatches applies a rule's protocol, where "*" stands for
-// every protocol.
 func azureSecurityProtocolMatches(rule, flow string) bool {
 	if rule == "" || rule == "*" || flow == "" || flow == "*" {
 		return true
@@ -309,10 +281,8 @@ func azureSecurityProtocolMatches(rule, flow string) bool {
 	return strings.EqualFold(rule, flow)
 }
 
-// azureSecurityAddressMatches applies a rule's address prefixes to one address,
-// resolving the service tags the simulator's own fabric defines. A tag the
-// simulator cannot resolve to addresses matches nothing rather than everything,
-// so an unresolvable rule can never widen what a diagnostic reports as allowed.
+// A service tag the simulator cannot resolve matches nothing, so an
+// unresolvable rule never widens what a diagnostic reports as allowed.
 func azureSecurityAddressMatches(prefixes []string, address string) bool {
 	if address == "" || address == "*" {
 		return true
@@ -363,7 +333,6 @@ func azureAddressInAnyPrefix(ip net.IP, prefixes []string) bool {
 	return false
 }
 
-// azureSecurityPortMatches applies a rule's port ranges to one port.
 func azureSecurityPortMatches(ranges []string, port string) bool {
 	if port == "" || port == "*" {
 		return true
@@ -390,8 +359,6 @@ func azureSecurityPortMatches(ranges []string, port string) bool {
 	}
 	return false
 }
-
-// Verify IP flow
 
 func handleNetworkWatcherVerifyIPFlow(w http.ResponseWriter, r *http.Request) {
 	if _, ok := requireNetworkWatcher(w, r); !ok {
@@ -425,9 +392,8 @@ func handleNetworkWatcherVerifyIPFlow(w http.ResponseWriter, r *http.Request) {
 		protocol:  req.Protocol,
 		direction: req.Direction,
 	}
-	// The request describes the packet from the machine's point of view; a rule
-	// is written from the packet's. Inbound therefore has the remote end as its
-	// source, outbound the local end.
+	// The request describes the packet from the machine's side; rules are written
+	// from the packet's. Inbound has the remote end as source, outbound the local.
 	if strings.EqualFold(req.Direction, "Inbound") {
 		flow.sourceIP, flow.sourcePort = req.RemoteIPAddress, req.RemotePort
 		flow.destinationIP, flow.destinationPort = req.LocalIPAddress, req.LocalPort
@@ -437,8 +403,7 @@ func handleNetworkWatcherVerifyIPFlow(w http.ResponseWriter, r *http.Request) {
 	}
 	verdict, ok := azureDecideSecurityGroups(azureEvaluateSecurityGroups(nic, flow))
 	if !ok {
-		// An interface no network security group governs takes every packet:
-		// there is nothing to deny it.
+		// An interface no group governs takes every packet.
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"access": "Allow"})
 		return
 	}
@@ -447,8 +412,6 @@ func handleNetworkWatcherVerifyIPFlow(w http.ResponseWriter, r *http.Request) {
 		"ruleName": verdict.qualifier + "/" + verdict.rule.Name,
 	})
 }
-
-// Next hop
 
 func handleNetworkWatcherNextHop(w http.ResponseWriter, r *http.Request) {
 	if _, ok := requireNetworkWatcher(w, r); !ok {
@@ -484,11 +447,9 @@ func handleNetworkWatcherNextHop(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, azureNextHopForNIC(nic, req.DestinationIPAddress))
 }
 
-// azureNextHopForNIC resolves where a packet leaving the interface goes. A
-// route the subnet's route table declares wins over the platform's own routing,
-// longest prefix first; with no user route covering the destination, an address
-// inside the virtual network stays local and everything else leaves through the
-// default route.
+// A subnet route table's route wins over platform routing, longest prefix
+// first; otherwise an address inside the virtual network stays local and the
+// rest leaves through the default route.
 func azureNextHopForNIC(nic NetworkInterface, destination string) map[string]any {
 	ip := net.ParseIP(destination)
 	subnet, hasSubnet := networkWatcherNICSubnet(nic)
@@ -506,16 +467,14 @@ func azureNextHopForNIC(nic NetworkInterface, destination string) map[string]any
 			}
 		}
 	}
-	// The platform's system routes carry no route table id, which is how a
-	// caller tells a system route from a user-defined one.
+	// System routes carry no route table ID, which tells them from user routes.
 	if azureAddressInAnyPrefix(ip, azureNICVNetCIDRs(nic)) {
 		return map[string]any{"nextHopType": "VnetLocal"}
 	}
 	return map[string]any{"nextHopType": "Internet"}
 }
 
-// azureLongestPrefixRoute returns the route of a table whose address prefix
-// covers the destination with the longest mask — the route a router picks.
+// The covering route with the longest mask, as a router picks.
 func azureLongestPrefixRoute(table RouteTable, ip net.IP) (RouteEntry, bool) {
 	if ip == nil {
 		return RouteEntry{}, false
@@ -534,8 +493,6 @@ func azureLongestPrefixRoute(table RouteTable, ip net.IP) (RouteEntry, bool) {
 	}
 	return chosen, best >= 0
 }
-
-// Security group view
 
 func handleNetworkWatcherSecurityGroupView(w http.ResponseWriter, r *http.Request) {
 	if _, ok := requireNetworkWatcher(w, r); !ok {
@@ -591,9 +548,8 @@ func handleNetworkWatcherSecurityGroupView(w http.ResponseWriter, r *http.Reques
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"networkInterfaces": interfaces})
 }
 
-// azureEffectiveSecurityRules renders a group's rules in the effective-rule
-// shape, whose address fields are the expanded prefixes the platform matches on
-// rather than the service tags the rule was written with.
+// The effective-rule shape carries the expanded prefixes the platform matches
+// on, not the service tags the rule was written with.
 func azureEffectiveSecurityRules(nsg NetworkSecurityGroup) []map[string]any {
 	rules := append([]SecurityRule(nil), nsg.Properties.SecurityRules...)
 	rules = append(rules, azureDefaultSecurityRules(nsg.ID)...)
@@ -623,8 +579,6 @@ func azureEffectiveSecurityRules(nsg NetworkSecurityGroup) []map[string]any {
 	}
 	return out
 }
-
-// Topology
 
 func handleNetworkWatcherTopology(w http.ResponseWriter, r *http.Request) {
 	nw, ok := requireNetworkWatcher(w, r)
@@ -663,11 +617,9 @@ func handleNetworkWatcherTopology(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// azureTopologyResources walks the network the simulator holds under one scope
-// and reports what contains what: a virtual network contains its subnets, a
-// subnet contains the interfaces addressed from it, and an interface is
-// associated with the machine, public address and security group attached to
-// it.
+// A virtual network contains its subnets, a subnet the interfaces addressed
+// from it, and an interface is associated with its machine, public address and
+// security group.
 func azureTopologyResources(scope string) []map[string]any {
 	inScope := func(id string) bool {
 		return strings.HasPrefix(strings.ToLower(id), strings.ToLower(scope))
@@ -760,8 +712,6 @@ func azureResourceLeafName(id string) string {
 	return id[strings.LastIndex(id, "/")+1:]
 }
 
-// Connectivity check
-
 func handleNetworkWatcherConnectivityCheck(w http.ResponseWriter, r *http.Request) {
 	if _, ok := requireNetworkWatcher(w, r); !ok {
 		return
@@ -820,9 +770,8 @@ func handleNetworkWatcherConnectivityCheck(w http.ResponseWriter, r *http.Reques
 
 	var issues []map[string]any
 	blocked := false
-	// The packet has to leave the source and arrive at the destination, so both
-	// ends' security groups are evaluated — the same evaluation IP flow verify
-	// performs, run twice.
+	// The packet must leave the source and arrive at the destination, so both
+	// ends' groups are evaluated.
 	if verdict, ok := azureDecideSecurityGroups(azureEvaluateSecurityGroups(sourceNIC, azureSecurityFlow{
 		protocol:        protocol,
 		sourceIP:        sourceAddress,
@@ -853,8 +802,8 @@ func handleNetworkWatcherConnectivityCheck(w http.ResponseWriter, r *http.Reques
 		status = "Disconnected"
 		probesSent, probesFailed = 1, 1
 	} else if req.Destination.Port > 0 {
-		// Nothing in the configuration blocks the packet, so the check finds
-		// out whether the destination actually answers.
+		// Nothing in the configuration blocks the packet, so find out whether the
+		// destination answers.
 		status, latency, probesSent, probesFailed = azureProbeConnectivity(destinationAddress, req.Destination.Port)
 		if status == "Disconnected" {
 			issues = append(issues, map[string]any{
@@ -890,8 +839,6 @@ func handleNetworkWatcherConnectivityCheck(w http.ResponseWriter, r *http.Reques
 	})
 }
 
-// azureConnectivityIssue renders a security-rule denial as the connectivity
-// issue Network Watcher reports for it.
 func azureConnectivityIssue(origin string, verdict azureSecurityGroupVerdict) map[string]any {
 	return map[string]any{
 		"origin":   origin,
@@ -907,8 +854,7 @@ func azureConnectivityIssue(origin string, verdict azureSecurityGroupVerdict) ma
 	}
 }
 
-// azureProbeConnectivity opens a real connection to the destination and reports
-// what happened, with the latency it measured.
+// Opens a real connection and measures its latency.
 func azureProbeConnectivity(address string, port int) (status string, latencyMs int64, probesSent, probesFailed int) {
 	const probes = 3
 	var total time.Duration
@@ -932,8 +878,6 @@ func azureProbeConnectivity(address string, port int) (status string, latencyMs 
 		return "Connected", total.Milliseconds() / int64(probes), probesSent, probesFailed
 	}
 }
-
-// Network configuration diagnostic
 
 func handleNetworkWatcherConfigurationDiagnostic(w http.ResponseWriter, r *http.Request) {
 	if _, ok := requireNetworkWatcher(w, r); !ok {
@@ -1006,12 +950,8 @@ func handleNetworkWatcherConfigurationDiagnostic(w http.ResponseWriter, r *http.
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"results": results})
 }
 
-// Flow log configuration by target
-
-// handleNetworkWatcherConfigureFlowLog writes the flow log configuration of one
-// target resource. It is the target-addressed spelling of the flow log
-// resource, and it reads and writes the very same record, so a configuration
-// written here is the one FlowLogs_Get returns.
+// The target-addressed spelling of the flow log resource, on the same record
+// FlowLogs_Get returns.
 func handleNetworkWatcherConfigureFlowLog(w http.ResponseWriter, r *http.Request) {
 	if _, ok := requireNetworkWatcher(w, r); !ok {
 		return
@@ -1081,8 +1021,6 @@ func handleNetworkWatcherQueryFlowLogStatus(w http.ResponseWriter, r *http.Reque
 	sim.WriteJSON(w, http.StatusOK, networkWatcherFlowLogInformation(flowLog))
 }
 
-// networkWatcherFlowLogInformation renders a flow log record in the
-// target-addressed shape the configure and query operations speak.
 func networkWatcherFlowLogInformation(flowLog NetworkWatcherFlowLog) map[string]any {
 	properties := map[string]any{
 		"storageId": flowLog.Properties.StorageID,
@@ -1106,14 +1044,8 @@ func networkWatcherFlowLogInformation(flowLog NetworkWatcherFlowLog) map[string]
 	}
 }
 
-// Troubleshooting
-
-// networkWatcherTroubleshootTarget resolves the resource a troubleshooting
-// request names. Network Watcher troubleshoots virtual network gateways and the
-// connections between them; the simulator holds neither resource type, so every
-// target a caller can name is absent and the request is answered with ARM's
-// not-found error for it rather than with a verdict about a resource that does
-// not exist.
+// Network Watcher troubleshoots virtual network gateways and their
+// connections; the simulator holds neither, so every target is not found.
 func networkWatcherTroubleshootTarget(w http.ResponseWriter, targetResourceID string) bool {
 	if targetResourceID == "" {
 		AzureErrorf(w, "InvalidRequestFormat", http.StatusBadRequest,
@@ -1153,13 +1085,8 @@ func handleNetworkWatcherQueryTroubleshootResult(w http.ResponseWriter, r *http.
 	networkWatcherTroubleshootTarget(w, req.TargetResourceID)
 }
 
-// Internet provider reachability
-
-// handleNetworkWatcherAvailableProviders reports the internet service providers
-// Network Watcher holds latency measurements for. Those measurements come from
-// Azure's own internet-measurement fleet, which this simulator has no part of
-// and no data from, so it offers no providers rather than naming providers it
-// could report nothing about.
+// The measurements come from Azure's internet-measurement fleet, which the
+// simulator has no data from, so it offers no providers.
 func handleNetworkWatcherAvailableProviders(w http.ResponseWriter, r *http.Request) {
 	if _, ok := requireNetworkWatcher(w, r); !ok {
 		return
@@ -1177,11 +1104,8 @@ func handleNetworkWatcherAvailableProviders(w http.ResponseWriter, r *http.Reque
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"countries": []map[string]any{}})
 }
 
-// handleNetworkWatcherReachabilityReport reports the measured reachability of a
-// location's internet service providers over a time window. The aggregation
-// level follows from how precisely the request located the providers; the
-// report itself is empty, because the simulator holds none of the
-// internet-measurement data the real service aggregates.
+// The aggregation level follows from how precisely the request located the
+// providers; the report is empty, for want of measurement data.
 func handleNetworkWatcherReachabilityReport(w http.ResponseWriter, r *http.Request) {
 	if _, ok := requireNetworkWatcher(w, r); !ok {
 		return

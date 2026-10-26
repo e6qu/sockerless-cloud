@@ -6,10 +6,8 @@ import (
 	"testing"
 )
 
-// The virtual-machine operations beyond the lifecycle, driven through the real
-// az CLI. The machine is created first because every one of these operates on a
-// machine that exists and, for the guest-moving operations, one that is really
-// running.
+// The virtual machine operations beyond the lifecycle, through az. Each needs a
+// machine that exists and, for the guest-moving operations, one that runs.
 func TestComputeVirtualMachineOperationsCLI(t *testing.T) {
 	t.Parallel()
 
@@ -46,8 +44,7 @@ func TestComputeVirtualMachineOperationsCLI(t *testing.T) {
 	})
 
 	t.Run("ListByLocation finds the machine in its location", func(t *testing.T) {
-		// Built from the ARM route this exercises, so the request cannot drift
-		// from the route it is meant to cover.
+		// Build the request from the ARM route so it cannot drift from what it covers.
 		const route = "/subscriptions/{subscriptionId}/providers/Microsoft.Compute/locations/{location}/virtualMachines"
 		path := strings.NewReplacer(
 			"{subscriptionId}", subscriptionID,

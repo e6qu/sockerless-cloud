@@ -43,14 +43,12 @@ func TestMonitorWorkspace_CreateAndShow(t *testing.T) {
 	assert.Equal(t, "Enabled", ws.Properties.PublicNetworkAccessForIngestion)
 	assert.Equal(t, "Enabled", ws.Properties.PublicNetworkAccessForQuery)
 
-	// GET
 	out = runCLI(t, azRest("GET", url, ""))
 	parseJSON(t, out, &ws)
 	assert.Equal(t, "cli-test-workspace", ws.Name)
 	assert.Equal(t, "Enabled", ws.Properties.PublicNetworkAccessForIngestion)
 	assert.Equal(t, "Enabled", ws.Properties.PublicNetworkAccessForQuery)
 
-	// Cleanup
 	runCLI(t, azRest("DELETE", url, ""))
 }
 
@@ -65,9 +63,8 @@ func TestMonitorWorkspace_Delete(t *testing.T) {
 		"a deleted Azure Monitor workspace must answer GET with ResourceNotFound, got: %s", failure)
 }
 
-// App Insights (Microsoft.Insights/components) CLI coverage via az rest.
-// The `az monitor app-insights component` high-level commands route to the
-// same ARM endpoints; exercising via az rest covers the same code paths.
+// The `az monitor app-insights component` commands route to the same ARM
+// endpoints that `az rest` drives here.
 
 func insightsURL(path string) string {
 	return armURL("Microsoft.Insights", path, insightsAPIVersion)
@@ -98,13 +95,11 @@ func TestAppInsights_CreateAndShow(t *testing.T) {
 	assert.Contains(t, comp.Properties.ConnectionString, "InstrumentationKey=")
 	assert.Equal(t, "Succeeded", comp.Properties.ProvisioningState)
 
-	// GET
 	out = runCLI(t, azRest("GET", url, ""))
 	parseJSON(t, out, &comp)
 	assert.Equal(t, "cli-test-appinsights", comp.Name)
 	assert.NotEmpty(t, comp.Properties.InstrumentationKey)
 
-	// Cleanup
 	runCLI(t, azRest("DELETE", url, ""))
 }
 
@@ -124,14 +119,11 @@ func TestAppInsights_InstrumentationKeyInConnectionString(t *testing.T) {
 	parseJSON(t, out, &comp)
 	require.NotEmpty(t, comp.Properties.InstrumentationKey)
 	require.NotEmpty(t, comp.Properties.ConnectionString)
-	// ConnectionString must embed the instrumentation key
 	assert.Contains(t, comp.Properties.ConnectionString, comp.Properties.InstrumentationKey)
 
 	runCLI(t, azRest("DELETE", url, ""))
 }
 
-// cliLogWorkspace creates a Log Analytics workspace through az rest and
-// returns its ARM id and customer id.
 func cliLogWorkspace(t *testing.T, name string) (id, customerID string) {
 	t.Helper()
 	var ws struct {
@@ -144,8 +136,8 @@ func cliLogWorkspace(t *testing.T, name string) (id, customerID string) {
 	return ws.ID, ws.Properties.CustomerID
 }
 
-// cliLogs is the Container Apps environment the suite's jobs and apps run
-// in, linked to a workspace, so their logs land where the tests query them.
+// cliLogs is the Container Apps environment the suite's jobs and apps run in,
+// linked to the workspace the tests query.
 var cliLogs struct {
 	sync.Mutex
 	envID, customerID string
@@ -175,7 +167,6 @@ func cliLogsEnvironment(t *testing.T) (envID, customerID string) {
 	return cliLogs.envID, cliLogs.customerID
 }
 
-// cliQueryWorkspace runs a KQL query against a workspace through az rest.
 func cliQueryWorkspace(t *testing.T, customerID, kql string) string {
 	t.Helper()
 	body, err := json.Marshal(map[string]string{"query": kql})
@@ -183,11 +174,10 @@ func cliQueryWorkspace(t *testing.T, customerID, kql string) string {
 	return runCLI(t, azRest("POST", baseURL+"/v1/workspaces/"+customerID+"/query", string(body)))
 }
 
-// TestLogAnalytics_QueryBooleanOperatorsCLI drives the Log Analytics query
-// endpoint through `az rest` with where clauses joined by and/or and a string
-// literal holding a pipe, and reads back the BadArgumentError a query that does
-// not parse is refused with. The rows arrive through the Logs Ingestion API,
-// by way of a data collection rule writing a custom table.
+// TestLogAnalytics_QueryBooleanOperatorsCLI queries with where clauses joined
+// by and/or and a string literal holding a pipe, and reads back the
+// BadArgumentError for a query that does not parse. The rows arrive through
+// the Logs Ingestion API via a data collection rule writing a custom table.
 func TestLogAnalytics_QueryBooleanOperatorsCLI(t *testing.T) {
 	t.Parallel()
 	const role = "cli-and-or-role"

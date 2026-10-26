@@ -8,12 +8,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// CLI coverage for the Microsoft.ServiceBus cross-resource-group move: the
-// native `az resource move` re-homes a namespace, and the credential an
-// operator holds survives it — a namespace's Shared Access Signature keys are
-// derived from each authorization rule's resource ID, which embeds the resource
-// group, so a move that only re-homed the records would silently rotate every
-// connection string. Routes exercised:
+// A namespace's Shared Access Signature keys derive from each authorization
+// rule's resource ID, which embeds the resource group, so a move that only
+// re-homed the records would rotate every connection string.
 //
 //	POST /subscriptions/{subscriptionId}/resourceGroups/{sourceResourceGroupName}/moveResources
 //	POST /subscriptions/{subscriptionId}/resourceGroups/{sourceResourceGroupName}/validateMoveResources
@@ -21,8 +18,8 @@ import (
 //	POST …/namespaces/{namespaceName}/authorizationRules/{authorizationRuleName}/listKeys
 //	POST …/namespaces/{namespaceName}/queues/{queueName}/authorizationRules/{authorizationRuleName}/listKeys
 
-// sbMoveKeys is the AccessKeys body `az servicebus … authorization-rule keys
-// list` prints.
+// sbMoveKeys is the AccessKeys body
+// `az servicebus … authorization-rule keys list` prints.
 type sbMoveKeys struct {
 	KeyName                   string `json:"keyName"`
 	PrimaryKey                string `json:"primaryKey"`
@@ -31,11 +28,9 @@ type sbMoveKeys struct {
 	SecondaryConnectionString string `json:"secondaryConnectionString"`
 }
 
-// TestResourceMoveServiceBusNamespaceCLI moves a Service Bus namespace between
-// resource groups with `az resource move` and proves the move kept it
-// coherent: `az servicebus namespace show` answers under the destination group
-// only, the queue child moved with it, the tags moved with it, and every
-// authorization rule serves byte-identical keys and connection strings.
+// TestResourceMoveServiceBusNamespaceCLI: after `az resource move` the
+// namespace answers under the destination group only, its queue and tags moved
+// with it, and every authorization rule serves identical keys.
 func TestResourceMoveServiceBusNamespaceCLI(t *testing.T) {
 	t.Parallel()
 	env := startAzLoginSimulator(t)
@@ -62,16 +57,14 @@ func TestResourceMoveServiceBusNamespaceCLI(t *testing.T) {
 		"-n", "sender", "--queue-name", queue, "--namespace-name", namespace, "-g", srcRG, "-o", "json")), &queueKeysBefore)
 	require.NotEmpty(t, queueKeysBefore.PrimaryKey)
 
-	// A tag written through `az tag` at the namespace's scope before the move.
+	// Tag the namespace through `az tag` before the move.
 	namespaceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.ServiceBus/namespaces/%s",
 		subscriptionID, srcRG, namespace)
 	runCLI(t, env.command("tag", "update", "--resource-id", namespaceID,
 		"--operation", "Merge", "--tags", "team=messaging", "-o", "json"))
 
-	// The move itself, by resource ID.
 	runCLI(t, env.command("resource", "move", "--ids", namespaceID, "--destination-group", dstRG))
 
-	// The ARM record relocated.
 	var moved struct {
 		ID   string            `json:"id"`
 		Tags map[string]string `json:"tags"`
@@ -87,7 +80,6 @@ func TestResourceMoveServiceBusNamespaceCLI(t *testing.T) {
 	assert.Contains(t, failure, "ResourceNotFound",
 		"the moved namespace must no longer resolve under the source group")
 
-	// The queue child moved with it.
 	var movedQueue struct {
 		ID string `json:"id"`
 	}
@@ -95,8 +87,7 @@ func TestResourceMoveServiceBusNamespaceCLI(t *testing.T) {
 		"--namespace-name", namespace, "-g", dstRG, "-o", "json")), &movedQueue)
 	assert.Contains(t, movedQueue.ID, "/resourceGroups/"+dstRG+"/")
 
-	// A move never rotates a namespace's keys, so every connection string an
-	// operator already holds keeps working verbatim.
+	// A move never rotates a namespace's keys.
 	var nsKeysAfter, queueKeysAfter sbMoveKeys
 	parseJSON(t, runCLI(t, env.command("servicebus", "namespace", "authorization-rule", "keys", "list",
 		"-n", "RootManageSharedAccessKey", "--namespace-name", namespace, "-g", dstRG, "-o", "json")), &nsKeysAfter)
@@ -107,8 +98,7 @@ func TestResourceMoveServiceBusNamespaceCLI(t *testing.T) {
 	assert.Equal(t, queueKeysBefore, queueKeysAfter,
 		"a cross-group move must not rotate a queue rule's keys either")
 
-	// A rotation after the move still yields new material, so the pin did not
-	// freeze the rotation contract.
+	// Rotation after the move still yields new material.
 	var regenerated sbMoveKeys
 	parseJSON(t, runCLI(t, env.command("servicebus", "namespace", "authorization-rule", "keys", "renew",
 		"-n", "RootManageSharedAccessKey", "--namespace-name", namespace, "-g", dstRG,

@@ -10,10 +10,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestSDK_SiteVNetIntegration_RoundTrip exercises App Service regional VNet
-// integration (the "swift" virtual network connection) — the endpoint sockerless
-// uses for cloud-dns service discovery. A site joins a Microsoft.Web-delegated
-// subnet; the connection round-trips on GET and is removable.
+// TestSDK_SiteVNetIntegration_RoundTrip: a site joins a Microsoft.Web-delegated
+// subnet through regional virtual network integration (the "swift"
+// connection), which round-trips on GET and deletes.
 func TestSDK_SiteVNetIntegration_RoundTrip(t *testing.T) {
 	t.Parallel()
 	rg := "sdk-sitevnet-rg"
@@ -24,9 +23,8 @@ func TestSDK_SiteVNetIntegration_RoundTrip(t *testing.T) {
 	client, err := armappservice.NewWebAppsClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)
 
-	// A site that is not Always On and receives no request runs no container,
-	// so VNet integration only records the connection — keeping this an ARM
-	// round-trip test, not a workload test.
+	// A site that is not Always On and gets no request runs no container, so the
+	// integration only records the connection.
 	p, err := client.BeginCreateOrUpdate(ctx, rg, site, armappservice.Site{
 		Location: to.Ptr("eastus"),
 		Kind:     to.Ptr("functionapp,linux,container"),
@@ -51,9 +49,8 @@ func TestSDK_SiteVNetIntegration_RoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, put.Properties)
 	assert.Equal(t, subnetID, *put.Properties.SubnetResourceID)
-	// The operation path is .../networkConfig/virtualNetwork, but the resource's
-	// canonical ARM id is the config sub-resource .../config/virtualNetwork —
-	// the value terraform-provider-azurerm parses from the response.
+	// The operation path is .../networkConfig/virtualNetwork; the canonical ID,
+	// which terraform-provider-azurerm parses, is .../config/virtualNetwork.
 	require.NotNil(t, put.ID)
 	assert.True(t, strings.HasSuffix(*put.ID, "/config/virtualNetwork"),
 		"swift connection id must be the canonical config sub-resource; got %s", *put.ID)

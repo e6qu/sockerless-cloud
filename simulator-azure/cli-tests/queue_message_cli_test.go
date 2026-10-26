@@ -10,10 +10,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestQueueMessageUpdateCLI drives `az storage message update`, the command a
-// consumer still working on a message runs to keep it invisible to everyone
-// else, and then the pop-receipt rules that make the update the dequeuer's
-// alone.
+// TestQueueMessageUpdateCLI drives `az storage message update`, which a
+// consumer runs to keep a message invisible while it works, and the pop-receipt
+// rules that make the update the dequeuer's alone.
 func TestQueueMessageUpdateCLI(t *testing.T) {
 	t.Parallel()
 	const queue = "cli-update-queue"
@@ -55,7 +54,7 @@ func TestQueueMessageUpdateCLI(t *testing.T) {
 	assert.NotEmpty(t, updated.TimeNextVisible,
 		"az storage message update must report when the message reappears: %s", out)
 
-	// The extension holds: the message is not handed to another consumer.
+	// The message is not handed to another consumer.
 	out = runCLI(t, azStorageQueue("message", "peek", "--queue-name", queue))
 	var peeked []struct {
 		Content string `json:"content"`
@@ -73,8 +72,7 @@ func TestQueueMessageUpdateCLI(t *testing.T) {
 }
 
 // TestQueueAccessPolicyCLI drives the queue's stored access policies through
-// `az storage queue policy`, the signed identifiers a shared access signature
-// is issued against.
+// `az storage queue policy`.
 func TestQueueAccessPolicyCLI(t *testing.T) {
 	t.Parallel()
 	const queue = "cli-acl-queue"
@@ -104,9 +102,8 @@ func TestQueueAccessPolicyCLI(t *testing.T) {
 	assert.Empty(t, afterDelete, "the deleted policy must be gone: %s", out)
 }
 
-// azStorageQueuePolicy builds an `az storage queue policy` invocation. The
-// stored-access-policy commands authorize with the account key alone and reject
-// --auth-mode, so they are spelled out here rather than through azStorageQueue.
+// The stored-access-policy commands authorize with the account key alone and
+// reject --auth-mode.
 func azStorageQueuePolicy(args ...string) *exec.Cmd {
 	baseArgs := append([]string{"storage", "queue", "policy"}, args...)
 	baseArgs = append(baseArgs,

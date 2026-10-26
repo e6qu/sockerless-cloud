@@ -9,10 +9,8 @@ import (
 	"testing"
 )
 
-// subscriptionSpecActions maps every operation the Microsoft.Subscription
-// 2021-10-01 specification declares to the Azure Resource Manager action that
-// authorizes it. Reads of the same resource collapse onto one action, which is
-// why several operationIds share an entry.
+// Every operation the specification declares, mapped to the action that
+// authorizes it; reads of one resource share an action.
 var subscriptionSpecActions = map[string]string{
 	"Alias_Get":                                   "Microsoft.Subscription/aliases/read",
 	"Alias_List":                                  "Microsoft.Subscription/aliases/read",
@@ -31,16 +29,9 @@ var subscriptionSpecActions = map[string]string{
 	"Operations_List":                             "Microsoft.Subscription/operations/read",
 }
 
-// TestSubscriptionOperationCatalogCoversSpec holds the catalog Operations_List
-// serves to the surface the vendored specification declares. The catalog is the
-// provider's set of role-assignable actions, so it must carry an action for
-// every documented operation and no action no operation needs — a stale entry
-// would advertise an action the provider does not have, and a missing one would
-// hide an operation a role assignment has to name.
-//
-// The mapping is also a coverage tripwire: growing the vendored specification
-// with an operation nobody mapped fails here rather than silently leaving the
-// catalog short.
+// The catalog carries an action for every documented operation and none no
+// operation needs. An operation added to the vendored specification without a
+// mapping fails here.
 func TestSubscriptionOperationCatalogCoversSpec(t *testing.T) {
 	specPath := filepath.Join("..", "specs", "cloud-api", "azure",
 		"subscription-arm-subscriptions-2021-10-01.swagger.json.gz")

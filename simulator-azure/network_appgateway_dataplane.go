@@ -17,34 +17,25 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/lbplane"
 )
 
-// The application gateway data plane. A client reaches an application gateway
-// at the address of one of its frontend IP configurations — the address of the
-// public IP the frontend references, or the private address the frontend took
-// out of its subnet — exactly as it reaches a real one, and the simulator
-// dispatches on that address in the HTTP Host header the same way it dispatches
-// the load balancer, Container Apps ingress and storage data planes. The
-// coordinate a client points its TCP connection at is the simulator's endpoint;
-// everything above it is the gateway's own contract.
+// The application gateway data plane. A client reaches a gateway at one of its
+// frontend addresses — a referenced public IP's, or a private address from the
+// subnet — and the simulator dispatches on that address in the Host header, as
+// for the load balancer, Container Apps ingress and storage planes. The
+// gateway's configuration executes:
 //
-// What runs here is the gateway's configuration, executed:
+//   - the listener is selected by frontend address, port and host name, a
+//     multi-site listener winning over a basic one;
+//   - the listener's routing rule sends the request to a pool, through a URL
+//     path map, or into a redirect the gateway answers itself;
+//   - the rule's (or path rule's) rewrite rule set rewrites request headers,
+//     response headers and the URL, conditions evaluated against server
+//     variables;
+//   - the backend settings decide protocol, port, host header, path prefix and
+//     timeout;
+//   - the pool member is one the probes found Up, using the settings' probe or
+//     Azure's default.
 //
-//   - the HTTP listener is selected by frontend address, port and host name,
-//     with a multi-site listener winning over a basic one;
-//   - the request routing rule bound to that listener decides where the request
-//     goes — straight at a backend address pool, through a URL path map whose
-//     path rules pick a different pool per path, or into a redirect
-//     configuration that answers the client itself;
-//   - the rewrite rule set attached to the rule (or to the matched path rule)
-//     rewrites request headers, response headers and the request URL, with each
-//     rule's conditions evaluated against the request's own server variables;
-//   - the backend settings decide the backend protocol, port, host header, path
-//     prefix and request timeout;
-//   - and the pool member the request is forwarded to is one the gateway's
-//     probes have found Up, using the probe the settings reference or the
-//     default probe Azure applies when they reference none.
-//
-// BackendHealth answers from those same probes, which run on each probe's own
-// interval; an on-demand probe runs when it is asked for.
+// BackendHealth answers from those probes, which run on each probe's interval.
 
 func registerApplicationGatewayDataPlane(srv *sim.Server) {
 	srv.WrapHandler(func(next http.Handler) http.Handler {
@@ -59,10 +50,7 @@ func registerApplicationGatewayDataPlane(srv *sim.Server) {
 	})
 }
 
-// applicationGatewayFromDataPlaneHost finds the running application gateway
-// whose frontend holds the address the request was sent to. A stopped gateway
-// holds no frontend: its data plane is torn down until it is started again, so
-// the address answers nothing.
+// A stopped gateway holds no frontend, so its address answers nothing.
 func applicationGatewayFromDataPlaneHost(host string) (ApplicationGateway, ApplicationGatewayFrontendIPConfiguration, bool) {
 	if azureApplicationGateways == nil {
 		return ApplicationGateway{}, ApplicationGatewayFrontendIPConfiguration{}, false
@@ -75,11 +63,9 @@ func applicationGatewayFromDataPlaneHost(host string) (ApplicationGateway, Appli
 	if hostname == "" {
 		return ApplicationGateway{}, ApplicationGatewayFrontendIPConfiguration{}, false
 	}
-	// Every request into the simulator reaches this wrapper before any
-	// handler, so the address match answers from an index rather than by
-	// reading and decoding every stored gateway. Operational state is checked
-	// on the matched row rather than in the index, so a gateway that starts or
-	// stops needs no invalidation beyond the store's own generation.
+	// A wrapper ahead of every handler runs this, so match from an index; check
+	// operational state on the matched row, so starting or stopping needs no
+	// invalidation.
 	for _, gw := range azureApplicationGatewaysByFrontend.LookupAll(
 		azureApplicationGateways, hostname, applicationGatewayFrontendAddresses) {
 		if !strings.EqualFold(gw.Properties.OperationalState, "Running") {
@@ -89,8 +75,8 @@ func applicationGatewayFromDataPlaneHost(host string) (ApplicationGateway, Appli
 			if !strings.EqualFold(applicationGatewayFrontendAddress(fe), hostname) {
 				continue
 			}
-			// The pool members an interface declared are recomputed on read, so
-			// the data plane forwards to the same set the gateway reports.
+			// Recompute the pool members, so the data plane forwards to the set the
+			// gateway reports.
 			projectApplicationGateway(&gw)
 			return gw, fe, true
 		}
@@ -98,12 +84,9 @@ func applicationGatewayFromDataPlaneHost(host string) (ApplicationGateway, Appli
 	return ApplicationGateway{}, ApplicationGatewayFrontendIPConfiguration{}, false
 }
 
-// azureApplicationGatewaysByFrontend indexes gateways by the addresses their
-// frontends answer on.
 var azureApplicationGatewaysByFrontend sim.GenerationIndex[ApplicationGateway]
 
-// applicationGatewayFrontendAddresses returns every address a gateway's
-// frontends answer on, whatever its operational state.
+// Whatever the gateway's operational state.
 func applicationGatewayFrontendAddresses(gw ApplicationGateway) []string {
 	addresses := make([]string, 0, len(gw.Properties.FrontendIPConfigurations))
 	for _, fe := range gw.Properties.FrontendIPConfigurations {
@@ -112,9 +95,6 @@ func applicationGatewayFrontendAddresses(gw ApplicationGateway) []string {
 	return addresses
 }
 
-// applicationGatewayFrontendAddress reports the address clients reach a
-// frontend at: the address of the public IP it references, or the private
-// address it holds.
 func applicationGatewayFrontendAddress(fe ApplicationGatewayFrontendIPConfiguration) string {
 	if fe.Properties.PublicIPAddress != nil && fe.Properties.PublicIPAddress.ID != "" {
 		if azurePublicIPs == nil {
@@ -151,8 +131,7 @@ func handleApplicationGatewayDataPlane(w http.ResponseWriter, r *http.Request, g
 	}
 	server, ok := applicationGatewayHealthyServer(gw, *target.pool, *target.settings)
 	if !ok {
-		// A gateway with no healthy pool member answers 502, the status a real
-		// Application Gateway returns when it cannot reach any backend server.
+		// Application Gateway answers 502 when it cannot reach any backend server.
 		http.Error(w, "no healthy backend servers in pool "+target.pool.Name, http.StatusBadGateway)
 		return
 	}
@@ -160,19 +139,16 @@ func handleApplicationGatewayDataPlane(w http.ResponseWriter, r *http.Request, g
 }
 
 var applicationGatewayAnswers = lbplane.Answers{
-	// A backend the gateway cannot reach is a 502, as the real gateway
-	// answers when the backend's network security group drops its flow.
+	// Application Gateway answers 502 when the backend's network security group
+	// drops its flow.
 	NotAdmitted: func(w http.ResponseWriter, err error) {
 		http.Error(w, "the backend's network security groups do not admit the gateway: "+err.Error(), http.StatusBadGateway)
 	},
 	Failed: func(w http.ResponseWriter, err error) { http.Error(w, err.Error(), http.StatusBadGateway) },
 }
 
-// applicationGatewayListenerForRequest picks the HTTP listener the request
-// arrived on. Listeners are matched on the frontend address and port; among
-// those, a listener that names host names wins over one that names none — the
-// multi-site precedence a real gateway applies — and a literal host name wins
-// over a wildcard.
+// Listeners match on frontend address and port; a listener naming host names
+// wins over one naming none, and a literal name over a wildcard.
 func applicationGatewayListenerForRequest(gw ApplicationGateway, frontend ApplicationGatewayFrontendIPConfiguration, r *http.Request) (ApplicationGatewayHTTPListener, bool) {
 	port := applicationGatewayRequestPort(r)
 	requestHost := applicationGatewayRequestHostname(r)
@@ -212,8 +188,6 @@ func applicationGatewayListenerForRequest(gw ApplicationGateway, frontend Applic
 	return ApplicationGatewayHTTPListener{}, false
 }
 
-// applicationGatewayListenerHostNames merges the singular hostName and the
-// hostNames list a listener may carry.
 func applicationGatewayListenerHostNames(listener ApplicationGatewayHTTPListener) []string {
 	names := append([]string{}, listener.Properties.HostNames...)
 	if listener.Properties.HostName != "" {
@@ -222,9 +196,8 @@ func applicationGatewayListenerHostNames(listener ApplicationGatewayHTTPListener
 	return names
 }
 
-// applicationGatewayHostMatches applies the host-name matching a listener
-// performs: an exact name, or a name with a single "*" standing for any run of
-// characters (Azure allows a leading or trailing wildcard).
+// An exact name, or one "*" for any run of characters (Azure allows a leading
+// or trailing wildcard).
 func applicationGatewayHostMatches(pattern, host string) bool {
 	pattern, host = strings.ToLower(pattern), strings.ToLower(host)
 	if !strings.Contains(pattern, "*") {
@@ -267,9 +240,7 @@ func applicationGatewayFrontendPortValue(gw ApplicationGateway, ref *SubResource
 	return 0
 }
 
-// applicationGatewayRuleForListener returns the request routing rule bound to
-// the listener. When several are, the lowest priority value wins — the order a
-// real gateway evaluates rules in.
+// The lowest priority value wins, as Application Gateway evaluates rules.
 func applicationGatewayRuleForListener(gw ApplicationGateway, listener ApplicationGatewayHTTPListener) (ApplicationGatewayRequestRoutingRule, bool) {
 	var bound []ApplicationGatewayRequestRoutingRule
 	for _, rule := range gw.Properties.RequestRoutingRules {
@@ -286,9 +257,6 @@ func applicationGatewayRuleForListener(gw ApplicationGateway, listener Applicati
 	return bound[0], true
 }
 
-// applicationGatewayTarget is where one request ends up: a redirect the gateway
-// answers itself, or a pool plus the settings that describe how to reach it,
-// together with the rewrite rule set that applies.
 type applicationGatewayTarget struct {
 	pool     *ApplicationGatewayBackendAddressPool
 	settings *ApplicationGatewayBackendHTTPSettings
@@ -296,10 +264,8 @@ type applicationGatewayTarget struct {
 	rewrite  *ApplicationGatewayRewriteRuleSet
 }
 
-// applicationGatewayRouteRequest evaluates one routing rule against the
-// request. A path-based rule consults its URL path map first: the first path
-// rule whose patterns match the request path decides, and the map's defaults
-// apply when none does.
+// A path-based rule consults its URL path map: the first matching path rule
+// decides, the map's defaults otherwise.
 func applicationGatewayRouteRequest(gw ApplicationGateway, rule ApplicationGatewayRequestRoutingRule, r *http.Request) applicationGatewayTarget {
 	target := applicationGatewayTarget{
 		pool:     applicationGatewayPool(gw, rule.Properties.BackendAddressPool),
@@ -330,10 +296,8 @@ func applicationGatewayRouteRequest(gw ApplicationGateway, rule ApplicationGatew
 	}
 }
 
-// applicationGatewayMatchPathRule applies the path patterns of a URL path map.
-// A pattern is either an exact path or a path ending in "*", which matches
-// every path with that prefix; the rules are evaluated in their declared order
-// and the first match wins.
+// A pattern is an exact path or a path ending in "*" for that prefix; the first
+// match in declared order wins.
 func applicationGatewayMatchPathRule(pathMap ApplicationGatewayURLPathMap, path string) (ApplicationGatewayPathRule, bool) {
 	for _, rule := range pathMap.Properties.PathRules {
 		for _, pattern := range rule.Properties.Paths {
@@ -424,10 +388,8 @@ func applicationGatewayProbe(gw ApplicationGateway, ref *SubResource) *Applicati
 	return nil
 }
 
-// applicationGatewayRedirect answers the client from a redirect configuration.
-// The target is either another listener of the same gateway — whose host name
-// and port the gateway resolves — or a literal URL, and the incoming path and
-// query are carried over when the configuration says so.
+// The target is another listener of the gateway, whose host and port it
+// resolves, or a literal URL; path and query carry over when configured.
 func applicationGatewayRedirect(w http.ResponseWriter, r *http.Request, gw ApplicationGateway, cfg ApplicationGatewayRedirectConfiguration) {
 	target := cfg.Properties.TargetURL
 	if target == "" && cfg.Properties.TargetListener != nil {
@@ -451,7 +413,6 @@ func applicationGatewayRedirect(w http.ResponseWriter, r *http.Request, gw Appli
 	w.WriteHeader(applicationGatewayRedirectStatus(cfg.Properties.RedirectType))
 }
 
-// applicationGatewayRedirectStatus maps a redirect type to its status code.
 func applicationGatewayRedirectStatus(redirectType string) int {
 	switch strings.ToLower(redirectType) {
 	case "permanent":
@@ -461,13 +422,11 @@ func applicationGatewayRedirectStatus(redirectType string) int {
 	case "seeother":
 		return http.StatusSeeOther
 	default:
-		// "Found" is the redirect type Azure applies when none is named.
+		// Azure applies "Found" when no redirect type is named.
 		return http.StatusFound
 	}
 }
 
-// applicationGatewayListenerURL builds the base URL a redirect to another
-// listener of the same gateway points at.
 func applicationGatewayListenerURL(gw ApplicationGateway, listenerID string) string {
 	for _, listener := range gw.Properties.HTTPListeners {
 		if !strings.EqualFold(listener.ID, listenerID) {
@@ -501,18 +460,13 @@ func applicationGatewayListenerURL(gw ApplicationGateway, listenerID string) str
 	return ""
 }
 
-// applicationGatewayServer is one backend server of a pool, as the gateway
-// addresses it.
 type applicationGatewayServer struct {
-	// address is the pool member as configured — an IP address or an FQDN.
+	// An IP address or an FQDN, as configured.
 	address string
-	// ipConfiguration is the interface IP configuration the member came from,
-	// when the member joined the pool through a network interface.
+	// Set when the member joined through a network interface.
 	ipConfiguration *NetworkInterfaceIPConfiguration
 }
 
-// applicationGatewayServers lists a pool's members: the addresses configured on
-// the pool and the interface IP configurations that joined it.
 func applicationGatewayServers(pool ApplicationGatewayBackendAddressPool) []applicationGatewayServer {
 	var servers []applicationGatewayServer
 	for _, address := range pool.Properties.BackendAddresses {
@@ -536,11 +490,9 @@ func applicationGatewayServers(pool ApplicationGatewayBackendAddressPool) []appl
 	return servers
 }
 
-// applicationGatewayHealthyServer returns the first pool member the gateway
-// routes to: one its health probes have found Up, or else — when the settings'
-// probe sets minServers, the "minimum number of servers that are always marked
-// healthy" — the first of the pool's members, which count as healthy however
-// their probes went.
+// One the probes found Up or, when the probe sets minServers ("minimum number
+// of servers that are always marked healthy"), the pool's first member
+// regardless.
 func applicationGatewayHealthyServer(gw ApplicationGateway, pool ApplicationGatewayBackendAddressPool, settings ApplicationGatewayBackendHTTPSettings) (applicationGatewayServer, bool) {
 	servers := applicationGatewayServers(pool)
 	for _, server := range servers {
@@ -554,24 +506,19 @@ func applicationGatewayHealthyServer(gw ApplicationGateway, pool ApplicationGate
 	return applicationGatewayServer{}, false
 }
 
-// applicationGatewayProbeSweep is how often the prober looks for pool members
-// whose next probe has come due; each probe's own interval sets how often one
-// member is probed.
+// How often the prober looks for due probes; each probe's interval sets how
+// often one member is probed.
 const applicationGatewayProbeSweep = 250 * time.Millisecond
 
-// applicationGatewayHealth holds what the health probes last recorded for each
-// pool member under each backend settings member, keyed by
-// applicationGatewayHealthKey.
+// Keyed by applicationGatewayHealthKey.
 var applicationGatewayHealth = lbplane.NewHealthTracker[string]()
 
 func applicationGatewayHealthKey(gw ApplicationGateway, settings ApplicationGatewayBackendHTTPSettings, server applicationGatewayServer) string {
 	return strings.ToLower(gw.ID) + "|" + strings.ToLower(settings.ID) + "|" + strings.ToLower(server.address)
 }
 
-// applicationGatewaySweepProbes probes every member of every pool a routing
-// rule pairs with backend settings, on every running gateway, whose next probe
-// has come due at now. A stopped gateway probes nothing, so it starts again
-// from Unknown.
+// Only pools a routing rule pairs with backend settings, on running gateways.
+// A stopped gateway probes nothing, so it restarts from Unknown.
 func applicationGatewaySweepProbes(ctx context.Context, now time.Time) {
 	if azureApplicationGateways == nil {
 		return
@@ -588,9 +535,8 @@ func applicationGatewaySweepProbes(ctx context.Context, now time.Time) {
 					spec := applicationGatewayProbeSpec(gw, settings, server, nil)
 					targets = append(targets, lbplane.HealthTarget[string]{
 						Key: applicationGatewayHealthKey(gw, settings, server),
-						// A member returns to service on its first successful
-						// probe and leaves it after unhealthyThreshold
-						// consecutive failures.
+						// A member returns to service on its first successful probe and leaves it
+						// after unhealthyThreshold consecutive failures.
 						Policy: lbplane.HealthPolicy{
 							Interval:                spec.interval,
 							InitialHealthyThreshold: 1,
@@ -608,9 +554,7 @@ func applicationGatewaySweepProbes(ctx context.Context, now time.Time) {
 	applicationGatewayHealth.Sweep(ctx, now, targets)
 }
 
-// applicationGatewayRecordedHealth reports the health and probe log the
-// gateway's probes last recorded for a pool member: Unknown until the probes
-// reach a verdict, then Up or Down.
+// Unknown until the probes reach a verdict, then Up or Down.
 func applicationGatewayRecordedHealth(gw ApplicationGateway, settings ApplicationGatewayBackendHTTPSettings, server applicationGatewayServer) (string, string) {
 	record, ok := applicationGatewayHealth.Health(applicationGatewayHealthKey(gw, settings, server))
 	if !ok || record.Checks == 0 {
@@ -628,36 +572,30 @@ func applicationGatewayRecordedHealth(gw ApplicationGateway, settings Applicatio
 	}
 }
 
-// applicationGatewayProbeServer runs one probe against a pool member now and
-// reports the health and the probe log a real gateway records, which is what an
-// on-demand probe answers with.
+// What an on-demand probe answers with.
 func applicationGatewayProbeServer(ctx context.Context, gw ApplicationGateway, settings ApplicationGatewayBackendHTTPSettings, server applicationGatewayServer, override *ApplicationGatewayOnDemandProbe) (string, string) {
 	spec := applicationGatewayProbeSpec(gw, settings, server, override)
 	status, err := applicationGatewayRunProbe(ctx, spec, server)
 	return applicationGatewayProbeVerdict(spec, server, status, err)
 }
 
-// applicationGatewayResolvedProbe is the probe one pool member is checked with,
-// after the backend settings, the referenced probe and any on-demand override
-// have been folded together.
+// The backend settings, the referenced probe and any on-demand override,
+// folded together.
 type applicationGatewayResolvedProbe struct {
-	protocol    string
-	host        string
-	path        string
-	port        int32
-	timeout     time.Duration
-	statusCodes []string
-	body        string
-	// interval and unhealthyThreshold schedule the gateway's own probes.
+	protocol           string
+	host               string
+	path               string
+	port               int32
+	timeout            time.Duration
+	statusCodes        []string
+	body               string
 	interval           time.Duration
 	unhealthyThreshold int
 }
 
-// applicationGatewayProbeSpec resolves the probe for one pool member. The
-// backend settings supply the protocol, port and host header; the probe they
-// reference — or the on-demand probe the caller described — overrides those it
-// names; and what neither supplies falls back to the gateway's default probe:
-// "/" on the settings' own protocol and port, healthy on any 2xx or 3xx.
+// The settings supply protocol, port and host header; the referenced or
+// on-demand probe overrides what it names; the rest falls back to the default
+// probe: "/" on the settings' protocol and port, healthy on any 2xx or 3xx.
 func applicationGatewayProbeSpec(gw ApplicationGateway, settings ApplicationGatewayBackendHTTPSettings, server applicationGatewayServer, override *ApplicationGatewayOnDemandProbe) applicationGatewayResolvedProbe {
 	spec := applicationGatewayResolvedProbe{
 		protocol: settings.Properties.Protocol,
@@ -665,8 +603,8 @@ func applicationGatewayProbeSpec(gw ApplicationGateway, settings ApplicationGate
 		port:     settings.Properties.Port,
 		timeout:  30 * time.Second,
 		host:     settings.Properties.HostName,
-		// The default probe runs every 30 seconds and marks a server down
-		// after 3 consecutive failures.
+		// The default probe runs every 30 seconds and marks a server down after 3
+		// consecutive failures.
 		interval:           30 * time.Second,
 		unhealthyThreshold: 3,
 	}
@@ -723,10 +661,9 @@ func applicationGatewayProbeSpec(gw ApplicationGateway, settings ApplicationGate
 	return spec
 }
 
-// applicationGatewayRunProbe issues one probe. A Tcp or Tls probe is a
-// connection test; an Http or Https probe reads the status the server itself
-// returned — the gateway does not follow a redirect — and grades it, and the
-// body, against the probe's match criterion.
+// Tcp and Tls probes test the connection; Http and Https grade the server's
+// own status, not following a redirect, and the body, against the match
+// criterion.
 func applicationGatewayRunProbe(ctx context.Context, spec applicationGatewayResolvedProbe, server applicationGatewayServer) (int, error) {
 	address := net.JoinHostPort(server.address, strconv.Itoa(int(spec.port)))
 	if strings.EqualFold(spec.protocol, "Tcp") || strings.EqualFold(spec.protocol, "Tls") {
@@ -746,8 +683,7 @@ func applicationGatewayRunProbe(ctx context.Context, spec applicationGatewayReso
 	}
 	return lbplane.ProbeHTTP(ctx, lbplane.HTTPProbe{
 		Scheme: scheme,
-		// A v2 gateway accepts an Https backend only when its certificate is
-		// trusted.
+		// A v2 gateway accepts an Https backend only with a trusted certificate.
 		VerifyCertificate: true,
 		Address:           address,
 		Host:              spec.host,
@@ -759,8 +695,6 @@ func applicationGatewayRunProbe(ctx context.Context, spec applicationGatewayReso
 	})
 }
 
-// applicationGatewayProbeVerdict turns one probe's result into the health and
-// the probe log the gateway reports for it.
 func applicationGatewayProbeVerdict(spec applicationGatewayResolvedProbe, server applicationGatewayServer, status int, err error) (string, string) {
 	if strings.EqualFold(spec.protocol, "Tcp") || strings.EqualFold(spec.protocol, "Tls") {
 		if err != nil {
@@ -791,13 +725,9 @@ func applicationGatewayProbeVerdict(spec applicationGatewayResolvedProbe, server
 	}
 }
 
-// applicationGatewayForward sends the request to the chosen pool member the way
-// the backend settings describe, applies the rewrite rule set to the request and
-// the response, and copies the response back to the client.
-// applicationGatewaySourceAddress is the address the gateway connects to a
-// backend from — the private frontend it holds in its subnet, or else an
-// instance address in the subnet its gatewayIPConfigurations name — which is
-// what the backend's network security groups see.
+// The private frontend the gateway holds in its subnet, or else an instance
+// address in its gatewayIPConfigurations subnet: what the backend's network
+// security groups see.
 func applicationGatewaySourceAddress(gw ApplicationGateway) netip.Addr {
 	for _, fe := range gw.Properties.FrontendIPConfigurations {
 		if fe.Properties.Subnet != nil {
@@ -829,8 +759,8 @@ func applicationGatewaySourceAddress(gw ApplicationGateway) netip.Addr {
 	return netip.Addr{}
 }
 
-// applicationGatewayForward sends the request to the backend from source, the
-// gateway's own address.
+// applicationGatewayForward applies the rewrite rule set to the request and
+// response and copies the response back.
 func applicationGatewayForward(w http.ResponseWriter, r *http.Request, settings ApplicationGatewayBackendHTTPSettings, rewrite *ApplicationGatewayRewriteRuleSet, server applicationGatewayServer, source netip.Addr) error {
 	scheme := "http"
 	if strings.EqualFold(settings.Properties.Protocol, "Https") {
@@ -842,9 +772,7 @@ func applicationGatewayForward(w http.ResponseWriter, r *http.Request, settings 
 	}
 	path := r.URL.EscapedPath()
 	query := r.URL.RawQuery
-	// The settings' path is prefixed to every request forwarded through them,
-	// so a backend that serves the application under its own root prefix sees
-	// the path it expects.
+	// Prefix the settings' path, for a backend serving under its own root.
 	if settings.Properties.Path != "" {
 		path = strings.TrimSuffix(settings.Properties.Path, "/") + path
 	}
@@ -868,8 +796,7 @@ func applicationGatewayForward(w http.ResponseWriter, r *http.Request, settings 
 		Host:     host,
 		Header:   headers,
 		Timeout:  timeout,
-		// The gateway connects to the backend from its own address in its
-		// subnet, which is what the backend's network security groups see.
+		// The backend's network security groups see the gateway's own subnet address.
 		Admit: func(netip.Addr) error {
 			return azureAdmitIngress("Tcp", source, server.address, int(port))
 		},
@@ -883,8 +810,7 @@ func applicationGatewayForward(w http.ResponseWriter, r *http.Request, settings 
 	return lbplane.Serve(w, r, up, applicationGatewayAnswers)
 }
 
-// applicationGatewayAddForwardedHeaders inserts the six headers Application
-// Gateway adds to every request before it forwards it, and before a rewrite
+// Application Gateway adds six headers before forwarding, and before a rewrite
 // rule set runs, so a rewrite can read or replace them. X-Forwarded-For is a
 // comma-separated list of IP:port.
 func applicationGatewayAddForwardedHeaders(r *http.Request, headers http.Header) {
@@ -901,9 +827,7 @@ func applicationGatewayAddForwardedHeaders(r *http.Request, headers http.Header)
 	headers.Set("X-Appgw-Trace-Id", lbplane.RandomHex(16))
 }
 
-// applicationGatewayBackendHost decides the Host header the gateway sends to
-// the backend: the name the settings pin, the pool member's own name, or the
-// name the client used.
+// The name the settings pin, the pool member's own name, or the client's.
 func applicationGatewayBackendHost(r *http.Request, settings ApplicationGatewayBackendHTTPSettings, server applicationGatewayServer) string {
 	if settings.Properties.HostName != "" {
 		return settings.Properties.HostName
@@ -914,9 +838,7 @@ func applicationGatewayBackendHost(r *http.Request, settings ApplicationGatewayB
 	return applicationGatewayRequestHostname(r)
 }
 
-// applicationGatewayServerVariables builds the server variables a rewrite rule
-// condition can be written against, from the request the gateway is handling
-// and (for a response-scoped condition) the status the backend returned.
+// From the request and, for a response-scoped condition, the backend's status.
 func applicationGatewayServerVariables(r *http.Request, backendHost string, status int) map[string]string {
 	clientIP, clientPort := lbplane.ClientAddress(r)
 	scheme := "http"
@@ -950,9 +872,7 @@ func applicationGatewayServerVariables(r *http.Request, backendHost string, stat
 	return vars
 }
 
-// applicationGatewayApplyRequestRewrites runs the rule set against the request:
-// every rule whose conditions hold contributes its request-header changes and
-// its URL rewrite, in rule-sequence order.
+// Every rule whose conditions hold contributes, in rule-sequence order.
 func applicationGatewayApplyRequestRewrites(set *ApplicationGatewayRewriteRuleSet, vars map[string]string, headers http.Header, path, query string) (string, string) {
 	for _, rule := range applicationGatewayOrderedRules(set) {
 		if rule.ActionSet == nil || !applicationGatewayConditionsHold(rule.Conditions, vars) {
@@ -971,8 +891,6 @@ func applicationGatewayApplyRequestRewrites(set *ApplicationGatewayRewriteRuleSe
 	return path, query
 }
 
-// applicationGatewayApplyResponseRewrites runs the rule set's response-header
-// actions against the backend's response.
 func applicationGatewayApplyResponseRewrites(set *ApplicationGatewayRewriteRuleSet, vars map[string]string, headers http.Header) {
 	for _, rule := range applicationGatewayOrderedRules(set) {
 		if rule.ActionSet == nil || !applicationGatewayConditionsHold(rule.Conditions, vars) {
@@ -988,9 +906,8 @@ func applicationGatewayOrderedRules(set *ApplicationGatewayRewriteRuleSet) []App
 	return rules
 }
 
-// applicationGatewayApplyHeaderActions sets each named header to its configured
-// value; an empty value deletes the header, which is how the rewrite engine
-// expresses a removal.
+// An empty value deletes the header, as the rewrite engine expresses a
+// removal.
 func applicationGatewayApplyHeaderActions(actions []ApplicationGatewayHeaderConfiguration, headers http.Header) {
 	for _, action := range actions {
 		if action.HeaderName == "" {
@@ -1018,8 +935,6 @@ func applicationGatewayMatcherHolds(matcher ApplicationGatewayHeaderValueMatcher
 	return matched
 }
 
-// applicationGatewayConditionsHold evaluates a rewrite rule's conditions: every
-// one must hold for the rule to fire.
 func applicationGatewayConditionsHold(conditions []ApplicationGatewayRewriteRuleCondition, vars map[string]string) bool {
 	for _, condition := range conditions {
 		value := vars[strings.ToLower(strings.TrimPrefix(condition.Variable, "var_"))]
@@ -1034,24 +949,22 @@ func applicationGatewayConditionsHold(conditions []ApplicationGatewayRewriteRule
 	return true
 }
 
-// applicationGatewayPatternMatches applies a rewrite pattern, which the rewrite
-// engine treats as a regular expression.
+// The rewrite engine treats a pattern as a regular expression.
 func applicationGatewayPatternMatches(pattern, value string, ignoreCase bool) bool {
 	if ignoreCase {
 		pattern = "(?i)" + pattern
 	}
 	re, err := regexp.Compile(pattern)
 	if err != nil {
-		// An uncompilable pattern matches nothing rather than everything, so a
-		// malformed condition can never widen a rule's reach.
+		// An uncompilable pattern matches nothing, so a malformed condition cannot
+		// widen a rule's reach.
 		return false
 	}
 	return re.MatchString(value)
 }
 
-// applicationGatewayBackendHealth reports what the gateway's probes last
-// recorded for every pool member under every set of backend settings a routing
-// rule pairs the pool with, which is the pairing the gateway actually uses.
+// Only the settings a routing rule pairs with each pool, as the gateway uses
+// them.
 func applicationGatewayBackendHealth(ctx context.Context, gw ApplicationGateway) map[string]any {
 	pools := make([]map[string]any, 0, len(gw.Properties.BackendAddressPools))
 	for _, pool := range gw.Properties.BackendAddressPools {
@@ -1070,8 +983,7 @@ func applicationGatewayBackendHealth(ctx context.Context, gw ApplicationGateway)
 	return map[string]any{"backendAddressPools": pools}
 }
 
-// applicationGatewaySettingsForPool lists the backend settings that any routing
-// rule — directly, or through a URL path map — pairs with the pool.
+// Directly or through a URL path map.
 func applicationGatewaySettingsForPool(gw ApplicationGateway, pool ApplicationGatewayBackendAddressPool) []ApplicationGatewayBackendHTTPSettings {
 	seen := map[string]bool{}
 	var out []ApplicationGatewayBackendHTTPSettings
@@ -1098,8 +1010,6 @@ func applicationGatewaySettingsForPool(gw ApplicationGateway, pool ApplicationGa
 	return out
 }
 
-// applicationGatewayServerHealth reports each pool member's health: what the
-// gateway's own probes recorded, or what an on-demand probe finds now.
 func applicationGatewayServerHealth(ctx context.Context, gw ApplicationGateway, settings ApplicationGatewayBackendHTTPSettings, pool ApplicationGatewayBackendAddressPool, override *ApplicationGatewayOnDemandProbe) []map[string]any {
 	servers := make([]map[string]any, 0)
 	for _, server := range applicationGatewayServers(pool) {
@@ -1120,9 +1030,6 @@ func applicationGatewayServerHealth(ctx context.Context, gw ApplicationGateway, 
 	return servers
 }
 
-// applicationGatewayOnDemandHealth runs the caller's probe against the pool and
-// backend settings the request names, instead of the probes the gateway is
-// configured with.
 func applicationGatewayOnDemandHealth(ctx context.Context, gw ApplicationGateway, probe ApplicationGatewayOnDemandProbe) (map[string]any, error) {
 	if probe.BackendAddressPool == nil || probe.BackendHTTPSettings == nil {
 		return nil, fmt.Errorf("an on-demand probe requires both a backendAddressPool and a backendHttpSettings reference")

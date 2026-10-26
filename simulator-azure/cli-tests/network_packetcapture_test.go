@@ -10,12 +10,9 @@ import (
 
 const packetCaptureAPIVersion = "2025-03-01"
 
-// The az CLI's `network watcher packet-capture` group drives the same six
-// operations the SDK does. A capture reads frames off a running machine's
-// interface, so the create path needs a host that can run one; what this
-// asserts unconditionally is the contract that keeps a capture honest — a
-// target the simulator cannot record is refused, with a reason, rather than
-// answered with an empty capture file a caller could not tell from a real one.
+// A capture reads frames off a running machine's interface. A target the
+// simulator cannot record is refused with a reason, never answered with an
+// empty capture file a caller could not tell from a real one.
 func TestNetworkWatcher_PacketCaptureRefusesAnUnrunnableTarget(t *testing.T) {
 	t.Parallel()
 	watcherURL := armURL("Microsoft.Network", "networkWatchers/cli-pcap-watcher", packetCaptureAPIVersion)
@@ -38,9 +35,8 @@ func TestNetworkWatcher_PacketCaptureRefusesAnUnrunnableTarget(t *testing.T) {
 		"the refusal names why the capture cannot run, got: %s", out)
 }
 
-// TestNetworkWatcher_PacketCaptureListIsEmptyBeforeAnyCapture pins the read
-// surface: a watcher with no captures lists none, and reading a capture that
-// does not exist is a not-found rather than an invented session.
+// TestNetworkWatcher_PacketCaptureListIsEmptyBeforeAnyCapture: a watcher with
+// no captures lists none, and a missing capture reads as not found.
 func TestNetworkWatcher_PacketCaptureListIsEmptyBeforeAnyCapture(t *testing.T) {
 	t.Parallel()
 	watcherURL := armURL("Microsoft.Network", "networkWatchers/cli-pcap-empty", packetCaptureAPIVersion)

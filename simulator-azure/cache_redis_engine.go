@@ -17,17 +17,14 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/placement"
 )
 
-// The Azure Cache for Redis data plane.
-//
-// A cache is a real Redis engine on sim/cacheengine: a primary, and on the
-// Standard and Premium tiers its replicas, each a workload on the backend the
-// redis service is configured onto, on the platform network. The simulator
-// owns a loopback listener at the cache's sslPort, which terminates TLS, and,
-// while enableNonSslPort holds, one at its non-SSL port on the same address;
-// it registers the cache's hostName against that address in its DNS front,
-// the coordinate a client resolves on Azure. Both access keys authenticate as
-// the engine's default user. The cache reports provisioningState Creating
-// until the engine answers.
+// The Azure Cache for Redis data plane: a real Redis engine on
+// sim/cacheengine — a primary and, on Standard and Premium, its replicas —
+// placed on the backend the redis service is configured onto. The simulator
+// owns a loopback listener at the cache's sslPort, terminating TLS, and while
+// enableNonSslPort holds one at the non-SSL port, and registers the hostName
+// against that address in its DNS front. Both access keys authenticate as the
+// engine's default user. provisioningState reads Creating until the engine
+// answers.
 
 const (
 	redisSSLPort    = 6380
@@ -36,9 +33,8 @@ const (
 
 var placementRedisCache = placement.Service{Name: "redis"}
 
-// redisEngineVersions maps the redisVersion a cache asks for to the version it
-// reports and the image it runs. 'latest' is 6.0, the latest version the
-// specification lists.
+// redisEngineVersion: 'latest' is 6.0, the latest version the specification
+// lists.
 func redisEngineVersion(requested string) (version, image string, ok bool) {
 	switch strings.ToLower(requested) {
 	case "", "latest", "6", "6.0":
@@ -49,13 +45,13 @@ func redisEngineVersion(requested string) (version, image string, ok bool) {
 	return "", "", false
 }
 
-// redisEngineRecord is what a control-plane restart needs to serve a cache's
-// engine again.
+// redisEngineRecord is what a control-plane restart needs to serve the engine
+// again.
 type redisEngineRecord struct {
 	cacheengine.Record
-	// Owner is the resource ID the cache was created under, which names its
-	// engine's workloads, volume and loopback address whatever group a move
-	// takes the cache to.
+	// Owner is the resource ID the cache was created under; it names the engine's
+	// workloads, volume and loopback address whatever group a move takes the cache
+	// to.
 	Owner    string `json:"owner"`
 	Image    string `json:"image"`
 	HostName string `json:"hostName"`
@@ -66,7 +62,7 @@ var redisEngineRecords sim.Store[redisEngineRecord]
 
 var redisEngines sync.Map // cache ID -> *cacheengine.Plane
 
-// redisEngineIDs maps an engine's owner to the cache's resource ID now.
+// redisEngineIDs maps an engine's owner to the cache's current resource ID.
 var redisEngineIDs sync.Map
 
 func redisCurrentID(owner string) string {
@@ -96,9 +92,9 @@ func redisScopedName(id string) string {
 	return "sockerless-azure-redis-" + hex.EncodeToString(digest[:8])
 }
 
-// redisAuthority signs the certificate every cache's sslPort presents. Azure
-// reports no certificate authority for a cache: a real endpoint presents a
-// certificate a public root signs.
+// redisAuthority signs every sslPort's certificate. Azure reports no
+// certificate authority for a cache: its endpoint presents a certificate a
+// public root signs.
 var redisAuthority = sync.OnceValues(func() (cacheengine.Authority, error) {
 	return cacheengine.NewAuthority(pkix.Name{
 		Organization: []string{"Azure Cache for Redis simulator"},
@@ -106,8 +102,6 @@ var redisAuthority = sync.OnceValues(func() (cacheengine.Authority, error) {
 	}, 10*365*24*time.Hour)
 })
 
-// redisServerTLS is the TLS a cache serves, at the minimum version its
-// minimumTlsVersion names.
 func redisServerTLS(minimum string) (*tls.Config, error) {
 	authority, err := redisAuthority()
 	if err != nil {
@@ -134,9 +128,7 @@ func redisEngineNetwork(ctx context.Context) (string, []string, error) {
 	return network.Network, network.resolvers(), nil
 }
 
-// redisNewEngine builds the engine a cache's record describes. Both access
-// keys authenticate as the default user, and the primary key is the one the
-// replicas replicate with.
+// The primary key is the one the replicas replicate with.
 func redisNewEngine(id string, record redisEngineRecord) (*cacheengine.Plane, error) {
 	config, err := redisServerTLS(record.MinTLS)
 	if err != nil {
@@ -167,7 +159,6 @@ func redisNewEngine(id string, record redisEngineRecord) (*cacheengine.Plane, er
 	}, record.Record), nil
 }
 
-// redisAccessKeyUsers is the default user both access keys authenticate as.
 // Redis 4.0 predates ACL users and takes the primary key alone.
 func redisAccessKeyUsers(id, image string) ([]cacheengine.User, error) {
 	if strings.HasSuffix(image, ":4.0-alpine") {
@@ -181,9 +172,8 @@ func redisAccessKeyUsers(id, image string) ([]cacheengine.User, error) {
 	}}, nil
 }
 
-// redisReplicaCount is how many replicas a cache's SKU runs behind its
-// primary: none on Basic, one on Standard, and replicasPerPrimary (or its
-// older name replicasPerMaster, one by default) on Premium.
+// redisReplicaCount: none on Basic, one on Standard, and replicasPerPrimary (or
+// its older name replicasPerMaster, default one) on Premium.
 func redisReplicaCount(properties map[string]any) int {
 	sku, _ := properties["sku"].(map[string]any)
 	name, _ := sku["name"].(string)
@@ -207,8 +197,8 @@ func redisNonSSLEnabled(properties map[string]any) bool {
 }
 
 // redisEngineDirectives are the redisConfiguration settings that are Redis
-// directives of the same name; the others, such as maxmemory-reserved, are
-// the service's own.
+// directives of the same name; the others, such as maxmemory-reserved, belong
+// to the service.
 func redisEngineDirectives(properties map[string]any) [][2]string {
 	configuration, _ := properties["redisConfiguration"].(map[string]any)
 	var directives [][2]string
@@ -220,8 +210,7 @@ func redisEngineDirectives(properties map[string]any) [][2]string {
 	return directives
 }
 
-// redisInstallEngine binds a new cache's endpoints, registers its hostName
-// and records its engine. It returns nil when this simulator runs no engines.
+// redisInstallEngine returns nil when this simulator runs no engines.
 func redisInstallEngine(cache RedisCache, image string) (*cacheengine.Plane, error) {
 	if !redisRunsEngines() {
 		return nil, nil
@@ -261,20 +250,17 @@ func redisInstallEngine(cache RedisCache, image string) (*cacheengine.Plane, err
 	return plane, nil
 }
 
-// redisStartEngine brings a cache's engine up. A volume an earlier engine left
-// under the cache's name is not this cache's, so it goes first.
+// A volume an earlier engine left under the cache's name is not this cache's,
+// so remove it first.
 func redisStartEngine(plane *cacheengine.Plane) error {
 	sim.RemoveVolumeSettled(plane.Volume(), "azure-redis")
 	return plane.Ensure()
 }
 
-// redisSaveEngine records where a cache's engine topology now stands.
 func redisSaveEngine(id string, plane *cacheengine.Plane) {
 	redisEngineRecords.Update(id, func(record *redisEngineRecord) { record.Record = plane.Record() })
 }
 
-// redisRemoveEngine stops a deleted cache's engine, closes its ports, removes
-// its volume and its hostName.
 func redisRemoveEngine(id string) {
 	record, recorded := redisEngineRecords.Get(id)
 	redisEngineRecords.Delete(id)
@@ -293,8 +279,7 @@ func redisRemoveEngine(id string) {
 	}
 }
 
-// redisMoveEngine follows a cache to the resource ID a move gives it; the
-// engine keeps serving at the address its hostName resolves to.
+// The engine keeps serving at the address the hostName resolves to.
 func redisMoveEngine(oldID, newID string) {
 	record, ok := redisEngineRecords.Get(oldID)
 	if !ok {
@@ -308,9 +293,6 @@ func redisMoveEngine(oldID, newID string) {
 	}
 }
 
-// redisRecoverEngines rebinds every cache's ports after a control-plane
-// restart, registers its hostName again and re-adopts the engine workloads
-// an earlier process left.
 func redisRecoverEngines() error {
 	for _, cache := range redisCaches.List() {
 		record, ok := redisEngineRecords.Get(cache.ID)
@@ -340,8 +322,6 @@ func redisRecoverEngines() error {
 	return nil
 }
 
-// redisSetNonSSLPort starts or stops serving a cache's non-SSL port on the
-// address its sslPort answers at.
 func redisSetNonSSLPort(id string, plane *cacheengine.Plane, enabled bool) error {
 	serving := false
 	for _, endpoint := range plane.Endpoints() {

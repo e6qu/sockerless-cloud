@@ -12,30 +12,22 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// Cosmos DB server-side programming: stored procedures, user-defined functions,
-// and triggers. These are container child resources the Cosmos REST data plane
-// exposes under /dbs/{db}/colls/{coll}/{sprocs,udfs,triggers}. The azcosmos
-// SDK (v1.4.2) carries no public client methods for them, so the faithful
-// client surface is the REST API itself — the same paths, bodies, and response
-// shapes a real Cosmos client (or the older documentdb SDK) uses.
+// Stored procedures, user-defined functions and triggers under
+// /dbs/{db}/colls/{coll}/{sprocs,udfs,triggers}. azcosmos has no client methods
+// for them, so the REST API is the client surface.
 //
-// Stored-procedure EXECUTION (POST .../sprocs/{id}) runs the procedure's JS
-// body against the collection. Arbitrary JS is out of scope, but a faithful,
-// REAL subset of the common server-side patterns is interpreted and actually
-// performed against the partition's documents (see cosmosExecuteSproc). A body
-// outside that subset returns the real Cosmos error shape — never a faked
-// success.
+// Executing a stored procedure interprets a subset of common server-side
+// patterns against the partition's documents (cosmosExecuteSproc); a body
+// outside it answers Azure Cosmos DB's error shape.
 
-// CosmosScript is one stored procedure, UDF, or trigger. Kind distinguishes
-// them ("sproc" / "udf" / "trigger") so a single store backs all three.
+// Kind ("sproc", "udf", "trigger") lets one store back all three.
 type CosmosScript struct {
-	Account string `json:"-"`
-	DB      string `json:"-"`
-	Coll    string `json:"-"`
-	Kind    string `json:"-"`
-	ID      string `json:"id"`
-	Body    string `json:"body"`
-	// Triggers only.
+	Account          string `json:"-"`
+	DB               string `json:"-"`
+	Coll             string `json:"-"`
+	Kind             string `json:"-"`
+	ID               string `json:"id"`
+	Body             string `json:"body"`
 	TriggerOperation string `json:"triggerOperation,omitempty"`
 	TriggerType      string `json:"triggerType,omitempty"`
 	ETag             string `json:"_etag,omitempty"`
@@ -57,7 +49,7 @@ func registerCosmosScripts(srv *sim.Server) {
 	srv.HandleFunc("GET /dbs/{database}/colls/{container}/sprocs/{script}", handleCosmosGetScript("sproc"))
 	srv.HandleFunc("PUT /dbs/{database}/colls/{container}/sprocs/{script}", handleCosmosReplaceScript("sproc"))
 	srv.HandleFunc("DELETE /dbs/{database}/colls/{container}/sprocs/{script}", handleCosmosDeleteScript("sproc"))
-	// Execution: POST to the sproc resource (body = JSON array of args).
+	// The body is a JSON array of arguments.
 	srv.HandleFunc("POST /dbs/{database}/colls/{container}/sprocs/{script}", handleCosmosExecuteSproc)
 
 	srv.HandleFunc("POST /dbs/{database}/colls/{container}/udfs", handleCosmosCreateScript("udf"))
@@ -77,8 +69,7 @@ func cosmosScriptKey(account, db, coll, kind, id string) string {
 	return account + "/" + db + "/" + coll + "/" + kind + "/" + id
 }
 
-// cosmosScriptListKey returns the response wrapper key Cosmos uses for each
-// resource collection (mirrors the Documents/DocumentCollections shape).
+// The response wrapper key per collection, as Documents/DocumentCollections.
 func cosmosScriptListKey(kind string) string {
 	switch kind {
 	case "sproc":
@@ -270,14 +261,8 @@ func handleCosmosDeleteScript(kind string) http.HandlerFunc {
 	}
 }
 
-// ── stored-procedure execution ─────────────────────────────────────────────────
-
-// handleCosmosExecuteSproc runs a stored procedure against the collection scoped
-// to the request's partition key (mandatory for execution, exactly as real
-// Cosmos requires). The procedure's JS body is interpreted against the faithful
-// subset in cosmosExecuteSproc; the response body is the procedure's return
-// value (real Cosmos returns whatever the sproc passed to getContext()
-// .getResponse().setBody(...)).
+// handleCosmosExecuteSproc answers the procedure's return value, whatever it
+// passed to getContext().getResponse().setBody(...).
 func handleCosmosExecuteSproc(w http.ResponseWriter, r *http.Request) {
 	account, db, coll, id := cosmosDataAccount(r), sim.PathParam(r, "database"), sim.PathParam(r, "container"), sim.PathParam(r, "script")
 	s, ok := cosmosScripts.Get(cosmosScriptKey(account, db, coll, "sproc", id))
@@ -285,18 +270,16 @@ func handleCosmosExecuteSproc(w http.ResponseWriter, r *http.Request) {
 		cosmosDataError(w, "NotFound", "Entity with the specified id does not exist", http.StatusNotFound)
 		return
 	}
-	// The partition key is required for a stored-procedure execution; real Cosmos
-	// rejects an execution that omits it because a sproc runs in a single
-	// partition's transactional scope.
+	// A stored procedure runs in one partition's transactional scope, so Azure
+	// Cosmos DB requires the partition key.
 	pkComponent, hasPK, werr := cosmosResolvePKForPoint(r, account, db, coll)
 	if werr != nil {
 		cosmosDataError(w, werr.code, werr.msg, werr.status)
 		return
 	}
 	if !hasPK {
-		// Without a declared PK path the collection is unpartitioned (legacy
-		// raw-HTTP); execution then operates over the whole collection. With a
-		// declared PK path, real Cosmos requires the header.
+		// An unpartitioned collection runs over the whole collection; a declared path
+		// requires the header.
 		if _, declared := cosmosContainerPKPath(account, db, coll); declared {
 			cosmosDataError(w, "BadRequest",
 				"The partition key supplied in x-ms-partitionkey header has fewer components than defined in the the collection.",
@@ -304,7 +287,6 @@ func handleCosmosExecuteSproc(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	// The request body is a JSON array of the sproc's positional arguments.
 	var args []any
 	if err := sim.ReadJSON(r, &args); err != nil {
 		cosmosDataError(w, "BadRequest", "The stored procedure arguments must be a JSON array: "+err.Error(), http.StatusBadRequest)
@@ -320,23 +302,16 @@ func handleCosmosExecuteSproc(w http.ResponseWriter, r *http.Request) {
 	cosmosWriteData(w, http.StatusOK, result)
 }
 
-// cosmosExecuteSproc interprets the faithful subset of stored-procedure bodies
-// and REALLY performs the documented operation against the collection. The
-// recognized patterns (matched structurally against the JS body, not executed
-// as arbitrary JS) are:
+// cosmosExecuteSproc matches the body structurally, not as arbitrary
+// JavaScript, and performs:
 //
-//   - createDocument: a body that calls collection.createDocument(...) with the
-//     first sproc argument as the document → the document is really created in
-//     the request's partition (honouring the 409-on-duplicate-id rule).
-//   - count: a body that queries/iterates the documents and returns a count →
-//     the real number of documents in the partition is returned.
-//   - bulkDelete: a body that deletes the documents it reads (the canonical
-//     Cosmos "bulk delete" sample) → every document in the partition is really
-//     deleted and the deleted count returned.
+//   - createDocument: creates the first argument in the request's partition,
+//     409 on a duplicate id.
+//   - count: returns the number of documents in the partition.
+//   - bulkDelete (the canonical sample): deletes every document in the
+//     partition and returns the count.
 //
-// A body that matches none of these returns a real Cosmos error
-// (BadRequest, message identifying the unsupported sproc) — never a fake
-// success.
+// Any other body answers BadRequest naming the unsupported procedure.
 func cosmosExecuteSproc(r *http.Request, s CosmosScript, account, db, coll, pkComponent string, hasPK bool, args []any) (map[string]any, *cosmosWriteError) {
 	body := s.Body
 
@@ -357,8 +332,7 @@ func cosmosExecuteSproc(r *http.Request, s CosmosScript, account, db, coll, pkCo
 			id = sim.NewUUID()
 			docArg["id"] = id
 		}
-		// Determine the partition from the document body (the sproc runs within
-		// the request's partition; the created doc must belong to it).
+		// The created document must belong to the request's partition.
 		pkKey, werr := cosmosResolvePKForWrite(r, account, db, coll, docArg)
 		if werr != nil {
 			return nil, werr
@@ -368,9 +342,8 @@ func cosmosExecuteSproc(r *http.Request, s CosmosScript, account, db, coll, pkCo
 			return nil, &cosmosWriteError{code: "Conflict",
 				msg: "Resource with specified id or name already exists.", status: http.StatusConflict}
 		}
-		// Pre-triggers the execution requested via the
-		// x-ms-documentdb-pre-trigger-include header fire BEFORE the write and
-		// really mutate the document where their body is interpretable.
+		// Pre-triggers named in x-ms-documentdb-pre-trigger-include run before the
+		// write.
 		cosmosApplyPreTriggers(r, account, db, coll, "Create", docArg)
 		doc := cosmosStoreDocKey(key, account, db, coll, id, docArg)
 		return cosmosDocBody(doc), nil
@@ -397,9 +370,8 @@ func cosmosExecuteSproc(r *http.Request, s CosmosScript, account, db, coll, pkCo
 	}
 }
 
-// cosmosSprocPartitionDocs returns the documents the sproc operates over: the
-// request partition's documents when a PK is supplied, else the whole
-// collection (unpartitioned legacy collection).
+// The partition's documents when a key is supplied, else the whole
+// unpartitioned collection.
 func cosmosSprocPartitionDocs(account, db, coll, pkComponent string, hasPK bool) []CosmosDocument {
 	docs := cosmosDocsFor(account, db, coll)
 	if !hasPK {
@@ -421,21 +393,15 @@ var (
 	cosmosReQuery     = regexp.MustCompile(`(?i)(queryDocuments|readDocuments|getCollection)`)
 )
 
-// cosmosSprocCreatesDocument matches a sproc that calls createDocument and does
-// NOT also delete (so a bulk-delete sample that internally re-reads isn't
-// mistaken for a create).
+// Not also deleting, so the bulk-delete sample is not mistaken for a create.
 func cosmosSprocCreatesDocument(body string) bool {
 	return cosmosReCreateDoc.MatchString(body) && !cosmosReDeleteDoc.MatchString(body)
 }
 
-// cosmosSprocBulkDeletes matches the canonical bulk-delete sample: it queries
-// the documents then deletes them.
 func cosmosSprocBulkDeletes(body string) bool {
 	return cosmosReDeleteDoc.MatchString(body)
 }
 
-// cosmosSprocCounts matches a count sproc: it reads/queries documents and
-// returns a count, without creating or deleting anything.
 func cosmosSprocCounts(body string) bool {
 	if cosmosReCreateDoc.MatchString(body) || cosmosReDeleteDoc.MatchString(body) {
 		return false
@@ -443,15 +409,10 @@ func cosmosSprocCounts(body string) bool {
 	return cosmosReQuery.MatchString(body) && cosmosReCount.MatchString(body)
 }
 
-// cosmosApplyPreTriggers fires the pre-triggers the request explicitly includes
-// via the x-ms-documentdb-pre-trigger-include header and really mutates the
-// document where the trigger body is interpretable. Real Cosmos only runs a
-// pre-trigger when the write opts into it by that header, and only the named
-// triggers — so an unrequested trigger never fires. A trigger whose JS body
-// matches the faithful "set a field on the request document" subset actually
-// applies that mutation; a body outside the subset is a no-op (its arbitrary JS
-// isn't interpreted), which is recorded loud-or-quiet only by the absence of
-// the mutation — no fake effect is invented.
+// cosmosApplyPreTriggers runs only the triggers the write names in
+// x-ms-documentdb-pre-trigger-include, as Azure Cosmos DB does. A body matching
+// the "set a field on the request document" subset applies that change; any
+// other body has no effect.
 func cosmosApplyPreTriggers(r *http.Request, account, db, coll, op string, doc map[string]any) {
 	requested := cosmosRequestedTriggers(r, "x-ms-documentdb-pre-trigger-include")
 	if len(requested) == 0 {
@@ -465,8 +426,6 @@ func cosmosApplyPreTriggers(r *http.Request, account, db, coll, op string, doc m
 	}
 }
 
-// cosmosRequestedTriggers parses the comma-separated pre/post-trigger-include
-// header into a set of trigger ids the operation opted into.
 func cosmosRequestedTriggers(r *http.Request, header string) map[string]bool {
 	raw := strings.TrimSpace(r.Header.Get(header))
 	if raw == "" {
@@ -481,8 +440,6 @@ func cosmosRequestedTriggers(r *http.Request, header string) map[string]bool {
 	return out
 }
 
-// cosmosScriptTriggersFor reports the triggers registered on a collection for a
-// given operation + type, used to honour the pre/post-trigger include headers.
 func cosmosScriptTriggersFor(account, db, coll, trigType, op string) []CosmosScript {
 	var out []CosmosScript
 	for _, s := range cosmosScripts.List() {
@@ -499,23 +456,20 @@ func cosmosScriptTriggersFor(account, db, coll, trigType, op string) []CosmosScr
 	return out
 }
 
-// cosmosTrigSetField matches the canonical Cosmos pre-trigger pattern that sets
-// a property on the request document to a literal value, capturing the field
-// name and the raw right-hand side up to the statement terminator:
+// cosmosTrigSetField matches the canonical pre-trigger that sets a property to
+// a literal:
 //
 //	var doc = request.getBody(); doc.<field> = "<literal>"; request.setBody(doc);
 //	var doc = getContext().getRequest().getBody(); doc.<field> = <number>; ...
 //
-// Go's RE2 has no backreferences, so the value is captured raw and the quoting
-// is resolved in cosmosApplyTriggerSetFields.
+// RE2 has no backreferences, so the value is captured raw and its quoting
+// resolved in cosmosApplyTriggerSetFields.
 var cosmosTrigSetField = regexp.MustCompile(
 	`(?:doc|item|body)\s*(?:\.(\w+)|\["(\w+)"\])\s*=\s*([^;]+?)\s*;`)
 
-// cosmosApplyTriggerSetFields applies every interpretable "set a field to a
-// literal" mutation found in the trigger body to doc. A double-quoted RHS sets a
-// string; a timestamp helper (`__.getDate()` / `new Date()` / `getTimestamp`)
-// sets the current unix time (the common "stamp createdTime" pre-trigger); a
-// numeric/boolean literal sets that value.
+// A double-quoted value sets a string; a timestamp helper (`__.getDate()`,
+// `new Date()`, `getTimestamp`) sets the current Unix time; a number or boolean
+// sets that value.
 func cosmosApplyTriggerSetFields(jsBody string, doc map[string]any) {
 	for _, m := range cosmosTrigSetField.FindAllStringSubmatch(jsBody, -1) {
 		field := m[1]
@@ -540,8 +494,7 @@ func cosmosApplyTriggerSetFields(jsBody string, doc map[string]any) {
 	}
 }
 
-// parseJSNumber turns a literal numeric token into a float64-bearing any (or
-// returns the original string when it isn't numeric).
+// parseJSNumber returns the original string when it is not numeric.
 func parseJSNumber(s string) any {
 	if f, err := strconv.ParseFloat(s, 64); err == nil {
 		return f

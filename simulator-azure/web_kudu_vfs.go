@@ -15,20 +15,15 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// web_kudu_vfs.go serves Kudu's virtual file system API on a site's SCM
-// host: /api/vfs/{path} (and /vfs/{path}, the spelling the job log URLs use)
-// reads, writes and deletes files and directories under the site's /home,
-// the storage its containers mount. A directory is addressed with a trailing
-// slash and reads as a JSON listing; a file reads as its content with an ETag
-// a write or delete must match through If-Match. /home is the persistent
-// share the site's containers mount, so the VFS and the running app see the
-// same files.
+// Kudu's VFS API: /api/vfs/{path} (and /vfs/{path}, as job log URLs spell it)
+// reads, writes and deletes under the site's persistent /home, the share its
+// containers mount. A directory takes a trailing slash and reads as a JSON
+// listing; a file reads as its content with an ETag that a write or delete
+// must match through If-Match.
 
-// kuduVFSMaxUpload bounds one file written through the VFS.
 const kuduVFSMaxUpload = webSiteContentLimit
 
-// kuduVFSPath is the /home-relative path a VFS request addresses and whether
-// the request named a directory (a trailing slash).
+// dir reports a trailing slash.
 func kuduVFSPath(urlPath string) (rel string, dir bool, ok bool) {
 	lower := strings.ToLower(urlPath)
 	var rest string
@@ -45,7 +40,7 @@ func kuduVFSPath(urlPath string) (rel string, dir bool, ok bool) {
 	return rel, dir, true
 }
 
-// kuduVFSBaseURL is the URL of the VFS root, in the spelling the request used.
+// In the spelling the request used.
 func kuduVFSBaseURL(r *http.Request) string {
 	prefix := "/api/vfs/"
 	if !strings.HasPrefix(strings.ToLower(r.URL.Path), "/api/") {
@@ -54,37 +49,32 @@ func kuduVFSBaseURL(r *http.Request) string {
 	return azureRequestScheme(r) + "://" + r.Host + prefix
 }
 
-// kuduWWWRootReadOnly reports whether a site's wwwroot is read-only: a
-// run-from-package app's.
+// A run-from-package app's wwwroot is read-only.
 func kuduWWWRootReadOnly(site *Site) bool {
 	return isPackageURL(strings.TrimSpace(siteAppSettings(site)["WEBSITE_RUN_FROM_PACKAGE"])) ||
 		webSiteRunsFromDeployedPackage(site)
 }
 
-// kuduInWWWRoot reports whether a /home-relative path lies in site/wwwroot.
 func kuduInWWWRoot(rel string) bool {
 	return rel == "site/wwwroot" || strings.HasPrefix(rel, "site/wwwroot/")
 }
 
-// kuduOpenHome lays out the site's /home and returns its host directory.
 func kuduOpenHome(site *Site) (string, error) {
 	return ensureSiteHome(site.Name)
 }
 
-// kuduEtag is the ETag Kudu derives from a file's last write time: the .NET
-// tick count in hex.
+// The .NET tick count of the last write time, in hex.
 func kuduEtag(t time.Time) string {
 	const unixEpochTicks = 621355968000000000
 	ticks := unixEpochTicks + t.UTC().UnixNano()/100
 	return fmt.Sprintf(`"%x"`, ticks)
 }
 
-// kuduVFSTime renders a time as Kudu serializes a DateTimeOffset.
+// As Kudu serializes a DateTimeOffset.
 func kuduVFSTime(t time.Time) string {
 	return t.UTC().Format("2006-01-02T15:04:05.9999999-07:00")
 }
 
-// kuduMimeType is the media type Kudu reports for a file name.
 func kuduMimeType(name string) string {
 	if t := mime.TypeByExtension(path.Ext(name)); t != "" {
 		mt, _, err := mime.ParseMediaType(t)
@@ -138,8 +128,7 @@ func serveKuduVFS(w http.ResponseWriter, r *http.Request, site *Site, rel string
 	}
 }
 
-// kuduVFSRefuseReadOnly refuses a write to the wwwroot of a run-from-package
-// app, which the platform mounts read-only.
+// The platform mounts a run-from-package app's wwwroot read-only.
 func kuduVFSRefuseReadOnly(w http.ResponseWriter, site *Site, rel string) bool {
 	if kuduWWWRootReadOnly(site) && kuduInWWWRoot(rel) {
 		kuduWebAPIError(w, http.StatusConflict,
@@ -149,9 +138,8 @@ func kuduVFSRefuseReadOnly(w http.ResponseWriter, site *Site, rel string) bool {
 	return false
 }
 
-// kuduVFSCommit is what a change to the file system does once it is on disk:
-// a change under site/wwwroot rediscovers the site's webjobs, as Kudu's
-// watcher on App_Data/jobs does.
+// A change under site/wwwroot rediscovers webjobs, as Kudu's watcher on
+// App_Data/jobs does.
 func kuduVFSCommit(site *Site, rel string) func() error {
 	return func() error {
 		if !kuduInWWWRoot(rel) {
@@ -204,8 +192,8 @@ func kuduVFSGet(w http.ResponseWriter, r *http.Request, root *os.Root, name, rel
 	w.Header().Set("Content-Length", fmt.Sprint(info.Size()))
 	w.WriteHeader(http.StatusOK)
 	if r.Method != http.MethodHead {
-		// A webjob keeps appending to its log while the body goes out; copy
-		// only the length the header declared.
+		// A webjob keeps appending while the body goes out; copy only the declared
+		// length.
 		_, _ = io.CopyN(w, f, info.Size())
 	}
 }
@@ -310,8 +298,7 @@ func kuduVFSPutFile(w http.ResponseWriter, r *http.Request, root *os.Root, name 
 	w.WriteHeader(http.StatusCreated)
 }
 
-// kuduIfMatch admits a change to an existing file only when the request's
-// If-Match names its current ETag or "*".
+// If-Match must name the current ETag or "*".
 func kuduIfMatch(w http.ResponseWriter, r *http.Request, info os.FileInfo) bool {
 	match := r.Header.Get("If-Match")
 	if match == "" {

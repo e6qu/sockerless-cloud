@@ -17,9 +17,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Event Grid delivers a topic's events to a Storage queue and to a Service Bus
-// queue, one event per message: the queue message's text and the Service Bus
-// message's body are the event's JSON.
+// Event Grid delivers a topic's events to an Azure Queue Storage queue and an
+// Azure Service Bus queue, one event per message whose text or body is the
+// event's JSON.
 func TestEventGrid_DeliversToAStorageQueueAndAServiceBusQueueSDK(t *testing.T) {
 	t.Parallel()
 	rg := uniquename.New("sdk-eventgrid-dest-rg")
@@ -107,8 +107,7 @@ func TestEventGrid_DeliversToAStorageQueueAndAServiceBusQueueSDK(t *testing.T) {
 	}
 	assert.ElementsMatch(t, []string{"evt-a", "evt-b"}, fromServiceBus)
 
-	// The Queue service offers no wait, so its messages are read until both
-	// arrive.
+	// Queue Storage offers no wait, so read until both messages arrive.
 	var fromQueue []string
 	require.Eventually(t, func() bool {
 		got, err := queues.NewQueueClient("events").DequeueMessages(ctx, &azqueue.DequeueMessagesOptions{NumberOfMessages: to.Ptr[int32](32)})

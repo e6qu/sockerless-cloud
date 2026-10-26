@@ -117,9 +117,7 @@ func TestEventHubsSDK_ARMAndAMQPRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = partitionClient.Close(context.Background()) })
 
-	// Generous receive window: the event is already enqueued, so this returns as
-	// soon as the partition delivers it; the wide timeout only guards against slow
-	// AMQP link establishment on a loaded CI runner.
+	// The event is already enqueued; the timeout covers slow AMQP link setup.
 	receiveCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	events, err := partitionClient.ReceiveEvents(receiveCtx, 1, nil)

@@ -15,7 +15,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// azureDeleteSite deletes a site, ignoring errors.
 func azureDeleteSite(rg, name string) {
 	url := baseURL + "/subscriptions/" + subscriptionID + "/resourceGroups/" + rg + "/providers/Microsoft.Web/sites/" + name + "?api-version=2023-12-01"
 	req, _ := http.NewRequest("DELETE", url, nil)
@@ -26,16 +25,12 @@ func azureDeleteSite(rg, name string) {
 	}
 }
 
-// azureCreateSite creates a resource group and a function app that names no
-// container image.
 func azureCreateSite(t *testing.T, rg, name string) {
 	azureCreateContainerSite(t, rg, name, "", "", nil)
 }
 
-// azureCreateContainerSite creates a function app that runs image as a Linux
-// custom container ("DOCKER|<image>"), with appCommandLine as its startup
-// command and appSettings as its application settings; an empty value leaves
-// the field out.
+// azureCreateContainerSite creates a function app running image as a Linux
+// custom container ("DOCKER|<image>"); an empty value leaves its field out.
 func azureCreateContainerSite(t *testing.T, rg, name, image, appCommandLine string, appSettings map[string]string) {
 	t.Helper()
 	rgBody := `{"location":"eastus"}`
@@ -85,9 +80,9 @@ func azureCreateContainerSite(t *testing.T, rg, name, image, appCommandLine stri
 	require.Equal(t, http.StatusOK, siteResp.StatusCode)
 }
 
-// azureInvokeFunction POSTs to the site's /api/function and requires 200. The
-// request goes to the simulator's TCP port with the Host header set to the
-// site's `<name>.azurewebsites.net`, which is how App Service routes it.
+// azureInvokeFunction POSTs to /api/function and requires 200. App Service
+// routes by the Host `<name>.azurewebsites.net`, so dial the simulator's port
+// with that Host.
 func azureInvokeFunction(t *testing.T, siteName string) []byte {
 	t.Helper()
 	status, body := azureInvokeFunctionResponse(t, siteName)
@@ -95,14 +90,11 @@ func azureInvokeFunction(t *testing.T, siteName string) []byte {
 	return body
 }
 
-// azureInvokeFunctionResponse invokes a function app and returns the status
-// and body as they came, for a caller that waits on what the function answers.
 func azureInvokeFunctionResponse(t *testing.T, siteName string) (int, []byte) {
 	t.Helper()
 	return azureSiteRequest(t, siteName, http.MethodPost, "/api/function", "{}")
 }
 
-// azureSiteRequest sends one request to the site's hostname.
 func azureSiteRequest(t *testing.T, siteName, method, path, body string) (int, []byte) {
 	t.Helper()
 	var reader io.Reader
@@ -123,8 +115,7 @@ func azureSiteRequest(t *testing.T, siteName, method, path, body string) (int, [
 	return resp.StatusCode, respBody
 }
 
-// siteContainerLog reads the site's retained container output through
-// WebApps_GetWebSiteContainerLogs.
+// siteContainerLog reads WebApps_GetWebSiteContainerLogs.
 func siteContainerLog(t *testing.T, rg, name string) string {
 	t.Helper()
 	client, err := armappservice.NewWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
@@ -137,8 +128,8 @@ func siteContainerLog(t *testing.T, rg, name string) string {
 	return string(text)
 }
 
-// createAppInsightsComponent creates an Application Insights component,
-// workspace-based when workspaceID names a workspace.
+// createAppInsightsComponent creates a component, workspace-based when
+// workspaceID names a workspace.
 func createAppInsightsComponent(t *testing.T, rg, name, workspaceID string) armapplicationinsights.Component {
 	t.Helper()
 	ensureRG(t, rg)
@@ -156,9 +147,8 @@ func createAppInsightsComponent(t *testing.T, rg, name, workspaceID string) arma
 }
 
 // The startup command (siteConfig.appCommandLine) is the container's command,
-// and the image's own entrypoint runs it: container-command's ENTRYPOINT is
-// the binary, and "serve 80 …" are its arguments. The request reaches the
-// container verbatim on port 80, App Service's default.
+// run by the image's ENTRYPOINT: container-command is the binary and
+// "serve 80 …" its arguments. Port 80 is App Service's default.
 func TestAzureFunctions_StartupCommandRunsOnTheImageEntrypoint(t *testing.T) {
 	t.Parallel()
 	rg, name := "func-startup-rg", "startup-func-app"
@@ -167,16 +157,14 @@ func TestAzureFunctions_StartupCommandRunsOnTheImageEntrypoint(t *testing.T) {
 
 	assert.Equal(t, "hello-from-azure", string(azureInvokeFunction(t, name)))
 
-	// The front end forwards every path and method on the site's hostname,
-	// not one invoke route.
+	// The front end forwards every path and method on the site's hostname.
 	status, body := azureSiteRequest(t, name, http.MethodGet, "/any/path?x=1", "")
 	assert.Equal(t, http.StatusOK, status)
 	assert.Equal(t, "hello-from-azure", string(body))
 }
 
-// A site with no startup command runs its image's own ENTRYPOINT and CMD; a
-// startup command set afterwards through the configuration API restarts the
-// site with that command in place of the CMD.
+// A site with no startup command runs its image's ENTRYPOINT and CMD; a
+// startup command set later restarts the site with it in place of the CMD.
 func TestAzureFunctions_ImageCMDUntilAStartupCommandReplacesIt(t *testing.T) {
 	t.Parallel()
 	rg, name := "func-imagecmd-rg", "imagecmd-func-app"
@@ -199,10 +187,9 @@ func TestAzureFunctions_ImageCMDUntilAStartupCommandReplacesIt(t *testing.T) {
 	assert.Equal(t, "from-startup-command", string(azureInvokeFunction(t, name)))
 }
 
-// WEBSITES_PORT names the port the front end forwards to, and the platform
-// tells the container that port in PORT. A port other than 8080 is reached on
-// a host that routes no container address too, through the port the engine
-// publishes for it.
+// WEBSITES_PORT names the port the front end forwards to, which the platform
+// passes as PORT. A port other than 8080 is reached even where no container
+// address routes, through the port the engine publishes.
 func TestAzureFunctions_WebsitesPortRoutesRequests(t *testing.T) {
 	t.Parallel()
 	rg, name := "func-port-rg", "port-func-app"
@@ -213,9 +200,8 @@ func TestAzureFunctions_WebsitesPortRoutesRequests(t *testing.T) {
 	assert.Equal(t, "on-9090", string(azureInvokeFunction(t, name)))
 }
 
-// A container that exits without answering on its port fails the site's
-// start: the front end answers 503, and the container's own output is in the
-// site's log.
+// A container that exits without answering on its port fails the site start:
+// the front end answers 503, and the container's output is in the site's log.
 func TestAzureFunctions_ContainerThatExitsFailsTheSiteStart(t *testing.T) {
 	t.Parallel()
 	rg, name := "func-fail-rg", "fail-func-app"
@@ -228,9 +214,8 @@ func TestAzureFunctions_ContainerThatExitsFailsTheSiteStart(t *testing.T) {
 	assert.Contains(t, siteContainerLog(t, rg, name), "site-start-output")
 }
 
-// What the site's container writes to stdout reaches the AppTraces of the
-// Application Insights component its connection string names, in the
-// workspace that component names, and no other workspace.
+// The container's stdout reaches AppTraces of the Application Insights
+// component its connection string names, in that component's workspace only.
 func TestAzureFunctions_ContainerOutputReachesTheConnectedComponent(t *testing.T) {
 	t.Parallel()
 	rg, name := "func-out-rg", "out-func-app"
@@ -244,7 +229,7 @@ func TestAzureFunctions_ContainerOutputReachesTheConnectedComponent(t *testing.T
 
 	azureInvokeFunction(t, name)
 
-	// The engine's log stream delivers the line after the response; App
+	// The engine's log stream delivers the line after the response, and App
 	// Service offers no event for its arrival, so read the table until it does.
 	query := `AppTraces | where AppRoleName == "` + name + `" and Message == "POST /api/function" | project Message`
 	require.Eventually(t, func() bool {
@@ -268,7 +253,6 @@ func TestAzureFunctions_DefaultHostNameReachability(t *testing.T) {
 	azureCreateContainerSite(t, rg, name, commandImageName, "serve 80 reached-by-hostname", nil)
 	defer azureDeleteSite(rg, name)
 
-	// Get function app to extract DefaultHostName
 	getReq, _ := http.NewRequestWithContext(ctx, "GET",
 		baseURL+"/subscriptions/"+subscriptionID+"/resourceGroups/"+rg+"/providers/Microsoft.Web/sites/"+name+"?api-version=2023-12-01",
 		nil)
@@ -285,9 +269,8 @@ func TestAzureFunctions_DefaultHostNameReachability(t *testing.T) {
 	defaultHostName := props["defaultHostName"].(string)
 	require.NotEmpty(t, defaultHostName, "DefaultHostName should be set")
 
-	// Real Azure: invoke goes to https://<site>.azurewebsites.net/api/function.
-	// The sim hosts every site on the same port, so we connect to the sim's
-	// TCP address but set Host = the site's hostname so the routing matches.
+	// Azure routes invoke by the site's hostname, so dial the simulator with that
+	// Host.
 	invokeReq, _ := http.NewRequestWithContext(ctx, "POST",
 		baseURL+"/api/function", strings.NewReader("{}"))
 	invokeReq.Header.Set("Content-Type", "application/json")
@@ -326,7 +309,6 @@ func TestSDK_Functions_CreateAndGet(t *testing.T) {
 	assert.Equal(t, "sdk-func-app", *site.Name)
 	assert.Equal(t, "eastus", *site.Location)
 
-	// GET the same site
 	getResp, err := client.Get(ctx, rg, "sdk-func-app", nil)
 	require.NoError(t, err)
 	assert.Equal(t, "sdk-func-app", *getResp.Name)
@@ -342,7 +324,6 @@ func TestSDK_Functions_ListByResourceGroup(t *testing.T) {
 	client, err := armappservice.NewWebAppsClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)
 
-	// Create two function apps
 	for _, name := range []string{"sdk-list-func-a", "sdk-list-func-b"} {
 		p, err := client.BeginCreateOrUpdate(ctx, rg, name, armappservice.Site{
 			Location: to.Ptr("eastus"),
@@ -356,7 +337,6 @@ func TestSDK_Functions_ListByResourceGroup(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	// List sites by resource group
 	pager := client.NewListByResourceGroupPager(rg, nil)
 	var sites []*armappservice.Site
 	for pager.More() {
@@ -382,7 +362,6 @@ func TestSDK_Functions_Delete(t *testing.T) {
 	client, err := armappservice.NewWebAppsClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)
 
-	// Create site
 	p, err := client.BeginCreateOrUpdate(ctx, rg, "sdk-del-func", armappservice.Site{
 		Location: to.Ptr("eastus"),
 		Kind:     to.Ptr("functionapp"),
@@ -394,11 +373,9 @@ func TestSDK_Functions_Delete(t *testing.T) {
 	_, err = p.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 
-	// Delete site
 	_, err = client.Delete(ctx, rg, "sdk-del-func", nil)
 	require.NoError(t, err)
 
-	// GET should 404
 	_, err = client.Get(ctx, rg, "sdk-del-func", nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "ResourceNotFound")

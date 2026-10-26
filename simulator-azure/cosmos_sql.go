@@ -11,13 +11,7 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// Cosmos DB SQL-query subset interpreter.
-//
-// The Cosmos data plane accepts SQL queries (the `application/query+json` body
-// with a `query` string + optional `parameters`). This file implements a real
-// recursive-descent parser + evaluator for the subset the azcosmos SDK and the
-// runner workloads issue, replacing the previous single-`=` string split that
-// silently returned the whole collection for anything non-trivial.
+// Azure Cosmos DB SQL query subset: a recursive-descent parser and evaluator.
 //
 // Supported grammar:
 //
@@ -40,23 +34,20 @@ import (
 //	literal   = string | number | "true" | "false" | "null"
 //	param     = "@name"
 //
-// `TOP n` (SELECT TOP n ...) is also accepted as an alternative to OFFSET/LIMIT.
-//
-// Out of scope (returns a Cosmos BadRequest, never the whole collection): JOIN,
-// subqueries, GROUP BY, ARRAY/object literals, non-COUNT aggregates (SUM/AVG/…),
-// the full built-in function library, and EXISTS. These are not issued by the
-// SDK traffic sockerless serves; a query that uses them fails loudly.
+// `SELECT TOP n` is accepted as an alternative to OFFSET/LIMIT. JOIN,
+// subqueries, GROUP BY, array and object literals, aggregates other than
+// COUNT, the rest of the built-in functions and EXISTS answer BadRequest,
+// never the whole collection.
 
 const cosmosMaxQueryDepth = 256
 
-// cosmosQuery is the parsed query plan.
 type cosmosQuery struct {
 	projectAll bool
-	// when countAll, the result is a single scalar = number of matched docs
-	// (SELECT VALUE COUNT(1) FROM c).
+	// countAll: the result is the number of matched documents (SELECT VALUE
+	// COUNT(1) FROM c).
 	countAll bool
-	// projection paths (each "a.b.c"); empty means whole doc. valueOnly emits
-	// the bare scalar (SELECT VALUE c.x) instead of an object.
+	// Empty projection means the whole document; valueOnly emits the bare scalar
+	// (SELECT VALUE c.x).
 	projection []cosmosPath
 	valueOnly  bool
 	where      cosmosExpr // nil = match all
@@ -70,13 +61,11 @@ type cosmosOrderItem struct {
 	desc bool
 }
 
-// cosmosPath is a doc traversal like c.a.b → [a b] (the root alias is stripped).
+// c.a.b → [a b]; the root alias is stripped.
 type cosmosPath struct {
 	root string   // the FROM alias, e.g. "c"
 	segs []string // segments after the alias
 }
-
-// ── parser ──────────────────────────────────────────────────────────────────
 
 type cosmosSQLParser struct {
 	toks  []cosmosTok
@@ -113,8 +102,7 @@ func cosmosTokenize(s string) []cosmosTok {
 		case c == '(' || c == ')' || c == ',' || c == '.':
 			toks = append(toks, cosmosTok{cosmosTokPunct, string(sc.Next())})
 		case c == '*':
-			// "*" (SELECT *, COUNT(*)) is emitted as an ident so the projection
-			// parser can detect it with peekStar.
+			// Emit "*" as an ident so the projection parser detects it with peekStar.
 			toks = append(toks, cosmosTok{cosmosTokIdent, string(sc.Next())})
 		case c == '\'' || c == '"':
 			quote := sc.Next()
@@ -185,8 +173,7 @@ func cosmosIsIdentByte(b byte) bool {
 	return b == '_' || b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z' || b >= '0' && b <= '9'
 }
 
-// cosmosParseQuery parses a SQL query string into a plan, or returns an error
-// (translated to a Cosmos BadRequest by the caller).
+// The caller translates an error into a BadRequest.
 func cosmosParseQuery(query string) (*cosmosQuery, error) {
 	p := &cosmosSQLParser{
 		toks:  cosmosTokenize(query),
@@ -196,7 +183,6 @@ func cosmosParseQuery(query string) (*cosmosQuery, error) {
 	if !p.expectKeyword("SELECT") {
 		return nil, fmt.Errorf("query must start with SELECT")
 	}
-	// optional TOP n
 	if p.peekKeyword("TOP") {
 		p.next()
 		n, ok := p.parseInt()
@@ -214,7 +200,7 @@ func cosmosParseQuery(query string) (*cosmosQuery, error) {
 	if p.peek().kind != cosmosTokIdent {
 		return nil, fmt.Errorf("expected source alias after FROM")
 	}
-	p.next() // FROM <alias> (and an optional sub-path which we don't model)
+	p.next() // FROM <alias>, and an optional sub-path the parser does not model
 	for p.peekPunct(".") {
 		p.next()
 		p.next()
@@ -285,13 +271,12 @@ func (p *cosmosSQLParser) parseProjection(q *cosmosQuery) error {
 	}
 	if p.peekKeyword("VALUE") {
 		p.next()
-		// VALUE COUNT(1) | VALUE COUNT(*) | VALUE <path>
 		if p.peekKeyword("COUNT") {
 			p.next()
 			if !p.expectPunct("(") {
 				return fmt.Errorf("COUNT expects (")
 			}
-			// consume the count argument (1, *, or a path) — value irrelevant
+			// The count argument (1, *, or a path) does not matter.
 			if !p.peekStar() && p.peek().kind != cosmosTokNumber && p.peek().kind != cosmosTokIdent {
 				return fmt.Errorf("COUNT expects an argument")
 			}
@@ -314,7 +299,6 @@ func (p *cosmosSQLParser) parseProjection(q *cosmosQuery) error {
 		q.projection = []cosmosPath{path}
 		return nil
 	}
-	// Projection list: path { , path }.
 	for {
 		path, ok := p.parsePath()
 		if !ok {
@@ -330,8 +314,6 @@ func (p *cosmosSQLParser) parseProjection(q *cosmosQuery) error {
 	return nil
 }
 
-// peekStar reports whether the current token is a bare "*" (cosmosTokenize emits
-// "*" as an ident so SELECT * and COUNT(*) parse).
 func (p *cosmosSQLParser) peekStar() bool {
 	return p.peek().kind == cosmosTokIdent && p.peek().text == "*"
 }
@@ -362,8 +344,6 @@ func (p *cosmosSQLParser) parseInt() (int, bool) {
 	}
 	return n, true
 }
-
-// ── expression parsing ───────────────────────────────────────────────────────
 
 func (p *cosmosSQLParser) parseExpr() (cosmosExpr, error) { return p.parseOr() }
 
@@ -455,7 +435,7 @@ func (p *cosmosSQLParser) parseCmp() (cosmosExpr, error) {
 		}
 		return cosmosCmpExpr{left: left, op: op, right: right}, nil
 	}
-	// A bare boolean operand (e.g. a function call or a boolean field).
+	// A bare boolean operand: a function call or a boolean field.
 	return cosmosBoolExpr{left}, nil
 }
 
@@ -518,7 +498,7 @@ func (p *cosmosSQLParser) parseOperand() (cosmosOperand, error) {
 			if err != nil {
 				return cosmosOperand{}, err
 			}
-			// optional 3rd boolean arg (case-insensitivity flag) — consume.
+			// The optional third argument, the case-insensitivity flag.
 			if p.peekPunct(",") {
 				p.next()
 				if _, err := p.parseOperand(); err != nil {
@@ -530,7 +510,6 @@ func (p *cosmosSQLParser) parseOperand() (cosmosOperand, error) {
 			}
 			return cosmosOperand{fn: &cosmosFnOperand{name: name, a: a, b: b}}, nil
 		}
-		// a path
 		path, ok := p.parsePath()
 		if !ok {
 			return cosmosOperand{}, fmt.Errorf("invalid path")
@@ -539,8 +518,6 @@ func (p *cosmosSQLParser) parseOperand() (cosmosOperand, error) {
 	}
 	return cosmosOperand{}, fmt.Errorf("unexpected token %q", tok.text)
 }
-
-// ── token helpers ────────────────────────────────────────────────────────────
 
 func (p *cosmosSQLParser) peek() cosmosTok {
 	if p.pos < len(p.toks) {
@@ -575,8 +552,6 @@ func (p *cosmosSQLParser) expectPunct(s string) bool {
 	}
 	return false
 }
-
-// ── AST evaluation ───────────────────────────────────────────────────────────
 
 type cosmosExpr interface {
 	eval(doc map[string]any, params map[string]any) bool
@@ -622,8 +597,8 @@ func (e cosmosCmpExpr) eval(d map[string]any, p map[string]any) bool {
 	case "=":
 		return lok && rok && cosmosValuesEqual(lv, rv)
 	case "!=", "<>":
-		// Cosmos: a missing field never satisfies != (the SQL NULL-ish rule);
-		// match real behaviour by requiring both present and unequal.
+		// A missing field never satisfies != in Azure Cosmos DB; both sides must be
+		// present and unequal.
 		if !lok || !rok {
 			return false
 		}
@@ -656,8 +631,6 @@ func (e cosmosInExpr) eval(d map[string]any, p map[string]any) bool {
 	return false
 }
 
-// cosmosOperand is a value-producing node: a literal, a parameter, a doc path,
-// a nested boolean expression (parenthesised), or a string function.
 type cosmosOperand struct {
 	path     *cosmosPath
 	lit      string
@@ -678,8 +651,8 @@ type cosmosFnOperand struct {
 	a, b cosmosOperand
 }
 
-// value resolves the operand to a concrete Go value (string / *big.Float for
-// numbers / bool / nil), reporting ok=false when a path is absent.
+// value returns a string, *big.Float for numbers, bool or nil, and ok=false
+// when a path is absent.
 func (o cosmosOperand) value(doc map[string]any, params map[string]any) (any, bool) {
 	switch {
 	case o.path != nil:
@@ -724,8 +697,7 @@ func (o cosmosOperand) value(doc map[string]any, params map[string]any) (any, bo
 	return nil, false
 }
 
-// cosmosLookupPath traverses doc by the path segments. Empty segs returns the
-// whole doc (the root alias `c` with no sub-path).
+// Empty segs returns the whole document: the root alias with no sub-path.
 func cosmosLookupPath(doc map[string]any, segs []string) (any, bool) {
 	var cur any = doc
 	if len(segs) == 0 {
@@ -745,8 +717,7 @@ func cosmosLookupPath(doc map[string]any, segs []string) (any, bool) {
 	return cur, true
 }
 
-// cosmosNormalizeValue coerces a JSON-decoded parameter value into the same
-// representation the operand evaluator compares against (numbers → *big.Float).
+// Numbers become *big.Float, as the operand evaluator compares them.
 func cosmosNormalizeValue(v any) any {
 	switch t := v.(type) {
 	case float64:
@@ -764,8 +735,8 @@ func cosmosNormalizeValue(v any) any {
 	return v
 }
 
-// cosmosValuesEqual compares two values by VALUE with numeric unification: an
-// int 5 from a doc equals a 5.0 literal, a typed bool/null compares typed.
+// Numeric unification: an int 5 from a document equals a 5.0 literal; bool and
+// null compare typed.
 func cosmosValuesEqual(a, b any) bool {
 	an, aIsNum := cosmosAsBigFloat(a)
 	bn, bIsNum := cosmosAsBigFloat(b)
@@ -791,8 +762,8 @@ func cosmosValuesEqual(a, b any) bool {
 	return fmt.Sprint(a) == fmt.Sprint(b)
 }
 
-// cosmosCompareOrdered evaluates <,<=,>,>= numerically when both sides are
-// numbers, else lexicographically over their string form.
+// Numeric when both sides are numbers, else lexicographic over their string
+// form.
 func cosmosCompareOrdered(a, b any, op string) bool {
 	an, aIsNum := cosmosAsBigFloat(a)
 	bn, bIsNum := cosmosAsBigFloat(b)
@@ -855,10 +826,6 @@ func cosmosScalarToString(v any) string {
 	return fmt.Sprint(v)
 }
 
-// ── execution ────────────────────────────────────────────────────────────────
-
-// cosmosBindParams flattens the request `parameters` array into a name→value
-// map keyed by the `@name`.
 func cosmosBindParams(params []map[string]any) map[string]any {
 	out := make(map[string]any, len(params))
 	for _, p := range params {
@@ -871,9 +838,6 @@ func cosmosBindParams(params []map[string]any) map[string]any {
 	return out
 }
 
-// cosmosRunQuery evaluates a parsed plan against a collection's documents and
-// returns the result rows (each already projected) plus whether the result is a
-// scalar (COUNT). Documents are evaluated against their stored Body map.
 func cosmosRunQuery(q *cosmosQuery, docs []CosmosDocument, params map[string]any) []map[string]any {
 	type row struct {
 		doc  CosmosDocument
@@ -887,7 +851,6 @@ func cosmosRunQuery(q *cosmosQuery, docs []CosmosDocument, params map[string]any
 		matched = append(matched, row{doc: d, body: d.Body})
 	}
 
-	// ORDER BY (stable, multi-key).
 	if len(q.orderBy) > 0 {
 		sort.SliceStable(matched, func(i, j int) bool {
 			for _, item := range q.orderBy {
@@ -909,14 +872,13 @@ func cosmosRunQuery(q *cosmosQuery, docs []CosmosDocument, params map[string]any
 		})
 	}
 
-	// COUNT aggregate → single scalar row. Apply OFFSET/LIMIT first? Real
-	// Cosmos applies COUNT over the whole filtered set; TOP/OFFSET with an
-	// aggregate is rejected, so count the matched rows directly.
+	// Azure Cosmos DB counts the whole filtered set and rejects TOP/OFFSET with an
+	// aggregate.
 	if q.countAll {
 		return []map[string]any{{"$1": len(matched)}}
 	}
 
-	// OFFSET / LIMIT (TOP folds into limit).
+	// TOP folds into limit.
 	start := 0
 	if q.offset > 0 {
 		start = q.offset
@@ -936,14 +898,12 @@ func cosmosRunQuery(q *cosmosQuery, docs []CosmosDocument, params map[string]any
 	return out
 }
 
-// cosmosProjectRow renders one result row honoring the SELECT projection.
 func cosmosProjectRow(q *cosmosQuery, doc CosmosDocument) map[string]any {
 	if q.projectAll || len(q.projection) == 0 {
 		return cosmosDocBody(doc)
 	}
 	if q.valueOnly {
-		// SELECT VALUE c.x — emit the scalar under "$1" (azcosmos unwraps a
-		// single-property row; the value query path reads the property).
+		// azcosmos unwraps a single-property row, so emit the scalar under "$1".
 		v, ok := cosmosLookupPath(doc.Body, q.projection[0].segs)
 		if !ok {
 			return map[string]any{}
@@ -956,7 +916,7 @@ func cosmosProjectRow(q *cosmosQuery, doc CosmosDocument) map[string]any {
 		if !ok {
 			continue
 		}
-		// the result key is the last path segment (Cosmos default alias).
+		// The result key is the last path segment, Azure Cosmos DB's default alias.
 		key := path.root
 		if len(path.segs) > 0 {
 			key = path.segs[len(path.segs)-1]
@@ -966,8 +926,6 @@ func cosmosProjectRow(q *cosmosQuery, doc CosmosDocument) map[string]any {
 	return row
 }
 
-// cosmosRenderValue converts an internal value (e.g. *big.Float from a param)
-// back to a JSON-friendly form for the response body.
 func cosmosRenderValue(v any) any {
 	if f, ok := v.(*big.Float); ok {
 		if i, acc := f.Int64(); acc == big.Exact {

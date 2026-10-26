@@ -10,37 +10,24 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/placement"
 )
 
-// The site's PHP error-logging flag, read from the PHP the site is running.
-//
-// WebApps_GetSitePhpErrorLogFlag reports four values: log_errors and
-// log_errors_max_len, each in its local form (what the site's own
-// configuration sets) and its master form (what the platform's php.ini sets).
-// PHP itself reports exactly that distinction — `php -i` prints every directive
-// as "name => local value => master value" — so a site whose workload container
-// runs PHP already holds the answer, and the simulator reads it out of that
-// container rather than describing a platform image it does not have.
-//
-// A site whose container has no PHP is not running a PHP worker, and there is
-// no such configuration to report. That is not a gap in the simulator: it is
-// the true answer for that site, and it is said rather than defaulted, because
-// a settings resource with plausible values in it claims the site is configured
-// that way.
+// WebApps_GetSitePhpErrorLogFlag reports log_errors and log_errors_max_len in
+// local (the site's configuration) and master (the platform php.ini) form,
+// which `php -i` prints as "name => local value => master value", so the
+// simulator asks the PHP in the site's container. A container without PHP runs
+// no PHP worker and has no such settings, which it says rather than defaulting
+// them.
 
-// webPHPDirectives is the pair of values PHP reports for one directive.
 type webPHPDirectives struct {
 	Local, Master string
 }
 
-// webReadPHPDirectives runs PHP's own configuration dump inside the site's
-// workload and returns the directives it reports. The second result is false
-// when the workload has no PHP to ask.
+// False when the workload has no PHP.
 func webReadPHPDirectives(instance placement.Handle, wanted ...string) (map[string]webPHPDirectives, bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	result, err := instance.Exec(ctx, []string{"php", "-i"})
 	if err != nil || result.ExitCode != 0 {
-		// A container without PHP answers "executable file not found"; there is
-		// no PHP worker to report a setting for.
+		// No PHP in the container, so no setting to report.
 		return nil, false
 	}
 
@@ -50,8 +37,8 @@ func webReadPHPDirectives(instance placement.Handle, wanted ...string) (map[stri
 	}
 	out := map[string]webPHPDirectives{}
 	for _, line := range strings.Split(result.Stdout, "\n") {
-		// php -i prints "directive => local value => master value"; a directive
-		// with one value prints it once.
+		// "directive => local value => master value"; a single-valued directive prints
+		// once.
 		parts := strings.Split(line, "=>")
 		if len(parts) < 2 {
 			continue
@@ -73,8 +60,6 @@ func webReadPHPDirectives(instance placement.Handle, wanted ...string) (map[stri
 	return out, true
 }
 
-// webGetSitePhpErrorLogFlag answers WebApps_GetSitePhpErrorLogFlag and its slot
-// spelling.
 func webGetSitePhpErrorLogFlag(w http.ResponseWriter, r *http.Request) {
 	instance, ok := webRequireInstance(w, r)
 	if !ok {

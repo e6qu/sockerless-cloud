@@ -6,11 +6,9 @@ import (
 	"testing"
 )
 
-// TestAzureRequestSchemeHonorsForwardedProto pins the scheme every absolute
-// URL the simulator emits is built from. Behind a TLS-terminating gateway the
-// request reaches the simulator over plaintext, so trusting r.TLS alone
-// advertised http:// polling and endpoint URLs to clients that can only reach
-// the deployment over https://.
+// Behind a TLS-terminating gateway the request arrives over plaintext, so
+// trusting r.TLS alone would advertise http:// URLs to clients that reach the
+// deployment only over https://.
 func TestAzureRequestSchemeHonorsForwardedProto(t *testing.T) {
 	for _, tc := range []struct {
 		name      string

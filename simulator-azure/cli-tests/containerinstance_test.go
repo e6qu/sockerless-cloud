@@ -11,8 +11,8 @@ import (
 
 const aciAPIVersion = "2021-10-01"
 
-// TestACILocationUsages_CLI exercises the per-region Azure Container Instances
-// usage endpoint (Location_ListUsage) through the az-rest CLI.
+// TestACILocationUsages_CLI exercises Location_ListUsage, the per-region Azure
+// Container Instances usage endpoint.
 func TestACILocationUsages_CLI(t *testing.T) {
 	t.Parallel()
 	url := fmt.Sprintf("%s/subscriptions/%s/providers/Microsoft.ContainerInstance/locations/eastus/usages?api-version=%s",
@@ -36,16 +36,10 @@ func TestACILocationUsages_CLI(t *testing.T) {
 	assert.True(t, names["ContainerGroups"], "ContainerGroups usage must be reported")
 }
 
-// TestACISubnetServiceAssociationLinkDelete exercises
-// SubnetServiceAssociationLink_Delete: removing the subnet<->container-group
-// service association link.
-//
-// The link lives on a subnet, so the subnet is created first and the delete
-// runs against a subnet that exists. Driving the delete at a subnet that was
-// never created, asserting nothing but the exit status, cannot tell a working
-// implementation from a handler that answers 204 to any URL of that shape —
-// which is what this one was. The refusal for a subnet that does not exist is
-// the other half of the contract and is asserted beside it.
+// TestACISubnetServiceAssociationLinkDelete deletes a subnet's service
+// association link on a subnet that exists, and checks the refusal for one
+// that does not: an exit status alone cannot tell this from a handler that
+// answers 204 to any URL of that shape.
 func TestACISubnetServiceAssociationLinkDelete(t *testing.T) {
 	t.Parallel()
 	const networkAPIVersion = "2024-05-01"
@@ -59,7 +53,6 @@ func TestACISubnetServiceAssociationLinkDelete(t *testing.T) {
 
 	url := fmt.Sprintf("%s/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/virtualNetworks/aci-vnet/subnets/aci-subnet/providers/Microsoft.ContainerInstance/serviceAssociationLinks/default?api-version=%s",
 		baseURL, subscriptionID, resourceGroup, aciAPIVersion)
-	// A 204 No Content delete returns no body and exits 0.
 	assert.Empty(t, strings.TrimSpace(runCLI(t, azRest("DELETE", url, ""))),
 		"a 204 No Content delete carries no body")
 

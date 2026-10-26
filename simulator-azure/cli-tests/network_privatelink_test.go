@@ -10,16 +10,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Azure Private Link and the Microsoft.Network resources that describe how a
-// workload attaches to a virtual network, driven through the Azure CLI.
+// Azure Private Link and the Microsoft.Network resources that attach a
+// workload to a virtual network.
 
 const privateLinkAPIVersion = "2025-03-01"
 
 // runNetworkCLIExpectFailure runs a CLI command that must fail and returns its
-// combined output. `az rest` exits non-zero on any 4xx, so an operation the
-// simulator is expected to refuse — a read of a deleted resource, a write the
-// resource provider rejects — is asserted here rather than through runCLI,
-// which treats a non-zero exit as a test failure.
+// combined output; `az rest` exits non-zero on any 4xx.
 func runNetworkCLIExpectFailure(t *testing.T, cmd *exec.Cmd) string {
 	t.Helper()
 	cmd.Env = append(cmd.Env, "PYTHONWARNINGS=ignore")
@@ -35,8 +32,8 @@ func networkResourceID(path string) string {
 		subscriptionID, resourceGroup, path)
 }
 
-// TestNetworkApplicationSecurityGroupCLI covers the application security group
-// surface: create, show, retag, both lists, delete.
+// TestNetworkApplicationSecurityGroupCLI covers create, show, retag, both
+// lists and delete.
 func TestNetworkApplicationSecurityGroupCLI(t *testing.T) {
 	t.Parallel()
 	url := armURL("Microsoft.Network", "applicationSecurityGroups/cli-asg", privateLinkAPIVersion)
@@ -81,8 +78,8 @@ func TestNetworkApplicationSecurityGroupCLI(t *testing.T) {
 	assert.Contains(t, out, "ResourceNotFound")
 }
 
-// TestNetworkVirtualNetworkTapCLI covers the virtual network tap surface,
-// including the rejection of a tap that names no collector destination.
+// TestNetworkVirtualNetworkTapCLI covers the virtual network tap, including
+// the rejection of a tap that names no collector destination.
 func TestNetworkVirtualNetworkTapCLI(t *testing.T) {
 	t.Parallel()
 	url := armURL("Microsoft.Network", "virtualNetworkTaps/cli-tap", privateLinkAPIVersion)
@@ -123,9 +120,8 @@ func TestNetworkVirtualNetworkTapCLI(t *testing.T) {
 	assert.Contains(t, out, "ResourceNotFound")
 }
 
-// TestNetworkServiceEndpointPolicyCLI covers the service endpoint policy and
-// its definition sub-resource, and proves a definition written through the
-// sub-resource path is reported by the policy's own read.
+// TestNetworkServiceEndpointPolicyCLI checks that a definition written through
+// the sub-resource path shows in the policy's own read.
 func TestNetworkServiceEndpointPolicyCLI(t *testing.T) {
 	t.Parallel()
 	url := armURL("Microsoft.Network", "serviceEndpointPolicies/cli-sep", privateLinkAPIVersion)
@@ -199,9 +195,9 @@ func TestNetworkServiceEndpointPolicyCLI(t *testing.T) {
 	assert.Contains(t, out, "ResourceNotFound")
 }
 
-// TestNetworkPrivateLinkCLI drives the whole Private Link round trip through
-// the CLI: a private link service, a private endpoint that connects to it, the
-// owner's approval on the service, and the endpoint reading that decision back.
+// TestNetworkPrivateLinkCLI drives the Private Link round trip: a private link
+// service, a private endpoint connecting to it, the owner's approval, and the
+// endpoint reading that decision back.
 func TestNetworkPrivateLinkCLI(t *testing.T) {
 	t.Parallel()
 
@@ -276,7 +272,7 @@ func TestNetworkPrivateLinkCLI(t *testing.T) {
 	assert.Equal(t, "Pending",
 		pe.Properties.ManualPrivateLinkServiceConnections[0].Properties.PrivateLinkServiceConnectionState.Status)
 
-	// The endpoint's interface is an ordinary network interface holding a real
+	// The endpoint's interface is an ordinary network interface holding an
 	// address from the endpoint's own subnet.
 	nicURL := fmt.Sprintf("%s%s?api-version=%s", baseURL, pe.Properties.NetworkInterfaces[0].ID, privateLinkAPIVersion)
 	out = runCLI(t, azRest("GET", nicURL, ""))
@@ -315,11 +311,9 @@ func TestNetworkPrivateLinkCLI(t *testing.T) {
 	assert.Equal(t, "cli approves",
 		pe.Properties.ManualPrivateLinkServiceConnections[0].Properties.PrivateLinkServiceConnectionState.Description)
 
-	// The service's own read reports the connection too.
 	out = runCLI(t, azRest("GET", plsURL, ""))
 	assert.Contains(t, out, "cli-pe")
 
-	// Visibility and auto-approval discovery.
 	visURL := fmt.Sprintf("%s/subscriptions/%s/providers/Microsoft.Network/locations/eastus/checkPrivateLinkServiceVisibility?api-version=%s",
 		baseURL, subscriptionID, privateLinkAPIVersion)
 	out = runCLI(t, azRest("POST", visURL, fmt.Sprintf(`{"privateLinkServiceAlias":%q}`, pls.Properties.Alias)))
@@ -339,7 +333,6 @@ func TestNetworkPrivateLinkCLI(t *testing.T) {
 	out = runCLI(t, azRest("GET", autoRGURL, ""))
 	assert.Contains(t, out, "value")
 
-	// Endpoint lists and the private-endpoint type catalog.
 	out = runCLI(t, azRest("GET", armURL("Microsoft.Network", "privateEndpoints", privateLinkAPIVersion), ""))
 	assert.Contains(t, out, "cli-pe")
 	peSubListURL := fmt.Sprintf("%s/subscriptions/%s/providers/Microsoft.Network/privateEndpoints?api-version=%s",
@@ -372,10 +365,9 @@ func TestNetworkPrivateLinkCLI(t *testing.T) {
 	assert.Contains(t, out, "ResourceNotFound")
 }
 
-// TestNetworkPrivateEndpointKeyVaultAndDNSCLI proves the cross-provider
-// integration through the CLI: an endpoint on a Key Vault opens its connection
-// in the vault's own collection, and a private DNS zone group publishes real A
-// records the private DNS record surface then serves.
+// TestNetworkPrivateEndpointKeyVaultAndDNSCLI: an endpoint on a key vault opens
+// its connection in the vault's own collection, and a private DNS zone group
+// publishes A records the private DNS record surface serves.
 func TestNetworkPrivateEndpointKeyVaultAndDNSCLI(t *testing.T) {
 	t.Parallel()
 
@@ -424,13 +416,12 @@ func TestNetworkPrivateEndpointKeyVaultAndDNSCLI(t *testing.T) {
 	peAddress := pe.Properties.CustomDNSConfigs[0].IPAddresses[0]
 	require.NotEmpty(t, peAddress)
 
-	// The vault's own connection surface lists the same connection.
 	vaultConnURL := armURL("Microsoft.KeyVault", "vaults/clipelinkvault/privateEndpointConnections", "2023-07-01")
 	out = runCLI(t, azRest("GET", vaultConnURL, ""))
 	assert.Contains(t, out, "cli-kv-pe")
 	assert.Contains(t, out, "Approved")
 
-	// The vault owner rejects it there; the endpoint reads the rejection back.
+	// The vault owner rejects the connection there; the endpoint reads it back.
 	vaultConnItemURL := armURL("Microsoft.KeyVault", "vaults/clipelinkvault/privateEndpointConnections/cli-kv-pe", "2023-07-01")
 	runCLI(t, azRest("PUT", vaultConnItemURL,
 		`{"properties":{"privateLinkServiceConnectionState":{"status":"Rejected","description":"cli rejects"}}}`))
@@ -439,7 +430,6 @@ func TestNetworkPrivateEndpointKeyVaultAndDNSCLI(t *testing.T) {
 	assert.Equal(t, "Rejected",
 		pe.Properties.PrivateLinkServiceConnections[0].Properties.PrivateLinkServiceConnectionState.Status)
 
-	// A private DNS zone group publishes real A records.
 	groupURL := armURL("Microsoft.Network", "privateEndpoints/cli-kv-pe/privateDnsZoneGroups/default", privateLinkAPIVersion)
 	groupBody := fmt.Sprintf(`{"properties":{"privateDnsZoneConfigs":[{"name":"vault-config","properties":{"privateDnsZoneId":%q}}]}}`, zoneID)
 	out = runCLI(t, azRest("PUT", groupURL, groupBody))
@@ -467,7 +457,7 @@ func TestNetworkPrivateEndpointKeyVaultAndDNSCLI(t *testing.T) {
 	assert.Equal(t, "clipelinkvault", record.RecordSetName)
 	assert.Equal(t, []string{peAddress}, record.IPAddresses)
 
-	// The record the group reports is a real record set in the zone.
+	// The record the group reports is a record set in the zone.
 	recordURL := armURL("Microsoft.Network",
 		"privateDnsZones/privatelink.vaultcore.azure.net/A/clipelinkvault", "2024-06-01")
 	out = runCLI(t, azRest("GET", recordURL, ""))
@@ -490,8 +480,8 @@ func TestNetworkPrivateEndpointKeyVaultAndDNSCLI(t *testing.T) {
 	assert.Contains(t, out, "ResourceNotFound")
 }
 
-// TestNetworkProfileCLI covers the network profile surface and the subnet
-// validation its container network interface configurations are subject to.
+// TestNetworkProfileCLI covers the network profile and the subnet validation
+// its container network interface configurations are subject to.
 func TestNetworkProfileCLI(t *testing.T) {
 	t.Parallel()
 

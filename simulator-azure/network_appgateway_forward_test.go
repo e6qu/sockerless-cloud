@@ -12,11 +12,8 @@ import (
 	"testing"
 )
 
-// Application Gateway inserts X-Forwarded-For (IP:port), X-Forwarded-Port,
-// X-Forwarded-Proto, X-Original-Host, X-Original-URL and X-AppGW-Trace-Id
-// before a rewrite rule set runs, so the rule set can read and remove them, and
-// a client that names X-Forwarded-For in Connection cannot strip the
-// gateway's own entry.
+// The rule set can read and remove the inserted headers, and a client naming
+// X-Forwarded-For in Connection cannot strip the gateway's own entry.
 func TestApplicationGatewayForwardInsertsItsHeadersBeforeRewrites(t *testing.T) {
 	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(r.Header)

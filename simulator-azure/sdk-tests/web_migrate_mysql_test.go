@@ -9,15 +9,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// SDK coverage for migrating a site's in-app MySQL database:
+// App Service switches in-app MySQL on with an app setting, so whether a site
+// has a database to migrate is read from the site.
 //
 //	POST .../sites/{name}/migratemysql
 //	GET  .../sites/{name}/migratemysql/status
 //	GET  .../sites/{name}/slots/{slot}/migratemysql/status
-//
-// Whether the site has a database to migrate is the app setting App Service
-// switches in-app MySQL on with, so the refusal and the acceptance are both
-// read from the site rather than declared.
 func TestSDK_WebApps_MigrateMySql(t *testing.T) {
 	t.Parallel()
 	rg := "sdk-mysql-rg"
@@ -49,7 +46,7 @@ func TestSDK_WebApps_MigrateMySql(t *testing.T) {
 	require.NotNil(t, plain.Properties)
 	require.NotNil(t, plain.Properties.LocalMySQLEnabled)
 	assert.False(t, *plain.Properties.LocalMySQLEnabled)
-	// Nothing was ever migrated, so no operation is reported.
+	// Nothing was migrated, so no operation is reported.
 	assert.Nil(t, plain.Properties.OperationID)
 
 	_, err = sites.BeginMigrateMySQL(ctx, rg, "sdk-mysql-plain", armappservice.MigrateMySQLRequest{
@@ -61,8 +58,8 @@ func TestSDK_WebApps_MigrateMySql(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "in-app MySQL")
 
-	// A site with it enabled accepts the migration, and the status then reports
-	// the operation the caller started.
+	// A site with it enabled accepts the migration, and the status reports the
+	// operation started.
 	newSite("sdk-mysql-inapp", true)
 	poller, err := sites.BeginMigrateMySQL(ctx, rg, "sdk-mysql-inapp", armappservice.MigrateMySQLRequest{
 		Properties: &armappservice.MigrateMySQLRequestProperties{
@@ -104,17 +101,15 @@ func TestSDK_WebApps_MigrateMySql(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, slotStatus.Properties)
 	require.NotNil(t, slotStatus.Properties.LocalMySQLEnabled)
-	// The slot carries no in-app database of its own.
+	// The slot has no in-app database of its own.
 	assert.False(t, *slotStatus.Properties.LocalMySQLEnabled)
 }
 
-// SDK coverage for moving a site's content into an Azure Files share:
+// Moving a site's content into an Azure Files share. The simulator records the
+// operation the platform starts; no bytes move, because these sites are served
+// from a container image, not a share.
 //
 //	PUT .../sites/{name}/migrate
-//
-// What a caller can observe is the operation the platform starts, which the
-// simulator holds; no bytes move, because these sites are served out of a
-// container image rather than out of a share.
 func TestSDK_WebApps_MigrateStorage(t *testing.T) {
 	t.Parallel()
 	rg := "sdk-migrate-rg"
@@ -144,8 +139,7 @@ func TestSDK_WebApps_MigrateStorage(t *testing.T) {
 	assert.NotEmpty(t, *done.Properties.OperationID,
 		"the platform returns the operation identifying the migration it started")
 
-	// A migration with no share to move into is refused before anything is
-	// recorded.
+	// A migration with no share is refused before anything is recorded.
 	_, err = sites.BeginMigrateStorage(ctx, "sdk-migrate-sub", rg, "sdk-migrate-site",
 		armappservice.StorageMigrationOptions{
 			Properties: &armappservice.StorageMigrationOptionsProperties{
@@ -155,7 +149,7 @@ func TestSDK_WebApps_MigrateStorage(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "azurefilesShare")
 
-	// A site that is not there is a 404.
+	// A missing site is 404.
 	_, err = sites.BeginMigrateStorage(ctx, "sdk-migrate-sub", rg, "sdk-migrate-absent",
 		armappservice.StorageMigrationOptions{
 			Properties: &armappservice.StorageMigrationOptionsProperties{

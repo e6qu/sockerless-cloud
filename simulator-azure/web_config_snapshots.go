@@ -10,15 +10,11 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// web_config_snapshots.go implements the SiteConfig snapshot history:
-// WebApps_{List,Get}ConfigurationSnapshotInfo[Slot] and
-// WebApps_RecoverSiteConfigurationSnapshot[Slot]. A snapshot record is
-// written on every SiteConfig (config/web) update — both the production-site
-// PUT and the slot PUT/PATCH paths call webRecordConfigSnapshot — and
-// recovery restores the exact stored configuration into the site row, as
-// real App Service does.
+// The SiteConfig snapshot history: List/GetConfigurationSnapshotInfo and
+// RecoverSiteConfigurationSnapshot. Every config/web update, site or slot,
+// records a snapshot through webRecordConfigSnapshot, and recovery restores the
+// exact stored configuration, as App Service does.
 
-// webConfigSnapshotRow is one point-in-time capture of a site's SiteConfig.
 // Keyed by "<site resource ID>/config/web/snapshots/<snapshotId>".
 type webConfigSnapshotRow struct {
 	ID         string     `json:"id"`
@@ -30,8 +26,7 @@ type webConfigSnapshotRow struct {
 
 var webConfigSnapshots sim.Store[webConfigSnapshotRow]
 
-// webRecordConfigSnapshot captures the site's just-written SiteConfig as the
-// next snapshot in its history. Snapshot IDs increase monotonically per site.
+// Snapshot IDs increase per site.
 func webRecordConfigSnapshot(siteID string, cfg *SiteConfig) {
 	if cfg == nil {
 		cfg = &SiteConfig{}
@@ -51,8 +46,8 @@ func webRecordConfigSnapshot(siteID string, cfg *SiteConfig) {
 		Config:     *cfg,
 	}
 	webConfigSnapshots.Put(row.ID, row)
-	// The app's configuration just changed, so the platform's automatic-backup
-	// snapshot of this app state exists from here on.
+	// The configuration changed, so the automatic-backup snapshot of this state
+	// exists from here on.
 	webCaptureAppSnapshot(siteID)
 }
 
@@ -63,7 +58,6 @@ func registerWebConfigSnapshots(srv *sim.Server, both func(string, string, http.
 		return webResourceID(r) + "/config/web/snapshots/" + sim.PathParam(r, "snapshotId")
 	}
 
-	// WebApps_ListConfigurationSnapshotInfo[Slot].
 	both("GET", "/config/web/snapshots", func(w http.ResponseWriter, r *http.Request) {
 		if webMissing(w, r) {
 			return
@@ -86,8 +80,6 @@ func registerWebConfigSnapshots(srv *sim.Server, both func(string, string, http.
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"value": out})
 	})
 
-	// WebApps_GetConfigurationSnapshot[Slot] — the full SiteConfig captured
-	// in that snapshot.
 	both("GET", "/config/web/snapshots/{snapshotId}", func(w http.ResponseWriter, r *http.Request) {
 		if webMissing(w, r) {
 			return
@@ -102,8 +94,6 @@ func registerWebConfigSnapshots(srv *sim.Server, both func(string, string, http.
 		sim.WriteJSON(w, http.StatusOK, configResource(webResourceID(r), "web", &cfg))
 	})
 
-	// WebApps_RecoverSiteConfigurationSnapshot[Slot] — restore the exact
-	// stored configuration into the site row.
 	both("POST", "/config/web/snapshots/{snapshotId}/recover", func(w http.ResponseWriter, r *http.Request) {
 		if webMissing(w, r) {
 			return

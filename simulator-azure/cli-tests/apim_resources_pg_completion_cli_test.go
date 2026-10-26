@@ -7,10 +7,8 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// TestCLI_CompletionSurfaces exercises a representative slice of the
-// Microsoft.ApiManagement, Microsoft.Resources, and Microsoft.DBforPostgreSQL
-// completion ratchet through the `az rest` CLI surface. Kept lean: one resource
-// group, one APIM service, and one PostgreSQL server back a handful of calls.
+// TestCLI_CompletionSurfaces exercises a slice of the Microsoft.ApiManagement,
+// Microsoft.Resources and Microsoft.DBforPostgreSQL surfaces through `az rest`.
 func TestCLI_CompletionSurfaces(t *testing.T) {
 	t.Parallel()
 	const apimAPIVersion = "2022-08-01"
@@ -30,7 +28,6 @@ func TestCLI_CompletionSurfaces(t *testing.T) {
 	runCLI(t, azRest("PUT", apimURL("service/"+svc+"/apis/api1/issues/issue1"),
 		`{"properties":{"title":"Bug","description":"It broke","userId":"u1"}}`))
 
-	// ---- Microsoft.Resources: tags at resource-group scope + MG register ----
 	tagsURL := fmt.Sprintf("%s/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Resources/tags/default?api-version=%s",
 		baseURL, subscriptionID, resourceGroup, resourcesAPIVersion)
 	runCLI(t, azRest("PUT", tagsURL, `{"properties":{"tags":{"team":"data"}}}`))
@@ -40,7 +37,6 @@ func TestCLI_CompletionSurfaces(t *testing.T) {
 		baseURL, resourcesAPIVersion)
 	runCLI(t, azRest("POST", mgURL, ""))
 
-	// ---- Microsoft.DBforPostgreSQL: operations, DNS suffix, capabilities, migration ----
 	out = runCLI(t, azRest("GET", tenantScopeURL("providers/Microsoft.DBforPostgreSQL/operations", pgAPIVersion), ""))
 	assert.Contains(t, out, "Microsoft.DBforPostgreSQL/flexibleServers/read")
 	out = runCLI(t, azRest("POST", tenantScopeURL("providers/Microsoft.DBforPostgreSQL/getPrivateDnsZoneSuffix", pgAPIVersion), ""))

@@ -13,7 +13,7 @@ import (
 )
 
 // TestTerraformTutorial runs the Azure steps of docs/tutorial.md: init, apply,
-// plan again with nothing to change, read the outputs, call the function app,
+// a plan with nothing to change, the outputs, a call to the function app, and
 // destroy.
 func TestTerraformTutorial(t *testing.T) {
 	dir := tfWorkspaceFrom(t, mustAbs("tutorial"))

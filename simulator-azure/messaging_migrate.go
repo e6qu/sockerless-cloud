@@ -12,8 +12,8 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/streamlog"
 )
 
-// Conversions of the Service Bus, Queue Storage and Event Hubs rows builds
-// before the shared message queue and stream log wrote.
+// The row shapes earlier builds stored for Service Bus, Queue Storage and
+// Event Hubs before the shared message queue and stream log.
 
 type sbLegacyRecord struct {
 	Messages []struct {
@@ -30,9 +30,7 @@ type sbLegacyRecord struct {
 	Queue   json.RawMessage `json:"queue"`
 }
 
-// sbMigrateQueues converts each entity's stored messages, keeping their ids,
-// bodies, broker properties, sequence numbers and live locks. A locked message
-// counts the delivery it is under.
+// A locked message counts the delivery it is under.
 func sbMigrateQueues(db *sql.DB) error {
 	return sim.Migrate(db, "servicebus_queue_messages/msgq", func() error {
 		_, rows, err := sim.LegacyRows[sbLegacyRecord](db, "servicebus_queue_messages")
@@ -88,9 +86,6 @@ type queueLegacyMessage struct {
 	DequeueCount   int
 }
 
-// queueMigrateMessages converts each queue's stored messages, keeping their
-// ids, text, insertion and expiration times, pop receipts, visibility and
-// dequeue counts.
 func queueMigrateMessages(db *sql.DB) error {
 	return sim.Migrate(db, "queue_data/msgq", func() error {
 		_, rows, err := sim.LegacyRows[queueLegacyData](db, "queue_data")
@@ -147,9 +142,6 @@ type ehLegacyPartition struct {
 	NextSeq int64
 }
 
-// ehMigratePartitions moves each partition an earlier build stored whole
-// into the partition log, keeping every event's sequence number, enqueued
-// time, body and application properties.
 func ehMigratePartitions(db *sql.DB) error {
 	return sim.Migrate(db, "eventhub_partition_events/streamlog", func() error {
 		legacy, rows, err := sim.LegacyRows[ehLegacyPartition](db, "eventhub_partition_events")

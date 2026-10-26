@@ -13,9 +13,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// A write answers before the revision it creates provisions; a revision whose
-// replicas fail to start fails the write's operation and leaves the app Failed,
-// still serving from the revision that was ready before.
+// A write answers before its revision provisions; a revision whose replicas
+// fail to start fails the operation and leaves the app Failed, still serving
+// from the revision that was ready before.
 func TestSDK_ContainerAppsApps_ProvisioningSettlesAfterTheWrite(t *testing.T) {
 	t.Parallel()
 	rg := "sdk-aca-provisioning-rg"
@@ -74,7 +74,7 @@ func TestSDK_ContainerAppsApps_ProvisioningSettlesAfterTheWrite(t *testing.T) {
 	require.NotEmpty(t, ready)
 	assert.Equal(t, ready, ptrVal(created.Properties.LatestRevisionName))
 
-	// The ingress target port's startup probe fails when the container exits
+	// The startup probe on the ingress target port fails when the container exits
 	// before it listens.
 	poller, err = client.BeginCreateOrUpdate(ctx, rg, name, app("sh", "-c", "exit 3"), nil)
 	require.NoError(t, err)

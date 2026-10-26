@@ -9,7 +9,6 @@ import (
 )
 
 func registerWebSites(srv *sim.Server, armBase string, sites sim.Store[Site], functionConfigs sim.Store[FunctionEnvelope]) {
-	// PUT - Create or update function app
 	srv.HandleFunc("PUT "+armBase+"/sites/{siteName}", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
@@ -28,14 +27,13 @@ func registerWebSites(srv *sim.Server, armBase string, sites sim.Store[Site], fu
 
 		resourceID := armResourceID(sub, rg, "Microsoft.Web", "sites", name)
 
-		// The resource provider takes a plan in the site's own resource group
-		// by name, as az functionapp create names it, and records its ID.
+		// The resource provider takes a plan in the site's own resource group by
+		// name, as az functionapp create names it, and records its ID.
 		if plan := req.Properties.ServerFarmID; plan != "" && !strings.Contains(plan, "/") {
 			req.Properties.ServerFarmID = armResourceID(sub, rg, "Microsoft.Web", "serverfarms", plan)
 		}
 
-		// A site placed in an App Service Environment is placed in one that
-		// exists; the resource provider refuses an unresolvable reference.
+		// The resource provider refuses an unresolvable App Service Environment.
 		hostingEnvironment, err := webResolveHostingEnvironmentProfile(req.Properties.HostingEnvironmentProfile)
 		if err != nil {
 			AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
@@ -47,18 +45,14 @@ func registerWebSites(srv *sim.Server, armBase string, sites sim.Store[Site], fu
 			kind = webDefaultSiteKind(req.Properties.Reserved, req.Properties.ServerFarmID)
 		}
 
-		// Real Azure assigns a per-site hostname `<site>.azurewebsites.net`
-		// — invocations route to the right function app by HTTP Host header.
-		// The sim hosts every site on a single port, so callers connect to
-		// the sim's TCP address but set Host = `<name>.azurewebsites.net`;
-		// the invoke handler matches that against DefaultHostName.
+		// Every site shares the simulator's port, so a caller connects to it with
+		// Host set to `<name>.azurewebsites.net`, which the invoke handler matches
+		// against DefaultHostName.
 		defaultHostName := name + ".azurewebsites.net"
 		scmHostName := azureAppServiceScmHost(r, name)
 
-		// Default the ARM-computed site properties the provider reads back
-		// when the request omits them, so a post-apply GET echoes the same
-		// values terraform expects (no idempotency drift). These mirror the
-		// real Microsoft.Web/sites defaults.
+		// Default the computed properties Microsoft.Web/sites reports when the
+		// request omits them, so a read after apply shows no drift in Terraform.
 		clientCertMode := req.Properties.ClientCertMode
 		if clientCertMode == "" {
 			clientCertMode = "Optional"
@@ -137,7 +131,6 @@ func registerWebSites(srv *sim.Server, armBase string, sites sim.Store[Site], fu
 			// state is read-only: an update leaves a stopped app stopped.
 			site.Properties.State = prev.Properties.State
 		} else {
-			// A new app starts on an empty /home.
 			removeSiteHome(name)
 		}
 		sites.Put(resourceID, site)
@@ -146,17 +139,12 @@ func registerWebSites(srv *sim.Server, armBase string, sites sim.Store[Site], fu
 			cfg.ConnectionStrings = connStrings
 			siteConfigStore.Put(resourceID, cfg)
 		}
-		// Real Azure provisions the Functions host key set (master key +
-		// "default" host function key) with the new site.
 		ensureWebHostKeys(resourceID)
 
-		// terraform-provider-azurerm sends app settings inside the site PUT's
-		// siteConfig.appSettings, then reads them back via POST
-		// /config/appsettings/list (a separate store). Mirror them into that
-		// store so the read recovers FUNCTIONS_EXTENSION_VERSION /
-		// AzureWebJobsStorage / AzureWebJobsDashboard — the provider derives
-		// functions_extension_version / storage_account_name /
-		// builtin_logging_enabled from those, and drops them on drift otherwise.
+		// terraform-provider-azurerm sends app settings in the PUT's
+		// siteConfig.appSettings and reads them back through POST
+		// /config/appsettings/list; it derives functions_extension_version,
+		// storage_account_name and builtin_logging_enabled from them.
 		if len(siteConfig.AppSettings) > 0 {
 			cfg, _ := siteConfigStore.Get(resourceID)
 			settings := make(map[string]string, len(siteConfig.AppSettings))
@@ -167,11 +155,8 @@ func registerWebSites(srv *sim.Server, armBase string, sites sim.Store[Site], fu
 			siteConfigStore.Put(resourceID, cfg)
 		}
 
-		// virtualNetworkSubnetId on the envelope is regional VNet integration:
-		// join the subnet's VNet exactly as a swift PUT would. A PUT that
-		// omits it keeps an existing integration (the swift-connection flow
-		// re-PUTs the site without it); the stored row still reflects the
-		// current integration either way.
+		// A PUT that omits virtualNetworkSubnetId keeps an existing integration: the
+		// swift-connection flow re-PUTs the site without it.
 		if req.Properties.VirtualNetworkSubnetID != "" {
 			if err := applySiteVirtualNetworkSubnetID(r, site, req.Properties.VirtualNetworkSubnetID); err != nil {
 				writeVnetIntegrationError(w, name, err)
@@ -187,12 +172,10 @@ func registerWebSites(srv *sim.Server, armBase string, sites sim.Store[Site], fu
 			startAlwaysOnSite(site)
 		}
 
-		// Always return 200 OK so the ARM SDK's BeginCreateOrUpdate poller
-		// treats this as an immediately completed operation.
+		// Answer 200 so the BeginCreateOrUpdate poller completes at once.
 		sim.WriteJSON(w, http.StatusOK, site)
 	})
 
-	// GET - Get function app
 	srv.HandleFunc("GET "+armBase+"/sites/{siteName}", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
@@ -210,7 +193,6 @@ func registerWebSites(srv *sim.Server, armBase string, sites sim.Store[Site], fu
 		sim.WriteJSON(w, http.StatusOK, site)
 	})
 
-	// GET - List function apps by resource group
 	srv.HandleFunc("GET "+armBase+"/sites", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
@@ -227,7 +209,6 @@ func registerWebSites(srv *sim.Server, armBase string, sites sim.Store[Site], fu
 		})
 	})
 
-	// DELETE - Delete function app
 	srv.HandleFunc("DELETE "+armBase+"/sites/{siteName}", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
@@ -238,15 +219,14 @@ func registerWebSites(srv *sim.Server, armBase string, sites sim.Store[Site], fu
 		deleted, existed := sites.Get(resourceID)
 		if sites.Delete(resourceID) {
 			if existed {
-				// Retain the app so RestoreFromDeletedApp and the deletedSites
-				// reads can reach it, before its content is cleaned up.
+				// Retain the app for RestoreFromDeletedApp and the deletedSites reads before
+				// its content goes.
 				webRecordDeletedSite(resourceID, deleted)
 			}
 			webSyncSiteIdentityPrincipal(&deleted, nil)
 			stopAzureFunctionInstance(name)
 			cleanupSiteContainers(resourceID, name)
 			webCleanupSiteResources(resourceID)
-			// Clean up associated functions
 			funcs := functionConfigs.Filter(func(f FunctionEnvelope) bool {
 				return strings.HasPrefix(f.ID, resourceID+"/functions/")
 			})
@@ -260,7 +240,6 @@ func registerWebSites(srv *sim.Server, armBase string, sites sim.Store[Site], fu
 		}
 	})
 
-	// GET - List functions
 	srv.HandleFunc("GET "+armBase+"/sites/{siteName}/functions", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
@@ -280,7 +259,6 @@ func registerWebSites(srv *sim.Server, armBase string, sites sim.Store[Site], fu
 		})
 	})
 
-	// GET - Get function
 	srv.HandleFunc("GET "+armBase+"/sites/{siteName}/functions/{functionName}", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")

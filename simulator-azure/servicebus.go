@@ -7,14 +7,9 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// Microsoft.ServiceBus ARM control plane. Real Azure exposes
-// namespace + queue + topic + subscription + rule + auth-rule
-// CRUD. The sim implements the namespace + queue + topic +
-// subscription slice — sufficient for terraform-provider-azurerm
-// `azurerm_servicebus_*` resources. AMQP data plane out of scope
-// for the first cut; the REST data plane (Send / Receive /
-// Peek-Lock) can land in a follow-up when an integration test
-// surfaces a need.
+// Microsoft.ServiceBus: namespaces, queues, topics, subscriptions, rules and
+// authorization rules. The REST and AMQP data planes live in
+// servicebus_dataplane.go and servicebus_amqp.go.
 
 type SBNamespace struct {
 	ID         string            `json:"id"`
@@ -61,8 +56,6 @@ type SBNetworkRuleSet struct {
 	Properties map[string]any `json:"properties,omitempty"`
 }
 
-// SBPrivateEndpointConnection is a private endpoint connection on a
-// namespace (Microsoft.ServiceBus/namespaces/privateEndpointConnections).
 type SBPrivateEndpointConnection struct {
 	ID         string         `json:"id"`
 	Name       string         `json:"name"`
@@ -70,8 +63,6 @@ type SBPrivateEndpointConnection struct {
 	Properties map[string]any `json:"properties,omitempty"`
 }
 
-// SBDisasterRecovery is a GEO-DR alias on a namespace
-// (Microsoft.ServiceBus/namespaces/disasterRecoveryConfigs).
 type SBDisasterRecovery struct {
 	ID         string         `json:"id"`
 	Name       string         `json:"name"`
@@ -79,8 +70,6 @@ type SBDisasterRecovery struct {
 	Properties map[string]any `json:"properties,omitempty"`
 }
 
-// SBMigrationConfig is the Standard→Premium migration configuration on a
-// namespace (Microsoft.ServiceBus/namespaces/migrationConfigurations).
 type SBMigrationConfig struct {
 	ID         string         `json:"id"`
 	Name       string         `json:"name"`
@@ -88,9 +77,8 @@ type SBMigrationConfig struct {
 	Properties map[string]any `json:"properties,omitempty"`
 }
 
-// SBAuthorizationRule is a SAS authorization rule on a namespace,
-// queue, or topic. Real Azure auto-provisions `RootManageSharedAccessKey`
-// on every namespace; operators add named rules with scoped rights.
+// Azure provisions `RootManageSharedAccessKey` on every namespace; operators
+// add named rules with scoped rights.
 type SBAuthorizationRule struct {
 	ID         string                  `json:"id"`
 	Name       string                  `json:"name"`
@@ -115,12 +103,9 @@ var (
 	sbMigrations    sim.Store[SBMigrationConfig]
 )
 
-// Every Service Bus child collection — a namespace's queues and topics, a
-// topic's subscriptions, a subscription's rules, and the authorization rules
-// under any of them — is addressed by the parent's resource identifier plus a
-// collection segment. Listing or cascading over one used to decode the whole
-// store, so listing a namespace's topics decoded every subscription in the
-// process once per topic.
+// Every child collection is addressed by the parent's ID plus a collection
+// segment, so these indexes list a parent's children without decoding the
+// whole store.
 var (
 	sbQueuesByParent        sim.GenerationIndex[SBQueue]
 	sbTopicsByParent        sim.GenerationIndex[SBTopic]
@@ -202,11 +187,8 @@ func registerServiceBus(srv *sim.Server) {
 	srv.HandleFunc("POST "+ns+"/{name}/migrationConfigurations/{config}/upgrade", handleSBCompleteMigration)
 	srv.HandleFunc("POST "+ns+"/{name}/migrationConfigurations/{config}/revert", handleSBRevertMigration)
 
-	// AuthorizationRules at namespace, queue, and topic scope. Real
-	// Azure auto-provisions `RootManageSharedAccessKey` on namespace
-	// PUT; named rules can be added with scoped rights (Listen, Send,
-	// Manage). The listKeys + regenerateKeys actions return real-
-	// shape SAS keys derived from the rule's resource ID.
+	// Namespace PUT provisions RootManageSharedAccessKey; listKeys and
+	// regenerateKeys return SAS keys derived from the rule's resource ID.
 	srv.HandleFunc("PUT "+ns+"/{name}/authorizationRules/{rule}", sbAuthRuleCreate("Microsoft.ServiceBus/namespaces/authorizationRules", "namespaces"))
 	srv.HandleFunc("GET "+ns+"/{name}/authorizationRules/{rule}", sbAuthRuleGet("namespaces"))
 	srv.HandleFunc("DELETE "+ns+"/{name}/authorizationRules/{rule}", sbAuthRuleDelete("namespaces"))
@@ -214,12 +196,9 @@ func registerServiceBus(srv *sim.Server) {
 	srv.HandleFunc("POST "+ns+"/{name}/authorizationRules/{rule}/listKeys", sbAuthRuleListKeys("namespaces"))
 	srv.HandleFunc("POST "+ns+"/{name}/authorizationRules/{rule}/regenerateKeys", sbAuthRuleRegenerateKeys("namespaces"))
 
-	// The official Azure SDK addresses namespace-scoped authorization rules
-	// with the PascalCase `AuthorizationRules` collection segment (the casing
-	// the swagger declares); terraform and raw HTTP clients use lowercase
-	// `authorizationRules`. ARM is case-insensitive on the path, so both
-	// spellings dispatch to the same handlers (which key storage on the
-	// lowercase resource ID).
+	// The Azure SDK sends the swagger's PascalCase `AuthorizationRules`; terraform
+	// and raw HTTP clients send `authorizationRules`. Both dispatch here, and
+	// storage keys on the lowercase ID.
 	srv.HandleFunc("PUT "+ns+"/{name}/AuthorizationRules/{rule}", sbAuthRuleCreate("Microsoft.ServiceBus/namespaces/authorizationRules", "namespaces"))
 	srv.HandleFunc("GET "+ns+"/{name}/AuthorizationRules/{rule}", sbAuthRuleGet("namespaces"))
 	srv.HandleFunc("DELETE "+ns+"/{name}/AuthorizationRules/{rule}", sbAuthRuleDelete("namespaces"))
@@ -232,8 +211,8 @@ func registerServiceBus(srv *sim.Server) {
 	srv.HandleFunc("DELETE "+ns+"/{name}/queues/{queue}/authorizationRules/{rule}", sbAuthRuleDelete("queues"))
 	srv.HandleFunc("GET "+ns+"/{name}/queues/{queue}/authorizationRules", sbAuthRuleList("queues"))
 	srv.HandleFunc("POST "+ns+"/{name}/queues/{queue}/authorizationRules/{rule}/listKeys", sbAuthRuleListKeys("queues"))
-	// Queue / topic auth-rule list-keys is spelled `ListKeys` (PascalCase) in
-	// the SDK swagger, unlike the namespace-scoped lowercase `listKeys`.
+	// The SDK swagger spells queue and topic list-keys `ListKeys`, unlike the
+	// namespace's `listKeys`.
 	srv.HandleFunc("POST "+ns+"/{name}/queues/{queue}/authorizationRules/{rule}/ListKeys", sbAuthRuleListKeys("queues"))
 	srv.HandleFunc("POST "+ns+"/{name}/queues/{queue}/authorizationRules/{rule}/regenerateKeys", sbAuthRuleRegenerateKeys("queues"))
 
@@ -302,9 +281,8 @@ func handleSBCreateNamespace(w http.ResponseWriter, r *http.Request) {
 	}
 	sbNamespaces.Put(id, n)
 
-	// Real Azure auto-provisions `RootManageSharedAccessKey` (Listen+
-	// Send+Manage) on every new namespace. Only create on first PUT —
-	// preserve any operator edits across subsequent PUTs.
+	// Azure provisions `RootManageSharedAccessKey` (Listen, Send, Manage) on a new
+	// namespace; later PUTs keep operator edits.
 	rootID := id + "/authorizationRules/RootManageSharedAccessKey"
 	if _, ok := sbAuthRules.Get(rootID); !ok {
 		sbAuthRules.Put(rootID, SBAuthorizationRule{
@@ -386,8 +364,6 @@ func handleSBDeleteNamespace(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// handleSBUpdateNamespace applies a PATCH to a namespace, merging the
-// request's location / sku / tags / properties into the stored resource.
 func handleSBUpdateNamespace(w http.ResponseWriter, r *http.Request) {
 	id := sbNamespaceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"))
 	n, ok := sbNamespaces.Get(id)
@@ -420,8 +396,6 @@ func handleSBUpdateNamespace(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, n)
 }
 
-// handleSBListNamespacesBySub lists every namespace in the subscription
-// (the subscription-scoped list, no resource group filter).
 func handleSBListNamespacesBySub(w http.ResponseWriter, r *http.Request) {
 	prefix := armSubscriptionID(sim.PathParam(r, "subscriptionId")) + "/"
 	all := sbNamespaces.List()
@@ -446,8 +420,7 @@ func handleSBListNamespacesByRG(w http.ResponseWriter, r *http.Request) {
 	writeSBPagedList(w, r, out, func(x SBNamespace) string { return x.ID })
 }
 
-// writeSBPagedList emits one page of a {value, nextLink} ARM list envelope,
-// ordered by key.
+// Ordered by key.
 func writeSBPagedList[T any](w http.ResponseWriter, r *http.Request, items []T, key func(T) string) {
 	page, next, pageOK := armPage(w, r, items, key)
 	if !pageOK {
@@ -551,8 +524,7 @@ func handleSBDeleteDisasterRecoveryConfig(w http.ResponseWriter, r *http.Request
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// handleSBDisasterRecoveryBreakPairing disables GEO-DR replication on the
-// alias; the alias's role becomes PrimaryNotReplicating.
+// The alias's role becomes PrimaryNotReplicating.
 func handleSBDisasterRecoveryBreakPairing(w http.ResponseWriter, r *http.Request) {
 	id := sbDisasterRecoveryID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"), sim.PathParam(r, "alias"))
 	if _, ok := sbDRConfigs.Get(id); !ok {
@@ -568,7 +540,6 @@ func handleSBDisasterRecoveryBreakPairing(w http.ResponseWriter, r *http.Request
 	w.WriteHeader(http.StatusOK)
 }
 
-// handleSBDisasterRecoveryFailover promotes the secondary alias to primary.
 func handleSBDisasterRecoveryFailover(w http.ResponseWriter, r *http.Request) {
 	id := sbDisasterRecoveryID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"), sim.PathParam(r, "alias"))
 	if _, ok := sbDRConfigs.Get(id); !ok {
@@ -584,9 +555,8 @@ func handleSBDisasterRecoveryFailover(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-// sbDRAuthRuleParent validates the namespace + alias exist and returns the
-// namespace resource ID. A GEO-DR alias surfaces the primary namespace's
-// SAS authorization rules, so the rules are read through the namespace store.
+// A Geo-DR alias surfaces the primary namespace's SAS rules, so read them
+// through the namespace store.
 func sbDRAuthRuleParent(r *http.Request) (string, bool) {
 	sub, rg, name, alias := sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"), sim.PathParam(r, "alias")
 	if _, ok := sbDRConfigs.Get(sbDisasterRecoveryID(sub, rg, name, alias)); !ok {
@@ -647,8 +617,7 @@ func handleSBListMigrationConfigurations(w http.ResponseWriter, r *http.Request)
 	sbListNamespaceChildren(w, r, sbMigrations, "migrationConfigurations")
 }
 
-// sbListNamespaceChildren answers a page of the request's namespace's children
-// in collection, refusing a namespace that does not exist.
+// A namespace that does not exist is refused.
 func sbListNamespaceChildren[T sbEntityShape](w http.ResponseWriter, r *http.Request, store sim.Store[T], collection string) {
 	parent := sbNamespaceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"))
 	if _, ok := sbNamespaces.Get(parent); !ok {
@@ -687,8 +656,8 @@ func handleSBPutMigrationConfiguration(w http.ResponseWriter, r *http.Request) {
 		})
 }
 
-// sbEntity is the wire shape Service Bus gives queues, topics, disaster
-// recovery configurations and migration configurations.
+// The wire shape of queues, topics, disaster recovery configurations and
+// migration configurations.
 type sbEntity struct {
 	ID         string         `json:"id"`
 	Name       string         `json:"name"`
@@ -705,9 +674,6 @@ type sbEntityShape interface {
 	}
 }
 
-// sbPutNamespaceChild creates or replaces the child of the request's namespace
-// that nameParam names in collection, with the properties properties makes of
-// the ones the request carries.
 func sbPutNamespaceChild[T sbEntityShape](w http.ResponseWriter, r *http.Request, store sim.Store[T], collection, nameParam, resourceType string, properties func(requested map[string]any) map[string]any) {
 	parent := sbNamespaceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"))
 	if _, ok := sbNamespaces.Get(parent); !ok {
@@ -726,7 +692,6 @@ func sbPutNamespaceChild[T sbEntityShape](w http.ResponseWriter, r *http.Request
 	sim.WriteJSON(w, http.StatusOK, entity)
 }
 
-// sbOverlay writes the requested properties over defaults.
 func sbOverlay(defaults, requested map[string]any) map[string]any {
 	for k, v := range requested {
 		defaults[k] = v
@@ -734,7 +699,6 @@ func sbOverlay(defaults, requested map[string]any) map[string]any {
 	return defaults
 }
 
-// sbCopyKeys copies the named requested properties into props.
 func sbCopyKeys(props, requested map[string]any, keys ...string) map[string]any {
 	for _, k := range keys {
 		if v, ok := requested[k]; ok {
@@ -753,8 +717,7 @@ func handleSBDeleteMigrationConfiguration(w http.ResponseWriter, r *http.Request
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// handleSBCompleteMigration finalizes a Standard→Premium migration: the
-// connection strings point to the premium namespace.
+// The connection strings point to the premium namespace.
 func handleSBCompleteMigration(w http.ResponseWriter, r *http.Request) {
 	id := sbMigrationConfigID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"), sim.PathParam(r, "config"))
 	if _, ok := sbMigrations.Get(id); !ok {
@@ -764,7 +727,6 @@ func handleSBCompleteMigration(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-// handleSBRevertMigration reverts an in-progress Standard→Premium migration.
 func handleSBRevertMigration(w http.ResponseWriter, r *http.Request) {
 	id := sbMigrationConfigID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"), sim.PathParam(r, "config"))
 	if _, ok := sbMigrations.Get(id); !ok {
@@ -774,8 +736,6 @@ func handleSBRevertMigration(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-// sbPrivateEndpointConnectionID returns the resource ID of a private
-// endpoint connection on a namespace.
 func sbPrivateEndpointConnectionID(sub, rg, name, pec string) string {
 	return armChildID(sbNamespaceID(sub, rg, name), "privateEndpointConnections", pec)
 }
@@ -843,8 +803,7 @@ func handleSBDeletePrivateEndpointConnection(w http.ResponseWriter, r *http.Requ
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// handleSBListPrivateLinkResources returns the namespace's private link
-// resource groups (the single "namespace" group, as real Azure returns).
+// A namespace exposes the single "namespace" group.
 func handleSBListPrivateLinkResources(w http.ResponseWriter, r *http.Request) {
 	sub, rg, name := sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name")
 	id := sbNamespaceID(sub, rg, name)
@@ -918,7 +877,7 @@ func handleSBDeleteQueue(w http.ResponseWriter, r *http.Request) {
 		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "queue not found")
 		return
 	}
-	// Real Service Bus deletes the queue's scoped authorization rules with it.
+	// Service Bus deletes the queue's scoped authorization rules with it.
 	sbDropAuthRulesUnder(id)
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -958,7 +917,6 @@ func handleSBDeleteTopic(w http.ResponseWriter, r *http.Request) {
 		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "topic not found")
 		return
 	}
-	// Cascade subscriptions under this topic.
 	prefix := id + "/subscriptions/"
 	for _, s := range sbSubscriptions.List() {
 		if strings.HasPrefix(s.ID, prefix) {
@@ -970,7 +928,7 @@ func handleSBDeleteTopic(w http.ResponseWriter, r *http.Request) {
 			sbRules.Delete(rule.ID)
 		}
 	}
-	// Real Service Bus deletes the topic's scoped authorization rules with it.
+	// Service Bus deletes the topic's scoped authorization rules with it.
 	sbDropAuthRulesUnder(id)
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -1040,8 +998,6 @@ func handleSBDeleteSubscription(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// sbAuthRuleParentID returns the resource ID of the namespace / queue /
-// topic that owns an authorization rule, based on the scope kind.
 func sbAuthRuleParentID(r *http.Request, scope string) string {
 	base := sbNamespaceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"))
 	switch scope {
@@ -1054,8 +1010,6 @@ func sbAuthRuleParentID(r *http.Request, scope string) string {
 	}
 }
 
-// sbAuthRuleParentExists returns true iff the parent namespace / queue
-// / topic is present in its store.
 func sbAuthRuleParentExists(parent, scope string) bool {
 	switch scope {
 	case "queues":
@@ -1113,14 +1067,11 @@ func sbAuthRuleGet(scope string) http.HandlerFunc {
 	}
 }
 
-// sbDropAuthRuleKeyGens removes an authorization rule's key-rotation state,
-// so a later rule created under the same ID starts from fresh key material.
+// A later rule with the same ID starts from fresh keys.
 func sbDropAuthRuleKeyGens(ruleID string) {
 	azureDropKeyGens(ruleID, "primary", "secondary")
 }
 
-// sbDropAuthRulesUnder deletes every authorization rule scoped under the
-// given parent resource ID, together with its key-rotation state.
 func sbDropAuthRulesUnder(parentID string) {
 	for _, rule := range sbAuthRulesUnder(parentID + "/authorizationRules/") {
 		sbAuthRules.Delete(rule.ID)
@@ -1157,18 +1108,13 @@ func sbAuthRuleList(scope string) http.HandlerFunc {
 	}
 }
 
-// sbAuthRuleListKeysBody returns the canonical Service Bus AccessKeys
-// shape. Keys are deterministic 44-char base64 strings derived from
-// the rule resource ID + rotation generation (mirrors real-Azure
-// SAS-key shape; same key across reads, distinct between primary /
-// secondary, a new value after every regenerateKeys of that slot).
-// The connection strings embed the current key material, so they too
-// reflect every rotation performed so far.
+// Each 44-character base64 key derives from the rule ID and its rotation
+// generation: stable across reads, distinct per slot, new after each
+// regenerateKeys. The connection strings embed the current keys.
 func sbAuthRuleListKeysBody(r *http.Request, ruleID, namespace, ruleName string) map[string]any {
 	primary := azureKeyMaterial32(ruleID, "primary")
 	secondary := azureKeyMaterial32(ruleID, "secondary")
-	// Real Azure builds Service Bus connection strings with the namespace
-	// endpoint followed by the SAS rule name and key.
+	// Endpoint, then the SAS rule name and key, as Azure builds them.
 	endpoint := "Endpoint=" + azureServiceBusConnectionEndpoint(r, namespace)
 	return map[string]any{
 		"primaryKey":                primary,
@@ -1200,9 +1146,8 @@ func sbAuthRuleRegenerateKeys(scope string) http.HandlerFunc {
 			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "authorization rule not found: %s", id)
 			return
 		}
-		// RegenerateAccessKeyParameters: keyType selects the slot; the optional
-		// key field pins the slot to caller-supplied material instead of an
-		// auto-generated value — both exactly as real Service Bus behaves.
+		// keyType selects the slot; the optional key pins it to caller-supplied
+		// material, as Service Bus does.
 		var req struct {
 			KeyType string `json:"keyType"`
 			Key     string `json:"key"`

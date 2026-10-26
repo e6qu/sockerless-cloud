@@ -12,8 +12,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestAzureServiceBus_ARMLifecycle exercises namespace + queue +
-// topic + subscription CRUD on the Microsoft.ServiceBus surface.
+// TestAzureServiceBus_ARMLifecycle covers namespace, queue, topic and
+// subscription CRUD.
 func TestAzureServiceBus_ARMLifecycle(t *testing.T) {
 	t.Parallel()
 	sub := subscriptionID
@@ -36,7 +36,6 @@ func TestAzureServiceBus_ARMLifecycle(t *testing.T) {
 	resp.Body.Close()
 	assert.Contains(t, string(keysBody), "Endpoint=sb://"+ns+".servicebus.shim.localhost:"+port+"/")
 
-	// Create a queue.
 	qPath := nsPath + "/queues/myqueue"
 	resp = armReq(t, "PUT", qPath, `{"properties":{"maxSizeInMegabytes":2048}}`)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
@@ -50,7 +49,6 @@ func TestAzureServiceBus_ARMLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusNoContent, resp.StatusCode)
 	resp.Body.Close()
 
-	// Create a topic + subscription.
 	tPath := nsPath + "/topics/mytopic"
 	resp = armReq(t, "PUT", tPath, `{"properties":{}}`)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
@@ -61,14 +59,13 @@ func TestAzureServiceBus_ARMLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	resp.Body.Close()
 
-	// List subscriptions.
 	resp = armReq(t, "GET", tPath+"/subscriptions", "")
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	listBody, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
 	assert.Contains(t, string(listBody), "mysub")
 
-	// Delete namespace (cascade).
+	// Deleting the namespace cascades.
 	resp = armReq(t, "DELETE", nsPath, "")
 	require.Equal(t, http.StatusNoContent, resp.StatusCode)
 	resp.Body.Close()
@@ -79,8 +76,8 @@ func TestAzureServiceBus_ARMLifecycle(t *testing.T) {
 	resp.Body.Close()
 }
 
-// TestAzureAPIM_ARMLifecycle exercises service + api + product +
-// subscription CRUD on the Microsoft.ApiManagement surface.
+// TestAzureAPIM_ARMLifecycle covers service, API, product and subscription
+// CRUD.
 func TestAzureAPIM_ARMLifecycle(t *testing.T) {
 	t.Parallel()
 	sub := subscriptionID
@@ -102,8 +99,8 @@ func TestAzureAPIM_ARMLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	apiBody, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
-	// The create request names the kind apiType; read shapes expose it
-	// as type (ApiEntityBaseContract) and never echo apiType.
+	// The create names the kind apiType; read shapes expose it as type
+	// (ApiEntityBaseContract) and never echo apiType.
 	assert.Contains(t, string(apiBody), `"type":"http"`)
 	assert.NotContains(t, string(apiBody), `"apiType"`)
 
@@ -112,9 +109,8 @@ func TestAzureAPIM_ARMLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	resp.Body.Close()
 
-	// A subscription names what it is a subscription to. The contract requires
-	// that scope, and a create without one is refused rather than stored as a
-	// subscription to nothing.
+	// A subscription's contract requires the scope it subscribes to; a create
+	// without one is refused.
 	apimSubPath := svcPath + "/subscriptions/sub1"
 	resp = armReq(t, "PUT", apimSubPath, `{"properties":{"displayName":"Sub 1"}}`)
 	require.Equal(t, http.StatusBadRequest, resp.StatusCode,
@@ -126,8 +122,8 @@ func TestAzureAPIM_ARMLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	resp.Body.Close()
 
-	// listSecrets returns the subscription's keys (SubscriptionKeysContract).
-	// terraform-provider-azurerm's subscription Read calls this after create.
+	// listSecrets returns SubscriptionKeysContract; terraform-provider-azurerm's
+	// subscription Read calls it after create.
 	resp = armReq(t, "POST", apimSubPath+"/listSecrets", "")
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	secretsBody, _ := io.ReadAll(resp.Body)
@@ -151,9 +147,9 @@ func TestAzureAPIM_ARMLifecycle(t *testing.T) {
 		"api should be cascade-deleted when service is deleted")
 	resp.Body.Close()
 
-	// Soft-delete/purge flow: a deleted service is recoverable at the
-	// subscription+location-scoped deletedServices path, then purgeable.
-	// terraform-provider-azurerm exercises this on destroy by default.
+	// A deleted service is recoverable at the location-scoped deletedServices
+	// path, then purgeable; terraform-provider-azurerm purges on destroy by
+	// default.
 	deletedPath := fmt.Sprintf("/subscriptions/%s/providers/Microsoft.ApiManagement/locations/eastus/deletedServices/%s", sub, name)
 	resp = armReq(t, "GET", deletedPath, "")
 	require.Equal(t, http.StatusOK, resp.StatusCode, "deleted service is recoverable until purged")

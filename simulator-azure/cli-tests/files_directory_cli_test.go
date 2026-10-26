@@ -11,12 +11,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestFilesNestedDirectoryTreeCLI drives the nested-path story an Azure
-// Container Apps or Azure Functions volume depends on through the `az storage
-// directory` and `az storage file` command groups: a directory tree is created,
-// a file is uploaded into it, the tree is listed at depth, and everything is
-// removed — and the share's backing directory, which a mounting workload sees,
-// agrees with the CLI at each step.
+// TestFilesNestedDirectoryTreeCLI drives the nested paths an Azure Container
+// Apps or Azure Functions volume depends on through `az storage directory` and
+// `az storage file`, checking the share's backing directory, which a mounting
+// workload sees, at each step.
 func TestFilesNestedDirectoryTreeCLI(t *testing.T) {
 	t.Parallel()
 	const share = "cli-nested-share"
@@ -42,7 +40,6 @@ func TestFilesNestedDirectoryTreeCLI(t *testing.T) {
 	runCLI(t, azStorageFile("file", "upload", "--share-name", share,
 		"--source", source, "--path", "build/artifacts/bundle.tar"))
 
-	// The upload landed in the real nested directory a mounting workload walks.
 	mounted := filepath.Join(azureFilesDataDir, filesAccountName, share, "build", "artifacts", "bundle.tar")
 	got, err := os.ReadFile(mounted)
 	require.NoError(t, err, "the nested upload must materialize at %s", mounted)
@@ -69,7 +66,7 @@ func TestFilesNestedDirectoryTreeCLI(t *testing.T) {
 	assert.Equal(t, "artifacts", parent[0].Name)
 	assert.Equal(t, "dir", parent[0].Type)
 
-	// A directory with anything in it cannot be deleted, so the file goes first.
+	// Azure Files refuses to delete a directory that has anything in it.
 	runCLI(t, azStorageFile("file", "delete", "--share-name", share, "--path", "build/artifacts/bundle.tar"))
 	runCLI(t, azStorageFile("directory", "delete", "--share-name", share, "--name", "build/artifacts"))
 	runCLI(t, azStorageFile("directory", "delete", "--share-name", share, "--name", "build"))
@@ -82,9 +79,9 @@ func TestFilesNestedDirectoryTreeCLI(t *testing.T) {
 	}
 }
 
-// TestFilesDirectoryMetadataAndShareOperationsCLI drives the directory metadata
-// round trip and the share-level operations `az storage share` exposes:
-// snapshots, quota, usage statistics and stored access policies.
+// TestFilesDirectoryMetadataAndShareOperationsCLI drives directory metadata and
+// the share operations `az storage share` exposes: snapshots, quota, usage
+// statistics and stored access policies.
 func TestFilesDirectoryMetadataAndShareOperationsCLI(t *testing.T) {
 	t.Parallel()
 	const share = "cli-shareops-share"
@@ -101,8 +98,7 @@ func TestFilesDirectoryMetadataAndShareOperationsCLI(t *testing.T) {
 	out := runCLI(t, azStorageFile("directory", "metadata", "show", "--share-name", share, "--name", "logs"))
 	var metadata map[string]string
 	parseJSON(t, out, &metadata)
-	// az reports metadata keyed by the response header name, which Python's
-	// HTTP stack title-cases, so the lookup is case-insensitive.
+	// Python's HTTP stack title-cases the metadata header names az reports.
 	assert.Equal(t, "collect", metadataValue(metadata, "stage"),
 		"az storage directory metadata show must read back what update wrote: %s", out)
 
@@ -110,9 +106,8 @@ func TestFilesDirectoryMetadataAndShareOperationsCLI(t *testing.T) {
 	require.NoError(t, os.WriteFile(source, []byte(payload), 0o600))
 	runCLI(t, azStorageFile("file", "upload", "--share-name", share, "--source", source, "--path", "logs/run.log"))
 
-	// az reports the share usage rounded up to whole gibibytes, so the exact
-	// byte count the service returns is asserted through the SDK instead; what
-	// the CLI proves here is that Get Share Statistics answers it a usage at all.
+	// az rounds share usage up to whole gibibytes; the SDK suite asserts the exact
+	// byte count.
 	out = runCLI(t, azStorageFile("share", "stats", "--name", share))
 	var usage string
 	parseJSON(t, out, &usage)
@@ -129,7 +124,6 @@ func TestFilesDirectoryMetadataAndShareOperationsCLI(t *testing.T) {
 	parseJSON(t, out, &shown)
 	assert.Equal(t, 64, shown.Properties.Quota, "az storage share update must change the quota: %s", out)
 
-	// A snapshot freezes the share's contents.
 	out = runCLI(t, azStorageFile("share", "snapshot", "--name", share))
 	var snapshot struct {
 		Snapshot string `json:"snapshot"`
@@ -151,7 +145,6 @@ func TestFilesDirectoryMetadataAndShareOperationsCLI(t *testing.T) {
 	}
 	assert.True(t, found, "az storage share list --include-snapshots must name the snapshot: %s", out)
 
-	// Stored access policies round-trip through the share ACL.
 	runCLI(t, azStorageFile("share", "policy", "create", "--share-name", share,
 		"--name", "cli-policy", "--permissions", "rl"))
 	out = runCLI(t, azStorageFile("share", "policy", "show", "--share-name", share, "--name", "cli-policy"))
@@ -163,9 +156,8 @@ func TestFilesDirectoryMetadataAndShareOperationsCLI(t *testing.T) {
 		"az storage share policy show must read back the stored permission: %s", out)
 }
 
-// metadataValue reads one metadata entry regardless of the case az reports its
-// key in: az surfaces metadata keyed by the x-ms-meta-* response header name,
-// which Python's HTTP stack title-cases.
+// metadataValue reads a metadata entry regardless of the case az reports its
+// key in.
 func metadataValue(metadata map[string]string, name string) string {
 	for k, v := range metadata {
 		if strings.EqualFold(k, name) {

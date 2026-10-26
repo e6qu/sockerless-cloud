@@ -45,10 +45,8 @@ import (
 //go:embed network_appgateway_waf_rule_sets_vendored.json
 var applicationGatewayWafRuleSetsJSON []byte
 
-// applicationGatewayWafRuleSets decodes the vendored catalog once. The
-// vendored file is part of the build; if it does not decode, the binary is
-// broken and the first request fails loudly rather than serving a truncated
-// catalog.
+// The vendored file is part of the build; a decode failure fails the first
+// request loudly rather than serving a truncated catalog.
 var applicationGatewayWafRuleSets = sync.OnceValue(func() map[string]any {
 	var catalog map[string]any
 	if err := json.Unmarshal(applicationGatewayWafRuleSetsJSON, &catalog); err != nil {

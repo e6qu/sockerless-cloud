@@ -13,9 +13,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestCosmos_ReplaceContainer drives ContainerClient.Replace (a PUT of the
-// container's properties to /dbs/{db}/colls/{coll}): it turns a container's
-// time to live on and off after creation, and cannot change its partition key.
+// TestCosmos_ReplaceContainer drives ContainerClient.Replace: it turns time to
+// live on and off after creation, and cannot change the partition key.
 func TestCosmos_ReplaceContainer(t *testing.T) {
 	t.Parallel()
 	dataPlaneAccount := uniquename.Alnum("sdkdataplane")

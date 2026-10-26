@@ -27,10 +27,9 @@ func cliNICAddresses(t *testing.T, env azLoginEnv, rg, nic string) map[string]st
 }
 
 // TestNetwork_NICSecondaryIPConfigurationsCLI adds secondary IP configurations
-// to a network interface with `az network nic ip-config create`, which reads
-// the interface and writes it back whole, and checks that each configuration
-// holds an address of its own and that deleting one returns its address to
-// the subnet.
+// with `az network nic ip-config create`, which reads the interface and writes
+// it back whole: each holds an address of its own, and deleting one returns
+// the address to the subnet.
 func TestNetwork_NICSecondaryIPConfigurationsCLI(t *testing.T) {
 	t.Parallel()
 	env := startAzLoginSimulator(t)

@@ -9,16 +9,13 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/sidecar"
 )
 
-// A process dump is the memory image of one of the site's processes, written
-// from the process itself, as an ELF core a debugger opens. The site's workload
-// runs as a container, and the simulator's own host does not let it read
-// another identity's /proc, so a platform helper joins the container's pid
-// namespace with permission to trace and reads the image there
-// (sidecar.ReadProcess). The core carries no register set: reading one stops
-// the process, and a dump of a running site must not.
+// The simulator's host cannot read another identity's /proc, so a platform
+// helper joins the container's pid namespace with permission to trace and
+// reads the image there (sidecar.ReadProcess). The core carries no register
+// set: reading one stops the process, and a dump of a running site must not.
 
-// webReadProcess reads a process's mapping table ("maps") or core ("core")
-// through the platform helper; hostPID is the id the engine's table reports.
+// webReadProcess reads a process's mapping table ("maps") or core ("core");
+// hostPID is the id the engine's table reports.
 func webReadProcess(ctx context.Context, containerID string, hostPID int, what string) ([]byte, error) {
 	pid, err := sidecar.NamespacePID(hostPID)
 	if err != nil {
@@ -41,9 +38,9 @@ func webGetProcessDump(w http.ResponseWriter, r *http.Request) {
 				"processes are not in its /proc.", webProcessDumpOperation(r))
 		return
 	}
-	// The body is the image itself, so nothing may be written before it is
-	// known to be producible — an error after the first byte would be a
-	// truncated core the caller cannot tell from a complete one.
+	// Write nothing before the core is known to be producible: an error after
+	// the first byte leaves a truncated core the caller cannot tell from a
+	// complete one.
 	core, err := webReadProcess(r.Context(), instance.ID(), proc.PID, "core")
 	if err != nil {
 		AzureErrorf(w, "InternalServerError", http.StatusInternalServerError,
@@ -57,8 +54,6 @@ func webGetProcessDump(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(core)
 }
 
-// webProcessDumpOperation names the operation the request addressed, which
-// differs by scope and by whether the site is a slot.
 func webProcessDumpOperation(r *http.Request) string {
 	name := "WebApps_GetProcessDump"
 	if webInstanceSegment(r) != "" {

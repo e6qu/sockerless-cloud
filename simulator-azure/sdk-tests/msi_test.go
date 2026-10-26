@@ -30,7 +30,6 @@ func TestMSI_UpdateAndList(t *testing.T) {
 	_, err = client.CreateOrUpdate(ctx, rg, "msi-listed", armmsi.Identity{Location: ptrStr("eastus")}, nil)
 	require.NoError(t, err)
 
-	// PATCH (Update) sets tags.
 	upd, err := client.Update(ctx, rg, "msi-listed", armmsi.IdentityUpdate{
 		Tags: map[string]*string{"env": ptrStr("test")},
 	}, nil)
@@ -38,7 +37,6 @@ func TestMSI_UpdateAndList(t *testing.T) {
 	require.NotNil(t, upd.Tags["env"])
 	assert.Equal(t, "test", *upd.Tags["env"])
 
-	// ListByResourceGroup.
 	rgPager := client.NewListByResourceGroupPager(rg, nil)
 	found := false
 	for rgPager.More() {
@@ -52,7 +50,6 @@ func TestMSI_UpdateAndList(t *testing.T) {
 	}
 	assert.True(t, found, "identity must appear in ListByResourceGroup")
 
-	// ListBySubscription.
 	subPager := client.NewListBySubscriptionPager(nil)
 	for subPager.More() {
 		_, err := subPager.NextPage(ctx)
@@ -115,8 +112,8 @@ func TestMSI_OperationsAndSystemAssigned(t *testing.T) {
 	}
 	assert.Greater(t, count, 0, "Microsoft.ManagedIdentity operations list must be non-empty")
 
-	// SystemAssignedIdentities_GetByScope answers the system-assigned
-	// identity of the resource the scope names; a subscription carries none.
+	// SystemAssignedIdentities_GetByScope answers the system-assigned identity of
+	// the resource the scope names; a subscription carries none.
 	rg, name := "msi-scope-rg", "msi-scope-app"
 	ensureMSIResourceGroup(t, rg)
 	sites, err := armappservice.NewWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())

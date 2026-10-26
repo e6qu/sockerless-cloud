@@ -18,19 +18,17 @@ import (
 	"github.com/miekg/dns"
 )
 
-// azureDNSRegisteredNames holds per-name A records service slices register —
-// a PostgreSQL flexible server's fullyQualifiedDomainName pointing at the
-// loopback listener its data plane owns. A registered name answers ahead of
-// every zone: it is the coordinate the control plane advertised.
+// azureDNSRegisteredNames holds per-name A records a service registers, such
+// as a PostgreSQL flexible server's fullyQualifiedDomainName. A registered name
+// answers ahead of every zone: it is the coordinate the control plane
+// advertised.
 var azureDNSRegisteredNames sync.Map // fqdn (lowercase, no trailing dot) -> ipv4 string
 
-// RegisterAzureDNSName maps a fully-qualified name to the IPv4 address the
-// simulator serves it at. Replaces any earlier registration for the name.
+// RegisterAzureDNSName replaces any earlier registration for the name.
 func RegisterAzureDNSName(fqdn string, ipv4 string) {
 	azureDNSRegisteredNames.Store(strings.Trim(strings.ToLower(fqdn), "."), ipv4)
 }
 
-// UnregisterAzureDNSName removes a name's registration.
 func UnregisterAzureDNSName(fqdn string) {
 	azureDNSRegisteredNames.Delete(strings.Trim(strings.ToLower(fqdn), "."))
 }
@@ -40,18 +38,16 @@ const (
 	defaultAzureDNSTTL   = 60
 )
 
-// azureDNSConfig configures the DNS listener. Zones are the custom cloud's
-// endpoint suffixes: every host under one — a storage account's blob
-// endpoint, a Service Bus namespace — is the simulator, as every host under
-// core.windows.net is an Azure front end.
+// Zones are the custom cloud's endpoint suffixes: every host under one is the
+// simulator, as every host under core.windows.net is an Azure front end.
 type azureDNSConfig struct {
 	ListenAddr string
 	TargetIPv4 net.IP
 	TargetIPv6 net.IP
 	Zones      []string
 	TTL        uint32
-	// Upstreams recurse for names outside every zone (SIM_DNS_UPSTREAM);
-	// empty reads the host's resolv.conf.
+	// Upstreams recurse for names outside every zone (SIM_DNS_UPSTREAM); empty
+	// reads the host's resolv.conf.
 	Upstreams string
 }
 
@@ -117,15 +113,13 @@ func parseAzureDNSZones(raw string) ([]string, error) {
 // forwarding DNS to azureDNS and metadata to the simulator.
 var networkSidecars *sidecar.Manager
 
-// azureDNS is the listener the endpoint suffixes, Azure DNS and Azure Private
-// DNS answer on, and the resolver a virtual network's machines ask at
-// 168.63.129.16.
+// azureDNS answers the endpoint suffixes, Azure DNS and Azure Private DNS, and
+// is the resolver a virtual network's machines ask at 168.63.129.16.
 var azureDNS *dnsserver.Server
 
 // startAzureDNSFromEnv starts the resolver a virtual network's queries are
-// redirected to, on every address so the redirect can reach it, and the
-// listener an operator configured at SIM_AZURE_DNS_LISTEN_ADDR. Both answer
-// from the same catalog.
+// redirected to, on every address so the redirect reaches it, and the listener
+// at SIM_AZURE_DNS_LISTEN_ADDR, both answering from one catalog.
 func startAzureDNSFromEnv() ([]*dnsserver.Server, error) {
 	cfg, err := azureDNSConfigFromEnv()
 	if err != nil {
@@ -143,8 +137,7 @@ func startAzureDNSFromEnv() ([]*dnsserver.Server, error) {
 		return nil, err
 	}
 	azureDNS = vnetSrv
-	// An API-only simulator places no workload, so it runs no sidecar and
-	// needs no callback address, which only a container engine can give.
+	// An API-only simulator places no workload, so it runs no sidecar.
 	if sim.RequireContainerRuntime("starting network sidecars") == nil {
 		origin, err := workloadhost.CallbackAddr(simListenAddr)
 		if err != nil {
@@ -164,16 +157,13 @@ func startAzureDNSFromEnv() ([]*dnsserver.Server, error) {
 	return append(servers, operator), nil
 }
 
-// azureResolverIPv4 is Azure's recursive resolver and health-probe source,
-// which every virtual network reaches at the same address; inside an engine
-// network the sidecar stands in for it at the address Azure reserves in the
-// subnet.
+// Azure's recursive resolver and health-probe source, the same address in every
+// virtual network; inside an engine network the sidecar stands in for it.
 const azureResolverIPv4 = "168.63.129.16"
 
-// azureQuerierVNet is the virtual network a query comes from: the one whose
-// engine network's sidecar forwarded it, or, for a query at the operator's
-// listener, the one whose address space holds the querier's address. It
-// decides the private zones the query sees.
+// azureQuerierVNet decides the private zones a query sees: the virtual network
+// whose sidecar forwarded it or, at the operator's listener, the one whose
+// address space holds the querier.
 func azureQuerierVNet(q dnsserver.Query) string {
 	if vnet := azureNetworkVNet(q.Network); vnet != "" {
 		return vnet
@@ -225,8 +215,8 @@ func azureDNSServerConfig(cfg azureDNSConfig) (dnsserver.Config, error) {
 	if err != nil {
 		return dnsserver.Config{}, err
 	}
-	// A workload on an engine network reaches the simulator's front end at
-	// the address its containers dial, not at the operator's target.
+	// A workload reaches the front end at the address its containers dial, not at
+	// the operator's target.
 	workloadEndpoints := endpoints
 	if host, err := workloadhost.CallbackHost(); err == nil {
 		if ip := net.ParseIP(host).To4(); ip != nil && !ip.Equal(cfg.TargetIPv4) {
@@ -240,8 +230,8 @@ func azureDNSServerConfig(cfg azureDNSConfig) (dnsserver.Config, error) {
 	return dnsserver.Config{
 		Name: "azure",
 		Catalog: func(q dnsserver.Query) dnsserver.View {
-			// A private zone linked to the querier's virtual network takes
-			// precedence over a public zone of the same name.
+			// A private zone linked to the querier's virtual network takes precedence
+			// over a public zone of the same name.
 			zones := append(azurePrivateDNSCatalogZones(azureQuerierVNet(q)), azurePublicDNSCatalogZones()...)
 			if q.Network != "" {
 				zones = append(zones, workloadEndpoints...)
@@ -296,8 +286,7 @@ func azureRegisteredNameRecords(ttl uint32) []dns.RR {
 	return out
 }
 
-// azurePublicDNSCatalogZones serves every Azure DNS public zone: Azure's name
-// servers answer them for any querier.
+// Azure's name servers answer every public zone for any querier.
 func azurePublicDNSCatalogZones() []dnsserver.Zone {
 	if azurePublicDNSZones == nil {
 		return nil
@@ -317,8 +306,7 @@ func azurePublicDNSCatalogZones() []dnsserver.Zone {
 	return zones
 }
 
-// azurePrivateDNSCatalogZones serves the Azure Private DNS zones linked to
-// vnetID: a private zone answers only the virtual networks it is linked to.
+// A private zone answers only the virtual networks it is linked to.
 func azurePrivateDNSCatalogZones(vnetID string) []dnsserver.Zone {
 	if vnetID == "" || azurePrivateDNSZones == nil {
 		return nil

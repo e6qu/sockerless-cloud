@@ -54,10 +54,7 @@ type PublicRecordSetProperties struct {
 	TargetResource    *SubResource      `json:"targetResource,omitempty"`
 }
 
-// PublicSOARecord is the public-DNS (2018-05-01) SoaRecord wire shape.
-// It is distinct from the private-DNS SOARecord because the two APIs
-// spell the minimum-TTL member differently: public DNS uses minimumTTL,
-// private DNS uses minimumTtl.
+// Public DNS spells the SOA member minimumTTL, private DNS minimumTtl.
 type PublicSOARecord struct {
 	Host         string `json:"host,omitempty"`
 	Email        string `json:"email,omitempty"`

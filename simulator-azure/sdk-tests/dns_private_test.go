@@ -10,8 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestPrivateDNS_RecordSetsCRUD exercises armprivatedns.RecordSetsClient
-// for A-record Create / Get / List / Delete operations.
 func TestPrivateDNS_RecordSetsCRUD(t *testing.T) {
 	t.Parallel()
 	const rg = "dns-rs-sdk-rg"
@@ -19,7 +17,6 @@ func TestPrivateDNS_RecordSetsCRUD(t *testing.T) {
 	const zoneName = "sdk-records.internal"
 	const recordName = "www"
 
-	// Create zone first
 	putARMJSON(t,
 		"/subscriptions/"+subscriptionID+"/resourceGroups/"+rg+"/providers/Microsoft.Network/privateDnsZones/"+zoneName+"?api-version=2018-09-01",
 		`{"location":"global"}`)
@@ -27,7 +24,6 @@ func TestPrivateDNS_RecordSetsCRUD(t *testing.T) {
 	rsClient, err := armprivatedns.NewRecordSetsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 
-	// Create A record
 	ttl := int64(300)
 	createResp, err := rsClient.CreateOrUpdate(ctx, rg, zoneName, armprivatedns.RecordTypeA, recordName, armprivatedns.RecordSet{
 		Properties: &armprivatedns.RecordSetProperties{
@@ -44,14 +40,12 @@ func TestPrivateDNS_RecordSetsCRUD(t *testing.T) {
 	assert.Equal(t, int64(300), *createResp.Properties.TTL)
 	require.Len(t, createResp.Properties.ARecords, 2)
 
-	// Get
 	getResp, err := rsClient.Get(ctx, rg, zoneName, armprivatedns.RecordTypeA, recordName, nil)
 	require.NoError(t, err)
 	assert.Equal(t, recordName, *getResp.Name)
 	assert.Equal(t, int64(300), *getResp.Properties.TTL)
 	require.Len(t, getResp.Properties.ARecords, 2)
 
-	// List — pager should yield our record
 	pager := rsClient.NewListByTypePager(rg, zoneName, armprivatedns.RecordTypeA, nil)
 	var found bool
 	for pager.More() {
@@ -65,11 +59,9 @@ func TestPrivateDNS_RecordSetsCRUD(t *testing.T) {
 	}
 	assert.True(t, found, "expected ListByType to include the created A record")
 
-	// Delete
 	_, err = rsClient.Delete(ctx, rg, zoneName, armprivatedns.RecordTypeA, recordName, nil)
 	require.NoError(t, err)
 
-	// Get after delete — must 404
 	_, err = rsClient.Get(ctx, rg, zoneName, armprivatedns.RecordTypeA, recordName, nil)
 	assert.Error(t, err, "Get after delete should fail with 404")
 }
@@ -97,7 +89,6 @@ func TestPrivateDNS_RecordSetsUpdate(t *testing.T) {
 	}, nil)
 	require.NoError(t, err)
 
-	// Update TTL and add second IP
 	ttl2 := int64(120)
 	updateResp, err := rsClient.CreateOrUpdate(ctx, rg, zoneName, armprivatedns.RecordTypeA, recordName, armprivatedns.RecordSet{
 		Properties: &armprivatedns.RecordSetProperties{

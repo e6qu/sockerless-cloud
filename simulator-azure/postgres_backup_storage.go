@@ -9,71 +9,51 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// Flexible-server backups carry the server's data.
+// A server's engine keeps its data in the volume sockerless-azurepg-<rg>-<name>.
+// An on-demand backup captures it into a backup volume, and a
+// PointInTimeRestore create clones a backup volume into the new server's before
+// its data plane installs. Deleting a backup deletes its volume; deleting the
+// server deletes its backups too, as the service does.
 //
-// A server's engine keeps its data directory in the named volume
-// sockerless-azurepg-<rg>-<name>. An on-demand backup captures that volume
-// into a backup volume, and a create with createMode=PointInTimeRestore
-// clones a backup volume into the new server's — the same operation in the
-// other direction, run before the new server's data plane installs. Deleting
-// a backup deletes its volume; deleting the server deletes its backups and
-// their volumes, as the service does.
+// sim.SnapshotVolume runs one `cp -a --reflink=auto` with the engine frozen,
+// for one crash-consistent point: copy-on-write and instant on btrfs, XFS with
+// reflinks or OpenZFS with block cloning, a full copy elsewhere; the log line
+// says which.
 //
-// The capture is sim.SnapshotVolume's single `cp -a --reflink=auto`, run
-// with the engine's container frozen so it holds one crash-consistent point
-// in time: on a
-// container engine whose volume store sits on btrfs, XFS with reflinks, or
-// OpenZFS with block cloning, the capture clones blocks copy-on-write and is
-// effectively instant however large the database; on any other filesystem the
-// same command is a real full copy. The ARM surface is identical either way —
-// the filesystem underneath is the deployment's choice, and the log line
-// below is how an operator confirms which they got.
-//
-// On an API-only host servers are modeled without a running engine, and
-// their backups are exactly as modeled as they are: metadata, no volume, the
-// same fidelity tier as everything else on that host.
+// On an API-only host servers run no engine, and their backups are metadata
+// without a volume.
 
 func azurePGBackupVolume(rg, name, backupName string) string {
 	return "sockerless-azurepg-backup-" + strings.ToLower(rg) + "-" + strings.ToLower(name) + "-" + strings.ToLower(backupName)
 }
 
-// azurePGLtrBackupVolume names the volume a long-term-retention backup
-// captures into. LTR backups share the on-demand capture machinery but live
-// in their own namespace: the two surfaces have independent lifecycles and a
-// name used on both must not collide.
+// Long-term-retention backups live in their own namespace: their lifecycle is
+// independent, and a name used on both must not collide.
 func azurePGLtrBackupVolume(rg, name, backupName string) string {
 	return "sockerless-azurepg-ltr-" + strings.ToLower(rg) + "-" + strings.ToLower(name) + "-" + strings.ToLower(backupName)
 }
 
-// azurePGCaptureVolume captures a server's volume into a backup volume and
-// logs whether the filesystem gave the copy-on-write path. A source volume
-// that does not exist — the modeled tier, or an engine that never started —
-// captures nothing, which is that server's whole state.
+// A missing source volume — no engine, or one never started — captures
+// nothing, which is that server's whole state.
 func azurePGCaptureVolume(rg, name, backupVolume string) error {
 	return sim.CaptureVolume(context.Background(), azurePGServerVolume(rg, name), backupVolume, "azurepg")
 }
 
-// azurePGRemoveBackupVolume removes a backup's volume when the backup is
-// deleted. A volume that never existed — the modeled tier — needs nothing.
+// A volume that never existed needs nothing.
 func azurePGRemoveBackupVolume(name string) {
 	sim.RemoveVolumeSettled(name, "azurepg")
 }
 
-// azurePGRestoreSource is the volume a PointInTimeRestore create clones the
-// new server's data from.
 type azurePGRestoreSource struct {
 	sourceRG   string
 	sourceName string
-	// backupVolume is the captured backup to restore; empty means no backup
-	// preceded the requested point in time, so the clone takes the source
-	// server's live volume — a restore at the latest restorable time.
+	// Empty when no backup precedes the requested point, so the clone takes the
+	// source's live volume: a restore at the latest restorable time.
 	backupVolume string
 }
 
-// azurePGPickRestoreSource resolves which volume a PointInTimeRestore clones:
-// the newest backup of the source server whose completedTime is at or before
-// the requested point in time, or the source's live volume when no backup
-// qualifies.
+// The newest backup completed at or before the point in time, or the source's
+// live volume when none qualifies.
 func azurePGPickRestoreSource(sourceSub, sourceRG, sourceName string, pointInTime time.Time) azurePGRestoreSource {
 	source := azurePGRestoreSource{sourceRG: sourceRG, sourceName: sourceName}
 	prefix := pgServerID(sourceSub, sourceRG, sourceName) + "/backups/"
@@ -84,8 +64,7 @@ func azurePGPickRestoreSource(sourceSub, sourceRG, sourceName string, pointInTim
 		}
 		completedRaw, _ := b.Properties["completedTime"].(string)
 		if completedRaw == "" {
-			// A capture still in flight, or one whose LRO failed, is not a
-			// restorable point.
+			// A capture in flight, or one whose operation failed, is no restorable point.
 			continue
 		}
 		completed, err := time.Parse(time.RFC3339Nano, completedRaw)
@@ -100,9 +79,7 @@ func azurePGPickRestoreSource(sourceSub, sourceRG, sourceName string, pointInTim
 	return source
 }
 
-// azurePGCloneForRestore seeds a restored server's volume from its restore
-// source, before the new server's data plane installs. A source without a
-// volume — the modeled tier — restores the state it captured: nothing.
+// A source without a volume restores what it captured: nothing.
 func azurePGCloneForRestore(rg, name string, source azurePGRestoreSource) error {
 	if sim.RequireContainerRuntime("restoring a flexible server") != nil {
 		return nil

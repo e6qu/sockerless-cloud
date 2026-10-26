@@ -18,9 +18,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// SDK coverage for the diagnostics side of a web app's SCM site: the zip API,
-// the diagnostics dump, the container log files and the process API, and the
-// log stream of a LogFiles subdirectory:
+// The diagnostics side of a web app's SCM site: the zip API, the dump, the
+// container log files, the process API, and the log stream of a LogFiles
+// subdirectory.
 //
 //	GET+PUT /api/zip/{path}
 //	GET /api/dump
@@ -31,7 +31,6 @@ import (
 //	GET /api/processes/{id}/dump
 //	GET /logstream/{path}
 
-// kuduZipEntries reads a zip into its entries' contents by name.
 func kuduZipEntries(t *testing.T, data []byte) map[string]string {
 	t.Helper()
 	zr, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
@@ -48,8 +47,8 @@ func kuduZipEntries(t *testing.T, data []byte) map[string]string {
 	return out
 }
 
-// kuduOpenLogStream opens a log stream and returns its lines after the
-// welcome line, with a cancel for the stream.
+// kuduOpenLogStream returns the stream's lines after the welcome line, and a
+// cancel.
 func kuduOpenLogStream(t *testing.T, scm, path string, auth func(*http.Request)) (*bufio.Scanner, context.CancelFunc) {
 	t.Helper()
 	streamCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
@@ -66,7 +65,6 @@ func kuduOpenLogStream(t *testing.T, scm, path string, auth func(*http.Request))
 	return lines, cancel
 }
 
-// kuduAwaitStreamLine reads the stream until a line passes match.
 func kuduAwaitStreamLine(t *testing.T, lines *bufio.Scanner, match func(string) bool) string {
 	t.Helper()
 	for lines.Scan() {
@@ -88,7 +86,7 @@ func TestSDK_WebApps_KuduZipDumpAndProcesses(t *testing.T) {
 	}
 
 	// The zip API extracts an uploaded zip over a directory and downloads a
-	// directory as a zip; a file is not its business.
+	// directory as a zip; files are not its business.
 	bundle := makeJobsZip(t, map[string]string{"a.txt": "A", "sub/b.txt": "B"})
 	resp, body := kuduRequest(t, http.MethodPut, scm+"/api/zip/site/wwwroot/bundle/", bundle, "application/zip", auth)
 	require.Equal(t, http.StatusOK, resp.StatusCode, "%s", body)
@@ -108,9 +106,8 @@ func TestSDK_WebApps_KuduZipDumpAndProcesses(t *testing.T) {
 	resp, _ = kuduRequest(t, http.MethodPut, scm+"/api/zip/site/wwwroot/bundle/a.txt", bundle, "application/zip", auth)
 	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
 
-	// The site's container output lands in the day's docker log under
-	// LogFiles, which the log stream follows and the dump and container log
-	// APIs serve.
+	// The container's output lands in the day's docker log under LogFiles, which
+	// the log stream follows and the dump and container log APIs serve.
 	stream, cancelStream := kuduOpenLogStream(t, scm, "/logstream", auth)
 	status, body := azureSiteRequest(t, name, http.MethodGet, "/dump-me", "")
 	require.Equal(t, http.StatusOK, status, "%s", body)
@@ -151,8 +148,8 @@ func TestSDK_WebApps_KuduZipDumpAndProcesses(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.StatusCode, "%s", body)
 	assert.Equal(t, []string{logName}, zipNames(kuduZipEntries(t, body)))
 
-	// The stream of a LogFiles subdirectory follows the files under it,
-	// keeping the lines the filter names.
+	// A LogFiles subdirectory's stream follows its files, keeping the lines the
+	// filter names.
 	stream, cancelStream = kuduOpenLogStream(t, scm, "/logstream/custom?filter=needle", auth)
 	resp, body = kuduRequest(t, http.MethodPut, scm+"/api/vfs/LogFiles/custom/app.log", []byte("first needle\nsecond\n"), "", auth)
 	require.Equal(t, http.StatusCreated, resp.StatusCode, "%s", body)
@@ -189,8 +186,8 @@ func TestSDK_WebApps_KuduZipDumpAndProcesses(t *testing.T) {
 	resp, _ = kuduRequest(t, http.MethodGet, scm+"/api/processes/999999", nil, "", auth)
 	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
 
-	// The dump is the process's memory image, an ELF core; a host that will
-	// not let the simulator read another process's memory says so instead.
+	// The dump is the process's memory image, an ELF core; a host that does not
+	// let the simulator read another process's memory says so.
 	resp, body = kuduRequest(t, http.MethodGet, first.Minidump, nil, "", auth)
 	if resp.StatusCode == http.StatusOK {
 		assert.Equal(t, "application/octet-stream", resp.Header.Get("Content-Type"))

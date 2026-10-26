@@ -17,52 +17,39 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/workloadhost"
 )
 
-// azureFunctionInstance tracks the container App Service runs for a site. The
-// platform keeps one container per site instance: a request to the site starts
-// it when none is running, Always On starts it without one, and a restart, a
-// configuration change or the site's deletion tears it down. The per-instance
+// azureFunctionInstance is the container App Service runs for a site
+// instance: a request starts it when none runs, Always On starts it without
+// one, and a restart, a configuration change or deletion tears it down. The
 // mutex serializes the start so concurrent requests share one container.
 type azureFunctionInstance struct {
-	mu sync.Mutex
-	// handle is the placed site container, containerID its identifier.
+	mu             sync.Mutex
 	handle         placement.Handle
 	containerID    string
 	sidecarHandles []placement.Handle
-	// exit reports when the main container stops running; logsDone closes
-	// once its output has been read to the end, which is when it exits.
-	exit     *containerExit
-	logsDone <-chan struct{}
-	// network is the engine network the container runs on, and subnetID the
-	// subnet it leased an address in when the site integrates into a virtual
-	// network's subnet.
-	network  azureWorkloadNetwork
-	subnetID string
-	// extraNetworks are the further virtual networks the container joined.
+	// logsDone closes once the output has been read to the end, which is when
+	// the container exits.
+	exit          *containerExit
+	logsDone      <-chan struct{}
+	network       azureWorkloadNetwork
+	subnetID      string
 	extraNetworks []siteExtraNetwork
-	// port is the container port the front end forwards the site's requests
-	// to; candidates are the addresses that port may be reached at, and
-	// address is the one that answered.
+	// candidates are the addresses port may be reached at; address is the one
+	// that answered.
 	port       int
 	candidates []string
 	address    string
-	// stopGrace is the WEBSITES_CONTAINER_STOP_TIME_LIMIT the containers were
-	// started under, applied when they are torn down.
-	stopGrace time.Duration
-	// vnets are the virtual networks (by lower-cased resource id) the site
-	// joined through VNet integration, set by the virtualNetwork connection
-	// handlers (both the swift and the classic spelling). The site's container
-	// runs on the first one's engine network, at an address leased in the
-	// integration subnet, with that network's sidecar as its resolver. They
+	stopGrace  time.Duration
+	// vnets are the integrated virtual networks, by lower-cased resource id. The
+	// container runs on the first one's engine network, at an address leased in
+	// the integration subnet, with that network's sidecar as its resolver. They
 	// outlive a restart, as the integration does.
 	vnets []string
-	// references are the Key Vault reference values the running containers
-	// started with, and referenceRefresh re-fetches them when the platform's
+	// referenceRefresh re-fetches the Key Vault references when the platform's
 	// cache of them expires.
 	references       webReferenceValues
 	referenceRefresh *bg.Timer
 }
 
-// addNetworkLocked records a virtual network the site integrated into.
 // Caller holds inst.mu.
 func (inst *azureFunctionInstance) addNetworkLocked(vnetID string) {
 	vnetID = strings.ToLower(vnetID)
@@ -74,7 +61,7 @@ func (inst *azureFunctionInstance) addNetworkLocked(vnetID string) {
 	inst.vnets = append(inst.vnets, vnetID)
 }
 
-// removeNetworkLocked forgets a virtual network. Caller holds inst.mu.
+// Caller holds inst.mu.
 func (inst *azureFunctionInstance) removeNetworkLocked(vnetID string) {
 	vnetID = strings.ToLower(vnetID)
 	kept := inst.vnets[:0]
@@ -86,9 +73,8 @@ func (inst *azureFunctionInstance) removeNetworkLocked(vnetID string) {
 	inst.vnets = kept
 }
 
-// siteNetworkLocked is the engine network the site's container runs on: the
-// first virtual network it integrated into, with an address leased in the
-// integration subnet, or the platform network. Caller holds inst.mu.
+// siteNetworkLocked is the first integrated virtual network's engine network,
+// or the platform network. Caller holds inst.mu.
 func (inst *azureFunctionInstance) siteNetworkLocked(ctx context.Context, site *Site) (azureWorkloadNetwork, string, error) {
 	if len(inst.vnets) == 0 {
 		network, err := azurePlatformNetwork(ctx)
@@ -106,8 +92,6 @@ func (inst *azureFunctionInstance) siteNetworkLocked(ctx context.Context, site *
 	return network, subnetID, nil
 }
 
-// siteConnectionSubnet is the subnet the site's connection to the virtual
-// network names, else the network's first subnet, else "".
 func siteConnectionSubnet(site *Site, vnet VirtualNetwork) string {
 	for _, conn := range siteVnetConnections(site.ID) {
 		if strings.Contains(conn.Properties.VnetResourceID, "/subnets/") &&
@@ -118,9 +102,8 @@ func siteConnectionSubnet(site *Site, vnet VirtualNetwork) string {
 	return azureWholeVNetSubnet(vnet)
 }
 
-// siteVNetNetwork is the engine network a site's container joins for its
-// connection to the virtual network: the network of the prefix its subnet
-// lies in, or the first prefix's for a connection naming no subnet.
+// siteVNetNetwork is the network of the prefix the subnet lies in, or the
+// first prefix's for a connection naming no subnet.
 func siteVNetNetwork(ctx context.Context, vnet VirtualNetwork, subnetID string) (azureWorkloadNetwork, error) {
 	if subnetID != "" {
 		return azureSubnetNetwork(ctx, placementWeb, subnetID)
@@ -128,8 +111,7 @@ func siteVNetNetwork(ctx context.Context, vnet VirtualNetwork, subnetID string) 
 	return azureVNetNetworkFor(ctx, placementWeb, vnet.ID)
 }
 
-// siteNetworkCurrentLocked reports whether the running container is on the
-// networks the site's integration names now. Caller holds inst.mu.
+// Caller holds inst.mu.
 func (inst *azureFunctionInstance) siteNetworkCurrentLocked() bool {
 	want := ""
 	if len(inst.vnets) > 0 {
@@ -141,13 +123,10 @@ func (inst *azureFunctionInstance) siteNetworkCurrentLocked() bool {
 	return len(inst.extraNetworks) == max(len(inst.vnets)-1, 0)
 }
 
-// extraNetworksLocked leases the workload an address on the engine network
-// of every further virtual network the site integrated into through a
-// classic connection, in that connection's subnet, and returns the leases
-// with the attachments the placement makes: a container joins each network
-// after it starts, and a guest boots with an interface on each. A further
-// network's agent joins it here for a service on guests. Caller holds
-// inst.mu.
+// extraNetworksLocked leases the workload an address on each further virtual
+// network a classic connection integrated, in that connection's subnet: a
+// container joins each network after it starts, and a guest boots with an
+// interface on each. Caller holds inst.mu.
 func (inst *azureFunctionInstance) extraNetworksLocked(ctx context.Context, site *Site, owner string) ([]siteExtraNetwork, []sim.NetworkAttachment, error) {
 	if len(inst.vnets) < 2 {
 		return nil, nil, nil
@@ -172,9 +151,8 @@ func (inst *azureFunctionInstance) extraNetworksLocked(ctx context.Context, site
 			return nil, nil, fmt.Errorf("attach site %s to virtual network %s: %w", site.Name, vnet.ID, err)
 		}
 		lease.network = network.Network
-		// A connection to a virtual network that has no subnet leaves the
-		// address to the engine, which a guest cannot take: its backend
-		// refuses the placement.
+		// A connection without a subnet leaves the address to the engine, which a
+		// guest cannot take: its backend refuses the placement.
 		if lease.subnetID != "" {
 			if lease.address, err = azureLeaseWorkloadAddress(lease.subnetID, owner); err != nil {
 				release()
@@ -187,8 +165,6 @@ func (inst *azureFunctionInstance) extraNetworksLocked(ctx context.Context, site
 	return leases, attachments, nil
 }
 
-// siteExtraNetwork is a further virtual network the site's workload has an
-// interface on, the address it holds there, and the lease's owner.
 type siteExtraNetwork struct {
 	network, subnetID, address, owner string
 }
@@ -204,9 +180,6 @@ var azureFunctionInstances = struct {
 	bySite map[string]*azureFunctionInstance
 }{bySite: map[string]*azureFunctionInstance{}}
 
-// azfInstanceFor returns the (lazily created) instance holder for a site,
-// creating an empty one on first reference. The returned holder's own mutex
-// guards its container lifecycle.
 func azfInstanceFor(siteName string) *azureFunctionInstance {
 	azureFunctionInstances.Lock()
 	defer azureFunctionInstances.Unlock()
@@ -218,9 +191,7 @@ func azfInstanceFor(siteName string) *azureFunctionInstance {
 	return inst
 }
 
-// ensureStarted starts the site's container if none is running, or restarts
-// one whose VNet integration changed; a stopped site runs nothing. Caller
-// holds inst.mu.
+// A stopped site runs nothing. Caller holds inst.mu.
 func (inst *azureFunctionInstance) ensureStarted(site *Site) error {
 	if current, ok := webJobSite(site.ID); ok && siteStopped(&current) {
 		return errSiteStopped
@@ -233,15 +204,14 @@ func (inst *azureFunctionInstance) ensureStarted(site *Site) error {
 			if inst.siteNetworkCurrentLocked() {
 				return nil
 			}
-			// A changed VNet integration restarts the site on its new
-			// network, as App Service restarts the app.
+			// A changed VNet integration restarts the site on its new network, as App
+			// Service restarts the app.
 			inst.teardownLocked()
 		}
 	}
 	return inst.startLocked(site)
 }
 
-// siteImageMissing explains why the simulator has nothing to run for a site.
 func siteImageMissing(site *Site) error {
 	stack := siteRuntimeStack(site)
 	switch {
@@ -265,13 +235,11 @@ func siteImageMissing(site *Site) error {
 			"(linuxFxVersion \"DOCKER|<image>\")", site.Name, strings.Join(appServiceLinuxStackNames(), ", "))
 }
 
-// startLocked runs the site's container the way App Service runs a Linux
-// custom container: the image's own entrypoint, with the site's startup command
-// (siteConfig.appCommandLine, or a sitecontainer's startUpCommand) as the
-// container command in place of the image's CMD, the app settings and PORT in
-// its environment (for a main sitecontainer, the app settings only when it
-// inherits them), and any sidecar sitecontainers in its network namespace.
-// Caller holds inst.mu.
+// startLocked runs the site the way App Service runs a Linux custom
+// container: the image's own entrypoint, the startup command in place of its
+// CMD, the app settings and PORT in its environment (for a main
+// sitecontainer, the app settings only when it inherits them), and any
+// sidecar sitecontainers in its network namespace. Caller holds inst.mu.
 func (inst *azureFunctionInstance) startLocked(site *Site) error {
 	references := webSiteReferenceValues(site)
 	main := mainSiteContainer(site.ID)
@@ -293,8 +261,8 @@ func (inst *azureFunctionInstance) startLocked(site *Site) error {
 			port = p
 		}
 	} else if stack, ok := siteBuiltInStack(site); ok {
-		// The stack image's entrypoint takes the startup command as its
-		// arguments and hands it to Oryx as the user startup command.
+		// The stack image's entrypoint hands its arguments to Oryx as the user
+		// startup command.
 		image = stack.Image
 		if site.Properties.SiteConfig != nil {
 			if cmd := strings.TrimSpace(site.Properties.SiteConfig.AppCommandLine); cmd != "" {
@@ -310,8 +278,7 @@ func (inst *azureFunctionInstance) startLocked(site *Site) error {
 		}
 		binds = append(home, siteAzureStorageBinds(site)...)
 	} else if stack, ok := siteFunctionsHostStack(site); ok {
-		// The host image's entrypoint starts the Functions host on PORT; App
-		// Service runs it without a startup command.
+		// App Service runs the Functions host image without a startup command.
 		image = stack.Image
 		home, err := prepareSiteHome(site)
 		if err != nil {
@@ -326,12 +293,9 @@ func (inst *azureFunctionInstance) startLocked(site *Site) error {
 		if site.Properties.SiteConfig != nil {
 			args = splitStartUpCommand(site.Properties.SiteConfig.AppCommandLine)
 		}
-		// A shared named volume like gitlab-runner's /builds dir maps to one
-		// Azure Files share, so every container that mounts it sees the same
-		// workspace.
+		// A shared named volume maps to one Azure Files share, so every container
+		// that mounts it sees the same workspace.
 		binds = siteAzureStorageBinds(site)
-		// A custom container mounts the site's persistent /home only when
-		// WEBSITES_ENABLE_APP_SERVICE_STORAGE is true.
 		if strings.EqualFold(strings.TrimSpace(siteAppSettings(site)["WEBSITES_ENABLE_APP_SERVICE_STORAGE"]), "true") {
 			home, err := prepareSiteHome(site)
 			if err != nil {
@@ -348,9 +312,8 @@ func (inst *azureFunctionInstance) startLocked(site *Site) error {
 	ctx, cancel := context.WithTimeout(context.Background(), siteStartTimeLimit(site))
 	defer cancel()
 
-	// The host pulls the site's image with the credential the site declared
-	// for its registry — its Azure Container Registry managed identity or
-	// its DOCKER_REGISTRY_SERVER_* settings — as App Service does.
+	// Pull with the credential the site declared for its registry, as App
+	// Service does.
 	registryAuth := acrWorkloadRegistryAuth(image, siteWorkloadRegistries(site, image))
 	platform, err := workload.LocalImagePlatform(ctx, localImage, registryAuth)
 	if err != nil {
@@ -430,9 +393,8 @@ func (inst *azureFunctionInstance) startLocked(site *Site) error {
 		<-handle.Exited()
 	}
 
-	// Sidecar sitecontainers share the main's network namespace, so a
-	// sidecar that binds a port is reachable from the main on
-	// localhost:<port> — the App Service multi-container loopback contract.
+	// Sidecars share the main's network namespace, so the main reaches a
+	// sidecar's port on localhost — the App Service multi-container contract.
 	sidecarHandles, err := startSidecarContainers(ctx, site, containerID, references, network.DNS, sink)
 	if err != nil {
 		stop()
@@ -462,8 +424,7 @@ func (inst *azureFunctionInstance) startLocked(site *Site) error {
 	return nil
 }
 
-// releaseExtraNetworksLocked returns the leases the workload held on its
-// further virtual networks. Caller holds inst.mu.
+// Caller holds inst.mu.
 func (inst *azureFunctionInstance) releaseExtraNetworksLocked() {
 	for _, extra := range inst.extraNetworks {
 		extra.releaseSubnetLease()
@@ -471,12 +432,11 @@ func (inst *azureFunctionInstance) releaseExtraNetworksLocked() {
 	inst.extraNetworks = nil
 }
 
-// siteContainerCandidates returns the addresses the site's port may answer at:
-// the container's address on its network, which reaches the port from the
-// host and from a harness container alike, and the port the engine publishes
-// on the host's loopback, which also reaches it where container addresses are
-// not routed. A container that has already stopped publishes no port and has
-// no address, so it has no candidates, and the start reports its exit.
+// siteContainerCandidates returns the container's address on its network,
+// which the host and a harness container both reach, and the port the engine
+// publishes on the host's loopback, which reaches it where container
+// addresses are not routed. A stopped container has no candidates, so the
+// start reports its exit.
 func siteContainerCandidates(ctx context.Context, handle placement.Handle, port int) ([]string, error) {
 	select {
 	case <-handle.Exited():
@@ -492,8 +452,7 @@ func siteContainerCandidates(ctx context.Context, handle placement.Handle, port 
 		if errors.Is(err, sim.ErrNotRunning) {
 			return nil, nil
 		}
-		// A guest publishes no port on the host's loopback; its address is
-		// the one route to it.
+		// A guest publishes no port on the host's loopback.
 		if handle.Kind() == placement.MicroVM && len(candidates) > 0 {
 			return candidates, nil
 		}
@@ -502,8 +461,6 @@ func siteContainerCandidates(ctx context.Context, handle placement.Handle, port 
 	return append(candidates, fmt.Sprintf("http://127.0.0.1:%d", hostPort)), nil
 }
 
-// containerExit reports when a placed container stops running: done closes
-// when it has, and the handle then holds its exit status.
 type containerExit struct {
 	done   <-chan struct{}
 	handle placement.Handle
@@ -513,8 +470,6 @@ func newContainerExit(handle placement.Handle) *containerExit {
 	return &containerExit{done: handle.Exited(), handle: handle}
 }
 
-// exitedBeforeAnswering is the start failure of a site whose container stopped
-// before its port answered.
 func (e *containerExit) exitedBeforeAnswering(site string, port int) error {
 	code := e.handle.Wait().ExitCode
 	if code < 0 {
@@ -523,22 +478,18 @@ func (e *containerExit) exitedBeforeAnswering(site string, port int) error {
 	return fmt.Errorf("site %q container exited before it answered on port %d: exit code %d", site, port, code)
 }
 
-// teardown is teardownLocked under the instance's lock.
 func (inst *azureFunctionInstance) teardown() {
 	inst.mu.Lock()
 	defer inst.mu.Unlock()
 	inst.teardownLocked()
 }
 
-// running reads the container the instance runs and its handle under the
-// instance's lock.
 func (inst *azureFunctionInstance) running() (string, placement.Handle) {
 	inst.mu.Lock()
 	defer inst.mu.Unlock()
 	return inst.containerID, inst.handle
 }
 
-// siteStart is what a started site container answers on.
 type siteStart struct {
 	containerID string
 	port        int
@@ -548,8 +499,6 @@ type siteStart struct {
 	logsDone    <-chan struct{}
 }
 
-// start starts the site's container if none runs and reads what it answers
-// on, under the instance's lock.
 func (inst *azureFunctionInstance) start(site *Site) (siteStart, error) {
 	inst.mu.Lock()
 	defer inst.mu.Unlock()
@@ -560,10 +509,8 @@ func (inst *azureFunctionInstance) start(site *Site) (siteStart, error) {
 		address: inst.address, exit: inst.exit, logsDone: inst.logsDone}, nil
 }
 
-// teardownLocked stops the instance's main container, its sidecars, and its log
-// stream, clearing the recorded handles. The VNet-integration networks stay
-// recorded: the integration belongs to the site, not to one container. Caller
-// holds inst.mu.
+// The VNet-integration networks stay recorded: the integration belongs to
+// the site, not to one container. Caller holds inst.mu.
 func (inst *azureFunctionInstance) teardownLocked() {
 	if inst.referenceRefresh != nil {
 		inst.referenceRefresh.Stop()
@@ -590,8 +537,6 @@ func (inst *azureFunctionInstance) teardownLocked() {
 	inst.referenceRefresh = nil
 }
 
-// stopAzureFunctionInstance tears a deleted site's container down and forgets
-// the site.
 func stopAzureFunctionInstance(siteName string) {
 	azureFunctionInstances.Lock()
 	inst := azureFunctionInstances.bySite[siteName]
@@ -603,19 +548,16 @@ func stopAzureFunctionInstance(siteName string) {
 	removeSiteHome(siteName)
 }
 
-// restartAzureFunctionInstance restarts a site the way App Service does after a
-// restart request or a configuration change: the running container stops, and
-// the next one starts from the site's current configuration — at once for an
-// Always On site, otherwise on the next request.
+// The next container starts from the site's current configuration — at once
+// for an Always On site, otherwise on the next request.
 func restartAzureFunctionInstance(site Site) {
 	inst := azfInstanceFor(site.Name)
 	inst.teardown()
 	startAlwaysOnSite(site)
 }
 
-// startAlwaysOnSite starts an Always On site's container in the background, as
-// the platform does once the site is created or changed; a start that fails is
-// recorded in the site's log, and the next request retries it.
+// A failed start is recorded in the site's log, and the next request retries
+// it.
 func startAlwaysOnSite(site Site) {
 	if !siteAlwaysOn(&site) || !siteRunsContainer(&site) || siteStopped(&site) {
 		return

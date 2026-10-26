@@ -22,12 +22,9 @@ import (
 	pkcs12 "software.sslmate.com/src/go-pkcs12"
 )
 
-// CLI coverage for the App Service certificate, hostname-truth, config
-// snapshot, container-log and provider-singleton surfaces. The native az
-// commands (az webapp config ssl upload/list/show, az webapp config hostname
-// add/list/delete, az resource move) run against a TLS simulator through the
-// CLI's own login flow; the operations no az command wraps go through az
-// rest. Routes exercised:
+// The native az commands (`az webapp config ssl`, `az webapp config hostname`,
+// `az resource move`) run logged in to a TLS simulator; the operations no az
+// command wraps go through `az rest`.
 //
 //	GET /subscriptions/{subscriptionId}/providers/Microsoft.Web/certificates
 //	GET+PUT+PATCH+DELETE /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Web/certificates/{name}
@@ -55,9 +52,8 @@ import (
 
 const stage4CLIAPIVersion = "2025-03-01"
 
-// stage4CLISelfSignedPFX issues a self-signed certificate and returns the
-// leaf plus its PKCS#12 archive — the same payload a real `az webapp config
-// ssl upload` reads from disk.
+// stage4CLISelfSignedPFX returns a self-signed leaf and its PKCS#12 archive,
+// the file `az webapp config ssl upload` reads.
 func stage4CLISelfSignedPFX(t *testing.T, commonName, password string) (*x509.Certificate, []byte) {
 	t.Helper()
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
@@ -86,9 +82,8 @@ func stage4CLIThumbprint(leaf *x509.Certificate) string {
 	return strings.ToUpper(hex.EncodeToString(sum[:]))
 }
 
-// TestWebAppStage4_NativeSSLHostnameAndMove drives the certificate and
-// hostname surfaces through the native az commands and moves the site
-// between resource groups with `az resource move`.
+// TestWebAppStage4_NativeSSLHostnameAndMove drives the certificate and hostname
+// commands and moves the site with `az resource move`.
 func TestWebAppStage4_NativeSSLHostnameAndMove(t *testing.T) {
 	t.Parallel()
 	env := startAzLoginSimulator(t)
@@ -192,9 +187,8 @@ func TestWebAppStage4_NativeSSLHostnameAndMove(t *testing.T) {
 		"the moved plan reference follows the move")
 }
 
-// TestWebAppStage4_RestSurfaces drives the site-scoped certificates, the
-// hostname analyzers, the configuration snapshots and the provider
-// singletons through az rest.
+// TestWebAppStage4_RestSurfaces drives the site-scoped certificates, hostname
+// analyzers, configuration snapshots and provider singletons.
 func TestWebAppStage4_RestSurfaces(t *testing.T) {
 	t.Parallel()
 	planBody := `{"location":"eastus","sku":{"name":"B1","tier":"Basic"}}`
@@ -235,7 +229,6 @@ func TestWebAppStage4_RestSurfaces(t *testing.T) {
 	runCLI(t, azRest("PATCH", webMoreURL("sites/cli-s4-site/certificates/s4-site-cert"),
 		`{"properties":{"hostNames":["rest.stage4.example.com","alt.stage4.example.com"]}}`))
 
-	// Slot spelling.
 	runCLI(t, azRest("PUT", webMoreURL("sites/cli-s4-site/slots/staging/certificates/s4-slot-cert"), certBody))
 	runCLI(t, azRest("GET", webMoreURL("sites/cli-s4-site/slots/staging/certificates"), ""))
 	runCLI(t, azRest("GET", webMoreURL("sites/cli-s4-site/slots/staging/certificates/s4-slot-cert"), ""))
@@ -258,8 +251,8 @@ func TestWebAppStage4_RestSurfaces(t *testing.T) {
 		`{"properties":{"hostNames":["patched.stage4.example.com"]}}`))
 	runCLI(t, azRest("DELETE", webMoreURL("certificates/cli-s4-cert"), ""))
 
-	// The ownership proof lives in the simulator's Azure DNS: a CNAME pointing
-	// the custom hostname at the site's default hostname.
+	// A CNAME in the simulator's Azure DNS from the custom hostname to the site's
+	// default hostname proves ownership.
 	dnsZoneURL := armURL("Microsoft.Network", "dnsZones/cli-stage4.test", "2018-05-01")
 	runCLI(t, azRest("PUT", dnsZoneURL, `{"location":"global"}`))
 	dnsRecordURL := armURL("Microsoft.Network", "dnsZones/cli-stage4.test/CNAME/app", "2018-05-01")
@@ -281,7 +274,6 @@ func TestWebAppStage4_RestSurfaces(t *testing.T) {
 	slotAnalyzeURL := webMoreURL("sites/cli-s4-site/slots/staging/analyzeCustomHostname") + "&hostName=app.cli-stage4.test"
 	runCLI(t, azRest("GET", slotAnalyzeURL, ""))
 
-	// Bind the hostname, then read the two global hostname surfaces.
 	runCLI(t, azRest("PUT", webMoreURL("sites/cli-s4-site/hostNameBindings/app.cli-stage4.test"),
 		`{"properties":{"hostNameType":"Verified"}}`))
 	customHostsURL := fmt.Sprintf("%s/subscriptions/%s/providers/Microsoft.Web/customhostnameSites?api-version=%s",
@@ -351,7 +343,6 @@ func TestWebAppStage4_RestSurfaces(t *testing.T) {
 	parseJSON(t, runCLI(t, azRest("GET", webMoreURL("sites/cli-s4-site/config/web"), "")), &liveCfg)
 	assert.Equal(t, "DOCKER|registry.example/app:v1", liveCfg.Properties.LinuxFxVersion)
 
-	// Slot spellings.
 	runCLI(t, azRest("PUT", webMoreURL("sites/cli-s4-site/slots/staging/config/web"),
 		`{"properties":{"linuxFxVersion":"DOCKER|registry.example/app:slot1"}}`))
 	var slotSnaps struct {
@@ -411,7 +402,6 @@ func TestWebAppStage4_RestSurfaces(t *testing.T) {
 		assert.Empty(t, col.Value, path+" is truthfully empty in the simulator")
 	}
 
-	// Cleanup.
 	runCLI(t, azRest("DELETE", webMoreURL("sites/cli-s4-site/hostNameBindings/app.cli-stage4.test"), ""))
 	runCLI(t, azRest("DELETE", webMoreURL("sites/cli-s4-site/slots/staging"), ""))
 	runCLI(t, azRest("DELETE", webMoreURL("sites/cli-s4-site"), ""))

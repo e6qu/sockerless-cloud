@@ -50,18 +50,17 @@ func TestSDK_ContainerAppsScale_HTTPRuleScalesFromAndToZero(t *testing.T) {
 		"a request starts a replica and is answered by it")
 	assert.Len(t, listContainerAppReplicas(t, rg, name, revision), 1)
 
-	// Container Apps reports the scale-in only through the replica list,
-	// which the scaler changes on its 15-second evaluation once the cooldown
-	// has passed.
+	// Container Apps reports scale-in only through the replica list, which the
+	// scaler changes on its 15-second evaluation after the cooldown.
 	require.Eventually(t, func() bool {
 		return len(listContainerAppReplicas(t, rg, name, revision)) == 0
 	}, 2*time.Minute, time.Second, "the revision scales back to zero")
 }
 
-// A revision scales on its Azure Queue rule: the rule reads the queue as the
-// connection string a secret holds, every polling interval, and the revision
-// runs one replica per queueLength messages, within its maximum, and none once
-// the queue is empty and the cooldown has passed.
+// A revision scales on its Azure Queue Storage rule: every polling interval
+// the rule reads the queue through the connection string a secret holds, and
+// the revision runs one replica per queueLength messages, within its maximum,
+// and none once the queue is empty and the cooldown has passed.
 func TestSDK_ContainerAppsScale_QueueRuleFollowsTheQueueLength(t *testing.T) {
 	t.Parallel()
 	rg, name := uniquename.New("sdk-aca-qscale-rg"), uniquename.New("acaqscale")
@@ -105,8 +104,8 @@ func TestSDK_ContainerAppsScale_QueueRuleFollowsTheQueueLength(t *testing.T) {
 		_, err := queue.EnqueueMessage(ctx, "job "+strconv.Itoa(i), nil)
 		require.NoError(t, err)
 	}
-	// The replica list is the only place Container Apps reports a scale, and
-	// the scaler changes it on its polling interval.
+	// Container Apps reports scale only through the replica list, which the scaler
+	// changes on its polling interval.
 	require.Eventually(t, func() bool {
 		return len(listContainerAppReplicas(t, rg, name, revision)) == 2
 	}, 2*time.Minute, time.Second, "three messages at two per replica ask for two replicas")
@@ -126,9 +125,8 @@ func TestSDK_ContainerAppsScale_QueueRuleFollowsTheQueueLength(t *testing.T) {
 }
 
 // A revision scales on a custom azure-servicebus rule: the rule reads its
-// queue's active messages from the namespace's management endpoint with a
-// signature the connection string's key makes, and the revision runs one
-// replica per messageCount of them, and none once they are received.
+// queue's active messages from the namespace's management endpoint, signed
+// with the connection string's key, and runs one replica per messageCount.
 func TestSDK_ContainerAppsScale_ServiceBusRuleFollowsActiveMessages(t *testing.T) {
 	t.Parallel()
 	rg, name := uniquename.New("sdk-aca-sbscale-rg"), uniquename.New("acasbscale")
@@ -171,8 +169,8 @@ func TestSDK_ContainerAppsScale_ServiceBusRuleFollowsActiveMessages(t *testing.T
 		require.Equal(t, http.StatusCreated, resp.StatusCode)
 		resp.Body.Close()
 	}
-	// The replica list is the only place Container Apps reports a scale, and
-	// the scaler changes it on its polling interval.
+	// Container Apps reports scale only through the replica list, which the scaler
+	// changes on its polling interval.
 	require.Eventually(t, func() bool {
 		return len(listContainerAppReplicas(t, rg, name, revision)) == 3
 	}, 2*time.Minute, time.Second, "seven active messages at three per replica ask for three replicas")

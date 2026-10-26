@@ -13,10 +13,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// CLI coverage for the App Service backup, restore and snapshot family. The
-// archive is written into a real blob container and read back with native
-// `az storage blob` commands, so the container the backup names is the same
-// container the CLI browses:
+// The backup writes its archive into a blob container that native
+// `az storage blob` commands browse.
 //
 //	PUT+DELETE /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Web/sites/{siteName}/config/backup
 //	POST /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Web/sites/{siteName}/config/backup/list
@@ -43,7 +41,7 @@ const (
 )
 
 // azBackupStorage builds an `az storage` invocation against the simulator's
-// path-style Blob endpoint for the backup account.
+// path-style Azure Blob Storage endpoint for the backup account.
 func azBackupStorage(group string, args ...string) *exec.Cmd {
 	baseArgs := append([]string{"storage", group}, args...)
 	baseArgs = append(baseArgs,
@@ -66,17 +64,14 @@ func backupCLIURL(resourcePath string) string {
 	return armURL("Microsoft.Web", resourcePath, backupCLIAPIVersion)
 }
 
-// TestWebAppBackupRestore_CLI drives the whole family: configure custom
-// backups against a SAS-addressed container, take a backup, see the archive in
-// the container, change the app's content, restore it back, and confirm the
-// restore removed what the backup did not carry.
+// TestWebAppBackupRestore_CLI: configure custom backups against a SAS-addressed
+// container, take a backup, change the app, restore, and confirm the restore
+// removed what the backup did not carry.
 func TestWebAppBackupRestore_CLI(t *testing.T) {
 	t.Parallel()
 	site := "cli-backup-app"
 
-	// The container the backup writes into, and a genuine container SAS signed
-	// with the account key — the coordinate Microsoft documents App Service
-	// backup as requiring.
+	// App Service backup requires a container SAS signed with the account key.
 	runCLI(t, azBackupStorage("container", "create", "--name", backupCLIContainer))
 	t.Cleanup(func() {
 		_ = azBackupStorage("container", "delete", "--name", backupCLIContainer).Run()
@@ -94,7 +89,7 @@ func TestWebAppBackupRestore_CLI(t *testing.T) {
 		`{"location":"eastus","kind":"functionapp"}`))
 	t.Cleanup(func() { _ = azRest("DELETE", backupCLIURL("sites/"+site), "").Run() })
 
-	// Content the backup can be recognized by: two triggered webjobs.
+	// Two triggered webjobs identify the backed-up content.
 	backupCLIDeploy(t, site, map[string]string{
 		"App_Data/jobs/triggered/report/run.sh": "#!/bin/sh\nexit 0\n",
 		"App_Data/jobs/triggered/keepme/run.sh": "#!/bin/sh\nexit 0\n",
@@ -129,7 +124,6 @@ func TestWebAppBackupRestore_CLI(t *testing.T) {
 	require.NotEmpty(t, item.Properties.BlobName)
 	require.Greater(t, item.Properties.SizeInBytes, int64(0))
 
-	// The archive and its manifest really landed in the container.
 	var blobs []struct {
 		Name string `json:"name"`
 	}
@@ -197,7 +191,6 @@ func TestWebAppBackupRestore_CLI(t *testing.T) {
 	assert.ElementsMatch(t, []string{"keepme", "report"}, backupCLIWebJobs(t, site),
 		"the restore must reinstate exactly the backed-up file set")
 
-	// RestoreFromBackupBlob into a second app.
 	target := "cli-backup-target"
 	runCLI(t, azRest("PUT", backupCLIURL("sites/"+target), `{"location":"eastus","kind":"functionapp"}`))
 	t.Cleanup(func() { _ = azRest("DELETE", backupCLIURL("sites/"+target), "").Run() })
@@ -257,8 +250,8 @@ func TestWebAppBackupRestore_CLI(t *testing.T) {
 	}
 	require.NotZero(t, deletedID, "the deleted app must be retained and listed")
 
-	// DeletedWebApps_GetDeletedWebAppByLocation — the same retained app
-	// addressed through the region it ran in.
+	// DeletedWebApps_GetDeletedWebAppByLocation addresses the same retained app
+	// through the region it ran in.
 	var byLocation struct {
 		Properties struct {
 			DeletedSiteName string `json:"deletedSiteName"`
@@ -280,7 +273,7 @@ func TestWebAppBackupRestore_CLI(t *testing.T) {
 }
 
 // backupCLIDeploy publishes a package through the MSDeploy extension and waits
-// for the long-running operation to succeed.
+// for the long-running operation.
 func backupCLIDeploy(t *testing.T, site string, files map[string]string) {
 	t.Helper()
 	pkgURL := stage3ServeZip(t, stage3Zip(t, files))
@@ -295,8 +288,8 @@ func backupCLIDeploy(t *testing.T, site string, files map[string]string) {
 	require.Equal(t, "succeeded", status.Properties.ProvisioningState, "MSDeploy provisioningState")
 }
 
-// backupCLIWebJobs lists the site's discovered webjobs, the observable
-// projection of its deployed file system.
+// backupCLIWebJobs lists the site's discovered webjobs, the visible projection
+// of its deployed file system.
 func backupCLIWebJobs(t *testing.T, site string) []string {
 	t.Helper()
 	var jobs struct {

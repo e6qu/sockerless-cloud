@@ -12,8 +12,6 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
-// logicAsyncRequest sends one ARM request to the in-process simulator and
-// returns the whole recorded response, headers included.
 func logicAsyncRequest(t *testing.T, srv *sim.Server, method, path, body string) *httptest.ResponseRecorder {
 	t.Helper()
 	req := httptest.NewRequest(method, "http://"+moveTestARMHost+path+"?api-version=2019-05-01", strings.NewReader(body))
@@ -39,8 +37,8 @@ func logicAsyncRunStatus(t *testing.T, srv *sim.Server, workflowPath, runName st
 }
 
 // A trigger run answers 202 with the run's id before the workflow executes;
-// the run reads Running while its actions execute and settles when they end.
-// A cancel stops a Running run, and a finished run refuses one.
+// the run reads Running, then settles. A cancel stops a Running run, and a
+// finished run refuses one.
 func TestLogicTriggerRunExecutesInTheBackground(t *testing.T) {
 	srv := newMoveTestServer(t)
 	arrived := make(chan struct{}, 4)

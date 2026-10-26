@@ -63,12 +63,10 @@ func TestAzureODataFilter(t *testing.T) {
 		}
 	}
 
-	// A valid filter that simply matches nothing returns zero items, not an error.
 	if got := apply("name eq 'nonexistent'"); len(got) != 0 {
 		t.Errorf("$filter matching nothing → %d items, want 0", len(got))
 	}
 
-	// $orderby
 	q := url.Values{"$orderby": {"tier desc"}}
 	r := httptest.NewRequest("GET", "/x?"+q.Encode(), nil)
 	got, err := odApply(items, r)
@@ -80,9 +78,7 @@ func TestAzureODataFilter(t *testing.T) {
 	}
 }
 
-// TestAzureODataFilterMalformed: a malformed $filter is a client error — real
-// Azure rejects it (HTTP 400) rather than matching every item. azureApplyListQuery
-// must return an error so the list handlers surface BadRequest.
+// Azure rejects a malformed $filter with 400 rather than matching every item.
 func TestAzureODataFilterMalformed(t *testing.T) {
 	items := []odItem{
 		{Name: "alpha", State: "ACTIVE", Tier: 1},
@@ -121,9 +117,8 @@ func odApply(items []odItem, r *http.Request) ([]odItem, error) {
 	return out, nil
 }
 
-// The paging key keeps the order $orderby asks for: strings by byte order
-// with a prefix ahead of the longer name it starts, numbers numerically, a
-// descending term reversed, and ties broken by id.
+// Strings by byte order with a prefix ahead of a longer name it starts,
+// numbers numerically, descending terms reversed, ties by id.
 func TestAzureListQueryKeyKeepsOrderBy(t *testing.T) {
 	items := []odItem{
 		{Name: "alpha", State: "ACTIVE", Tier: 10},

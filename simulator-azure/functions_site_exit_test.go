@@ -10,9 +10,8 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/workload"
 )
 
-// A site container that stops before the start reads its published port has
-// no address to ping: the start reports that it exited, with its exit status,
-// rather than that it publishes no port.
+// A container that stops before its published port is read reports its exit
+// and status, not a missing port.
 func TestSiteContainerThatExitsBeforeItsPortIsReadReportsItsExit(t *testing.T) {
 	if _, err := sim.InitDocker("azure", true, t.TempDir()); err != nil {
 		t.Fatal(err)

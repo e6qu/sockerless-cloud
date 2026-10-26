@@ -17,9 +17,9 @@ The extractor reads the route out of a single string literal, so a registration 
 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
-| `POST /providers/Microsoft.Subscription/subscriptions/{subscriptionId}/acceptOwnership` | ✓ `simulator-azure/subscription_ownership.go:70::handleSubscriptionAcceptOwnership` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `GET /providers/Microsoft.Subscription/subscriptions/{subscriptionId}/acceptOwnershipStatus` | ✓ `simulator-azure/subscription_ownership.go:73::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `GET /providers/Microsoft.Subscription/subscriptionOperations/{operationId}` | ✓ `simulator-azure/subscription_ownership.go:86::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `POST /providers/Microsoft.Subscription/subscriptions/{subscriptionId}/acceptOwnership` | ✓ `simulator-azure/subscription_ownership.go:49::handleSubscriptionAcceptOwnership` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `GET /providers/Microsoft.Subscription/subscriptions/{subscriptionId}/acceptOwnershipStatus` | ✓ `simulator-azure/subscription_ownership.go:51::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `GET /providers/Microsoft.Subscription/subscriptionOperations/{operationId}` | ✓ `simulator-azure/subscription_ownership.go:63::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
 
 ## Coverage status
 

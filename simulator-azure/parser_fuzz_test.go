@@ -2,10 +2,8 @@ package main
 
 import "testing"
 
-// FuzzAzureResourceIDParsers fuzzes the ARM resource-id path extractors. These
-// run over an untrusted resource ID drawn from request bodies (@odata.id,
-// cross-resource references) and path params, and must never panic on a
-// malformed `/subscriptions/X/resourceGroups/Y/providers/...` string.
+// Resource IDs come untrusted from request bodies (@odata.id, cross-resource
+// references) and path params.
 func FuzzAzureResourceIDParsers(f *testing.F) {
 	seeds := []string{
 		"",
@@ -28,17 +26,13 @@ func FuzzAzureResourceIDParsers(f *testing.F) {
 		f.Add(s)
 	}
 	f.Fuzz(func(t *testing.T, id string) {
-		// None of these may panic on any input.
 		_ = azureSubscriptionFromID(id, "default-sub")
 		_ = azureResourceGroupFromID(id, "default-rg")
 		_, _, _, _ = cosmosARMIDNames(id)
 	})
 }
 
-// FuzzAzureStorageAddressParsers fuzzes the storage/messaging address parsers
-// that decompose an untrusted Host header or AMQP address into account /
-// container / blob / hub / partition components. A malformed host or address
-// must produce ok=false, never a panic.
+// A malformed Host header or AMQP address must yield ok=false, never a panic.
 func FuzzAzureStorageAddressParsers(f *testing.F) {
 	seeds := []string{
 		"",
@@ -68,9 +62,6 @@ func FuzzAzureStorageAddressParsers(f *testing.F) {
 	})
 }
 
-// FuzzCosmosSQLQuery fuzzes the Cosmos SQL-subset parser + evaluator, which run
-// over an untrusted SQL query string from the Cosmos data plane. Neither parsing
-// nor evaluation may panic regardless of how malformed the query is.
 func FuzzCosmosSQLQuery(f *testing.F) {
 	seeds := []string{
 		"",

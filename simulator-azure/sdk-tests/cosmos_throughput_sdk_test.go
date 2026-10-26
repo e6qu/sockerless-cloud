@@ -10,16 +10,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestCosmos_ThroughputOffers proves the official azcosmos SDK's
-// container.ReadThroughput()/ReplaceThroughput() round-trip a ThroughputProperties
-// (manual RU/s and autoscale max RU/s) against the sim. The SDK reaches the
-// `offers` resource opaquely (never by a literal client path): it reads the
-// container `_rid`, then drives these sim routes —
-//   - POST /offers              (the offerResourceId feed query)
-//   - GET /offers/{offer}       and GET /offers/{offer}/   (read the matched offer)
-//   - PUT /offers/{offer}       and PUT /offers/{offer}/   (replace the offer)
-//
-// — wired in cosmos_throughput.go.
+// TestCosmos_ThroughputOffers: azcosmos ReadThroughput and ReplaceThroughput
+// round-trip manual and autoscale ThroughputProperties. The SDK finds the
+// container's offer through its _rid with a POST /offers query, then reads and
+// replaces GET and PUT /offers/{offer}.
 func TestCosmos_ThroughputOffers(t *testing.T) {
 	t.Parallel()
 	dataPlaneAccount := uniquename.Alnum("sdkdataplane")
@@ -29,9 +23,8 @@ func TestCosmos_ThroughputOffers(t *testing.T) {
 	require.NoError(t, err, "CreateDatabase")
 	db, err := client.NewDatabase("thrudb")
 	require.NoError(t, err)
-	// Provision dedicated container throughput (manual 400 RU/s) at creation; only
-	// then does the container have its own offer (a shared-throughput container has
-	// none and ReadThroughput returns 404, matching real Cosmos).
+	// Only a container with dedicated throughput has its own offer; a
+	// shared-throughput container has none and ReadThroughput returns 404.
 	startThroughput := azcosmos.NewManualThroughputProperties(400)
 	_, err = db.CreateContainer(ctx, azcosmos.ContainerProperties{
 		ID:                     "thruc",
@@ -42,14 +35,12 @@ func TestCosmos_ThroughputOffers(t *testing.T) {
 	cc, err := client.NewContainer("thrudb", "thruc")
 	require.NoError(t, err)
 
-	// Read the provisioned offer.
 	readResp, err := cc.ReadThroughput(ctx, nil)
 	require.NoError(t, err, "ReadThroughput")
 	manual, ok := readResp.ThroughputProperties.ManualThroughput()
 	require.True(t, ok, "provisioned offer must be manual")
 	assert.EqualValues(t, 400, manual)
 
-	// Replace with a manual 1000 RU/s offer and confirm it round-trips.
 	newManual := azcosmos.NewManualThroughputProperties(1000)
 	replResp, err := cc.ReplaceThroughput(ctx, newManual, nil)
 	require.NoError(t, err, "ReplaceThroughput (manual)")
@@ -63,8 +54,7 @@ func TestCosmos_ThroughputOffers(t *testing.T) {
 	require.True(t, ok)
 	assert.EqualValues(t, 1000, rm2)
 
-	// Replace with an autoscale max 4000 RU/s offer and confirm the autoscale
-	// max round-trips (the x-ms-cosmos-offer-autopilot-settings shape).
+	// The autoscale maximum round-trips in x-ms-cosmos-offer-autopilot-settings.
 	auto := azcosmos.NewAutoscaleThroughputProperties(4000)
 	_, err = cc.ReplaceThroughput(ctx, auto, nil)
 	require.NoError(t, err, "ReplaceThroughput (autoscale)")
@@ -76,9 +66,8 @@ func TestCosmos_ThroughputOffers(t *testing.T) {
 	assert.EqualValues(t, 4000, maxRU)
 }
 
-// TestCosmos_DatabaseThroughputOffers proves the database-level throughput offer
-// round-trips through the same offers data plane (DatabaseClient.ReadThroughput /
-// ReplaceThroughput key off the database `_rid`).
+// TestCosmos_DatabaseThroughputOffers: the database-level offer round-trips
+// through the same offers data plane, keyed off the database _rid.
 func TestCosmos_DatabaseThroughputOffers(t *testing.T) {
 	t.Parallel()
 	dataPlaneAccount := uniquename.Alnum("sdkdataplane")
@@ -106,10 +95,9 @@ func TestCosmos_DatabaseThroughputOffers(t *testing.T) {
 	assert.EqualValues(t, 800, m2)
 }
 
-// TestCosmos_RequestCharge proves every data-plane response carries a realistic
-// non-zero x-ms-request-charge (the RU cost), and that a write costs strictly
-// more than a point read of the same item — the core invariant of the RU model
-// in cosmos_throughput.go (writes ~5x reads).
+// TestCosmos_RequestCharge: every response carries a non-zero
+// x-ms-request-charge, and a write costs more than a point read of the same
+// item.
 func TestCosmos_RequestCharge(t *testing.T) {
 	t.Parallel()
 	dataPlaneAccount := uniquename.Alnum("sdkdataplane")
@@ -134,7 +122,6 @@ func TestCosmos_RequestCharge(t *testing.T) {
 	require.NoError(t, err, "ReadItem")
 	assert.Greater(t, readResp.RequestCharge, float32(0), "read must report a request charge")
 
-	// A write of a small item costs strictly more than a point read of it.
 	assert.Greater(t, createResp.RequestCharge, readResp.RequestCharge,
 		"a create must cost more RU than a point read of the same item")
 }

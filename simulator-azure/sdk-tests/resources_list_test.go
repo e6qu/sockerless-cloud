@@ -15,16 +15,13 @@ import (
 )
 
 // Resources_List and Resources_ListByResourceGroup enumerate every tracked
-// resource in their scope, whatever provider owns it, and honour the `$filter`
-// forms real clients send. The Azure CLI reaches `az resource list -g <rg>`
-// through `resourceGroup eq '<name>'` on the subscription-wide route rather
-// than the group-scoped one, and terraform-provider-azurerm reads the same
-// route with `resourceType eq 'Microsoft.KeyVault/vaults'` while populating
-// its Key Vault cache. These tests drive both routes through the canonical
-// armresources client.
+// resource in scope, whatever provider owns it, and honour the $filter forms
+// clients send: `az resource list -g` sends `resourceGroup eq '<name>'` on the
+// subscription-wide route, and terraform-provider-azurerm's Key Vault cache
+// sends `resourceType eq 'Microsoft.KeyVault/vaults'`.
 
-// drainResourcePager walks a resource-list pager to completion. Both list
-// operations answer the same page type, so one drain serves both.
+// drainResourcePager walks either list operation's pager; both answer the same
+// page type.
 func drainResourcePager[T any](t *testing.T, pager *runtime.Pager[T], values func(T) []*armresources.GenericResourceExpanded) []*armresources.GenericResourceExpanded {
 	t.Helper()
 	rows := make([]*armresources.GenericResourceExpanded, 0)
@@ -53,7 +50,6 @@ func listResourcesByGroup(t *testing.T, client *armresources.Client, rg string, 
 		})
 }
 
-// resourceTypesOf collects the distinct, case-folded resource types of a list.
 func resourceTypesOf(t *testing.T, rows []*armresources.GenericResourceExpanded) []string {
 	t.Helper()
 	seen := map[string]bool{}
@@ -71,7 +67,7 @@ func resourceTypesOf(t *testing.T, rows []*armresources.GenericResourceExpanded)
 	return types
 }
 
-// seedResourceListScope provisions one resource group holding resources of two
+// seedResourceListScope creates a resource group holding resources of two
 // providers, each through its own API.
 func seedResourceListScope(t *testing.T, rg string) {
 	t.Helper()
@@ -116,16 +112,14 @@ func TestResourcesList_ScopesAndFilters(t *testing.T) {
 	seedResourceListScope(t, rgA)
 	seedResourceListScope(t, rgB)
 
-	// The unfiltered subscription list carries both groups' resources, and
-	// more than one provider's worth — it is a resource list, not one
-	// provider's cache.
+	// The unfiltered list carries both groups and more than one provider.
 	all := listResources(t, client, nil)
 	ids := resourceListIDs(all)
 	assert.True(t, ids[strings.ToLower(resourceListVaultID(rgA, rgA+"-vault"))])
 	assert.True(t, ids[strings.ToLower(resourceListVaultID(rgB, rgB+"-vault"))])
 	assert.GreaterOrEqual(t, len(resourceTypesOf(t, all)), 2)
 
-	// resourceGroup eq — the filter `az resource list -g <rg>` sends.
+	// The filter `az resource list -g <rg>` sends.
 	scoped := listResources(t, client, &armresources.ClientListOptions{
 		Filter: to.Ptr("resourceGroup eq '" + rgA + "'"),
 	})
@@ -137,8 +131,7 @@ func TestResourcesList_ScopesAndFilters(t *testing.T) {
 	assert.GreaterOrEqual(t, len(resourceTypesOf(t, scoped)), 2,
 		"a group-scoped list carries every provider's resources in the group")
 
-	// resourceType eq — the filter terraform-provider-azurerm's Key Vault
-	// cache sends.
+	// The filter terraform-provider-azurerm's Key Vault cache sends.
 	vaults := listResources(t, client, &armresources.ClientListOptions{
 		Filter: to.Ptr("resourceType eq 'Microsoft.KeyVault/vaults'"),
 	})
@@ -148,14 +141,13 @@ func TestResourcesList_ScopesAndFilters(t *testing.T) {
 	}
 	assert.True(t, resourceListIDs(vaults)[strings.ToLower(resourceListVaultID(rgA, rgA+"-vault"))])
 
-	// The two compose, the way the CLI composes `-g … --resource-type …`.
+	// The two compose, as the CLI composes `-g … --resource-type …`.
 	both := listResources(t, client, &armresources.ClientListOptions{
 		Filter: to.Ptr("resourceGroup eq '" + rgA + "' and resourceType eq 'Microsoft.KeyVault/vaults'"),
 	})
 	require.Len(t, both, 1)
 	assert.Equal(t, strings.ToLower(resourceListVaultID(rgA, rgA+"-vault")), strings.ToLower(*both[0].ID))
 
-	// name eq, and substringof(value, name).
 	named := listResources(t, client, &armresources.ClientListOptions{
 		Filter: to.Ptr("name eq '" + rgA + "-vault'"),
 	})
@@ -166,7 +158,6 @@ func TestResourcesList_ScopesAndFilters(t *testing.T) {
 	require.Len(t, substring, 1)
 	assert.Equal(t, strings.ToLower(resourceListVaultID(rgA, rgA+"-vault")), strings.ToLower(*substring[0].ID))
 
-	// ne excludes.
 	excluded := listResources(t, client, &armresources.ClientListOptions{
 		Filter: to.Ptr("resourceGroup eq '" + rgA + "' and resourceType ne 'Microsoft.KeyVault/vaults'"),
 	})
@@ -175,14 +166,13 @@ func TestResourcesList_ScopesAndFilters(t *testing.T) {
 		assert.NotEqual(t, "microsoft.keyvault/vaults", strings.ToLower(*row.Type))
 	}
 
-	// location eq narrows by region; a region nothing sits in answers empty
-	// rather than everything.
+	// A region nothing sits in answers empty, not everything.
 	assert.Empty(t, listResources(t, client, &armresources.ClientListOptions{
 		Filter: to.Ptr("location eq 'antarctica-south'"),
 	}))
 
-	// A filter naming a property ARM does not filter on is refused. An
-	// ignored filter answers with everything, which reads as a result.
+	// A filter on a property ARM does not filter on is refused; an ignored filter
+	// would answer everything.
 	_, err = client.NewListPager(&armresources.ClientListOptions{
 		Filter: to.Ptr("managedBy eq 'someone'"),
 	}).NextPage(ctx)
@@ -208,9 +198,8 @@ func TestResourcesListByResourceGroup_ScopeExpandAndPaging(t *testing.T) {
 	}
 	assert.GreaterOrEqual(t, len(resourceTypesOf(t, rows)), 2)
 
-	// $expand=provisioningState — the expansion terraform-provider-azurerm's
-	// resource-group delete poller asks for — reports the state each resource
-	// recorded for itself.
+	// $expand=provisioningState, which terraform-provider-azurerm's resource-group
+	// delete poller asks for, reports each resource's own state.
 	expanded := listResourcesByGroup(t, client, rg, &armresources.ClientListByResourceGroupOptions{
 		Expand: to.Ptr("provisioningState"),
 	})
@@ -223,8 +212,8 @@ func TestResourcesListByResourceGroup_ScopeExpandAndPaging(t *testing.T) {
 	}
 	assert.Positive(t, states, "a resource that recorded a provisioning state reports it")
 
-	// $top pages, and the continuation covers the rest of the group exactly
-	// once — the paging the delete poller's $top=10 relies on.
+	// $top pages, and the continuation covers the rest exactly once, as the delete
+	// poller's $top=10 relies on.
 	pager := client.NewListByResourceGroupPager(rg, &armresources.ClientListByResourceGroupOptions{
 		Top: to.Ptr[int32](1),
 	})
@@ -246,11 +235,9 @@ func TestResourcesListByResourceGroup_ScopeExpandAndPaging(t *testing.T) {
 	}
 }
 
-// TestManagedHSMs_ListIsEmptyNotMissing pins the answer for a scope holding no
-// Managed HSM pool: real Azure answers the empty collection, where an unrouted
-// path answers 404. A provisioned pool then round-trips through its own API
-// and appears in the generic resource list like any other tracked resource.
-// Routes exercised:
+// TestManagedHSMs_ListIsEmptyNotMissing: a scope with no Managed HSM pool
+// answers the empty collection, where an unrouted path would answer 404, and a
+// provisioned pool appears in the generic resource list.
 //
 //	GET /subscriptions/{subscriptionId}/providers/Microsoft.KeyVault/managedHSMs
 //	GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.KeyVault/managedHSMs

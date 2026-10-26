@@ -9,14 +9,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Coverage round-trips for the Microsoft.App slice operations beyond the
-// create/get/delete core: containerApps start/stop/update/list-by-
-// subscription/getAuthToken/listCustomHostNameAnalysis, jobs update/
-// list-by-subscription/stop-multiple-executions, and the
-// managedEnvironments list/update/getAuthToken/workloadProfileStates/
-// checkNameAvailability surfaces plus the certificates and
-// managedCertificates sub-resources. Each exercises the same SDK client
-// the aca / azure-functions backends and terraform-provider-azurerm use.
+// The Microsoft.App operations beyond create, get and delete, through the SDK
+// client terraform-provider-azurerm also uses.
 
 func acaEnvID(rg, env string) string {
 	return "/subscriptions/" + subscriptionID + "/resourceGroups/" + rg +
@@ -79,7 +73,6 @@ func TestSDK_ContainerApps_StartStopUpdate(t *testing.T) {
 		}
 	}()
 
-	// BeginStop → BeginStart round-trip.
 	stopP, err := client.BeginStop(ctx, rg, "sdk-startstop-app", nil)
 	require.NoError(t, err)
 	stopped, err := stopP.PollUntilDone(ctx, nil)
@@ -95,7 +88,6 @@ func TestSDK_ContainerApps_StartStopUpdate(t *testing.T) {
 	require.NotNil(t, started.Properties.ProvisioningState)
 	assert.Equal(t, "Succeeded", string(*started.Properties.ProvisioningState))
 
-	// BeginUpdate (PATCH) — change tags.
 	upP, err := client.BeginUpdate(ctx, rg, "sdk-startstop-app", armappcontainers.ContainerApp{
 		Tags: map[string]*string{"team": to.Ptr("sockerless")},
 	}, nil)
@@ -125,7 +117,6 @@ func TestSDK_ContainerApps_ListBySubscription_AuthToken_HostnameAnalysis(t *test
 		}
 	}()
 
-	// List by subscription.
 	pager := client.NewListBySubscriptionPager(nil)
 	found := false
 	for pager.More() {
@@ -139,14 +130,12 @@ func TestSDK_ContainerApps_ListBySubscription_AuthToken_HostnameAnalysis(t *test
 	}
 	assert.True(t, found, "list-by-subscription must include the created app")
 
-	// getAuthToken.
 	tok, err := client.GetAuthToken(ctx, rg, "sdk-listsub-app", nil)
 	require.NoError(t, err)
 	require.NotNil(t, tok.Properties)
 	require.NotNil(t, tok.Properties.Token)
 	assert.NotEmpty(t, *tok.Properties.Token)
 
-	// listCustomHostNameAnalysis.
 	analysis, err := client.ListCustomHostNameAnalysis(ctx, rg, "sdk-listsub-app",
 		&armappcontainers.ContainerAppsClientListCustomHostNameAnalysisOptions{
 			CustomHostname: to.Ptr("app.example.com"),
@@ -198,7 +187,6 @@ func TestSDK_Jobs_UpdateListStopMultiple(t *testing.T) {
 		}
 	}()
 
-	// BeginUpdate (PATCH).
 	up, err := client.BeginUpdate(ctx, rg, "sdk-jobops-job", armappcontainers.JobPatchProperties{
 		Tags: map[string]*string{"owner": to.Ptr("sockerless")},
 	}, nil)
@@ -210,7 +198,6 @@ func TestSDK_Jobs_UpdateListStopMultiple(t *testing.T) {
 	require.NotNil(t, got.Tags["owner"])
 	assert.Equal(t, "sockerless", *got.Tags["owner"])
 
-	// List by subscription.
 	pager := client.NewListBySubscriptionPager(nil)
 	found := false
 	for pager.More() {
@@ -224,9 +211,7 @@ func TestSDK_Jobs_UpdateListStopMultiple(t *testing.T) {
 	}
 	assert.True(t, found, "list-by-subscription must include the created job")
 
-	// BeginStopMultipleExecutions — returns the (possibly empty) collection
-	// of executions requested to stop. With no running executions the
-	// collection is empty; the call must still succeed.
+	// With no running executions the collection is empty, and the call succeeds.
 	sp, err := client.BeginStopMultipleExecutions(ctx, rg, "sdk-jobops-job", nil)
 	require.NoError(t, err)
 	res, err := sp.PollUntilDone(ctx, nil)
@@ -245,7 +230,6 @@ func TestSDK_ManagedEnvironments_ListUpdateAuthTokenWorkloadProfiles(t *testing.
 	client, err := armappcontainers.NewManagedEnvironmentsClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)
 
-	// List by resource group.
 	rgPager := client.NewListByResourceGroupPager(rg, nil)
 	foundRG := false
 	for rgPager.More() {
@@ -259,7 +243,6 @@ func TestSDK_ManagedEnvironments_ListUpdateAuthTokenWorkloadProfiles(t *testing.
 	}
 	assert.True(t, foundRG, "list-by-resource-group must include the env")
 
-	// List by subscription.
 	subPager := client.NewListBySubscriptionPager(nil)
 	foundSub := false
 	for subPager.More() {
@@ -273,7 +256,6 @@ func TestSDK_ManagedEnvironments_ListUpdateAuthTokenWorkloadProfiles(t *testing.
 	}
 	assert.True(t, foundSub, "list-by-subscription must include the env")
 
-	// BeginUpdate (PATCH).
 	up, err := client.BeginUpdate(ctx, rg, env, armappcontainers.ManagedEnvironment{
 		Tags: map[string]*string{"tier": to.Ptr("prod")},
 	}, nil)
@@ -285,14 +267,12 @@ func TestSDK_ManagedEnvironments_ListUpdateAuthTokenWorkloadProfiles(t *testing.
 	require.NotNil(t, got.Tags["tier"])
 	assert.Equal(t, "prod", *got.Tags["tier"])
 
-	// getAuthToken.
 	tok, err := client.GetAuthToken(ctx, rg, env, nil)
 	require.NoError(t, err)
 	require.NotNil(t, tok.Properties)
 	require.NotNil(t, tok.Properties.Token)
 	assert.NotEmpty(t, *tok.Properties.Token)
 
-	// workloadProfileStates.
 	wpPager := client.NewListWorkloadProfileStatesPager(rg, env, nil)
 	foundWP := false
 	for wpPager.More() {

@@ -5,8 +5,7 @@ import (
 	"time"
 )
 
-// A replica's stop grace is the template's terminationGracePeriodSeconds, and
-// thirty seconds when the template sets none; zero is a real setting.
+// Zero is a real setting.
 func TestACAAppStopGraceReadsTheTemplate(t *testing.T) {
 	var ten, zero int64 = 10, 0
 	cases := map[string]struct {
@@ -25,8 +24,6 @@ func TestACAAppStopGraceReadsTheTemplate(t *testing.T) {
 	}
 }
 
-// A site's stop grace is WEBSITES_CONTAINER_STOP_TIME_LIMIT in seconds, five
-// when unset or unparseable, and capped at the 120 the platform accepts.
 func TestSiteStopGraceReadsTheAppSetting(t *testing.T) {
 	site := func(value string) *Site {
 		s := &Site{Properties: SiteProperties{SiteConfig: &SiteConfig{}}}

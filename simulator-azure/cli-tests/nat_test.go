@@ -44,8 +44,7 @@ func TestNetworkNatGatewayPublicIPPrefixCLI(t *testing.T) {
 		t.Fatalf("expected NAT gateway list response, got %s", out)
 	}
 
-	// The gateway's Azure Monitor metrics are listed by name, with the
-	// definitions the gateway's namespace publishes.
+	// The gateway's namespace publishes these Azure Monitor metric definitions.
 	out = runCLI(t, azRest("GET", baseURL+natID+"/providers/Microsoft.Insights/metricDefinitions?api-version=2024-02-01", ""))
 	for _, metric := range []string{"ByteCount", "SNATConnectionCount", "TotalConnectionCount", "DatapathAvailability"} {
 		if !strings.Contains(out, `"value": "`+metric+`"`) {
@@ -61,8 +60,8 @@ func TestNetworkNatGatewayPublicIPPrefixCLI(t *testing.T) {
 		t.Fatalf("expected the gateway's platform metric namespace, got %s", out)
 	}
 
-	// A subscription-scoped read covers every gateway of the region, one
-	// series per gateway, named by its resource ID.
+	// A subscription-scoped read covers every gateway of the region, one series
+	// per gateway, named by its resource ID.
 	subscriptionInsights := baseURL + "/subscriptions/" + subscriptionID + "/providers/Microsoft.Insights"
 	out = runCLI(t, azRest("GET", subscriptionInsights+"/metricDefinitions?api-version=2024-02-01&region=eastus&metricnamespace=Microsoft.Network/natGateways", ""))
 	if !strings.Contains(out, `"value": "SNATConnectionCount"`) {

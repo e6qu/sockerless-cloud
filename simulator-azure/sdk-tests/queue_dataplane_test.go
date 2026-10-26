@@ -11,8 +11,7 @@ import (
 )
 
 // queueSDKService builds an azqueue service client for one account at the
-// simulator's coordinate — the same client code a consumer runs against Azure
-// Queue Storage, differing only in the endpoint it is pointed at.
+// simulator's endpoint.
 func queueSDKService(t *testing.T, account string) *azqueue.ServiceClient {
 	t.Helper()
 	client, err := azqueue.NewServiceClientWithNoCredential(storageSDKURL(t, account, "queue"),
@@ -21,11 +20,9 @@ func queueSDKService(t *testing.T, account string) *azqueue.ServiceClient {
 	return client
 }
 
-// TestQueueSDK_UpdateMessageExtendsInvisibility drives Update Message, the call
-// a consumer still working on a message makes to keep it invisible to everyone
-// else. It is the operation that makes a long-running queue consumer possible,
-// so the pop-receipt check, the extension and the fresh receipt all have to be
-// real.
+// TestQueueSDK_UpdateMessageExtendsInvisibility drives Update Message, which a
+// consumer still working on a message calls to keep it invisible: the
+// pop-receipt check, the extension and the fresh receipt.
 func TestQueueSDK_UpdateMessageExtendsInvisibility(t *testing.T) {
 	t.Parallel()
 	const (
@@ -51,7 +48,6 @@ func TestQueueSDK_UpdateMessageExtendsInvisibility(t *testing.T) {
 	messageID := *dequeued.Messages[0].MessageID
 	popReceipt := *dequeued.Messages[0].PopReceipt
 
-	// A pop receipt the service never issued updates nothing.
 	_, err = queueClient.UpdateMessage(ctx, messageID, "not-the-receipt", "work item",
 		&azqueue.UpdateMessageOptions{VisibilityTimeout: to.Ptr(int32(600))})
 	require.Error(t, err, "Update Message must reject a pop receipt it did not issue")
@@ -67,7 +63,7 @@ func TestQueueSDK_UpdateMessageExtendsInvisibility(t *testing.T) {
 	assert.True(t, updated.TimeNextVisible.After(time.Now().Add(5*time.Minute)),
 		"the extended visibility timeout must actually move the time the message reappears")
 
-	// The extension holds: nothing else may dequeue the message.
+	// Nothing else may dequeue the message.
 	time.Sleep(1500 * time.Millisecond)
 	other, err := queueClient.DequeueMessage(ctx, nil)
 	require.NoError(t, err)
@@ -87,7 +83,7 @@ func TestQueueSDK_UpdateMessageExtendsInvisibility(t *testing.T) {
 }
 
 // TestQueueSDK_UpdateMessageMakesAMessageVisibleAgain: a zero visibility
-// timeout is how a consumer that cannot finish hands the message straight back.
+// timeout hands the message straight back.
 func TestQueueSDK_UpdateMessageMakesAMessageVisibleAgain(t *testing.T) {
 	t.Parallel()
 	const (
@@ -123,8 +119,7 @@ func TestQueueSDK_UpdateMessageMakesAMessageVisibleAgain(t *testing.T) {
 		"the second delivery must be counted")
 }
 
-// TestQueueSDK_AccessPolicyRoundTrip drives the queue's stored access policies,
-// the signed identifiers a shared access signature is issued against.
+// TestQueueSDK_AccessPolicyRoundTrip drives the queue's stored access policies.
 func TestQueueSDK_AccessPolicyRoundTrip(t *testing.T) {
 	t.Parallel()
 	const (
@@ -168,7 +163,7 @@ func TestQueueSDK_AccessPolicyRoundTrip(t *testing.T) {
 	require.NotNil(t, got.SignedIdentifiers[0].AccessPolicy.Expiry)
 	assert.Equal(t, expiry, *got.SignedIdentifiers[0].AccessPolicy.Expiry)
 
-	// Setting an empty policy list clears the queue's policies.
+	// An empty policy list clears the queue's policies.
 	_, err = queueClient.SetAccessPolicy(ctx, &azqueue.SetAccessPolicyOptions{QueueACL: nil})
 	require.NoError(t, err)
 	cleared, err := queueClient.GetAccessPolicy(ctx, nil)
@@ -176,9 +171,9 @@ func TestQueueSDK_AccessPolicyRoundTrip(t *testing.T) {
 	assert.Empty(t, cleared.SignedIdentifiers)
 }
 
-// TestQueueSDK_ServicePropertiesAndStatistics drives the service-level
-// configuration a write has to actually change, and the replication statistics
-// a client reads from the secondary endpoint.
+// TestQueueSDK_ServicePropertiesAndStatistics: a service properties write
+// changes the configuration, and the replication statistics read from the
+// secondary endpoint.
 func TestQueueSDK_ServicePropertiesAndStatistics(t *testing.T) {
 	t.Parallel()
 	const account = "sdkqueueservice"
@@ -217,8 +212,6 @@ func TestQueueSDK_ServicePropertiesAndStatistics(t *testing.T) {
 	require.NotNil(t, props.CORS[0].AllowedOrigins)
 	assert.Equal(t, "https://console.example", *props.CORS[0].AllowedOrigins)
 
-	// Get Service Statistics reports the replication state of the account's
-	// queues.
 	stats, err := serviceClient.GetStatistics(ctx, nil)
 	require.NoError(t, err)
 	require.NotNil(t, stats.GeoReplication)

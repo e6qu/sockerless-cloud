@@ -8,17 +8,14 @@ import (
 
 const (
 	sbAMQPSessionFilterName = "com.microsoft:session-filter"
-	// sbAMQPSessionFilterCode is the descriptor of the session filter the
-	// Service Bus SDKs put on a session receiver's source.
+	// The descriptor of the session filter the Service Bus SDKs put on a session
+	// receiver's source.
 	sbAMQPSessionFilterCode = uint64(0x00000137000000C)
-	// sbDotNetEpochTicks is 1970-01-01 in .NET ticks, the unit of the
-	// com.microsoft:locked-until-utc link property.
+	// 1970-01-01 in .NET ticks, the unit of com.microsoft:locked-until-utc.
 	sbDotNetEpochTicks = int64(621355968000000000)
 )
 
-// sbAMQPSessionFilter reads a receiver's session filter: whether the source
-// carries one, and the session it names — empty to accept the next session
-// with a message to receive.
+// The session named, empty to accept the next session with a message.
 func sbAMQPSessionFilter(source any) (string, bool) {
 	d, ok := source.(amqpDescribed)
 	if !ok {
@@ -47,13 +44,11 @@ func sbAMQPSessionFilter(source any) (string, bool) {
 	return "", false
 }
 
-// sbAMQPDefaultSessionTimeout is how long Service Bus lets an accept of the
-// next session wait when the receiver names no timeout: "up to one minute", as
-// the azservicebus SDK records where it maps the resulting com.microsoft:timeout.
+// "Up to one minute", as the azservicebus SDK records where it maps
+// com.microsoft:timeout.
 const sbAMQPDefaultSessionTimeout = time.Minute
 
-// sbAMQPSessionTimeout reads how long an accept of the next session may wait,
-// the com.microsoft:timeout attach property in milliseconds.
+// The com.microsoft:timeout attach property, in milliseconds.
 func sbAMQPSessionTimeout(properties any) time.Duration {
 	props, _ := properties.(map[any]any)
 	for k, v := range props {
@@ -71,11 +66,9 @@ func sbAMQPSessionTimeout(properties any) time.Duration {
 	return sbAMQPDefaultSessionTimeout
 }
 
-// acceptSession completes a session receiver's attach once it holds a
-// session's lock: a named session at once unless another receiver holds it,
-// the next session as soon as one has a message to receive. An accept of the
-// next session that outlasts its timeout is refused with com.microsoft:timeout,
-// and a named session another receiver holds with
+// A named session at once unless another receiver holds it; the next session
+// as soon as one has a message. An accept of the next session outlasting its
+// timeout is refused with com.microsoft:timeout, and a held named session with
 // com.microsoft:session-cannot-be-locked.
 func (c *sbAMQPConn) acceptSession(frame amqpFrame, link *sbAMQPLink, requested string, timeout time.Duration) {
 	namespace := c.currentNamespace()
@@ -141,8 +134,6 @@ func (c *sbAMQPConn) completeSessionAttach(frame amqpFrame, link *sbAMQPLink, se
 	_ = c.deliverAvailableMessages([]string{path})
 }
 
-// refuseSession answers a session receiver's attach with the refusal and
-// forgets the link.
 func (c *sbAMQPConn) refuseSession(frame amqpFrame, link *sbAMQPLink, condition, description string) {
 	c.mu.Lock()
 	if c.links[sbAMQPLinkKey(link.channel, link.clientHandle)] == link {
@@ -152,8 +143,7 @@ func (c *sbAMQPConn) refuseSession(frame amqpFrame, link *sbAMQPLink, condition,
 	_ = c.refuseAttachWith(frame, link.name, true, condition, description)
 }
 
-// endLinks lets go of what the ended links held: a session receiver's lock
-// and any accept still waiting for a session.
+// Release a session receiver's lock and any accept still waiting.
 func (c *sbAMQPConn) endLinks(links []*sbAMQPLink) {
 	namespace := c.currentNamespace()
 	for _, link := range links {

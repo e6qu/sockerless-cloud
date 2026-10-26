@@ -9,14 +9,10 @@ import (
 	"time"
 )
 
-// web_containerlogs.go implements WebApps_GetWebSiteContainerLogs[Slot] and
-// WebApps_GetContainerLogsZip[Slot]. The log text is the site container's
-// real output: every line a site container writes flows through funcLogSink
-// into the site's docker log (bounded at webSiteDockerLogMaxLines), and these
-// endpoints render exactly those retained lines — timestamped, in arrival
-// order — as the docker log file real App Service serves.
+// WebApps_GetWebSiteContainerLogs and GetContainerLogsZip render the site's
+// retained docker log — every line its container wrote, through funcLogSink,
+// bounded at webSiteDockerLogMaxLines — timestamped and in arrival order.
 
-// webSiteContainerLogText assembles a site's retained container log lines.
 func webSiteContainerLogText(siteID string) []byte {
 	var buf bytes.Buffer
 	for _, row := range webSiteDockerLogs.Values(strings.ToLower(siteID)) {
@@ -26,8 +22,7 @@ func webSiteContainerLogText(siteID string) []byte {
 }
 
 func registerWebContainerLogs(both func(string, string, http.HandlerFunc)) {
-	// WebApps_GetWebSiteContainerLogs[Slot] — the raw docker log text;
-	// 204 when the container has produced no retained output.
+	// 204 when no output is retained.
 	both("POST", "/containerlogs", func(w http.ResponseWriter, r *http.Request) {
 		if webMissing(w, r) {
 			return
@@ -43,8 +38,7 @@ func registerWebContainerLogs(both func(string, string, http.HandlerFunc)) {
 		_, _ = w.Write(logs)
 	})
 
-	// WebApps_GetContainerLogsZip[Slot] — the same log content packaged as
-	// the ZIP archive real App Service serves (one docker log file inside).
+	// One docker log file inside a ZIP, as App Service serves it.
 	both("POST", "/containerlogs/zip/download", func(w http.ResponseWriter, r *http.Request) {
 		if webMissing(w, r) {
 			return

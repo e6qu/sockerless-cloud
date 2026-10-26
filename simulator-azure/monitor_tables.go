@@ -10,18 +10,15 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// monitor_tables.go serves a Log Analytics workspace's tables
-// (Microsoft.OperationalInsights/workspaces/tables). Every workspace holds the
-// Azure tables the simulator writes and queries (kqlTableSchemas); a
-// customer creates a custom log table, whose name ends in _CL, with the
-// columns a data collection rule's output stream writes; and a platform
-// service creates the custom log tables it writes to when a resource first
-// links the workspace, as Container Apps does for its console and system
-// logs. A query resolves its table against the queried workspace's tables.
+// A Log Analytics workspace's tables. Every workspace holds the Azure tables
+// the simulator writes (kqlTableSchemas); a customer creates custom log tables
+// (ending _CL) with a data collection rule's output columns; and a platform
+// service creates its custom log tables when a resource first links the
+// workspace, as Container Apps does. A query resolves its table against the
+// queried workspace's tables.
 
-// LogAnalyticsTable is a workspace table as Tables_Get returns it. Only a
-// customised Azure table or a custom log table is stored; an Azure table no
-// one changed reads from its schema.
+// Only a customised Azure table or a custom log table is stored; an unchanged
+// Azure table reads from its schema.
 type LogAnalyticsTable struct {
 	ID         string                      `json:"id"`
 	Name       string                      `json:"name"`
@@ -62,8 +59,6 @@ type LogAnalyticsTableColumn struct {
 
 var logAnalyticsTables sim.Store[LogAnalyticsTable]
 
-// logAnalyticsTablesByWorkspace finds a workspace's stored tables by the
-// workspace's ARM id.
 var logAnalyticsTablesByWorkspace sim.GenerationIndex[LogAnalyticsTable]
 
 func logAnalyticsTableWorkspaceKeys(t LogAnalyticsTable) []string {
@@ -71,8 +66,8 @@ func logAnalyticsTableWorkspaceKeys(t LogAnalyticsTable) []string {
 	return []string{strings.ToLower(ws)}
 }
 
-// The Tables API spells a column type the way the data collection rule
-// spells it, except for dateTime; the query engine knows them as Kusto types.
+// The Tables API spells column types as data collection rules do, except
+// dateTime.
 var logAnalyticsColumnKQLTypes = map[string]string{
 	"string": "string", "int": "int", "long": "long", "real": "real",
 	"boolean": "bool", "datetime": "datetime", "guid": "string", "dynamic": "dynamic",
@@ -83,14 +78,11 @@ var kqlColumnTableTypes = map[string]string{
 	"bool": "boolean", "datetime": "dateTime", "dynamic": "dynamic", "timespan": "string",
 }
 
-// logAnalyticsColumnKQLType reads a Tables API column type as the engine's.
 func logAnalyticsColumnKQLType(t string) (string, bool) {
 	k, ok := logAnalyticsColumnKQLTypes[strings.ToLower(t)]
 	return k, ok
 }
 
-// kqlPlatformCustomLogTables are the custom log tables Container Apps creates
-// in the workspace an environment links.
 var kqlPlatformCustomLogTables = map[string][]Column{
 	"ContainerAppConsoleLogs_CL": {
 		{Name: "TimeGenerated", Type: "datetime"},
@@ -121,7 +113,6 @@ func logAnalyticsTableID(workspaceID, table string) string {
 	return armChildID(workspaceID, "tables", table)
 }
 
-// logAnalyticsTableColumns converts engine columns to the Tables API's.
 func logAnalyticsTableColumns(cols []Column) []LogAnalyticsTableColumn {
 	out := make([]LogAnalyticsTableColumn, 0, len(cols))
 	for _, c := range cols {
@@ -130,8 +121,7 @@ func logAnalyticsTableColumns(cols []Column) []LogAnalyticsTableColumn {
 	return out
 }
 
-// logAnalyticsDefaultTable is a table as a workspace holds it before anyone
-// changes it: its retention follows the workspace's.
+// An unchanged table's retention follows the workspace's.
 func logAnalyticsDefaultTable(ws Workspace, name, tableType, subType, source string, cols []LogAnalyticsTableColumn, standard []LogAnalyticsTableColumn) LogAnalyticsTable {
 	if cols == nil {
 		cols = []LogAnalyticsTableColumn{}
@@ -163,8 +153,6 @@ func logAnalyticsDefaultTable(ws Workspace, name, tableType, subType, source str
 	}
 }
 
-// logAnalyticsWorkspaceTables lists a workspace's tables: the Azure tables,
-// each as stored when someone changed it, and the custom log tables.
 func logAnalyticsWorkspaceTables(ws Workspace) []LogAnalyticsTable {
 	byName := map[string]LogAnalyticsTable{}
 	for name, cols := range kqlTableSchemas {
@@ -182,8 +170,7 @@ func logAnalyticsWorkspaceTables(ws Workspace) []LogAnalyticsTable {
 	return out
 }
 
-// logAnalyticsWorkspaceTable reads one of a workspace's tables by name, as
-// Log Analytics resolves table names, case-sensitively.
+// Log Analytics resolves table names case-sensitively.
 func logAnalyticsWorkspaceTable(ws Workspace, name string) (LogAnalyticsTable, bool) {
 	if t, ok := logAnalyticsTables.Get(logAnalyticsTableID(ws.ID, name)); ok {
 		return t, true
@@ -194,8 +181,6 @@ func logAnalyticsWorkspaceTable(ws Workspace, name string) (LogAnalyticsTable, b
 	return LogAnalyticsTable{}, false
 }
 
-// logAnalyticsTableSchema is the engine schema of a workspace table: a custom
-// log table's columns, or an Azure table's.
 func logAnalyticsTableSchema(t LogAnalyticsTable) []Column {
 	if t.Properties.Schema.TableType == "Microsoft" {
 		return kqlTableSchemas[t.Name]
@@ -208,8 +193,7 @@ func logAnalyticsTableSchema(t LogAnalyticsTable) []Column {
 	return cols
 }
 
-// ensurePlatformCustomLogTables creates the custom log tables a platform
-// service writes to in a workspace the first time a resource links it.
+// Created the first time a resource links the workspace.
 func ensurePlatformCustomLogTables(ws Workspace, names ...string) {
 	for _, name := range names {
 		id := logAnalyticsTableID(ws.ID, name)
@@ -221,8 +205,7 @@ func ensurePlatformCustomLogTables(ws Workspace, names ...string) {
 	}
 }
 
-// logAnalyticsWorkspaceByID reads a workspace by its ARM id, whatever the
-// casing of the id's segments.
+// Matches the ID case-insensitively.
 func logAnalyticsWorkspaceByID(id string) (Workspace, bool) {
 	if azureMonitorWorkspaces == nil {
 		return Workspace{}, false
@@ -234,7 +217,6 @@ func logAnalyticsWorkspaceByID(id string) (Workspace, bool) {
 	return azureMonitorWorkspaces.Get(armResourceID(sub, rg, "Microsoft.OperationalInsights", "workspaces", name))
 }
 
-// parseWorkspaceResourceID splits a workspace's ARM id.
 func parseWorkspaceResourceID(id string) (sub, rg, name string, ok bool) {
 	parts := strings.Split(strings.Trim(id, "/"), "/")
 	if len(parts) != 8 || !strings.EqualFold(parts[0], "subscriptions") || !strings.EqualFold(parts[2], "resourceGroups") ||
@@ -337,8 +319,8 @@ func registerLogAnalyticsTables(srv *sim.Server, armBase string) {
 			table.Properties.Schema.DisplayName = req.Properties.Schema.DisplayName
 			table.Properties.Schema.Description = req.Properties.Schema.Description
 		}
-		// A read-modify-write client sends back the retention it read; a value
-		// that only echoes a default keeps the default following its source.
+		// A read-modify-write client sends back the retention it read; echoing a
+		// default keeps the default following its source.
 		if v := req.Properties.RetentionInDays; v != nil && table.Properties.RetentionInDaysAsDefault && *v == table.Properties.RetentionInDays {
 			req.Properties.RetentionInDays = nil
 		}
@@ -418,10 +400,9 @@ func registerLogAnalyticsTables(srv *sim.Server, armBase string) {
 	})
 }
 
-// registerLogAnalyticsTableActions serves a table's migrate and cancelSearch.
 func registerLogAnalyticsTableActions(srv *sim.Server, base string, workspace func(http.ResponseWriter, *http.Request) (Workspace, bool)) {
-	// Tables_Migrate moves a classic custom log table onto data collection
-	// rules, after which the Logs Ingestion API can write to it.
+	// Tables_Migrate moves a classic custom log table onto data collection rules,
+	// so the Logs Ingestion API can write to it.
 	srv.HandleFunc("POST "+base+"/{tableName}/migrate", func(w http.ResponseWriter, r *http.Request) {
 		ws, ok := workspace(w, r)
 		if !ok {
@@ -449,8 +430,7 @@ func registerLogAnalyticsTableActions(srv *sim.Server, base string, workspace fu
 	})
 }
 
-// logAnalyticsValidateColumns checks a custom log table's columns: unique
-// names, a known type, and TimeGenerated as its datetime column.
+// Unique names, known types, and TimeGenerated as the datetime column.
 func logAnalyticsValidateColumns(cols []LogAnalyticsTableColumn) ([]LogAnalyticsTableColumn, error) {
 	seen := map[string]bool{}
 	hasTime := false

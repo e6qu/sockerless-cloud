@@ -1,7 +1,7 @@
-# The tutorial's Azure stack (docs/tutorial.md), the counterpart of the AWS
-# one: a virtual network with a NAT gateway, a Linux virtual machine, a
-# Container App, a Blob Storage container, a Cosmos DB container, a Service Bus
-# queue, an Azure Functions app, and a Log Analytics workspace with Application
+# The Azure stack of docs/tutorial.md, the counterpart of the AWS one: a
+# virtual network with a NAT gateway, a Linux virtual machine, a Container App,
+# a Blob Storage container, an Azure Cosmos DB container, a Service Bus queue,
+# an Azure Functions app, and a Log Analytics workspace with Application
 # Insights.
 
 terraform {

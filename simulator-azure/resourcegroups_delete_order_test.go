@@ -7,10 +7,8 @@ import (
 	"testing"
 )
 
-// Deleting a resource group deletes what it holds through each resource's own
-// provider before the group goes. The App Service Environment refuses while an
-// App Service plan is still deployed in it, so the delete has to come back to
-// it once the plan is gone.
+// An App Service Environment refuses deletion while a plan is deployed in it,
+// so the group delete returns to it once the plan is gone.
 func TestResourceGroupDeleteDeletesItsResourcesInDependencyOrder(t *testing.T) {
 	srv := newMoveTestServer(t)
 	const group = "rg-delete-order"

@@ -36,12 +36,10 @@ func TestAppServicePlan_CreateAndShow(t *testing.T) {
 	assert.Equal(t, "B1", plan.Sku.Name)
 	assert.Equal(t, "Succeeded", plan.Properties.ProvisioningState)
 
-	// GET
 	out = runCLI(t, azRest("GET", url, ""))
 	parseJSON(t, out, &plan)
 	assert.Equal(t, "cli-test-plan", plan.Name)
 
-	// Cleanup
 	runCLI(t, azRest("DELETE", url, ""))
 }
 
@@ -57,12 +55,9 @@ func TestAppServicePlan_Delete(t *testing.T) {
 }
 
 // TestAppServicePlan_ServerFarmsCasing covers the capital-F "serverFarms"
-// spelling of the App Service plan routes. Microsoft.Web is the one ARM
-// provider whose own clients disagree on the segment's casing: go-azure-sdk
-// (which terraform-provider-azurerm is built on) requests "serverFarms" while
-// azure-sdk-for-go and the ARM reference use "serverfarms". Both spellings are
-// mounted, and the resource IDs they return are normalized to the lowercase
-// form, so a client that writes through one casing reads a canonical ID back.
+// spelling: go-azure-sdk (under terraform-provider-azurerm) requests
+// "serverFarms" while azure-sdk-for-go and the ARM reference use "serverfarms".
+// Both spellings reach one resource, whose ID comes back lowercase.
 func TestAppServicePlan_ServerFarmsCasing(t *testing.T) {
 	t.Parallel()
 	upperURL := aspURL("serverFarms/cli-casing-plan")
@@ -77,7 +72,6 @@ func TestAppServicePlan_ServerFarmsCasing(t *testing.T) {
 		} `json:"sku"`
 	}
 
-	// Write through the capital-F spelling.
 	out := runCLI(t, azRest("PUT", upperURL,
 		`{"location":"eastus","sku":{"name":"B1","tier":"Basic"}}`))
 	parseJSON(t, out, &plan)
@@ -85,20 +79,16 @@ func TestAppServicePlan_ServerFarmsCasing(t *testing.T) {
 	assert.Contains(t, plan.ID, "/providers/Microsoft.Web/serverfarms/cli-casing-plan",
 		"resource IDs must be normalized to the lowercase serverfarms spelling")
 
-	// Read it back through the capital-F spelling.
 	out = runCLI(t, azRest("GET", upperURL, ""))
 	parseJSON(t, out, &plan)
 	assert.Equal(t, "cli-casing-plan", plan.Name)
 	assert.Equal(t, "B1", plan.Sku.Name)
 
-	// The same plan is readable through the lowercase spelling — both routes
-	// resolve to one stored resource, not two.
 	out = runCLI(t, azRest("GET", lowerURL, ""))
 	parseJSON(t, out, &plan)
 	assert.Equal(t, "cli-casing-plan", plan.Name)
 
-	// List-by-resource-group through the capital-F spelling. This is the
-	// existence probe go-azure-sdk issues before a create.
+	// go-azure-sdk issues this list as its existence probe before a create.
 	out = runCLI(t, azRest("GET", aspURL("serverFarms"), ""))
 	var list struct {
 		Value []struct {

@@ -9,20 +9,10 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// A site's network traces.
-//
-// App Service captures packets on the instance a site runs on for a fixed
-// duration, and a client starts one, stops it, and reads how it went. The
-// simulator records the trace against the site — its duration, when it started
-// and where it was asked to be written — so a read reports the trace that was
-// actually requested.
-//
-// What it does not do is claim a capture file. A trace's path names a .cap the
-// platform wrote, and this simulator captures no packets; reporting a path
-// would name a file that does not exist, which is worse for a client than
-// saying the capture produced nothing. The status carries that.
+// A site's network traces. The simulator records the requested trace —
+// duration, start, destination — and captures no packets, so it names no .cap
+// file; the status says so.
 
-// webNetworkTrace is a trace a client asked for.
 type webNetworkTrace struct {
 	OperationID string `json:"operationId"`
 	Site        string `json:"site"`
@@ -34,7 +24,6 @@ type webNetworkTrace struct {
 
 var webNetworkTraces sim.Store[webNetworkTrace]
 
-// registerWebNetworkTraces mounts the trace verbs on a site and its slots.
 func registerWebNetworkTraces(srv *sim.Server, both func(string, string, http.HandlerFunc)) {
 	webNetworkTraces = sim.MakeStore[webNetworkTrace](srv.DB(), "web_network_traces")
 
@@ -51,9 +40,8 @@ func registerWebNetworkTraces(srv *sim.Server, both func(string, string, http.Ha
 	both("GET", "/networkTraces/current/operationresults/{operationId}", webGetNetworkTrace)
 }
 
-// webStartNetworkTrace records a capture against the site. The duration is what
-// the caller asked for, because that is the only thing about the capture the
-// simulator knows.
+// The duration is what the caller asked for, all the simulator knows of the
+// capture.
 func webStartNetworkTrace(w http.ResponseWriter, r *http.Request) {
 	if webMissing(w, r) {
 		return
@@ -80,8 +68,7 @@ func webStartNetworkTrace(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, []any{webNetworkTraceDoc(trace)})
 }
 
-// webStopNetworkTrace ends the site's running captures. A site with none
-// running has nothing to stop, which is what it reports.
+// A site with none running reports nothing to stop.
 func webStopNetworkTrace(w http.ResponseWriter, r *http.Request) {
 	if webMissing(w, r) {
 		return
@@ -104,7 +91,6 @@ func webStopNetworkTrace(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// webGetNetworkTrace reports how a trace went.
 func webGetNetworkTrace(w http.ResponseWriter, r *http.Request) {
 	if webMissing(w, r) {
 		return
@@ -120,9 +106,8 @@ func webGetNetworkTrace(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, []any{webNetworkTraceDoc(trace)})
 }
 
-// webNetworkTraceDoc renders a trace. The path stays empty because no capture
-// file was written — naming one would point a client at a file that is not
-// there — and the message says so.
+// The path stays empty because no capture file was written, and the message
+// says so.
 func webNetworkTraceDoc(trace webNetworkTrace) map[string]any {
 	status := "InProgress"
 	message := fmt.Sprintf("Capturing for %d seconds.", trace.Duration)

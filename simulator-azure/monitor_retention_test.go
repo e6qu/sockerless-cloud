@@ -35,9 +35,6 @@ func queryableMessages(scope string, now time.Time) []string {
 	return out
 }
 
-// A query reads a table's rows within its interactive retention; rows past it
-// stay in long-term retention until the table's total retention, and the
-// sweep deletes them after that.
 func TestMonitorTableRetentionHidesThenDeletesRows(t *testing.T) {
 	srv := buildScheduleTestSimulator(t)
 	ws := retentionWorkspace(t, srv)
@@ -68,8 +65,6 @@ func TestMonitorTableRetentionHidesThenDeletesRows(t *testing.T) {
 	}
 }
 
-// A table that follows its workspace's retention reads the workspace's
-// current value.
 func TestMonitorTableFollowsTheWorkspaceRetention(t *testing.T) {
 	srv := buildScheduleTestSimulator(t)
 	ws := retentionWorkspace(t, srv)
@@ -89,8 +84,7 @@ func TestMonitorTableFollowsTheWorkspaceRetention(t *testing.T) {
 	}
 }
 
-// A classic Application Insights component keeps telemetry for its own
-// RetentionInDays, 90 days unless it names one.
+// 90 days unless the component names RetentionInDays.
 func TestClassicAppInsightsRetention(t *testing.T) {
 	saved, savedComponents := monitorLogs, azureAppInsightsComponents
 	t.Cleanup(func() { monitorLogs, azureAppInsightsComponents = saved, savedComponents })
@@ -109,7 +103,6 @@ func TestClassicAppInsightsRetention(t *testing.T) {
 	}
 }
 
-// A site's container output keeps its newest lines.
 func TestSiteDockerLogKeepsItsNewestLines(t *testing.T) {
 	saved := webSiteDockerLogs
 	t.Cleanup(func() { webSiteDockerLogs = saved })
@@ -125,8 +118,8 @@ func TestSiteDockerLogKeepsItsNewestLines(t *testing.T) {
 	}
 }
 
-// Rows an earlier build stored whole load after the upgrade in their original
-// order, timed by their TimeGenerated.
+// Rows earlier builds stored whole load in their original order, timed by
+// TimeGenerated.
 func TestMonitorMigratesLegacyRows(t *testing.T) {
 	db, err := sim.OpenDB(t.TempDir())
 	if err != nil {

@@ -11,12 +11,9 @@ import (
 )
 
 // TestAzureAPIM_MoreOperations exercises the extended Microsoft.ApiManagement
-// ARM control-plane slice: service Update + actions (skus, getSsoToken,
-// backup/restore LROs, checkNameAvailability, getDomainOwnershipIdentifier),
-// the API and Product child collections (schemas, policies, diagnostics,
-// releases, revisions, tags, operations and their policies/tags, product↔api
-// and product↔group associations), the GetEntityTag HEAD operations, and the
-// subscription / namedValue / backend POST actions.
+// slice: service Update and actions, the API and Product child collections,
+// the GetEntityTag HEAD operations, and the subscription, namedValue and
+// backend POST actions.
 func TestAzureAPIM_MoreOperations(t *testing.T) {
 	t.Parallel()
 	sub := "00000000-0000-0000-0000-000000000010"
@@ -48,7 +45,7 @@ func TestAzureAPIM_MoreOperations(t *testing.T) {
 	sso := mustStatus("POST", svc+"/getssotoken", "", http.StatusOK)
 	assert.Contains(t, string(sso), `"redirectUri"`)
 
-	// Long-running service actions return 202 with the Azure-AsyncOperation header.
+	// Long-running service actions answer 202 with Azure-AsyncOperation.
 	for _, action := range []string{"backup", "restore", "migrateToStv2", "applynetworkconfigurationupdates"} {
 		resp := armReq(t, "POST", svc+"/"+action, "{}")
 		resp.Body.Close()
@@ -62,7 +59,6 @@ func TestAzureAPIM_MoreOperations(t *testing.T) {
 	bySub := mustStatus("GET", provider+"/service", "", http.StatusOK)
 	assert.Contains(t, string(bySub), name)
 
-	// checkNameAvailability: the existing name is taken, a fresh one is available.
 	taken := mustStatus("POST", provider+"/checknameavailability", fmt.Sprintf(`{"name":%q,"type":"Microsoft.ApiManagement/service"}`, name), http.StatusOK)
 	assert.Contains(t, string(taken), `"nameAvailable":false`)
 	assert.Contains(t, string(taken), `"AlreadyExists"`)
@@ -77,7 +73,6 @@ func TestAzureAPIM_MoreOperations(t *testing.T) {
 	patched := mustStatus("PATCH", api, `{"properties":{"description":"updated"}}`, http.StatusOK)
 	assert.Contains(t, string(patched), `"updated"`)
 
-	// HEAD GetEntityTag.
 	resp := armReq(t, "HEAD", api, "")
 	resp.Body.Close()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
@@ -89,10 +84,7 @@ func TestAzureAPIM_MoreOperations(t *testing.T) {
 	revs := mustStatus("GET", api+"/revisions", "", http.StatusOK)
 	assert.Contains(t, string(revs), `"apiRevision"`)
 
-	// A schema's contract requires both its content type and the document
-	// itself; a create without the document is one the service refuses, and
-	// the resource it would otherwise store describes a schema with no schema
-	// in it.
+	// A schema's contract requires its document as well as its content type.
 	mustStatus("PUT", api+"/schemas/schema1",
 		`{"properties":{"contentType":"application/vnd.oai.openapi.components+json",`+
 			`"document":{"components":{"schemas":{"Thing":{"type":"object"}}}}}}`, http.StatusOK)
@@ -121,7 +113,6 @@ func TestAzureAPIM_MoreOperations(t *testing.T) {
 	mustStatus("PUT", api+"/tags/tag1", `{"properties":{"displayName":"tag1"}}`, http.StatusOK)
 	mustStatus("GET", api+"/tags", "", http.StatusOK)
 
-	// API operation + operation policies/tags.
 	op := api + "/operations/getthing"
 	mustStatus("PUT", op, `{"properties":{"displayName":"Get","method":"GET","urlTemplate":"/thing"}}`, http.StatusOK)
 	mustStatus("PATCH", op, `{"properties":{"description":"gets a thing"}}`, http.StatusOK)
@@ -145,7 +136,7 @@ func TestAzureAPIM_MoreOperations(t *testing.T) {
 	mustStatus("PUT", product+"/tags/ptag", `{"properties":{"displayName":"ptag"}}`, http.StatusOK)
 	mustStatus("GET", product+"/tags", "", http.StatusOK)
 
-	// product ↔ api association resolves to the real ApiContract.
+	// The product-API association resolves to the ApiContract.
 	addedApi := mustStatus("PUT", product+"/apis/myapi", "", http.StatusOK)
 	assert.Contains(t, string(addedApi), `"Microsoft.ApiManagement/service/apis"`)
 	listApis := mustStatus("GET", product+"/apis", "", http.StatusOK)
@@ -170,11 +161,10 @@ func TestAzureAPIM_MoreOperations(t *testing.T) {
 	resp.Body.Close()
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-	// A product-scoped subscription is listed under the product.
 	prodSubs := mustStatus("GET", product+"/subscriptions", "", http.StatusOK)
 	assert.Contains(t, string(prodSubs), "sub1")
 
-	// ---- NamedValue actions: the secret is write-only (redacted on read). ----
+	// The NamedValue secret is write-only: reads redact it.
 	nv := svc + "/namedValues/nv1"
 	created := mustStatus("PUT", nv, `{"properties":{"displayName":"nv1","value":"s3cr3t"}}`, http.StatusOK)
 	assert.NotContains(t, string(created), "s3cr3t", "create response must redact the secret value")
@@ -183,7 +173,7 @@ func TestAzureAPIM_MoreOperations(t *testing.T) {
 	assert.Contains(t, string(got), `"displayName":"nv1"`)
 	listed := mustStatus("GET", svc+"/namedValues", "", http.StatusOK)
 	assert.NotContains(t, string(listed), "s3cr3t", "LIST must redact the secret value")
-	// listValue is the only surface that returns the secret.
+	// Only listValue returns the secret.
 	val := mustStatus("POST", nv+"/listValue", "", http.StatusOK)
 	assert.Contains(t, string(val), "s3cr3t")
 	mustStatus("PATCH", nv, `{"properties":{"displayName":"nv1b"}}`, http.StatusOK)
@@ -204,7 +194,7 @@ func TestAzureAPIM_MoreOperations(t *testing.T) {
 	delList := mustStatus("GET", provider+"/deletedServices", "", http.StatusOK)
 	assert.Contains(t, string(delList), name)
 
-	// Child resources are cascade-removed with the service.
+	// Deleting the service removes its children.
 	resp = armReq(t, "GET", api+"/schemas/schema1", "")
 	resp.Body.Close()
 	assert.Equal(t, http.StatusNotFound, resp.StatusCode, "child schema must be cascade-deleted with the service")

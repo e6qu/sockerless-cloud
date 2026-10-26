@@ -10,8 +10,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// CLI coverage for the App Service instance and process family, which the
-// simulator reads out of the site's live workload container:
+// The simulator reads the App Service instance and process family out of the
+// site's live workload container.
 //
 //	GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Web/sites/{siteName}/instances (+ slot)
 //	GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Web/sites/{siteName}/instances/{instanceId} (+ slot)
@@ -21,8 +21,6 @@ import (
 //	GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Web/sites/{siteName}/instances/{instanceId}/processes (+ slot)
 //	GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Web/sites/{siteName}/instances/{instanceId}/processes/{processId} (+ slot)
 
-// webProcessCollection is the ARM collection shape these operations answer
-// with.
 type webProcessCollection struct {
 	Value []struct {
 		ID         string `json:"id"`
@@ -43,9 +41,8 @@ type webProcessCollection struct {
 	} `json:"value"`
 }
 
-// TestWebApps_CLI_InstancesAndProcesses drives the family with the real Azure
-// CLI. The negative control comes first: before the site's container starts,
-// the CLI reads an empty instance list and an empty process list.
+// TestWebApps_CLI_InstancesAndProcesses: before the site's container starts,
+// the instance and process lists are empty.
 func TestWebApps_CLI_InstancesAndProcesses(t *testing.T) {
 	t.Parallel()
 	const apiVersion = "2025-03-01"
@@ -67,7 +64,6 @@ func TestWebApps_CLI_InstancesAndProcesses(t *testing.T) {
 		"properties": {"image": %q, "isMain": false, "targetPort": "9090", "startUpCommand": "server"}
 	}`, httpProbeImageName)))
 
-	// Negative control — nothing is running yet.
 	var instances webProcessCollection
 	parseJSON(t, runCLI(t, azRest("GET", url("sites/"+site+"/instances"), "")), &instances)
 	require.Empty(t, instances.Value, "a site with no running container has no instances")
@@ -75,7 +71,7 @@ func TestWebApps_CLI_InstancesAndProcesses(t *testing.T) {
 	parseJSON(t, runCLI(t, azRest("GET", url("sites/"+site+"/processes"), "")), &processes)
 	require.Empty(t, processes.Value, "a site with no running container has no processes")
 
-	// Start the container by invoking the site, the way a request to it does.
+	// A request to the site starts its container.
 	runCLI(t, azRest("POST", baseURL+"/api/function", "{}",
 		"--headers", "Host="+site+".azurewebsites.net"))
 
@@ -85,7 +81,7 @@ func TestWebApps_CLI_InstancesAndProcesses(t *testing.T) {
 	require.NotEmpty(t, instanceID)
 	assert.Equal(t, "Microsoft.Web/sites/instances", instances.Value[0].Type)
 
-	// GET .../instances/{instanceId} carries the engine's own statistics.
+	// The instance carries the engine's own statistics.
 	var info struct {
 		Name       string `json:"name"`
 		Properties struct {
@@ -112,7 +108,7 @@ func TestWebApps_CLI_InstancesAndProcesses(t *testing.T) {
 		assert.Positive(t, c.CurrentCPUStats.CPUUsage.TotalUsage, "a running container has consumed CPU time")
 	}
 
-	// GET .../processes reads the engine's process table.
+	// The process list is the engine's process table.
 	parseJSON(t, runCLI(t, azRest("GET", url("sites/"+site+"/processes"), "")), &processes)
 	require.NotEmpty(t, processes.Value)
 	pid := 0
@@ -141,7 +137,7 @@ func TestWebApps_CLI_InstancesAndProcesses(t *testing.T) {
 	assert.Equal(t, pid, single.Properties.Identifier)
 	assert.Contains(t, single.Properties.CommandLine, "echo-request")
 
-	// GET .../processes/{processId}/threads reads the engine's thread rows.
+	// Threads are the engine's thread rows.
 	var threads webProcessCollection
 	parseJSON(t, runCLI(t, azRest("GET", url("sites/"+site+"/processes/"+pidStr+"/threads"), "")), &threads)
 	require.NotEmpty(t, threads.Value)
@@ -150,7 +146,6 @@ func TestWebApps_CLI_InstancesAndProcesses(t *testing.T) {
 		assert.Contains(t, th.Properties.Process, "/processes/"+pidStr)
 	}
 
-	// The per-instance spellings address the same processes under the instance.
 	var instProcesses webProcessCollection
 	parseJSON(t, runCLI(t, azRest("GET", url("sites/"+site+"/instances/"+instanceID+"/processes"), "")), &instProcesses)
 	require.NotEmpty(t, instProcesses.Value)
@@ -165,15 +160,15 @@ func TestWebApps_CLI_InstancesAndProcesses(t *testing.T) {
 		url("sites/"+site+"/instances/"+instanceID+"/processes/"+pidStr+"/threads"), "")), &instThreads)
 	require.NotEmpty(t, instThreads.Value)
 
-	// An instance identifier that is not the running container, and a process
-	// identifier the table does not carry, are both 404.
+	// An instance that is not the running container, and a process the table
+	// does not carry, are both 404.
 	_, err := azRest("GET", url("sites/"+site+"/instances/not-a-real-instance"), "").CombinedOutput()
 	assert.Error(t, err)
 	_, err = azRest("GET", url("sites/"+site+"/processes/999999"), "").CombinedOutput()
 	assert.Error(t, err)
 
-	// The slot spellings answer for the slot's own container, which does not
-	// exist: empty collections, and 404 for a named instance or process.
+	// The slot answers for its own container, which does not exist: empty
+	// collections, and 404 for a named instance or process.
 	slotURL := url("sites/" + site + "/slots/staging")
 	runCLI(t, azRest("PUT", slotURL, `{"location": "eastus", "properties": {}}`))
 	var slotInstances webProcessCollection

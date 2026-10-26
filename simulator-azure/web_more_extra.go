@@ -10,11 +10,8 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// web_more_extra.go holds the slot config-section mirrors, deployment-slot
-// CRUD, the App Service plan list/patch/usages additions, the
-// subscription-global Microsoft.Web catalogs, and the Static Web Apps slice.
-
-// --- Slot config-section mirrors (reuse the production-site stores) ----------
+// Slot config-section mirrors, slot CRUD, App Service plan list, patch and
+// usages, the subscription-global catalogs, and Static Web Apps.
 
 func webSlotStringDictPut(w http.ResponseWriter, r *http.Request) {
 	if webMissing(w, r) {
@@ -28,8 +25,8 @@ func webSlotStringDictPut(w http.ResponseWriter, r *http.Request) {
 	cfg, _ := siteConfigStore.Get(webResourceID(r))
 	cfg.AppSettings = req.Properties
 	siteConfigStore.Put(webResourceID(r), cfg)
-	// The slot's workload reads its settings from siteConfig.appSettings, and
-	// a settings change restarts it.
+	// The slot's workload reads siteConfig.appSettings, and a settings change
+	// restarts it.
 	row, _ := webSlots.Get(webResourceID(r))
 	if row.Properties.SiteConfig == nil {
 		row.Properties.SiteConfig = &SiteConfig{}
@@ -143,10 +140,8 @@ func webWriteAzureStorage(w http.ResponseWriter, resID string, props map[string]
 	})
 }
 
-// webPublishingCredentials returns the SCM publishing user/password
-// (deterministic per resource ID, stable across reads, rotated by POST
-// /newpassword). Secret-bearing, so only via the POST /list action — never
-// echoed on a GET.
+// Stable per resource ID and rotated by POST /newpassword. Only the POST /list
+// action returns it.
 func webPublishingCredentials(w http.ResponseWriter, r *http.Request) {
 	if webMissing(w, r) {
 		return
@@ -170,7 +165,6 @@ func webPublishingCredentials(w http.ResponseWriter, r *http.Request) {
 func registerWebSlotCRUD(srv *sim.Server) {
 	base := webProvider + "/sites/{siteName}"
 
-	// GET /slots — list a site's deployment slots.
 	srv.HandleFunc("GET "+base+"/slots", func(w http.ResponseWriter, r *http.Request) {
 		siteID := armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Web", "sites", sim.PathParam(r, "siteName"))
 		if _, ok := azfSites.Get(siteID); !ok {
@@ -183,7 +177,6 @@ func registerWebSlotCRUD(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"value": out})
 	})
 
-	// GET /slots/{slot}
 	srv.HandleFunc("GET "+base+"/slots/{slot}", func(w http.ResponseWriter, r *http.Request) {
 		if webMissing(w, r) {
 			return
@@ -192,8 +185,7 @@ func registerWebSlotCRUD(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, row)
 	})
 
-	// PUT /slots/{slot} — create or update a slot. The parent production site
-	// must exist (real Azure requires it).
+	// The production site must exist.
 	srv.HandleFunc("PUT "+base+"/slots/{slot}", func(w http.ResponseWriter, r *http.Request) {
 		siteID := armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Web", "sites", sim.PathParam(r, "siteName"))
 		parent, ok := azfSites.Get(siteID)
@@ -210,7 +202,7 @@ func registerWebSlotCRUD(srv *sim.Server) {
 		name := sim.PathParam(r, "siteName")
 		slot := sim.PathParam(r, "slot")
 		resourceID := webResourceID(r)
-		// A slot is a deployment of its app, so it is the app's kind.
+		// A slot is a deployment of its app, so it has the app's kind.
 		kind := req.Kind
 		if kind == "" {
 			kind = parent.Kind
@@ -280,8 +272,8 @@ func registerWebSlotCRUD(srv *sim.Server) {
 			cfg.ConnectionStrings = connStrings
 			siteConfigStore.Put(resourceID, cfg)
 		}
-		// The slot's workload reads its settings from siteConfig.appSettings,
-		// and the appsettings list reads the settings store.
+		// The workload reads siteConfig.appSettings, and the appsettings list reads the
+		// settings store.
 		if len(siteConfig.AppSettings) > 0 {
 			cfg, _ := siteConfigStore.Get(resourceID)
 			settings := make(map[string]string, len(siteConfig.AppSettings))
@@ -291,12 +283,10 @@ func registerWebSlotCRUD(srv *sim.Server) {
 			cfg.AppSettings = settings
 			siteConfigStore.Put(resourceID, cfg)
 		}
-		// A slot carries its own Functions host key set, like a real slot.
+		// A slot carries its own Functions host key set.
 		ensureWebHostKeys(resourceID)
-		// virtualNetworkSubnetId on the envelope is regional VNet integration
-		// for the slot, exactly as on a production site; a PUT that omits it
-		// keeps an existing integration, and the stored row reflects the
-		// current integration either way.
+		// Regional VNet integration for the slot, as on a site; a PUT omitting it
+		// keeps an existing integration.
 		if req.Properties.VirtualNetworkSubnetID != "" {
 			if err := applySiteVirtualNetworkSubnetID(r, slotSite, req.Properties.VirtualNetworkSubnetID); err != nil {
 				writeVnetIntegrationError(w, slotSite.Name, err)
@@ -340,22 +330,19 @@ func registerAppServicePlanMore(srv *sim.Server) {
 		return armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Web", "serverfarms", sim.PathParam(r, "planName"))
 	}
 
-	// GET serverfarms (list by subscription).
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/providers/Microsoft.Web/serverfarms", func(w http.ResponseWriter, r *http.Request) {
 		prefix := armSubscriptionID(sim.PathParam(r, "subscriptionId")) + "/"
 		out := azureAppServicePlans.Filter(func(p AppServicePlan) bool { return strings.HasPrefix(p.ID, prefix) })
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"value": out})
 	})
 
-	// GET serverfarms (list by resource group) — lowercase spelling the
-	// SDK's ListByResourceGroup pager sends.
+	// The lowercase spelling the SDK's ListByResourceGroup pager sends.
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Web/serverfarms", func(w http.ResponseWriter, r *http.Request) {
 		prefix := armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Web", "serverfarms") + "/"
 		out := azureAppServicePlans.Filter(func(p AppServicePlan) bool { return strings.HasPrefix(p.ID, prefix) })
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"value": out})
 	})
 
-	// PATCH serverfarms/{planName} — merge tags/sku.
 	srv.HandleFunc("PATCH /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Web/serverfarms/{planName}", func(w http.ResponseWriter, r *http.Request) {
 		id := planID(r)
 		plan, ok := azureAppServicePlans.Get(id)
@@ -388,7 +375,6 @@ func registerAppServicePlanMore(srv *sim.Server) {
 		return false
 	}
 
-	// GET serverfarms/{planName}/sites — the web apps assigned to a plan.
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Web/serverfarms/{planName}/sites", func(w http.ResponseWriter, r *http.Request) {
 		if !planExists(w, r) {
 			return
@@ -398,7 +384,7 @@ func registerAppServicePlanMore(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"value": out})
 	})
 
-	// GET serverfarms/{planName}/usages — usage quotas (none in the sim).
+	// Answers an empty collection.
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Web/serverfarms/{planName}/usages", func(w http.ResponseWriter, r *http.Request) {
 		if !planExists(w, r) {
 			return
@@ -406,9 +392,8 @@ func registerAppServicePlanMore(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"value": []any{}})
 	})
 
-	// GET serverfarms/{planName}/virtualNetworkConnections — VNet
-	// integrations (response is a bare array of VnetInfoResource), assembled
-	// from the connections the plan's sites actually have.
+	// A bare array of VnetInfoResource, from the connections the plan's sites
+	// have.
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Web/serverfarms/{planName}/virtualNetworkConnections", func(w http.ResponseWriter, r *http.Request) {
 		if !planExists(w, r) {
 			return
@@ -416,7 +401,6 @@ func registerAppServicePlanMore(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, webPlanVnetConnections(planID(r)))
 	})
 
-	// POST serverfarms/{planName}/restartSites — restart every app on the plan.
 	srv.HandleFunc("POST /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Web/serverfarms/{planName}/restartSites", func(w http.ResponseWriter, r *http.Request) {
 		if !planExists(w, r) {
 			return
@@ -426,28 +410,24 @@ func registerAppServicePlanMore(srv *sim.Server) {
 }
 
 func registerWebGlobal(srv *sim.Server) {
-	// GET sites (list by subscription).
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/providers/Microsoft.Web/sites", func(w http.ResponseWriter, r *http.Request) {
 		prefix := armSubscriptionID(sim.PathParam(r, "subscriptionId")) + "/"
 		out := azfSites.Filter(func(s Site) bool { return strings.HasPrefix(s.ID, prefix) })
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"value": out})
 	})
 
-	// GET geoRegions — supported regions (empty list is a valid response).
+	// Answers an empty list.
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/providers/Microsoft.Web/geoRegions", func(w http.ResponseWriter, r *http.Request) {
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"value": []any{}})
 	})
 
-	// GET skus — global SKU catalog.
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/providers/Microsoft.Web/skus", func(w http.ResponseWriter, r *http.Request) {
 		sim.WriteJSON(w, http.StatusOK, map[string]any{})
 	})
 
-	// GET deploymentLocations — the places an App Service resource can be
-	// deployed to. The simulator publishes no region catalog, so `locations`
-	// is absent; the App Service Environments in the subscription are real
-	// resources it holds, so they are reported both in full and in the
-	// name-and-location form.
+	// The simulator publishes no region catalog, so `locations` is absent; the
+	// subscription's App Service Environments are reported in full and as
+	// name-and-location.
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/providers/Microsoft.Web/deploymentLocations", func(w http.ResponseWriter, r *http.Request) {
 		prefix := armSubscriptionID(sim.PathParam(r, "subscriptionId")) + "/"
 		environments := webHostingEnvironments.Filter(func(a AppServiceEnvironmentResource) bool {
@@ -466,22 +446,18 @@ func registerWebGlobal(srv *sim.Server) {
 		})
 	})
 
-	// GET deletedSites — DeletedWebApps_List: the apps deleted in this
-	// subscription, retained so they can be restored into another app.
+	// Deleted apps are retained so they can be restored into another app.
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/providers/Microsoft.Web/deletedSites", func(w http.ResponseWriter, r *http.Request) {
 		sim.WriteJSON(w, http.StatusOK, map[string]any{
 			"value": webDeletedSitesIn(sim.PathParam(r, "subscriptionId"), ""),
 		})
 	})
-	// DeletedWebApps_ListByLocation — the same list narrowed to the region
-	// the deleted apps ran in.
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/providers/Microsoft.Web/locations/{location}/deletedSites", func(w http.ResponseWriter, r *http.Request) {
 		sim.WriteJSON(w, http.StatusOK, map[string]any{
 			"value": webDeletedSitesIn(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "location")),
 		})
 	})
 
-	// POST locations/{location}/checknameavailability — regional name check.
 	srv.HandleFunc("POST /subscriptions/{subscriptionId}/providers/Microsoft.Web/locations/{location}/checknameavailability", func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			Name string `json:"name"`

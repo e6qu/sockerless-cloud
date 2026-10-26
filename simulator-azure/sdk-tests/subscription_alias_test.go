@@ -1,7 +1,6 @@
 package azure_sdk_test
 
-// Microsoft.Subscription alias API (2021-10-01) through the official
-// armsubscription SDK module. Routes exercised:
+// The Microsoft.Subscription alias API (2021-10-01) through armsubscription.
 //
 //	PUT /providers/Microsoft.Subscription/aliases/{aliasName}
 //	GET /providers/Microsoft.Subscription/aliases/{aliasName}
@@ -24,11 +23,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestSubscriptionAlias_CreateLifecycle drives the full programmatic
-// subscription-creation flow: the alias PUT under a billing scope, the SDK's
-// long-running-operation poller to Succeeded, visibility of the created
-// subscription through the subscriptions list, a resource group created
-// inside the new subscription, and the rename/cancel/enable actions.
+// TestSubscriptionAlias_CreateLifecycle: the alias PUT under a billing scope,
+// the SDK poller to Succeeded, the subscription in the list, a resource group
+// inside it, and the rename, cancel and enable actions.
 func TestSubscriptionAlias_CreateLifecycle(t *testing.T) {
 	t.Parallel()
 	aliasClient, err := armsubscription.NewAliasClient(&fakeCredential{}, clientOpts())
@@ -53,8 +50,7 @@ func TestSubscriptionAlias_CreateLifecycle(t *testing.T) {
 	require.NotEmpty(t, newSubID)
 	require.NotEqual(t, subscriptionID, newSubID, "a created subscription must get its own id")
 
-	// A repeated PUT with the same intent is idempotent: same alias, same
-	// subscription, no second creation.
+	// A repeated PUT with the same intent is idempotent.
 	again, err := aliasClient.BeginCreate(ctx, aliasName, armsubscription.PutAliasRequest{
 		Properties: &armsubscription.PutAliasRequestProperties{
 			DisplayName:  to.Ptr("SDK Created Subscription"),
@@ -84,8 +80,7 @@ func TestSubscriptionAlias_CreateLifecycle(t *testing.T) {
 	}
 	assert.True(t, found, "alias list must include %q", aliasName)
 
-	// The created subscription is a real, Enabled subscription: readable,
-	// listed, and usable as a scope for resource creation.
+	// The created subscription is Enabled, listed, and a scope for resources.
 	subsClient, err := armsubscriptions.NewClient(&fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	sub, err := subsClient.Get(ctx, newSubID, nil)
@@ -114,7 +109,6 @@ func TestSubscriptionAlias_CreateLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, *rg.ID, "/subscriptions/"+newSubID+"/resourceGroups/sdk-test-sub-alias-rg")
 
-	// Rename, cancel, and enable — the subscription-scoped actions.
 	subActions, err := armsubscription.NewClient(&fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	renamed, err := subActions.Rename(ctx, newSubID, armsubscription.Name{
@@ -153,18 +147,12 @@ func TestSubscriptionAlias_CreateLifecycle(t *testing.T) {
 	assert.Equal(t, armsubscriptions.SubscriptionStateEnabled, *sub.State)
 }
 
-// TestSubscriptionAlias_ProviderRefreshReadPath walks the exact two-call
-// sequence the azurerm provider's `azurerm_subscription` refresh performs
-// against a live alias: Alias_Get for the alias named in the resource id,
-// then Subscriptions_Get for the subscription id that alias reports. The
-// provider stores what those two responses carry — the alias resource path
-// as the resource id, and the subscription's id, display name and tenant id
-// as attributes — so a missing member in either response makes it either
-// drop the resource from state (plan: create) or plan a spurious change.
-//
-// Refresh is repeated to assert the read is stable: the same alias must keep
-// answering with the same subscription id, and the subscription must stay
-// Enabled once the creation operation has settled.
+// TestSubscriptionAlias_ProviderRefreshReadPath walks the azurerm provider's
+// `azurerm_subscription` refresh: Alias_Get, then Subscriptions_Get for the
+// subscription the alias reports. The provider stores the alias path as the
+// ID and the subscription's ID, display name and tenant ID as attributes, so
+// a missing member drops the resource or plans a spurious change. Refresh
+// repeats to show the read is stable.
 func TestSubscriptionAlias_ProviderRefreshReadPath(t *testing.T) {
 	t.Parallel()
 	aliasClient, err := armsubscription.NewAliasClient(&fakeCredential{}, clientOpts())
@@ -229,9 +217,8 @@ func TestSubscriptionAlias_ProviderRefreshReadPath(t *testing.T) {
 	}
 }
 
-// TestSubscriptionAlias_AdoptExistingSubscription creates an alias for an
-// already-existing subscription id — the second creation mode the alias API
-// supports (properties.subscriptionId instead of a billing scope).
+// TestSubscriptionAlias_AdoptExistingSubscription covers the second creation
+// mode: properties.subscriptionId in place of a billing scope.
 func TestSubscriptionAlias_AdoptExistingSubscription(t *testing.T) {
 	t.Parallel()
 	aliasClient, err := armsubscription.NewAliasClient(&fakeCredential{}, clientOpts())
@@ -255,9 +242,8 @@ func TestSubscriptionAlias_AdoptExistingSubscription(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestSubscriptionAlias_RequiresBillingScopeOrSubscriptionID asserts the
-// documented request contract: an alias PUT must carry either a billing
-// scope (creation) or a subscription id (adoption).
+// TestSubscriptionAlias_RequiresBillingScopeOrSubscriptionID: an alias PUT
+// carries a billing scope or a subscription ID.
 func TestSubscriptionAlias_RequiresBillingScopeOrSubscriptionID(t *testing.T) {
 	t.Parallel()
 	aliasClient, err := armsubscription.NewAliasClient(&fakeCredential{}, clientOpts())

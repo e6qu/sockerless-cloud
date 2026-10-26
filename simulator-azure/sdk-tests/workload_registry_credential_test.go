@@ -10,18 +10,17 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// A Container Apps Job whose configuration names its registry with a managed
-// identity pulls its image as that identity, as the platform does; a job that
-// names no credential pulls anonymously and the registry refuses it.
+// A Container Apps job whose configuration names its registry with a managed
+// identity pulls its image as that identity; a job naming no credential pulls
+// anonymously and the registry refuses it.
 func TestContainerApps_JobPullsFromItsRegistryAsItsIdentity(t *testing.T) {
 	t.Parallel()
 	const rg = "aca-registry-identity-rg"
 	loginServer, image := acrTasksPushImage(t, rg, "acaregidentityreg", "acaregidentityacct", "sockerless-overlay/aca")
 	identity := "/subscriptions/" + subscriptionID + "/resourceGroups/" + rg + "/providers/Microsoft.ManagedIdentity/userAssignedIdentities/aca-pull-identity"
 
-	// The anonymous control runs first, while the host engine holds no copy
-	// of the image: a job that names no credential pulls anonymously and the
-	// registry refuses it.
+	// The anonymous control runs first, while the host engine holds no copy of
+	// the image.
 	acaPutJob(t, rg, "registry-anonymous-job", image, []string{"cat", "/opt/payload"}, nil)
 	execName := acaStartExecution(t, rg, "registry-anonymous-job")
 	execution := acaWaitExecution(t, rg, "registry-anonymous-job", execName)
@@ -37,8 +36,8 @@ func TestContainerApps_JobPullsFromItsRegistryAsItsIdentity(t *testing.T) {
 	assert.Equal(t, "Succeeded", props["status"], "the job pulls its image as the identity its registry entry names: %v", execution)
 }
 
-// acaPutJob creates a manual-trigger Job running image with args, with extra
-// configuration entries merged in.
+// acaPutJob creates a manual-trigger job running image with args, merging in
+// extra configuration entries.
 func acaPutJob(t *testing.T, rg, jobName, image string, args []string, configuration map[string]any) {
 	t.Helper()
 	ensureRG(t, rg)
@@ -68,8 +67,8 @@ func acaPutJob(t *testing.T, rg, jobName, image string, args []string, configura
 }
 
 // A Functions site whose configuration asks for Azure Container Registry
-// managed-identity credentials pulls its image as that identity when its
-// host starts, as App Service does.
+// managed-identity credentials pulls its image as that identity when its host
+// starts.
 func TestFunctions_SitePullsFromItsRegistryAsItsIdentity(t *testing.T) {
 	t.Parallel()
 	const rg = "functions-registry-identity-rg"
@@ -84,8 +83,8 @@ func TestFunctions_SitePullsFromItsRegistryAsItsIdentity(t *testing.T) {
 			"appSettings": []map[string]any{
 				{"name": "DOCKER_REGISTRY_SERVER_URL", "value": "https://" + loginServer},
 			},
-			// busybox nc answers each connection with the image's payload
-			// after reading the request's headers.
+			// busybox nc answers each connection with the image's payload after reading
+			// the request headers.
 			"appCommandLine": `nc -lk -p 80 -e sh -c "while read -r l && [ ${#l} -gt 1 ]; do :; done; printf 'HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n'; cat /opt/payload"`,
 		},
 	}

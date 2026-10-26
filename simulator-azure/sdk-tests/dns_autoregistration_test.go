@@ -12,10 +12,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// A virtual machine in a virtual network linked to a private zone with
-// registration enabled is registered in the zone under its computer name, and
-// the machine itself resolves that name through the resolver its network
-// hands it.
+// A virtual machine in a network linked to a private zone with registration
+// enabled is registered under its computer name, and resolves that name
+// through the resolver its network hands it.
 func TestPrivateDNS_AutoRegistersAVirtualMachine(t *testing.T) {
 	t.Parallel()
 	const rg = "dns-reg-rg"

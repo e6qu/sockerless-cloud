@@ -12,13 +12,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestSDK_SiteContainers_EnvironmentVariablesNameAppSettings holds a
-// sitecontainer's environmentVariables to Microsoft.Web's contract: "The value
-// of this environment variable must be the name of an AppSetting. The actual
-// value of the environment variable in container will be retrieved from the
-// specified AppSetting at runtime. If the AppSetting is not found, the value
-// will be set to an empty string in the container at runtime." An app setting
-// that is a Key Vault reference reaches the container as the secret's value.
+// Microsoft.Web's contract for a sitecontainer's environmentVariables: "The
+// value of this environment variable must be the name of an AppSetting. The
+// actual value of the environment variable in container will be retrieved
+// from the specified AppSetting at runtime. If the AppSetting is not found,
+// the value will be set to an empty string in the container at runtime." A
+// Key Vault reference setting reaches the container as the secret's value.
 func TestSDK_SiteContainers_EnvironmentVariablesNameAppSettings(t *testing.T) {
 	t.Parallel()
 	rg, name, vault := "sdk-sc-env-rg", "sdk-sc-env-app", "sdkscenvvault"
@@ -109,7 +108,7 @@ func TestSDK_SiteContainers_EnvironmentVariablesNameAppSettings(t *testing.T) {
 }
 
 // createInheritanceSite creates a sitecontainers web app with one app setting
-// and one connection string, and returns its Web Apps client.
+// and one connection string.
 func createInheritanceSite(t *testing.T, rg, name string) *armappservice.WebAppsClient {
 	t.Helper()
 	ensureRG(t, rg)
@@ -139,11 +138,10 @@ func createInheritanceSite(t *testing.T, rg, name string) *armappservice.WebApps
 	return client
 }
 
-// TestSDK_SiteContainers_MainThatDoesNotInheritGetsNoAppSettings holds a main
-// sitecontainer to Microsoft.Web's inheritAppSettingsAndConnectionStrings:
-// "true if all AppSettings and ConnectionStrings have to be passed to the
-// container as environment variables; false otherwise." A main that sets it
-// false gets neither, and still gets the platform's own variables.
+// Microsoft.Web's inheritAppSettingsAndConnectionStrings: "true if all
+// AppSettings and ConnectionStrings have to be passed to the container as
+// environment variables; false otherwise." A main set false gets neither, but
+// still gets the platform's own variables.
 func TestSDK_SiteContainers_MainThatDoesNotInheritGetsNoAppSettings(t *testing.T) {
 	t.Parallel()
 	rg, name := "sdk-sc-noinherit-rg", "sdk-sc-noinherit-app"
@@ -170,10 +168,9 @@ func TestSDK_SiteContainers_MainThatDoesNotInheritGetsNoAppSettings(t *testing.T
 	assert.Equal(t, http.StatusNotFound, status, "a main that does not inherit gets no connection string: %s", body)
 }
 
-// TestSDK_SiteContainers_SidecarInheritsAppSettingsUnlessFalse gives a sidecar
-// the app settings and connection strings unless its
-// inheritAppSettingsAndConnectionStrings is false; unset, it defaults to true. The main relays requests to
-// each sidecar's files-http over the shared loopback.
+// A sidecar inherits the app settings and connection strings unless its
+// inheritAppSettingsAndConnectionStrings is false; unset means true. The main
+// relays requests to each sidecar's files-http over the shared loopback.
 func TestSDK_SiteContainers_SidecarInheritsAppSettingsUnlessFalse(t *testing.T) {
 	t.Parallel()
 	rg, name := "sdk-sc-inherit-rg", "sdk-sc-inherit-app"

@@ -13,8 +13,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// loginForwardedHeadersCLI registers the TLS simulator as a cloud, logs the CLI
-// in to it, and returns the environment.
+// loginForwardedHeadersCLI registers the TLS simulator as a cloud and logs the
+// CLI in to it.
 func loginForwardedHeadersCLI(t *testing.T, cloud string) azLoginEnv {
 	t.Helper()
 	env := startAzTLSSimulator(t)
@@ -31,9 +31,9 @@ func loginForwardedHeadersCLI(t *testing.T, cloud string) azLoginEnv {
 	return env
 }
 
-// frontEndEchoedHeaders sends `az rest` to the simulator carrying host and an
-// X-Forwarded-For of its own, the way a client resolving the platform hostname
-// does, and returns the headers the echoing workload received.
+// frontEndEchoedHeaders sends `az rest` with a Host and an X-Forwarded-For of
+// its own, as a client resolving the platform hostname does, and returns the
+// headers the echoing workload received.
 func frontEndEchoedHeaders(t *testing.T, env azLoginEnv, host string) http.Header {
 	t.Helper()
 	out := runCLI(t, env.command("rest", "--method", "GET", "--url", env.baseURL+"/",
@@ -44,11 +44,9 @@ func frontEndEchoedHeaders(t *testing.T, env azLoginEnv, host string) http.Heade
 	return got
 }
 
-// TestWebApp_CLI_ForwardedRequestHeaders runs a custom container web app set
-// up with `az webapp config set --startup-file` and `az webapp config
-// appsettings set`: the App Service front end appends the client's address
-// and port to X-Forwarded-For and names the client's protocol in
-// X-Forwarded-Proto and X-AppService-Proto.
+// TestWebApp_CLI_ForwardedRequestHeaders: the App Service front end appends the
+// client's address and port to X-Forwarded-For and names the client's protocol
+// in X-Forwarded-Proto and X-AppService-Proto.
 func TestWebApp_CLI_ForwardedRequestHeaders(t *testing.T) {
 	t.Parallel()
 	env := loginForwardedHeadersCLI(t, "sockerless-web-xff")
@@ -81,8 +79,7 @@ func TestWebApp_CLI_ForwardedRequestHeaders(t *testing.T) {
 	assert.Equal(t, "https", got.Get("X-Forwarded-Proto"))
 	assert.Equal(t, "https", got.Get("X-AppService-Proto"))
 
-	// TLS mutual authentication: `az webapp update --set` writes the three
-	// client certificate members and `az webapp show` reads them back.
+	// `az webapp update --set` writes the three client certificate members.
 	var site struct {
 		ClientCertEnabled        bool   `json:"clientCertEnabled"`
 		ClientCertMode           string `json:"clientCertMode"`
@@ -99,10 +96,8 @@ func TestWebApp_CLI_ForwardedRequestHeaders(t *testing.T) {
 	assert.Equal(t, "/public;/health", site.ClientCertExclusionPaths)
 }
 
-// TestContainerAppsCLI_IngressForwardedRequestHeaders creates a container app
-// with `az rest` and reaches it at its ingress FQDN: ingress appends the
-// client's IP to X-Forwarded-For and overwrites X-Forwarded-Proto with the
-// protocol the client used.
+// TestContainerAppsCLI_IngressForwardedRequestHeaders: Container Apps ingress
+// appends the client's IP to X-Forwarded-For and overwrites X-Forwarded-Proto.
 func TestContainerAppsCLI_IngressForwardedRequestHeaders(t *testing.T) {
 	t.Parallel()
 	env := loginForwardedHeadersCLI(t, "sockerless-aca-xff")
@@ -149,9 +144,8 @@ func TestContainerAppsCLI_IngressForwardedRequestHeaders(t *testing.T) {
 	assert.True(t, client.IsLoopback(), "X-Forwarded-For %q", got.Get("X-Forwarded-For"))
 	assert.Equal(t, "https", got.Get("X-Forwarded-Proto"))
 
-	// clientCertificateMode is written the way the Container Apps
-	// documentation shows, an `az rest` PATCH of the ingress, and
-	// `az containerapp show` reads it back.
+	// Write clientCertificateMode as the Container Apps documentation shows, with
+	// an `az rest` PATCH of the ingress.
 	runCLI(t, rest("PATCH", appURL, `{"properties":{"configuration":{"ingress":{"clientCertificateMode":"require"}}}}`))
 	var shown struct {
 		Properties struct {

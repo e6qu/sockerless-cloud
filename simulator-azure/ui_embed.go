@@ -12,8 +12,7 @@ import (
 //go:embed all:dist
 var uiAssets embed.FS
 
-// consoleBundle returns the console this build embeds, or the one in dir when
-// the operator names one.
+// The embedded console, or the one in dir when the operator names one.
 func consoleBundle(dir string) (fs.FS, error) {
 	if dir != "" {
 		return sim.ConsoleBundle(dir)

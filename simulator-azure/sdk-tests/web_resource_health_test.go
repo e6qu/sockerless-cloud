@@ -9,7 +9,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// SDK coverage for a site's Resource Health metadata at all four scopes:
+// A site's Resource Health metadata: the listings report the sites their scope
+// holds, and the singleton is the resource the site's listing carries.
 //
 //	GET .../sites/{name}/resourceHealthMetadata
 //	GET .../sites/{name}/resourceHealthMetadata/default
@@ -17,9 +18,6 @@ import (
 //	GET .../sites/{name}/slots/{slot}/resourceHealthMetadata/default
 //	GET .../resourceGroups/{rg}/providers/Microsoft.Web/resourceHealthMetadata
 //	GET .../providers/Microsoft.Web/resourceHealthMetadata
-//
-// The listings report the sites their scope actually holds, and the singleton
-// is the same resource the site's own listing carries.
 func TestSDK_ResourceHealthMetadata(t *testing.T) {
 	t.Parallel()
 	rg := "sdk-rhm-rg"
@@ -56,9 +54,7 @@ func TestSDK_ResourceHealthMetadata(t *testing.T) {
 	client, err := armappservice.NewResourceHealthMetadataClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 
-	// The site's own singleton. Nothing is running behind this site, so
-	// Resource Health has no signal to read from it — the simulator reports
-	// that rather than claiming one exists.
+	// Nothing runs behind this site, so Resource Health has no signal to read.
 	single, err := client.GetBySite(ctx, rg, "sdk-rhm-site", nil)
 	require.NoError(t, err)
 	require.NotNil(t, single.Name)
@@ -66,9 +62,8 @@ func TestSDK_ResourceHealthMetadata(t *testing.T) {
 	require.NotNil(t, single.Properties)
 	require.NotNil(t, single.Properties.SignalAvailability)
 	assert.False(t, *single.Properties.SignalAvailability)
-	// The category is the one the site matches in Microsoft's Resource Health
-	// Check policy file, which this simulator does not vendor, so it is absent
-	// rather than invented.
+	// The category comes from Microsoft's Resource Health Check policy file, which
+	// the simulator does not vendor, so it is absent.
 	assert.Nil(t, single.Properties.Category)
 
 	// The site's listing carries exactly that resource.
@@ -98,8 +93,8 @@ func TestSDK_ResourceHealthMetadata(t *testing.T) {
 	require.Len(t, slotListed, 1)
 	assert.Equal(t, *slotMetadata.ID, *slotListed[0].ID)
 
-	// The resource group's listing holds the site. A slot's metadata is
-	// reached through its own site, so the scope listing counts the site once.
+	// The resource group's listing holds the site once; a slot's metadata is
+	// reached through its site.
 	var byGroup []*armappservice.ResourceHealthMetadata
 	groupPager := client.NewListByResourceGroupPager(rg, nil)
 	for groupPager.More() {
@@ -110,7 +105,7 @@ func TestSDK_ResourceHealthMetadata(t *testing.T) {
 	require.Len(t, byGroup, 1)
 	assert.Equal(t, *single.ID, *byGroup[0].ID)
 
-	// The subscription's listing reaches the same site through a wider scope.
+	// The subscription's listing reaches the same site.
 	found := false
 	subPager := client.NewListPager(nil)
 	for subPager.More() {
@@ -124,7 +119,7 @@ func TestSDK_ResourceHealthMetadata(t *testing.T) {
 	}
 	assert.True(t, found, "the subscription listing did not reach the site's metadata")
 
-	// A site that does not exist is a 404, not an empty metadata resource.
+	// A missing site is 404, not an empty metadata resource.
 	_, err = client.GetBySite(ctx, rg, "sdk-rhm-absent", nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "ResourceNotFound")

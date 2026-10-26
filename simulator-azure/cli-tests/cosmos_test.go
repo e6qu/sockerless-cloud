@@ -13,12 +13,10 @@ import (
 	"time"
 )
 
-// cosmosSignDataPlane applies the shared-key authorization a Cosmos DB client
-// builds: `type=master&ver=1.0&sig=<base64 HMAC-SHA256>` over
-// "{verb}\n{resourceType}\n{resourceLink}\n{date}\n\n", URL-encoded whole,
-// with the verb, the resource type and the date lowercased. An operation over a
-// set of resources signs the parent's link; one on a single resource signs its
-// own.
+// cosmosSignDataPlane applies the Azure Cosmos DB master-key authorization:
+// `type=master&ver=1.0&sig=<base64 HMAC-SHA256>` over
+// "{verb}\n{resourceType}\n{resourceLink}\n{date}\n\n" with verb, type and date
+// lowercased, URL-encoded whole. A feed operation signs the parent's link.
 func cosmosSignDataPlane(t *testing.T, req *http.Request, key string) {
 	t.Helper()
 	segments := strings.Split(strings.Trim(req.URL.Path, "/"), "/")
@@ -47,11 +45,9 @@ func TestAzureCosmosDB_ARMAndDataPlaneRESTCLIFlows(t *testing.T) {
 	account := "clicosmos"
 	armBase := armURL("Microsoft.DocumentDB", "databaseAccounts/"+account, "2024-05-15")
 	createOut := runCLI(t, azRest("PUT", armBase, `{"location":"eastus","kind":"GlobalDocumentDB","properties":{"databaseAccountOfferType":"Standard"}}`))
-	// The account's advertised documentEndpoint is the coordinate a Cosmos
-	// client resolves to reach it — the account name is a hostname, and it is
-	// the only thing that tells the data plane which account a request is for.
-	// The raw-HTTP requests below dial the simulator's address and carry this
-	// host, which is what a client reaching the service through a proxy sends.
+	// The account name in documentEndpoint's host is all that tells the data plane
+	// which account a request is for. The raw requests below dial the simulator and
+	// carry that host, as a client behind a proxy does.
 	var created struct {
 		Properties struct {
 			DocumentEndpoint string `json:"documentEndpoint"`

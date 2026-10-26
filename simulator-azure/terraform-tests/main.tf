@@ -7,11 +7,9 @@ terraform {
   }
 }
 
-# azurerm provider against the sim — the single provider driving the whole
-# stack. The sim ships /metadata/endpoints (api-version=2022-09-01) +
-# /<tenant>/oauth2/v2.0/token + JWKS + OpenID discovery; together these
-# let azurerm bootstrap its cloud config and auth without ever reaching
-# real Azure.
+# The one azurerm provider driving the stack. It bootstraps its cloud config and
+# auth from the simulator's /metadata/endpoints (api-version=2022-09-01),
+# /<tenant>/oauth2/v2.0/token, JWKS and OpenID discovery.
 provider "azurerm" {
   client_id       = "test-client-id"
   client_secret   = "test-client-secret"
@@ -25,14 +23,10 @@ provider "azurerm" {
   features {}
 }
 
-# ---------- Resource group (foundation for the network/storage/KV slice) ----------
-
 resource "azurerm_resource_group" "main" {
   name     = "tf-test-rg"
   location = "eastus"
 }
-
-# ---------- Virtual Network + Subnet ----------
 
 # Two address prefixes: the virtual network is one routing domain over both,
 # and the machine below lives in a subnet of the second.
@@ -62,8 +56,6 @@ output "azrm_vnet_address_space" {
   value = azurerm_virtual_network.main.address_space
 }
 
-# ---------- Network Security Group + rule ----------
-
 resource "azurerm_network_security_group" "main" {
   name                = "tf-test-nsg"
   resource_group_name = azurerm_resource_group.main.name
@@ -85,8 +77,6 @@ resource "azurerm_network_security_rule" "allow_ssh" {
   destination_address_prefix = "*"
 }
 
-# ---------- Storage account (Azure Files / runner shared volumes) ----------
-
 resource "azurerm_storage_account" "main" {
   name                     = "tftestsa12345"
   resource_group_name      = azurerm_resource_group.main.name
@@ -94,8 +84,8 @@ resource "azurerm_storage_account" "main" {
   account_tier             = "Standard"
   account_replication_type = "LRS"
 
-  # The Blob service's CORS rules, which the service enforces on a browser's
-  # cross-origin requests.
+  # The Blob service enforces its CORS rules on a browser's cross-origin
+  # requests.
   blob_properties {
     cors_rule {
       allowed_origins    = ["https://console.example.com"]
@@ -106,8 +96,6 @@ resource "azurerm_storage_account" "main" {
     }
   }
 }
-
-# ---------- Key vault (runner credential storage) ----------
 
 resource "azurerm_key_vault" "main" {
   name                = "tf-test-kv"
@@ -121,18 +109,13 @@ resource "azurerm_key_vault" "main" {
   soft_delete_retention_days = 7
 }
 
-# ---------- Second resource group (workload/runner slice) ----------
-
 resource "azurerm_resource_group" "az_rg" {
   name     = "tf-azrm-rg"
   location = "eastus"
 }
 
-# Container Registry — ACA + AZF runner backends both pull container
-# images from a private ACR. Standard SKU is the cheapest tier that
-# azurerm accepts (Basic / Standard / Premium). The admin user is enabled
-# so the provider surfaces the registry's admin credential, which is the
-# credential its data plane authenticates.
+# The admin user is enabled so the provider surfaces the admin credential the
+# registry's data plane authenticates.
 resource "azurerm_container_registry" "az_acr" {
   name                = "tfazrmacr"
   resource_group_name = azurerm_resource_group.az_rg.name
@@ -141,9 +124,9 @@ resource "azurerm_container_registry" "az_acr" {
   admin_enabled       = true
 }
 
-# An Azure Container Registry Tasks task whose step is an inline task file,
-# and a run of it: azurerm_container_registry_task_schedule_run_now schedules a
-# TaskRunRequest and completes only once Runs_Get reports the run Succeeded.
+# An Azure Container Registry Tasks task with an inline task file step, and a
+# run of it: azurerm_container_registry_task_schedule_run_now schedules a
+# TaskRunRequest and completes only once Runs_Get reports it Succeeded.
 resource "azurerm_container_registry_task" "az_acr_task" {
   name                  = "tfazrmtask"
   container_registry_id = azurerm_container_registry.az_acr.id
@@ -184,8 +167,6 @@ resource "azurerm_redis_firewall_rule" "az_redis_fw" {
   end_ip              = "203.0.113.10"
 }
 
-# User-assigned managed identity — the runner backends bind one of these
-# to each pod/container so it can pull from ACR + read from Key Vault.
 resource "azurerm_user_assigned_identity" "az_uai" {
   name                = "tf-azrm-uai"
   resource_group_name = azurerm_resource_group.az_rg.name
@@ -275,8 +256,8 @@ resource "azurerm_lb_rule" "az_lb_rule" {
   probe_id                       = azurerm_lb_probe.az_lb_probe.id
 }
 
-# The machine's interface sits in the subnet of the network's second address
-# prefix, so the realized machine takes an address there.
+# The interface sits in the subnet of the network's second address prefix, so
+# the machine takes an address there.
 resource "azurerm_network_interface" "az_vm_nic" {
   name                = "tf-azrm-vm-nic"
   resource_group_name = azurerm_resource_group.az_rg.name
@@ -294,8 +275,7 @@ output "azrm_vm_nic_private_ip_address" {
   value = azurerm_network_interface.az_vm_nic.private_ip_address
 }
 
-# A network interface with a secondary IP configuration: each configuration
-# holds an address of its own on the realized interface.
+# Each IP configuration holds an address of its own on the realized interface.
 resource "azurerm_network_interface" "az_multi_ip_nic" {
   name                = "tf-azrm-multi-ip-nic"
   resource_group_name = azurerm_resource_group.az_rg.name
@@ -324,8 +304,8 @@ output "azrm_multi_ip_nic_primary_private_ip_address" {
   value = azurerm_network_interface.az_multi_ip_nic.private_ip_address
 }
 
-# The marketplace image the machine boots, resolved through the catalog the
-# Compute resource provider lists under locations/{location}/publishers.
+# Resolved through the marketplace catalog under
+# locations/{location}/publishers.
 data "azurerm_platform_image" "az_ubuntu" {
   location  = azurerm_resource_group.az_rg.location
   publisher = "Canonical"
@@ -350,8 +330,8 @@ resource "azurerm_linux_virtual_machine" "az_vm" {
     storage_account_type = "Standard_LRS"
   }
 
-  # The image the simulator's marketplace catalog publishes, read back below
-  # through VirtualMachineImages_List and VirtualMachineImages_Get.
+  # Read back below through VirtualMachineImages_List and
+  # VirtualMachineImages_Get.
   source_image_reference {
     publisher = data.azurerm_platform_image.az_ubuntu.publisher
     offer     = data.azurerm_platform_image.az_ubuntu.offer
@@ -363,27 +343,23 @@ resource "azurerm_linux_virtual_machine" "az_vm" {
   # what it wrote.
   custom_data = base64encode("#!/bin/sh\necho tf-custom-data > /var/tmp/tf-custom-data\n")
 
-  # Boot diagnostics names the storage account the machine's console log is
-  # written to, which is what RetrieveBootDiagnosticsData reads it back from.
-  # It is applied here because a member the model drops reads back missing and
-  # shows up as perpetual drift in the follow-up plan.
+  # RetrieveBootDiagnosticsData reads the console log from this storage account.
+  # A member the model dropped would read back missing and show as drift in the
+  # follow-up plan.
   boot_diagnostics {
     storage_account_uri = azurerm_storage_account.main.primary_blob_endpoint
   }
 
-  # The machine's own identity, whose principal the provider reads back from
-  # identity.principalId and which the Instance Metadata Service inside the
-  # machine mints tokens for.
+  # The provider reads the principal back from identity.principalId, and the
+  # Instance Metadata Service inside the machine mints tokens for it.
   identity {
     type = "SystemAssigned"
   }
 }
 
-# A virtual-machine extension, the one sub-surface of the machine Terraform can
-# express: it reaches virtualMachines/{vm}/extensions/{name} through PUT, GET
-# and DELETE. The assess/install-patches and capture verbs beside it are
-# imperative actions the provider wraps no resource for, and listing machines by
-# location is a read no configuration performs.
+# The machine's one sub-surface Terraform expresses:
+# virtualMachines/{vm}/extensions/{name}. The provider wraps no resource for
+# the patch and capture verbs, and no configuration lists machines by location.
 resource "azurerm_virtual_machine_extension" "az_vm_extension" {
   name                 = "tf-azrm-vm-extension"
   virtual_machine_id   = azurerm_linux_virtual_machine.az_vm.id
@@ -400,8 +376,6 @@ resource "azurerm_virtual_machine_extension" "az_vm_extension" {
   }
 }
 
-# Private DNS zone — sockerless's Azure DNS driver creates one of these
-# per cluster to resolve `<service>.internal` to cloud-internal IPs.
 resource "azurerm_private_dns_zone" "az_pdns" {
   name                = "tf-azrm.internal"
   resource_group_name = azurerm_resource_group.az_rg.name
@@ -518,8 +492,6 @@ resource "azurerm_eventgrid_system_topic" "az_eg_system_topic" {
   topic_type          = "Microsoft.Storage.StorageAccounts"
 }
 
-# ---------- Cosmos DB (NoSQL control plane) ----------
-
 resource "azurerm_cosmosdb_account" "az_cosmos" {
   name                = "tfazrmcosmos"
   resource_group_name = azurerm_resource_group.az_rg.name
@@ -565,8 +537,7 @@ resource "azurerm_cosmosdb_table" "az_cosmos_table" {
   throughput          = 400
 }
 
-# Log Analytics workspace — Container App Environment requires one for
-# log ingestion. PerGB2018 is the canonical SKU.
+# A Container Apps environment requires a workspace for log ingestion.
 resource "azurerm_log_analytics_workspace" "az_law" {
   name                = "tf-azrm-law"
   resource_group_name = azurerm_resource_group.az_rg.name
@@ -575,8 +546,8 @@ resource "azurerm_log_analytics_workspace" "az_law" {
   retention_in_days   = 30
 }
 
-# A custom log table in the workspace, which the data collection rule below
-# writes through the Logs Ingestion API.
+# The data collection rule below writes this table through the Logs Ingestion
+# API.
 resource "azurerm_log_analytics_workspace_table_custom_log" "az_law_table" {
   name         = "TfEvents_CL"
   workspace_id = azurerm_log_analytics_workspace.az_law.id
@@ -630,7 +601,6 @@ resource "azurerm_monitor_data_collection_rule" "az_dcr" {
   }
 }
 
-# Application Insights — observability companion to Container Apps.
 resource "azurerm_application_insights" "az_appins" {
   name                = "tf-azrm-ai"
   resource_group_name = azurerm_resource_group.az_rg.name
@@ -639,8 +609,6 @@ resource "azurerm_application_insights" "az_appins" {
   workspace_id        = azurerm_log_analytics_workspace.az_law.id
 }
 
-# Container App Environment — the ACA host plane. Sockerless's ACA
-# backend lives in one of these.
 resource "azurerm_container_app_environment" "az_cae" {
   name                       = "tf-azrm-cae"
   resource_group_name        = azurerm_resource_group.az_rg.name
@@ -649,8 +617,7 @@ resource "azurerm_container_app_environment" "az_cae" {
   log_analytics_workspace_id = azurerm_log_analytics_workspace.az_law.id
 }
 
-# Container App — the ACA workload. Minimal configuration: one container
-# with image + 0.25vCPU/0.5Gi memory + ingress disabled.
+# One container with 0.25 vCPU and 0.5Gi memory, ingress disabled.
 resource "azurerm_container_app" "az_ca" {
   name                         = "tf-azrm-ca"
   container_app_environment_id = azurerm_container_app_environment.az_cae.id
@@ -669,7 +636,7 @@ resource "azurerm_container_app" "az_ca" {
 }
 
 # A multiple-revision Container App whose ingress sends all traffic to the
-# latest revision and which keeps up to five inactive revisions. Its container
+# latest revision and keeps up to five inactive revisions. Its container
 # listens on the target port, which the default startup probe dials.
 resource "azurerm_container_app" "az_ca_multi" {
   name                         = "tf-azrm-ca-multi"
@@ -697,8 +664,6 @@ resource "azurerm_container_app" "az_ca_multi" {
   }
 }
 
-# Container App Job — the ACA runner-job primitive. Sockerless dispatches
-# CI runner jobs as Container App Jobs.
 resource "azurerm_container_app_job" "az_caj" {
   name                         = "tf-azrm-caj"
   container_app_environment_id = azurerm_container_app_environment.az_cae.id
@@ -724,11 +689,8 @@ resource "azurerm_container_app_job" "az_caj" {
   }
 }
 
-# Container App Environment storage — the Azure Files mount definition an ACA
-# app or job references by name to get a shared volume. Sockerless's ACA backend
-# provisions one of these whenever a docker volume is bound into a container, so
-# the managedEnvironments/{env}/storages sub-resource is driven here through the
-# real azurerm resource rather than only through the SDK and CLI.
+# The Azure Files mount definition an app or job references by name for a
+# shared volume: the managedEnvironments/{env}/storages sub-resource.
 resource "azurerm_container_app_environment_storage" "az_cae_storage" {
   name                         = "tfazrmcaestorage"
   container_app_environment_id = azurerm_container_app_environment.az_cae.id
@@ -738,9 +700,6 @@ resource "azurerm_container_app_environment_storage" "az_cae_storage" {
   access_mode                  = "ReadWrite"
 }
 
-# Logic App workflow — runner orchestration stacks often use Logic Apps for
-# webhook fan-in around Azure-hosted jobs. This drives Microsoft.Logic/workflows
-# through the real azurerm resource.
 resource "azurerm_logic_app_workflow" "az_logic" {
   name                = "tf-azrm-logic"
   resource_group_name = azurerm_resource_group.az_rg.name
@@ -751,10 +710,8 @@ resource "azurerm_logic_app_workflow" "az_logic" {
   }
 }
 
-# Azure Container Instance — the direct container primitive beneath a number
-# of small-runner and one-shot task deployments. Uses the cached alpine image
-# pre-pulled by the Terraform test harness so the simulator starts a real
-# Docker container without hitting the network during apply.
+# Uses the alpine image the harness pre-pulled, so the simulator starts the
+# container without network access during apply.
 resource "azurerm_container_group" "az_aci" {
   name                = "tf-azrm-aci"
   resource_group_name = azurerm_resource_group.az_rg.name
@@ -775,7 +732,6 @@ resource "azurerm_container_group" "az_aci" {
   }
 }
 
-# Service Plan — Function App host.
 resource "azurerm_service_plan" "az_sp" {
   name                = "tf-azrm-sp"
   resource_group_name = azurerm_resource_group.az_rg.name
@@ -784,9 +740,8 @@ resource "azurerm_service_plan" "az_sp" {
   sku_name            = "Y1"
 }
 
-# Storage account for the Function App. Real Function Apps need a storage
-# account for queue triggers + run metadata; a dedicated account keeps the
-# Function App wiring independent of the general-purpose account above.
+# A dedicated account keeps the function app's wiring independent of the
+# general-purpose account above.
 resource "azurerm_storage_account" "az_st" {
   name                     = "tfazrmst12345"
   resource_group_name      = azurerm_resource_group.az_rg.name
@@ -795,11 +750,10 @@ resource "azurerm_storage_account" "az_st" {
   account_replication_type = "LRS"
 }
 
-# Storage container through the AzureRM data-plane resource path.
-# AzureRM 5 requires the storage account ID and resolves the account's
-# data-plane endpoints from that resource. This verifies the simulator emits
-# azurerm-parseable {account}.{service}.{suffix} endpoints and matching
-# /metadata/endpoints storage suffixes.
+# AzureRM 5 resolves the container's data-plane endpoints from the storage
+# account ID, so the simulator must emit azurerm-parseable
+# {account}.{service}.{suffix} endpoints and matching /metadata/endpoints
+# storage suffixes.
 resource "azurerm_storage_container" "az_st_container" {
   name                  = "tfazrmcontainer"
   storage_account_id    = azurerm_storage_account.az_st.id
@@ -827,12 +781,10 @@ resource "azurerm_storage_share" "az_st_share" {
   }
 }
 
-# Azure Files directories — the Files data plane's Create / Get / Delete
-# Directory operations, which is how a nested path inside a share comes into
-# being. An Azure Container Apps or Azure Functions workload mounting the share
-# walks exactly this tree, so a share is only usable as a volume if directories
-# below its root are real. The provider reads each directory back on every
-# refresh, so the idempotency plan covers Get Directory Properties too.
+# Azure Files directories: Create, Get and Delete Directory make a nested path
+# inside a share, which a mounting Container Apps or Functions workload walks.
+# The provider reads each directory back on every refresh, so the idempotency
+# plan covers Get Directory Properties too.
 resource "azurerm_storage_share_directory" "az_st_share_dir" {
   name              = "build"
   storage_share_url = azurerm_storage_share.az_st_share.url
@@ -843,15 +795,11 @@ resource "azurerm_storage_share_directory" "az_st_share_subdir" {
   storage_share_url = azurerm_storage_share.az_st_share.url
 }
 
-# Linux Function App — AZF runner backend's host primitive.
-# The backup block is the leg that crashed terraform-provider-azurerm 5.1.0:
-# FlattenBackupConfig dereferences the schedule's start time before its own
-# nil check, and the simulator used to serve a backup schedule without one —
-# a document real Azure never returns, because the service defaults the start
-# time at configuration save. The signed URL is the provider's own documented
-# shape for `storage_account_url`: an account SAS from
-# `data.azurerm_storage_account_sas`, which the storage data plane verifies
-# against the account's keys like every other signature.
+# terraform-provider-azurerm's FlattenBackupConfig dereferences the backup
+# schedule's start time before its nil check; Azure defaults the start time at
+# save, so the simulator must too. storage_account_url is the provider's
+# documented shape: an account SAS from data.azurerm_storage_account_sas, which
+# the storage data plane verifies against the account keys.
 resource "azurerm_storage_container" "az_fa_backups" {
   name               = "tf-azrm-fa-backups"
   storage_account_id = azurerm_storage_account.az_st.id
@@ -899,9 +847,8 @@ resource "azurerm_linux_function_app" "az_fa" {
   site_config {}
 }
 
-# Backups need a dedicated Basic-or-higher plan: az_sp is deliberately Y1, and
-# real Azure refuses a backup configuration on a Consumption plan — which is
-# one of the three failures fixed before the provider crash was run down.
+# Azure refuses a backup configuration on a Consumption plan, and az_sp is Y1,
+# so backups need a dedicated Basic-or-higher plan.
 resource "azurerm_service_plan" "az_backup_sp" {
   name                = "tf-azrm-backup-sp"
   resource_group_name = azurerm_resource_group.az_rg.name
@@ -931,11 +878,11 @@ resource "azurerm_linux_function_app" "az_backup_fa" {
   }
 }
 
-# A Linux custom-container Function App: application_stack.docker becomes
-# linuxFxVersion "DOCKER|mirror.gcr.io/library/alpine:latest", and
-# app_command_line is the startup command the platform runs on the image's
-# entrypoint. WEBSITES_PORT names the port requests go to. busybox nc answers
-# each connection after reading the request's headers.
+# application_stack.docker becomes linuxFxVersion
+# "DOCKER|mirror.gcr.io/library/alpine:latest", and app_command_line is the
+# startup command run on the image's entrypoint. WEBSITES_PORT names the port
+# requests go to; busybox nc answers each connection after reading the request
+# headers.
 resource "azurerm_linux_function_app" "az_container_fa" {
   name                       = "tf-azrm-container-fa"
   resource_group_name        = azurerm_resource_group.az_rg.name
@@ -961,11 +908,10 @@ resource "azurerm_linux_function_app" "az_container_fa" {
   }
 }
 
-# Linux web apps on built-in runtime stacks: application_stack becomes
-# linuxFxVersion "NODE|20-lts" / "PYTHON|3.12", and the platform runs that
-# stack's image on the app's content. The Node app runs the zip package
-# WEBSITE_RUN_FROM_PACKAGE names; the Python app has no content and serves the
-# platform's default page.
+# application_stack becomes linuxFxVersion "NODE|20-lts" / "PYTHON|3.12", and
+# the platform runs that stack's image on the app's content. The Node app runs
+# the zip package WEBSITE_RUN_FROM_PACKAGE names; the Python app has no content
+# and serves the platform's default page.
 resource "azurerm_service_plan" "az_web_sp" {
   name                = "tf-azrm-web-sp"
   resource_group_name = azurerm_resource_group.az_rg.name
@@ -991,8 +937,8 @@ resource "azurerm_linux_web_app" "az_node_app" {
   }
 }
 
-# A diagnostic setting on the Node web app sends its console logs to the Log
-# Analytics workspace: Microsoft.Insights/diagnosticSettings on the site.
+# Microsoft.Insights/diagnosticSettings on the site send its console logs to
+# the Log Analytics workspace.
 resource "azurerm_monitor_diagnostic_setting" "az_node_app_logs" {
   name                       = "tf-azrm-node-app-logs"
   target_resource_id         = azurerm_linux_web_app.az_node_app.id
@@ -1007,10 +953,10 @@ output "azrm_node_app_diagnostic_setting_id" {
   value = azurerm_monitor_diagnostic_setting.az_node_app_logs.id
 }
 
-# zip_deploy_file publishes the package to the app's SCM site: the provider
-# reads the Repository hostname from hostNameSslStates and the publishing
-# credentials, warms Kudu up at /deployments, posts the zip to
-# /api/zipdeploy?isAsync=true and polls /api/deployments/latest.
+# zip_deploy_file publishes to the SCM site: the provider reads the Repository
+# hostname from hostNameSslStates and the publishing credentials, warms Kudu at
+# /deployments, posts to /api/zipdeploy?isAsync=true and polls
+# /api/deployments/latest.
 resource "azurerm_linux_web_app" "az_zip_app" {
   name                = "tf-azrm-zip-app"
   resource_group_name = azurerm_resource_group.az_rg.name
@@ -1042,11 +988,10 @@ resource "azurerm_linux_web_app" "az_python_app" {
   }
 }
 
-# A Linux Function App on the built-in Node 22 stack: application_stack becomes
-# linuxFxVersion "Node|22", and the platform runs the Azure Functions host
-# image on the package WEBSITE_RUN_FROM_PACKAGE names. With
+# application_stack becomes linuxFxVersion "Node|22", and the platform runs the
+# Azure Functions host image on the WEBSITE_RUN_FROM_PACKAGE package. With
 # AzureWebJobsSecretStorageType "files" the host keeps its keys in its file
-# secret store, which holds the keys the host key data source reads.
+# secret store, where the host key data source reads them.
 resource "azurerm_linux_function_app" "az_node_fa" {
   name                       = "tf-azrm-node-fa"
   resource_group_name        = azurerm_resource_group.az_rg.name
@@ -1072,9 +1017,9 @@ data "azurerm_function_app_host_keys" "az_node_fa" {
   resource_group_name = azurerm_resource_group.az_rg.name
 }
 
-# The same stack under the default secret store: the host keeps its keys in
-# the azure-webjobs-secrets container of the account AzureWebJobsStorage
-# names, which is where the host key data source reads them from.
+# Under the default secret store the host keeps its keys in the
+# azure-webjobs-secrets container of the AzureWebJobsStorage account, where the
+# host key data source reads them.
 resource "azurerm_linux_function_app" "az_node_blob_fa" {
   name                       = "tf-azrm-node-blob-fa"
   resource_group_name        = azurerm_resource_group.az_rg.name
@@ -1095,11 +1040,9 @@ data "azurerm_function_app_host_keys" "az_node_blob_fa" {
   resource_group_name = azurerm_resource_group.az_rg.name
 }
 
-# App Service public certificate — the Microsoft.Web/sites/publicCertificates
-# child resource. The provider PUTs the DER blob and reads the resource back
-# on every plan, so the sim must derive and round-trip the certificate's
-# SHA-1 thumbprint for the apply to stay idempotent. The blob is a
-# self-signed X.509 certificate in DER form, base64 encoded.
+# The provider PUTs the DER blob and reads it back on every plan, so the
+# simulator must derive and round-trip the SHA-1 thumbprint. The blob is a
+# base64 self-signed X.509 certificate.
 resource "azurerm_app_service_public_certificate" "az_fa_pubcert" {
   resource_group_name  = azurerm_resource_group.az_rg.name
   app_service_name     = azurerm_linux_function_app.az_fa.name
@@ -1108,14 +1051,11 @@ resource "azurerm_app_service_public_certificate" "az_fa_pubcert" {
   blob                 = "MIIBODCB36ADAgECAgEBMAoGCCqGSM49BAMCMCUxIzAhBgNVBAMTGnNvY2tlcmxlc3Mtc2ltLXB1YmxpYy1jZXJ0MCAXDTI2MDEwMTAwMDAwMFoYDzIxMjYwMTAxMDAwMDAwWjAlMSMwIQYDVQQDExpzb2NrZXJsZXNzLXNpbS1wdWJsaWMtY2VydDBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABIYJeLik0TOyqjYwfwDiqAkGzAbpepEjv4QKPOTTI7OH598l1LPkSwMNslhaMITB4V3UHtod+Y5SmGM1nJeCdZEwCgYIKoZIzj0EAwIDSAAwRQIhALwq3le+aDLA2FJZr4hYiJvJ1PNpq5PUlNdrn4t6XY9CAiBQKGsAY1MrTtkXxK0tuItu4cbF85xw7RQajq5/ubpXGg=="
 }
 
-# App Service SSL certificate — the top-level Microsoft.Web/certificates
-# resource. The provider PUTs the PFX archive (base64) with its password and
-# reads the resource back on every plan, so the sim must parse the real
-# PKCS#12 payload and round-trip the derived thumbprint, subject name, host
-# names and validity dates for the apply to stay idempotent. The blob is a
+# The provider PUTs the base64 PFX with its password and reads it back on
+# every plan, so the simulator must parse the PKCS#12 payload and round-trip
+# the derived thumbprint, subject, host names and validity. The blob is a
 # self-signed certificate for tf.stage4.sockerless.test (valid 2026-2126,
-# SHA-1 thumbprint C573212158F1E07C7C6BC2370AFB84A17EDCDAFB), protected by
-# the password below.
+# SHA-1 C573212158F1E07C7C6BC2370AFB84A17EDCDAFB) under the password below.
 resource "azurerm_app_service_certificate" "az_fa_cert" {
   name                = "tf-azrm-cert"
   resource_group_name = azurerm_resource_group.az_rg.name
@@ -1124,10 +1064,8 @@ resource "azurerm_app_service_certificate" "az_fa_cert" {
   password            = "sockerless"
 }
 
-# Custom hostname binding on the Function App, DNS-backed: the CNAME record
-# in the Azure DNS zone points the hostname at the app's default hostname —
-# the ownership proof WebApps_AnalyzeCustomHostname reads from the same DNS
-# state.
+# The CNAME points the hostname at the app's default hostname: the ownership
+# proof WebApps_AnalyzeCustomHostname reads from the same DNS state.
 resource "azurerm_dns_cname_record" "az_fa_cname" {
   name                = "fa"
   zone_name           = azurerm_dns_zone.az_dns.name
@@ -1142,23 +1080,19 @@ resource "azurerm_app_service_custom_hostname_binding" "az_fa_hostname" {
   resource_group_name = azurerm_resource_group.az_rg.name
 }
 
-# SSL binding tying the uploaded certificate to the custom hostname: the
-# provider re-PUTs the hostname binding with the certificate's thumbprint
-# and SNI state, then reads both the binding and the certificate back.
+# The provider re-PUTs the hostname binding with the certificate's thumbprint
+# and SNI state, then reads the binding and the certificate back.
 resource "azurerm_app_service_certificate_binding" "az_fa_cert_binding" {
   hostname_binding_id = azurerm_app_service_custom_hostname_binding.az_fa_hostname.id
   certificate_id      = azurerm_app_service_certificate.az_fa_cert.id
   ssl_state           = "SniEnabled"
 }
 
-# App Service regional VNet integration (the "swift" virtual network
-# connection) — the Microsoft.Web/sites/networkConfig/virtualNetwork endpoint
-# the azure-functions backend uses for cloud-dns service discovery. Regional
-# VNet integration requires an Elastic Premium (or dedicated) plan and a subnet
-# delegated to Microsoft.Web/serverFarms. The provider PUTs the swift
-# connection, then reads it back on every plan — so the sim must round-trip
-# both the subnet delegation (incl. its actions) and the connection's
-# subnetResourceId for the apply to stay idempotent.
+# Regional virtual network integration (Microsoft.Web/sites/networkConfig/
+# virtualNetwork) needs an Elastic Premium or dedicated plan and a subnet
+# delegated to Microsoft.Web/serverFarms. The provider reads it back on every
+# plan, so the subnet delegation, its actions and the connection's
+# subnetResourceId must round-trip.
 resource "azurerm_virtual_network" "az_swift_vnet" {
   name                = "tf-azrm-swift-vnet"
   resource_group_name = azurerm_resource_group.az_rg.name
@@ -1197,22 +1131,17 @@ resource "azurerm_linux_function_app" "az_swift_fa" {
   storage_account_name       = azurerm_storage_account.az_st.name
   storage_account_access_key = azurerm_storage_account.az_st.primary_access_key
 
-  # Regional VNet integration in the spelling azurerm 5 documents. The
-  # standalone azurerm_app_service_virtual_network_swift_connection resource
-  # is deprecated because the site reports its integration back as
-  # virtual_network_subnet_id: an app that does not declare the attribute
-  # plans the integration away on every refresh, which is a real conflict on
-  # Azure and not something the simulator should hide by omitting the member.
+  # The spelling azurerm 5 documents. The standalone
+  # azurerm_app_service_virtual_network_swift_connection is deprecated because
+  # the site reports its integration as virtual_network_subnet_id: an app that
+  # does not declare it plans the integration away on every refresh.
   virtual_network_subnet_id = azurerm_subnet.az_swift_subnet.id
 
   site_config {}
 }
 
-# Private endpoint terminating on the App Service site (group "sites") — the
-# consumer half of the Microsoft.Web/sites privateEndpointConnections surface.
-# Creating it writes the connection into the site's own collection (the same
-# object the WebApps privateEndpointConnections API serves), auto-approved
-# because endpoint and site share the subscription.
+# Creating the endpoint writes the connection into the site's own collection,
+# auto-approved because both share the subscription.
 resource "azurerm_private_endpoint" "az_site_pe" {
   name                = "tf-azrm-site-pe"
   resource_group_name = azurerm_resource_group.az_rg.name
@@ -1227,11 +1156,9 @@ resource "azurerm_private_endpoint" "az_site_pe" {
   }
 }
 
-# Static Web App — the Microsoft.Web/staticSites ARM resource. The provider
-# PUTs the site (an LRO), then reads back the resource, its application
-# settings (POST listAppSettings) and its deployment secrets (POST
-# listSecrets, which fills api_key), so all three surfaces must round-trip
-# for the apply to stay idempotent.
+# The provider PUTs the site (an LRO) and reads back the resource, its
+# application settings (POST listAppSettings) and its deployment secrets (POST
+# listSecrets, which fills api_key), so all three must round-trip.
 resource "azurerm_static_web_app" "az_swa" {
   name                = "tf-azrm-swa"
   resource_group_name = azurerm_resource_group.az_rg.name
@@ -1248,10 +1175,8 @@ resource "azurerm_static_web_app" "az_swa" {
   }
 }
 
-# Custom domain on the Static Web App, validated by CNAME delegation: the
-# record in the Azure DNS zone points the hostname at the app's default host
-# name, and the domain create validates truthfully against that record in the
-# simulator's DNS state.
+# The CNAME points the hostname at the app's default host name, and the domain
+# create validates against that record.
 resource "azurerm_dns_cname_record" "az_swa_cname" {
   name                = "swa"
   zone_name           = azurerm_dns_zone.az_dns.name
@@ -1266,22 +1191,17 @@ resource "azurerm_static_web_app_custom_domain" "az_swa_domain" {
   validation_type   = "cname-delegation"
 }
 
-# User-provided function app registration ("bring your own Functions"):
-# links the EXISTING Linux Function App above to the static site; the
-# simulator resolves the function app against its real sites store.
+# Links the existing Linux function app above; the simulator resolves it
+# against its sites.
 resource "azurerm_static_web_app_function_app_registration" "az_swa_fn" {
   static_web_app_id = azurerm_static_web_app.az_swa.id
   function_app_id   = azurerm_linux_function_app.az_fa.id
 }
 
-# Key Vault + a single secret. The secret resource is what fires the
-# challenge-then-retry handshake: terraform-provider-azurerm constructs
-# an azsecrets client, issues the unauthenticated PUT, parses the
-# WWW-Authenticate response (which is where the prior regression reopened — the
-# authorization URL must split to ≥ 4 segments or the SDK's
-# parseTenant panics), fetches a token from the configured credential,
-# retries the PUT. If the sim's challenge format is wrong, apply fails
-# with `index out of range [3]`.
+# The secret resource drives the azsecrets challenge-then-retry handshake: an
+# unauthenticated PUT, the WWW-Authenticate challenge (whose authorization URL
+# must split into at least four segments or the SDK's parseTenant panics with
+# `index out of range [3]`), a token, and the retried PUT.
 resource "azurerm_key_vault" "az_kv" {
   name                       = "tf-azrm-kv"
   resource_group_name        = azurerm_resource_group.az_rg.name
@@ -1293,8 +1213,8 @@ resource "azurerm_key_vault" "az_kv" {
   soft_delete_retention_days = 7
 }
 
-# The principal Terraform signs in as writes the vault's objects, so the
-# vault grants it through an access policy naming its object ID.
+# The principal Terraform signs in as writes the vault's objects, so an access
+# policy grants its object ID.
 data "azurerm_client_config" "current" {}
 
 resource "azurerm_key_vault_access_policy" "az_kv_policy" {
@@ -1355,14 +1275,9 @@ resource "azurerm_key_vault_certificate" "az_kv_cert" {
   depends_on = [azurerm_key_vault_access_policy.az_kv_policy]
 }
 
-# ---------- API Management (Microsoft.ApiManagement control plane) ----------
-# Drives the sim's APIM service + api + product + subscription slice through
-# the real terraform-provider-azurerm client (the stable consumer of these
-# routes — see consumer issues #178 / #210, which used the Consumption SKU).
-# Consumption_0 is what the consumer provisions and is the SKU the provider
-# does NOT gate behind the portalsettings/tenant-access create choreography
-# (Developer/Standard/Premium PUT /portalsettings/{signin,signup,delegation}
-# + /tenant/access after create — surface no sockerless consumer exercises).
+# Consumption_0 is the SKU the provider does not gate behind the
+# portalsettings and tenant/access create choreography of the
+# Developer, Standard and Premium tiers.
 resource "azurerm_api_management" "az_apim" {
   name                = "tf-azrm-apim"
   resource_group_name = azurerm_resource_group.az_rg.name
@@ -1400,8 +1315,6 @@ resource "azurerm_api_management_subscription" "az_apim_sub" {
   state               = "active"
 }
 
-# ---------- Azure Database for PostgreSQL flexible server ----------
-
 resource "azurerm_postgresql_flexible_server" "az_pg" {
   name                   = "tf-azrm-pg"
   resource_group_name    = azurerm_resource_group.az_rg.name
@@ -1427,15 +1340,12 @@ resource "azurerm_postgresql_flexible_server_firewall_rule" "az_pg_fw" {
   end_ip_address   = "10.0.0.10"
 }
 
-# ---------- Azure Private Link (both halves) + the attachment resources ----------
-# The provider half is a private link service in front of the load balancer's
-# frontend; the consumer half is a private endpoint in its own subnet. The
-# endpoint's create opens a connection on the service, and the provider reads
-# that connection's state back on every plan — so the two surfaces have to
-# address one object for the apply to be idempotent. A second endpoint targets
-# the Key Vault, which exercises the same integration across resource
-# providers, and its private DNS zone group publishes the vault's private-link
-# record into the zone the zone's own record surface then serves.
+# Azure Private Link: a private link service in front of the load balancer's
+# frontend, and a private endpoint in its own subnet. The endpoint's create
+# opens a connection on the service whose state the provider reads back on
+# every plan, so both must address one object. A second endpoint targets the
+# key vault, and its private DNS zone group publishes the vault's record into
+# the zone the zone's record surface serves.
 
 resource "azurerm_virtual_network" "az_pl_vnet" {
   name                = "tf-azrm-pl-vnet"
@@ -1477,10 +1387,8 @@ resource "azurerm_private_link_service" "az_pls" {
   visibility_subscription_ids                 = ["00000000-0000-0000-0000-000000000001"]
   load_balancer_frontend_ip_configuration_ids = [one(azurerm_lb.az_lb.frontend_ip_configuration).id]
 
-  # A static address keeps the configuration and the service's own report of
-  # the NAT configuration in agreement: the provider records whatever address
-  # the service assigns, and refuses a later plan that would take an assigned
-  # address back out of the configuration.
+  # The provider records whatever address the service assigns and refuses a
+  # later plan that removes it, so pin the address.
   nat_ip_configuration {
     name                       = "natcfg1"
     primary                    = true
@@ -1532,8 +1440,6 @@ resource "azurerm_private_endpoint" "az_kv_pe" {
   }
 }
 
-# ---------- Network profile + service endpoint policy ----------
-
 resource "azurerm_subnet" "az_np_subnet" {
   name                 = "tf-azrm-np-subnet"
   resource_group_name  = azurerm_resource_group.az_rg.name
@@ -1568,8 +1474,6 @@ resource "azurerm_subnet_service_endpoint_storage_policy" "az_sep" {
     service_resources = [azurerm_storage_account.az_st.id]
   }
 }
-
-# ---------- Outputs (cross-resource invariants) ----------
 
 output "resource_group_id" {
   value = azurerm_resource_group.main.id
@@ -1959,12 +1863,9 @@ output "azrm_subnet_service_endpoint_storage_policy_id" {
   value = azurerm_subnet_service_endpoint_storage_policy.az_sep.id
 }
 
-# ---------- Application Gateway ----------
-# Azure's layer-7 load balancer, deployed into its own subnet and fronted by a
-# public address. The listener, the URL path map and the request routing rule
-# are the routing program the gateway's data plane executes: a request that
-# matches no path rule goes to the default pool, and /api/* goes to the other
-# one.
+# The listener, URL path map and request routing rule are the routing program
+# the gateway's data plane executes: a request matching no path rule goes to
+# the default pool, and /api/* to the other.
 
 resource "azurerm_virtual_network" "az_appgw_vnet" {
   name                = "tf-azrm-appgw-vnet"
@@ -2084,10 +1985,8 @@ resource "azurerm_application_gateway" "az_appgw" {
   }
 }
 
-# ---------- Network Watcher ----------
-# The regional diagnostics anchor, plus the flow log configuration of a network
-# security group — the record the watcher's target-addressed flow log
-# operations read and write.
+# The flow log configuration of a network security group is the record the
+# watcher's target-addressed flow log operations read and write.
 
 resource "azurerm_network_watcher" "az_nw" {
   name                = "tf-azrm-network-watcher"
@@ -2098,10 +1997,8 @@ resource "azurerm_network_watcher" "az_nw" {
   }
 }
 
-# ---------- Virtual Network Manager ----------
-# The scope-and-deployment half of centrally managed networking: the manager
-# declares the subscriptions it governs and the configuration kinds it may
-# manage there.
+# The manager declares the subscriptions it governs and the configuration
+# kinds it may manage there.
 
 resource "azurerm_network_manager" "az_netman" {
   name                = "tf-azrm-network-manager"
@@ -2147,14 +2044,10 @@ output "azrm_network_manager_scope_accesses" {
   value = azurerm_network_manager.az_netman.scope_accesses
 }
 
-# ---------- App Service Environment v3 ----------
-#
-# An App Service Environment is a placement scope carved out of a subnet
-# delegated to Microsoft.Web/hostingEnvironments. The provider reads far more
-# back than it writes — the domain suffix the environment publishes, the
-# addresses it answers on and leaves from, and the inbound network
-# dependencies it computes — so an apply is only idempotent when every one of
-# those comes back the same on the next refresh.
+# An App Service Environment v3 is carved out of a subnet delegated to
+# Microsoft.Web/hostingEnvironments. The provider reads back the domain suffix,
+# addresses and inbound dependencies the service computes, so the apply is
+# idempotent only if each comes back the same on refresh.
 resource "azurerm_virtual_network" "az_ase_vnet" {
   name                = "tf-azrm-ase-vnet"
   resource_group_name = azurerm_resource_group.az_rg.name
@@ -2193,9 +2086,8 @@ output "azrm_app_service_environment_id" {
   value = azurerm_app_service_environment_v3.az_ase.id
 }
 
-# The domain the environment publishes for the apps in it, and the address it
-# answers on inside its subnet — both computed by the service from the
-# environment's own name, load-balancing mode and subnet.
+# Computed by the service from the environment's name, load-balancing mode and
+# subnet.
 output "azrm_app_service_environment_dns_suffix" {
   value = azurerm_app_service_environment_v3.az_ase.dns_suffix
 }

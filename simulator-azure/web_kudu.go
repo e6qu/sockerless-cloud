@@ -19,21 +19,17 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// web_kudu.go serves the deployment API of a web app's SCM site — Kudu, on
-// the Repository hostname the site reports in hostNameSslStates: zip deploy
-// (/api/zipdeploy), OneDeploy (/api/publish) and the deployment records both
-// write (/api/deployments, and the legacy /deployments the warmup probe
-// reads). Its WebJobs API, VFS, zip, command, settings, process and
-// diagnostics APIs and log stream live in the web_kudu_*.go files beside it. Requests authenticate with the site's
-// publishing credentials (or
-// the subscription's deployment user) as HTTP basic auth while the scm basic
-// publishing credentials policy allows it, or with a Microsoft Entra bearer
-// token. A deployment lands its artifact through the same placement the Azure
-// Resource Manager OneDeploy and MSDeploy operations use, records a Kudu
-// deployment (which Azure Resource Manager's /deployments proxies) and a
-// deploymentStatus, and the site restarts on the new content.
+// Kudu, the SCM site on the Repository hostname a site reports in
+// hostNameSslStates: zip deploy (/api/zipdeploy), OneDeploy (/api/publish) and
+// the deployment records both write (/api/deployments, and the legacy
+// /deployments the warmup probe reads). The other Kudu APIs live in the
+// web_kudu_*.go files. Requests authenticate with the site's publishing
+// credentials or the deployment user as HTTP basic auth, while the scm basic
+// publishing credentials policy allows it, or with a Microsoft Entra bearer. A
+// deployment lands through the placement the OneDeploy and MSDeploy operations
+// use, records a Kudu deployment (which Azure Resource Manager's /deployments
+// proxies) and a deploymentStatus, and restarts the site on the new content.
 
-// Kudu's DeployStatus values.
 const (
 	kuduStatusPending  = 0
 	kuduStatusBuilding = 1
@@ -41,14 +37,12 @@ const (
 	kuduStatusSuccess  = 4
 )
 
-// Kudu log entry types.
 const (
 	kuduLogMessage = 0
 	kuduLogError   = 2
 )
 
-// WebKuduDeployment is one deployment a site's Kudu performed. ID is
-// "<resID>/deployments/<deploymentId>", the key Azure Resource Manager's
+// ID is "<resID>/deployments/<deploymentId>", the key Azure Resource Manager's
 // deployment record shares.
 type WebKuduDeployment struct {
 	ID           string            `json:"id"`
@@ -69,7 +63,6 @@ type WebKuduDeployment struct {
 	Log          []WebKuduLogEntry `json:"log,omitempty"`
 }
 
-// WebKuduLogEntry is one line of a Kudu deployment's log.
 type WebKuduLogEntry struct {
 	ID      string `json:"id"`
 	LogTime string `json:"logTime"`
@@ -79,9 +72,8 @@ type WebKuduLogEntry struct {
 
 var webKuduDeployments sim.Store[WebKuduDeployment]
 
-// kuduDeployLocks holds the site-wide deployment lock Kudu takes for the
-// fetch-and-deploy phase of a deployment; a second deployment arriving
-// meanwhile is refused with 409.
+// The site-wide lock Kudu takes for the fetch-and-deploy phase; a second
+// deployment meanwhile is refused with 409.
 var kuduDeployLocks = struct {
 	sync.Mutex
 	held map[string]bool
@@ -103,14 +95,12 @@ func kuduUnlock(resID string) {
 	delete(kuduDeployLocks.held, resID)
 }
 
-// kuduTime is the timestamp format Kudu writes.
 func kuduTime(t time.Time) string {
 	return t.UTC().Format("2006-01-02T15:04:05.0000000Z")
 }
 
-// initWebKuduStore wires the Kudu deployment store. A deployment persisted
-// mid-flight lost its goroutine with the previous process, so it reads back
-// failed, as Kudu reports a deployment its worker died during.
+// A deployment persisted mid-flight lost its goroutine, so it reads back
+// failed, as Kudu reports a deployment whose worker died.
 func initWebKuduStore(srv *sim.Server) {
 	webKuduDeployments = sim.MakeStore[WebKuduDeployment](srv.DB(), "web_kudu_deployments")
 	kuduSiteSettings = sim.MakeStore[map[string]string](srv.DB(), "web_kudu_settings")
@@ -130,8 +120,7 @@ func initWebKuduStore(srv *sim.Server) {
 	}
 }
 
-// kuduSaveDeployment stores a Kudu deployment and the Azure Resource Manager
-// deployment record that proxies it.
+// Also stores the Azure Resource Manager deployment record that proxies it.
 func kuduSaveDeployment(rec WebKuduDeployment) {
 	webKuduDeployments.Put(rec.ID, rec)
 	typ := "Microsoft.Web/sites/deployments"
@@ -155,7 +144,6 @@ func kuduSaveDeployment(rec WebKuduDeployment) {
 	})
 }
 
-// kuduUpdateDeployment applies fn to a stored deployment and saves it.
 func kuduUpdateDeployment(id string, fn func(*WebKuduDeployment)) {
 	rec, ok := webKuduDeployments.Get(id)
 	if !ok {
@@ -171,8 +159,6 @@ func (rec *WebKuduDeployment) logf(typ int, format string, args ...any) {
 	})
 }
 
-// webCleanupKudu removes the Kudu deployments and settings of a deleted site
-// or slot.
 func webCleanupKudu(resID string) {
 	kuduSiteSettings.Delete(resID)
 	prefix := resID + "/deployments/"
@@ -181,8 +167,7 @@ func webCleanupKudu(resID string) {
 	}
 }
 
-// siteScmHost is the SCM hostname a site reports: its Repository
-// hostNameSslStates entry.
+// The Repository hostNameSslStates entry.
 func siteScmHost(site *Site) string {
 	for _, s := range site.Properties.HostNameSslStates {
 		if s.HostType == "Repository" {
@@ -192,8 +177,7 @@ func siteScmHost(site *Site) string {
 	return ""
 }
 
-// siteScmHostKeys are the hostnames a site's SCM site answers on: the one it
-// advertises, and the platform's own <label>.scm.azurewebsites.net.
+// The one it advertises, and the platform's <label>.scm.azurewebsites.net.
 func siteScmHostKeys(s Site) []string {
 	var keys []string
 	add := func(h string) {
@@ -216,8 +200,6 @@ var (
 	appServiceSlotsByScmHost sim.GenerationIndex[Site]
 )
 
-// appServiceSiteByScmHost returns the site or slot whose SCM site a request's
-// Host header addresses.
 func appServiceSiteByScmHost(host string) (Site, bool) {
 	if h, _, err := net.SplitHostPort(host); err == nil {
 		host = h
@@ -237,8 +219,6 @@ func appServiceSiteByScmHost(host string) (Site, bool) {
 	return Site{}, false
 }
 
-// registerAppServiceKudu mounts the SCM sites: a request whose Host is a
-// site's SCM hostname goes to that site's Kudu.
 func registerAppServiceKudu(srv *sim.Server) {
 	srv.WrapHandler(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -346,17 +326,15 @@ func kuduMethod(w http.ResponseWriter, r *http.Request, methods ...string) bool 
 	return false
 }
 
-// kuduAppServiceAudiences are the Microsoft Entra audiences of the App Service
-// resource the Azure CLI requests a Kudu token for.
+// The App Service audiences the Azure CLI requests a Kudu token for.
 var kuduAppServiceAudiences = map[string]bool{
 	"https://appservice.azure.com":  true,
 	"https://appservice.azure.com/": true,
 }
 
-// kuduAuthorize admits a request carrying the site's publishing credentials
-// or the deployment user's as basic auth — while the site's scm basic
-// publishing credentials policy allows basic auth — or a Microsoft Entra
-// bearer token for Azure Resource Manager or App Service.
+// Publishing credentials or the deployment user's as basic auth, while the scm
+// basic publishing credentials policy allows it, or a Microsoft Entra bearer
+// for Azure Resource Manager or App Service.
 func kuduAuthorize(w http.ResponseWriter, r *http.Request, site *Site) bool {
 	auth := r.Header.Get("Authorization")
 	if token, ok := strings.CutPrefix(auth, "Bearer "); ok {
@@ -393,8 +371,7 @@ func kuduCredentialsMatch(site *Site, user, password string) bool {
 	return false
 }
 
-// webPublishingUserName is a site's publishing user: "$<app>" for an app and
-// "$<app>__<slot>" for a slot.
+// "$<app>" for an app, "$<app>__<slot>" for a slot.
 func webPublishingUserName(site *Site) string {
 	return "$" + strings.Replace(site.Name, "/", "__", 1)
 }
@@ -436,7 +413,7 @@ func kuduDeploymentWire(r *http.Request, site *Site, rec WebKuduDeployment) map[
 
 var webKuduDeploymentsBySite sim.GenerationIndex[WebKuduDeployment]
 
-// kuduSiteDeployments returns a site's deployments, newest first.
+// Newest first.
 func kuduSiteDeployments(siteID string) []WebKuduDeployment {
 	recs := slices.Clone(webKuduDeploymentsBySite.LookupAll(webKuduDeployments, siteID,
 		func(rec WebKuduDeployment) []string { return []string{rec.SiteID} }))
@@ -487,8 +464,7 @@ func kuduGetDeployment(w http.ResponseWriter, r *http.Request, site *Site, rest 
 	}
 }
 
-// kuduQuery reads a query parameter case-insensitively, as Kudu's ASP.NET
-// binding does.
+// Case-insensitive, as Kudu's ASP.NET binding reads it.
 func kuduQuery(r *http.Request, name string) string {
 	for k, v := range r.URL.Query() {
 		if strings.EqualFold(k, name) && len(v) > 0 {
@@ -498,8 +474,7 @@ func kuduQuery(r *http.Request, name string) string {
 	return ""
 }
 
-// kuduArtifactSource is the deployment's artifact: the request body, or the
-// package a JSON body names by packageUri, which the deployment fetches.
+// The request body, or the package a JSON body names by packageUri.
 type kuduArtifactSource struct {
 	data       []byte
 	packageURI string
@@ -560,9 +535,8 @@ func kuduOneDeploy(w http.ResponseWriter, r *http.Request, site *Site) {
 	kuduDeploy(w, r, site, src, artifact, "OneDeploy", strings.EqualFold(kuduQuery(r, "async"), "true"))
 }
 
-// kuduDeploy records a deployment and runs it: synchronously, answering 200
-// once the artifact is deployed, or in the background, answering 202 with the
-// deployment's status URL as Location.
+// Synchronously, answering 200 once deployed, or in the background, answering
+// 202 with the status URL as Location.
 func kuduDeploy(w http.ResponseWriter, r *http.Request, site *Site, src kuduArtifactSource, artifact webArtifact, deployer string, async bool) {
 	if !kuduTryLock(site.ID) {
 		kuduError(w, http.StatusConflict, "There is a deployment currently in progress. Please try again when it completes.")
@@ -620,11 +594,9 @@ func kuduDeploy(w http.ResponseWriter, r *http.Request, site *Site, src kuduArti
 	w.WriteHeader(http.StatusOK)
 }
 
-// kuduRunDeployment fetches the artifact when it is named by URL, lands it,
-// and settles the Kudu deployment. A deployment that landed then tracks the
-// site's restart in the deploymentStatus record: RuntimeSuccessful once the
-// site answers the platform's warmup request, RuntimeFailed when it does not
-// start.
+// A landed deployment then tracks the site's restart in deploymentStatus:
+// RuntimeSuccessful once the site answers the warmup request, RuntimeFailed
+// when it does not start.
 func kuduRunDeployment(recID, statusID, resID string, src kuduArtifactSource, artifact webArtifact) error {
 	kuduUpdateDeployment(recID, func(rec *WebKuduDeployment) {
 		rec.Status = kuduStatusBuilding
@@ -682,9 +654,8 @@ func kuduRunDeployment(recID, statusID, resID string, src kuduArtifactSource, ar
 	return nil
 }
 
-// webStartDeploymentRuntime moves a deployment whose artifact landed to
-// RuntimeStarting and tracks the site's restart. The operation that built it
-// is over, so a poll of the status follows its Location from here on.
+// The building operation is over, so a status poll follows its Location from
+// here on.
 func webStartDeploymentRuntime(statusID, resID string) {
 	webDeploymentStatuses.Update(statusID, func(row *WebDeploymentStatusRecord) {
 		row.Status = "RuntimeStarting"
@@ -693,7 +664,6 @@ func webStartDeploymentRuntime(statusID, resID string) {
 	go kuduTrackRuntime(statusID, resID)
 }
 
-// kuduTrackRuntime settles a deployment's runtime status on the site's start.
 func kuduTrackRuntime(statusID, resID string) {
 	fail := func(msg string) {
 		webDeploymentStatuses.Update(statusID, func(row *WebDeploymentStatusRecord) {

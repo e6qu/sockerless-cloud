@@ -10,9 +10,8 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/logstore"
 )
 
-// withKQLRows installs a log store holding the given rows for the test's
-// duration. The rows enter the store as just ingested, so the component's
-// retention keeps them whatever TimeGenerated values the engine tests read.
+// The rows enter as just ingested, so retention keeps them whatever their
+// TimeGenerated.
 func withKQLRows(t *testing.T, table string, rows ...monitorLogRow) {
 	t.Helper()
 	saved := monitorLogs
@@ -28,8 +27,6 @@ func withKQLRows(t *testing.T, table string, rows ...monitorLogRow) {
 	}
 }
 
-// kqlTestApp is the classic Application Insights component the engine tests
-// read: its store holds exactly the rows withKQLRows installs.
 const kqlTestApp = "kql-test-app"
 
 var kqlTestScope = logScope{appID: kqlTestApp}
@@ -284,8 +281,6 @@ func TestKQL_HasHonoursNonASCIITerms(t *testing.T) {
 	}
 }
 
-// A dynamic value is read by property and element, measured, and written back
-// as JSON text.
 func TestKQL_DynamicValues(t *testing.T) {
 	withKQLRows(t, "AppTraces",
 		monitorLogRow{"TimeGenerated": "2026-01-01T00:00:00Z", "AppRoleName": "json", "Message": `{"kind":"build","steps":[1,2,3]}`},

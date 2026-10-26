@@ -8,9 +8,7 @@ import (
 	amqp "github.com/Azure/go-amqp"
 )
 
-// Deleting an Event Hubs namespace deletes its event hubs, and with them every
-// event their partitions held: a namespace created again under the same name
-// starts with empty partitions.
+// A namespace created again under the same name starts with empty partitions.
 func TestEventHubsNamespaceDeleteDropsItsHubsPartitionLogs(t *testing.T) {
 	srv := newMoveTestServer(t)
 	moveEnsureRG(t, srv, "eh-delete-rg")

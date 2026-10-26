@@ -28,12 +28,10 @@ func TestPrivateDNS_CreateAndShowZone(t *testing.T) {
 	assert.Equal(t, "cli-test.local", zone.Name)
 	assert.Equal(t, "global", zone.Location)
 
-	// GET
 	out = runCLI(t, azRest("GET", url, ""))
 	parseJSON(t, out, &zone)
 	assert.Equal(t, "cli-test.local", zone.Name)
 
-	// Cleanup
 	runCLI(t, azRest("DELETE", url, ""))
 }
 
@@ -85,7 +83,6 @@ func TestPrivateDNS_CreateRecordSet(t *testing.T) {
 	require.Len(t, record.Properties.ARecords, 1)
 	assert.Equal(t, "10.0.0.1", record.Properties.ARecords[0].IPv4Address)
 
-	// Cleanup
 	runCLI(t, azRest("DELETE", recordURL, ""))
 	runCLI(t, azRest("DELETE", zoneURL, ""))
 }
@@ -109,7 +106,6 @@ func TestPrivateDNS_VNetLink(t *testing.T) {
 	assert.Equal(t, "mylink", link.Name)
 	assert.Equal(t, "Succeeded", link.Properties.ProvisioningState)
 
-	// GET
 	out = runCLI(t, azRest("GET", linkURL, ""))
 	parseJSON(t, out, &link)
 	assert.Equal(t, "mylink", link.Name)
@@ -126,7 +122,6 @@ func TestPrivateDNS_VNetLink(t *testing.T) {
 	assert.Equal(t, "mylink", links.Value[0].Name)
 	assert.Equal(t, "Microsoft.Network/privateDnsZones/virtualNetworkLinks", links.Value[0].Type)
 
-	// Cleanup
 	runCLI(t, azRest("DELETE", linkURL, ""))
 	runCLI(t, azRest("DELETE", zoneURL, ""))
 }
@@ -137,7 +132,6 @@ func TestPrivateDNS_DeleteZone(t *testing.T) {
 	runCLI(t, azRest("PUT", zoneURL, `{"location":"global"}`))
 	runCLI(t, azRest("DELETE", zoneURL, ""))
 
-	// Verify deletion - GET should fail
 	failure := runCLIExpectFailure(t, azRest("GET", zoneURL, ""))
 	assert.Contains(t, failure, "ResourceNotFound",
 		"a deleted Azure Private DNS zone must answer GET with ResourceNotFound, got: %s", failure)
@@ -145,18 +139,15 @@ func TestPrivateDNS_DeleteZone(t *testing.T) {
 
 func TestPrivateDNS_RecordSetListAndDelete(t *testing.T) {
 	t.Parallel()
-	// Create zone
 	zoneURL := dnsURL("privateDnsZones/list-delete.local")
 	runCLI(t, azRest("PUT", zoneURL, `{"location":"global"}`))
 	defer runCLI(t, azRest("DELETE", zoneURL, ""))
 
-	// Create two A records
 	r1URL := dnsURL("privateDnsZones/list-delete.local/A/host1")
 	r2URL := dnsURL("privateDnsZones/list-delete.local/A/host2")
 	runCLI(t, azRest("PUT", r1URL, `{"properties":{"ttl":60,"aRecords":[{"ipv4Address":"10.1.0.1"}]}}`))
 	runCLI(t, azRest("PUT", r2URL, `{"properties":{"ttl":60,"aRecords":[{"ipv4Address":"10.1.0.2"}]}}`))
 
-	// List A records for this zone
 	listURL := dnsURL("privateDnsZones/list-delete.local/A")
 	out := runCLI(t, azRest("GET", listURL, ""))
 	var list struct {
@@ -172,13 +163,11 @@ func TestPrivateDNS_RecordSetListAndDelete(t *testing.T) {
 	assert.True(t, names["host1"], "expected host1 in list")
 	assert.True(t, names["host2"], "expected host2 in list")
 
-	// Delete host1 and verify it is gone
 	runCLI(t, azRest("DELETE", r1URL, ""))
 	cmd := azRest("GET", r1URL, "")
 	_, err := cmd.CombinedOutput()
 	assert.Error(t, err, "GET after DELETE should fail for host1")
 
-	// host2 must still be present
 	out = runCLI(t, azRest("GET", r2URL, ""))
 	var r2 struct {
 		Name string `json:"name"`

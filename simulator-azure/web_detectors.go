@@ -15,36 +15,23 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// App Service diagnostics: the diagnostic categories of a site or slot, the
-// detectors and analyses in them, and the detector responses the site
-// publishes at its own /detectors collection.
+// App Service diagnostics: a site's diagnostic categories, their detectors and
+// analyses, and the detector responses at its /detectors collection. The
+// simulator publishes exactly the detectors it can measure, computed at read
+// time:
 //
-// A detector is a measurement, so the simulator publishes exactly the
-// detectors it can measure, computed at the moment the client asks:
+//   - sitecrashes: the workload container's terminal state — exit, exit code,
+//     and whether the kernel OOM-killed it;
+//   - sitememoryanalysis: the engine's memory sample (usage, peak, limit), with
+//     an issue when the kernel OOM-killed the container;
+//   - sitecpuanalysis: the engine's CPU sample and cgroup throttling counters,
+//     with an issue when the container's quota throttled it;
+//   - threadcount: the thread counts of the container's process table;
+//   - siterestartuserinitiated: the restarts the lifecycle journal records;
+//   - deployment: the site's deployment records.
 //
-//   - sitecrashes reads the workload container's terminal state from the
-//     container engine — whether it exited, with which code, and whether the
-//     kernel killed it for exceeding its memory limit;
-//   - sitememoryanalysis reads the engine's memory sample for that container
-//     (usage, peak, limit) and reports an issue when the kernel OOM-killed it,
-//     which is an event the engine records rather than a threshold this
-//     simulator invented;
-//   - sitecpuanalysis reads the engine's CPU sample and its cgroup throttling
-//     counters, and reports an issue when the container's own CPU quota
-//     throttled it — again a counter the kernel keeps;
-//   - threadcount sums the thread counts of the container's process table,
-//     read through the engine's process-table API;
-//   - siterestartuserinitiated reports the restarts the site actually went
-//     through, from the journal the lifecycle operations write;
-//   - deployment reports the site's real deployment records.
-//
-// Every value in a response is one of those measurements or a member of the
-// site's own record. A detector whose inputs the simulator does not hold is
-// NOT listed as if it existed and does not answer with plausible numbers:
-// asking for it by name returns a declared 501 gap naming the input that is
-// missing. Those detectors, all of them names Microsoft's own
-// Diagnostics_ListSiteDetectors example carries, and the input each would
-// need:
+// A detector of Microsoft's catalog whose inputs the simulator lacks is not
+// listed, and asking for it answers a declared 501 naming the missing input:
 //
 //	servicehealth               Azure Service Health incident records for the
 //	                            region hosting the site. The simulator
@@ -79,25 +66,17 @@ import (
 //	                            user-initiated ones under this name would
 //	                            attribute them to the wrong cause.
 //
-// The same rule governs the analyses: apprestartanalysis and memoryanalysis
-// are computed from the journal and the memory sample, while appanalysis,
-// perfanalysis and tcpconnectionsanalysis need the request, performance and
-// TCP-connection telemetry the simulator does not collect.
+// Likewise apprestartanalysis and memoryanalysis are computed, while
+// appanalysis, perfanalysis and tcpconnectionsanalysis need request,
+// performance and TCP telemetry the simulator does not collect.
 
-// the site event journal
-
-// WebSiteEvent is one lifecycle event a site went through. The journal is what
-// the restart detectors read: it records the operation that ran, when it ran,
-// and what caused it.
+// The restart detectors read the journal: the operation, when, and its cause.
 type WebSiteEvent struct {
-	ID     string `json:"id"`
-	SiteID string `json:"siteId"`
-	// Operation is the App Service operation that ran ("Stop", "Start",
-	// "Restart").
+	ID        string `json:"id"`
+	SiteID    string `json:"siteId"`
 	Operation string `json:"operation"`
-	// Cause distinguishes an operation a user called on the site from one the
-	// platform performed on it, which is the distinction the restart detectors
-	// are split along.
+	// A user-called operation or a platform-performed one, the split the restart
+	// detectors follow.
 	Cause string `json:"cause"`
 	Time  string `json:"time"`
 }
@@ -109,7 +88,6 @@ const (
 	webEventCausePlatform = "PlatformInitiated"
 )
 
-// recordWebSiteEvent appends one lifecycle event to a site's journal.
 func recordWebSiteEvent(siteID, operation, cause string) {
 	if webSiteEvents == nil || siteID == "" {
 		return
@@ -125,7 +103,7 @@ func recordWebSiteEvent(siteID, operation, cause string) {
 	})
 }
 
-// webSiteEventsFor returns a site's journal inside a window, oldest first.
+// Oldest first.
 func webSiteEventsFor(siteID string, from, to time.Time) []WebSiteEvent {
 	if webSiteEvents == nil {
 		return nil
@@ -144,10 +122,7 @@ func webSiteEventsFor(siteID string, from, to time.Time) []WebSiteEvent {
 	return events
 }
 
-// observation of the site
-
-// webSiteObservation is everything a detector run measured about one site. The
-// container reads happen once per run and are shared by every detector in it.
+// Container reads happen once per run, shared by its detectors.
 type webSiteObservation struct {
 	site       Site
 	resourceID string
@@ -161,9 +136,8 @@ type webSiteObservation struct {
 	events      []WebSiteEvent
 }
 
-// observeWebSite gathers the measurements the detectors read. A site with no
-// workload container is observed too: "there is no container" is itself the
-// answer several detectors give.
+// A site with no workload container is observed too: "there is no container"
+// is itself several detectors' answer.
 func observeWebSite(site Site, resourceID string, from, to time.Time) webSiteObservation {
 	obs := webSiteObservation{
 		site:       site,
@@ -203,25 +177,19 @@ func (o webSiteObservation) running() bool {
 	return o.inspect != nil && o.inspect.State != nil && o.inspect.State.Running
 }
 
-// detector catalog
-
-// webDetectorFinding is what one detector measured: the table it renders, the
-// severity it reports, and the events it correlated.
 type webDetectorFinding struct {
 	issueDetected bool
-	// status is one of the swagger's InsightStatus values.
+	// One of the swagger's InsightStatus values.
 	status  string
 	message string
-	// columns and rows are the measurement, in the DataTableResponseObject
-	// shape both response families render.
+	// The measurement, in the DataTableResponseObject shape both response
+	// families render.
 	tableName string
 	columns   []webDetectorColumn
 	rows      [][]string
-	// abnormal are the correlated events the detector found, each an
-	// occurrence the simulator observed rather than an inferred window.
+	// Occurrences the simulator observed, not inferred windows.
 	abnormal []webDetectorEvent
-	// metrics are the measured series the detector sampled.
-	metrics []map[string]any
+	metrics  []map[string]any
 }
 
 type webDetectorColumn struct{ name, dataType, columnType string }
@@ -232,21 +200,16 @@ type webDetectorEvent struct {
 	issueType  string
 }
 
-// webDetector is one detector the simulator computes, named and ranked the way
-// Microsoft's own detector catalog names and ranks it.
+// Named and ranked as Microsoft's catalog names and ranks it.
 type webDetector struct {
 	name        string
 	displayName string
 	rank        float64
-	// description is what this simulator measures for the detector. Azure
-	// leaves the member null in its own listing; saying what was measured is
-	// more use than repeating that.
+	// Azure leaves the member null; saying what was measured is more useful.
 	description string
 	measure     func(webSiteObservation) webDetectorFinding
 }
 
-// webUnservedDetector is a detector Microsoft's catalog carries that the
-// simulator cannot measure, with the input it would need.
 type webUnservedDetector struct {
 	name   string
 	reason string
@@ -254,8 +217,7 @@ type webUnservedDetector struct {
 
 const webDiagnosticCategory = "availability"
 
-// webDiagnosticCategoryDescription is the description Azure gives the
-// availability category, spelling included.
+// Azure's spelling, typo included.
 const webDiagnosticCategoryDescription = "Availability and Perfomance Diagnostics"
 
 func webDetectors() []webDetector {
@@ -305,10 +267,8 @@ func webDetectors() []webDetector {
 	}
 }
 
-// webUnservedDetectors are the detectors of Microsoft's catalog the simulator
-// declares it cannot measure, each with the input it would need. Naming them
-// is the point: a client that asks for one is told what is missing instead of
-// receiving an empty answer it would read as "nothing wrong".
+// A client asking for one is told what is missing rather than receiving an
+// empty answer it would read as "nothing wrong".
 func webUnservedDetectors() []webUnservedDetector {
 	return []webUnservedDetector{
 		{"servicehealth", "an Azure Service Health incident record for the region hosting the site; the simulator publishes no service-health events"},
@@ -326,8 +286,6 @@ func webUnservedDetectors() []webUnservedDetector {
 	}
 }
 
-// webAnalyses are the analyses the simulator computes, each aggregating the
-// detectors named in it.
 type webAnalysis struct {
 	name        string
 	description string
@@ -356,8 +314,6 @@ func webUnservedAnalyses() []webUnservedDetector {
 		{"tcpconnectionsanalysis", "the worker's TCP connection and port-exhaustion counters, which the simulator does not collect"},
 	}
 }
-
-// measurements
 
 func webNoContainerFinding(what string) webDetectorFinding {
 	return webDetectorFinding{
@@ -454,10 +410,8 @@ func measureSiteCPU(o webSiteObservation) webDetectorFinding {
 	return finding
 }
 
-// webContainerCPUPercent is the container's CPU usage between the engine's two
-// samples, computed the way the engine's own client computes it: the delta of
-// the container's CPU time over the delta of the host's, times the number of
-// CPUs it may run on.
+// Computed as the engine's client computes it: the container's CPU-time delta
+// over the host's, times the CPUs it may use.
 func webContainerCPUPercent(stats mobycontainer.StatsResponse) float64 {
 	cpuDelta := float64(stats.CPUStats.CPUUsage.TotalUsage) - float64(stats.PreCPUStats.CPUUsage.TotalUsage)
 	systemDelta := float64(stats.CPUStats.SystemUsage) - float64(stats.PreCPUStats.SystemUsage)
@@ -606,8 +560,8 @@ func measureSiteDeployments(o webSiteObservation) webDetectorFinding {
 		if at.Before(o.from) || at.After(o.to) {
 			continue
 		}
-		// Kudu reports a failed deployment as status 3; every other value is a
-		// deployment that is pending, running or succeeded.
+		// Kudu reports a failed deployment as status 3; every other value is pending,
+		// running or succeeded.
 		if d.Properties.Status == 3 {
 			failed++
 		}
@@ -629,8 +583,6 @@ func measureSiteDeployments(o webSiteObservation) webDetectorFinding {
 	return finding
 }
 
-// webDetectorMetric renders one measured sample as the swagger's
-// DiagnosticMetricSet.
 func webDetectorMetric(name, unit string, start, end time.Time, roleInstance string, value float64) map[string]any {
 	if start.IsZero() {
 		start = end
@@ -679,8 +631,6 @@ func webParseAnyTime(values ...string) time.Time {
 	return time.Time{}
 }
 
-// wire rendering
-
 func webDiagnosticChildType(r *http.Request, suffix string) string {
 	base := "Microsoft.Web/sites"
 	if sim.PathParam(r, "slot") != "" {
@@ -707,8 +657,7 @@ func webDetectorTable(finding webDetectorFinding) map[string]any {
 	}
 }
 
-// webDetectorResponseDoc renders one detector in the DetectorResponse shape the
-// site's own /detectors collection publishes.
+// The DetectorResponse shape of the site's own /detectors collection.
 func webDetectorResponseDoc(r *http.Request, base string, det webDetector, finding webDetectorFinding) map[string]any {
 	id := base + "/detectors/" + det.name
 	props := map[string]any{
@@ -740,8 +689,6 @@ func webDetectorResponseDoc(r *http.Request, base string, det webDetector, findi
 	}
 }
 
-// webInsightStatus is the finding's severity as one of the swagger's
-// InsightStatus values.
 func webInsightStatus(status string) string {
 	switch status {
 	case "Critical", "Warning", "Info", "Success":
@@ -750,8 +697,7 @@ func webInsightStatus(status string) string {
 	return "None"
 }
 
-// webDiagnosticDetectorResponseDoc renders one detector run in the
-// DiagnosticDetectorResponse shape the execute operation answers with.
+// The DiagnosticDetectorResponse shape the execute operation answers with.
 func webDiagnosticDetectorResponseDoc(r *http.Request, base string, det webDetector, finding webDetectorFinding, from, to time.Time) map[string]any {
 	abnormal := make([]map[string]any, 0, len(finding.abnormal))
 	for _, event := range finding.abnormal {
@@ -805,10 +751,7 @@ func webDetectorDefinitionDoc(det webDetector) map[string]any {
 	}
 }
 
-// handlers
-
-// webDiagnosticWindow is the period the operation reports over: the one the
-// client named, or the last day ending now.
+// The client's period, or the last day ending now.
 func webDiagnosticWindow(r *http.Request) (time.Time, time.Time) {
 	to := time.Now().UTC()
 	if raw := r.URL.Query().Get("endTime"); raw != "" {
@@ -825,9 +768,8 @@ func webDiagnosticWindow(r *http.Request) (time.Time, time.Time) {
 	return from, to
 }
 
-// webRequireDiagnosticCategory resolves the diagnostic category the request
-// addresses. The simulator publishes one category — the availability and
-// performance measurements it can make — so any other name is not found.
+// The simulator publishes one category, the availability and performance
+// measurements it makes; any other name is not found.
 func webRequireDiagnosticCategory(w http.ResponseWriter, r *http.Request) bool {
 	category := sim.PathParam(r, "diagnosticCategory")
 	if strings.EqualFold(category, webDiagnosticCategory) {
@@ -839,9 +781,8 @@ func webRequireDiagnosticCategory(w http.ResponseWriter, r *http.Request) bool {
 	return false
 }
 
-// webFindDetector resolves a detector by name, answering the declared gap for
-// a detector of Microsoft's catalog the simulator cannot measure and the ARM
-// 404 for a name that is not a detector at all.
+// A catalog detector the simulator cannot measure answers the declared gap; a
+// non-detector name the 404.
 func webFindDetector(w http.ResponseWriter, name string) (webDetector, bool) {
 	for _, det := range webDetectors() {
 		if strings.EqualFold(det.name, name) {
@@ -880,7 +821,6 @@ func webFindAnalysis(w http.ResponseWriter, name string) (webAnalysis, bool) {
 	return webAnalysis{}, false
 }
 
-// registerWebDiagnostics mounts the site and slot diagnostics family.
 func registerWebDiagnostics(both func(string, string, http.HandlerFunc)) {
 	// Diagnostics_ListSiteDiagnosticCategories[Slot]
 	both("GET", "/diagnostics", func(w http.ResponseWriter, r *http.Request) {
@@ -934,7 +874,7 @@ func registerWebDiagnostics(both func(string, string, http.HandlerFunc)) {
 		})
 	})
 
-	// Diagnostics_ExecuteSiteDetector[Slot] — run the detector now.
+	// Diagnostics_ExecuteSiteDetector[Slot] runs the detector now.
 	both("POST", "/diagnostics/{diagnosticCategory}/detectors/{detectorName}/execute", func(w http.ResponseWriter, r *http.Request) {
 		if webMissing(w, r) || !webRequireDiagnosticCategory(w, r) {
 			return
@@ -974,8 +914,8 @@ func registerWebDiagnostics(both func(string, string, http.HandlerFunc)) {
 		sim.WriteJSON(w, http.StatusOK, webAnalysisDefinitionDoc(r, analysis))
 	})
 
-	// Diagnostics_ExecuteSiteAnalysis[Slot] — run every detector the analysis
-	// aggregates and report what they found.
+	// Diagnostics_ExecuteSiteAnalysis[Slot] runs every detector the analysis
+	// aggregates.
 	both("POST", "/diagnostics/{diagnosticCategory}/analyses/{analysisName}/execute", func(w http.ResponseWriter, r *http.Request) {
 		if webMissing(w, r) || !webRequireDiagnosticCategory(w, r) {
 			return
@@ -1036,8 +976,7 @@ func registerWebDiagnostics(both func(string, string, http.HandlerFunc)) {
 		})
 	})
 
-	// Diagnostics_ListSiteDetectorResponses[Slot] — the site's own detector
-	// collection, every detector run at read time.
+	// Diagnostics_ListSiteDetectorResponses[Slot]: every detector run at read time.
 	both("GET", "/detectors", func(w http.ResponseWriter, r *http.Request) {
 		if webMissing(w, r) {
 			return
@@ -1096,25 +1035,18 @@ func webAnalysisDefinitionDoc(r *http.Request, analysis webAnalysis) map[string]
 	}
 }
 
-// hosting-environment diagnostics
-
-// registerWebEnvironmentDiagnostics mounts the four diagnostics operations
-// scoped to an App Service Environment. Every detector the simulator computes
-// measures one site's workload container, and an environment is not a site: it
-// has no container, no process table and no request log of its own. It
-// therefore publishes no detectors and no diagnostic bundles — the empty
-// collections the specification's own AppServiceEnvironments_ListDiagnostics
-// and Diagnostics_ListHostingEnvironmentDetectorResponses examples show — and
-// a read of one by name reports, correctly, that the environment has none. The
-// per-site detectors of the apps IN the environment are read at those apps.
+// Every detector measures one site's container, and an App Service Environment
+// has no container, process table or request log, so it publishes no detectors
+// or diagnostics — the empty collections the specification's examples show. Its
+// apps' detectors are read at the apps.
 func registerWebEnvironmentDiagnostics(ase func(string, string, http.HandlerFunc)) {
 	// AppServiceEnvironments_ListDiagnostics
 	ase("GET", "/diagnostics", func(w http.ResponseWriter, r *http.Request) {
 		if _, ok := aseLookup(w, r); !ok {
 			return
 		}
-		// The operation's response is a bare array of
-		// HostingEnvironmentDiagnostics, not a paged collection.
+		// The response is a bare array of HostingEnvironmentDiagnostics, not a paged
+		// collection.
 		sim.WriteJSON(w, http.StatusOK, []any{})
 	})
 

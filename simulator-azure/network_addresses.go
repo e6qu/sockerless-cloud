@@ -15,16 +15,14 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/ipam"
 )
 
-// A virtual network is one engine network per IPv4 prefix of its address
-// space (azure_workload_networks.go), each created when the first workload
-// attaches to it and removed with the network. A subnet lies inside one of
-// those prefixes and is an address ledger over its own prefix: every network
-// interface, platform-owned or not, holds a lease on it, and the stored
-// interfaces rebuild the ledger after a restart.
+// A virtual network is one engine network per IPv4 prefix of its address space
+// (azure_workload_networks.go), created when the first workload attaches. A
+// subnet is an address ledger over its prefix: every network interface holds a
+// lease on it, and the stored interfaces rebuild the ledger after a restart.
 
-// azureSubnetReservation is what Azure Virtual Network keeps in every subnet:
-// the network address, the default gateway, the two addresses Azure DNS maps
-// into the virtual network, and the broadcast address.
+// Azure keeps the network address, the default gateway, the two addresses
+// Azure DNS maps into the virtual network, and the broadcast address in every
+// subnet.
 var azureSubnetReservation = ipam.HostReservation{First: 4, Last: 1}
 
 const azureMACPrefix = "02:15:5d"
@@ -41,21 +39,16 @@ func azureVNetIDOfSubnet(subnetID string) string {
 	return strings.Split(subnetID, "/subnets/")[0]
 }
 
-// dockerNetForVNet names the engine network realizing a virtual network: its
-// name for the operator, and a digest of its resource id and the simulator's
-// workload scope, so two virtual networks of one name in different resource
-// groups or subscriptions, or held by two simulators on one engine, are two
-// networks.
+// The name for the operator and a digest of the resource ID and workload scope,
+// so same-named virtual networks in different groups or subscriptions, or in
+// two simulators on one engine, are distinct networks.
 func dockerNetForVNet(vnetID string) string {
 	sum := sha256.Sum256([]byte(sim.WorkloadScope() + "\x00" + strings.ToLower(vnetID)))
 	return "sim-vnet-" + strings.ToLower(vnetID[strings.LastIndex(vnetID, "/")+1:]) + "-" + hex.EncodeToString(sum[:4])
 }
 
-// dockerNetForVNetPrefix names the engine network realizing one address
-// prefix of a virtual network: the network's own name for its first prefix,
-// and that name with a digest of the prefix for each later one. The engine's
-// bridge driver spans one range per network, so a virtual network with
-// several prefixes is several engine networks.
+// The network's own name for its first prefix, plus a digest for each later
+// one: the bridge driver spans one range per network.
 func dockerNetForVNetPrefix(vnetID string, prefix netip.Prefix, first bool) string {
 	name := dockerNetForVNet(vnetID)
 	if first {
@@ -65,8 +58,6 @@ func dockerNetForVNetPrefix(vnetID string, prefix netip.Prefix, first bool) stri
 	return name + "-" + hex.EncodeToString(sum[:3])
 }
 
-// azureVNetPrefixOfSubnet is the address prefix of the virtual network the
-// subnet's IPv4 range lies in, and whether it is the network's first.
 func azureVNetPrefixOfSubnet(vnet VirtualNetwork, subnet Subnet) (netip.Prefix, bool, error) {
 	cidr, err := azureSubnetIPv4CIDR(subnet.Properties)
 	if err != nil {
@@ -89,8 +80,7 @@ func azureVNetPrefixOfSubnet(vnet VirtualNetwork, subnet Subnet) (netip.Prefix, 
 		subnet.ID, cidr, vnet.ID, strings.Join(vnet.Properties.AddressSpace.AddressPrefixes, ", "))
 }
 
-// azureVNetIPv4Prefixes are the IPv4 members of addressSpace.addressPrefixes,
-// in their order, which the virtual network's engine network spans.
+// In their order; the engine network spans them.
 func azureVNetIPv4Prefixes(vnet VirtualNetwork) ([]netip.Prefix, error) {
 	var prefixes []netip.Prefix
 	for _, raw := range vnet.Properties.AddressSpace.AddressPrefixes {
@@ -108,8 +98,8 @@ func azureVNetIPv4Prefixes(vnet VirtualNetwork) ([]netip.Prefix, error) {
 	return prefixes, nil
 }
 
-// azureVNetIPv4Prefix is the first IPv4 prefix of the address space, whose
-// reserved addresses the resolver's sidecar and the node agent take.
+// The first IPv4 prefix's reserved addresses go to the resolver's sidecar and
+// the node agent.
 func azureVNetIPv4Prefix(vnet VirtualNetwork) (netip.Prefix, error) {
 	prefixes, err := azureVNetIPv4Prefixes(vnet)
 	if err != nil {
@@ -118,9 +108,7 @@ func azureVNetIPv4Prefix(vnet VirtualNetwork) (netip.Prefix, error) {
 	return prefixes[0], nil
 }
 
-// azureSubnetInsideVNet reports whether every IPv4 prefix of the subnet lies
-// inside one of the virtual network's address prefixes, naming the first
-// that does not.
+// Names the first subnet prefix outside the virtual network.
 func azureSubnetInsideVNet(sn Subnet, vnet VirtualNetwork) (string, bool) {
 	vnetPrefixes, err := azureVNetIPv4Prefixes(vnet)
 	if err != nil {
@@ -148,7 +136,6 @@ func azureSubnetInsideVNet(sn Subnet, vnet VirtualNetwork) (string, bool) {
 	return "", true
 }
 
-// azureSubnetIPv4CIDR is the prefix a subnet leases addresses from: its
 // addressPrefix, or the first IPv4 member of addressPrefixes.
 func azureSubnetIPv4CIDR(properties SubnetProperties) (string, error) {
 	prefixes := make([]string, 0, len(properties.AddressPrefixes)+1)
@@ -172,9 +159,8 @@ func azureSubnetIPv4CIDR(properties SubnetProperties) (string, error) {
 	return "", fmt.Errorf("subnet requires an IPv4 addressPrefix or addressPrefixes member")
 }
 
-// azureSubnetLedger leases one subnet's addresses and remembers which owner
-// holds each, so an owner re-requesting its own address keeps it and a
-// release by another owner leaves it alone.
+// An owner re-requesting its address keeps it, and another owner's release
+// leaves it alone.
 type azureSubnetLedger struct {
 	cidr   string
 	ipam   *ipam.IPAM
@@ -186,9 +172,8 @@ var azureSubnetLedgers = struct {
 	bySubnet map[string]*azureSubnetLedger
 }{bySubnet: map[string]*azureSubnetLedger{}}
 
-// azureSubnetLedgerFor returns the subnet's ledger, building it from the
-// stored subnet and seeding it with every stored address in the subnet when
-// this process has not used the subnet yet. Caller holds azureSubnetLedgers.
+// Seed a ledger new to this process from every stored address in the subnet.
+// The caller holds azureSubnetLedgers.
 func azureSubnetLedgerFor(subnetID string) (*azureSubnetLedger, error) {
 	subnet, ok := azureSubnetByID(subnetID)
 	if !ok {
@@ -220,8 +205,7 @@ func azureSubnetLedgerFor(subnetID string) (*azureSubnetLedger, error) {
 	return ledger, nil
 }
 
-// azureStoredSubnetAddresses lists every address the store records in the
-// subnet, by the IP configuration or frontend that holds it.
+// Keyed by the IP configuration or frontend holding each address.
 func azureStoredSubnetAddresses(subnetID string) map[string]net.IP {
 	held := map[string]net.IP{}
 	if azureNICs != nil {
@@ -273,8 +257,6 @@ func (l *azureSubnetLedger) release(owner string, ip net.IP) {
 	delete(l.owners, ip.String())
 }
 
-// azureAddressFault is an address lease the Network resource provider refuses
-// with a request error of its own.
 type azureAddressFault struct {
 	code    string
 	status  int
@@ -283,10 +265,8 @@ type azureAddressFault struct {
 
 func (f *azureAddressFault) Error() string { return f.message }
 
-// azureLeaseSubnetAddress leases an address in the subnet to owner: the
-// requested one, or the next free one. A requested address another owner holds
-// fails with ipam.ErrAddressInUse; a subnet with none left with
-// ipam.ErrNoAvailableIP.
+// The requested address or the next free one. Another owner's address fails
+// with ipam.ErrAddressInUse; a full subnet with ipam.ErrNoAvailableIP.
 func azureLeaseSubnetAddress(subnetID, owner string, requested net.IP) (net.IP, error) {
 	azureSubnetLedgers.Lock()
 	defer azureSubnetLedgers.Unlock()
@@ -297,8 +277,7 @@ func azureLeaseSubnetAddress(subnetID, owner string, requested net.IP) (net.IP, 
 	return ledger.lease(owner, requested)
 }
 
-// azureReleaseSubnetAddress returns owner's lease on ip to the subnet. An
-// address owner does not hold, or a subnet no longer stored, is left alone.
+// An address owner does not hold, or a subnet no longer stored, is left alone.
 func azureReleaseSubnetAddress(subnetID, owner string, ip net.IP) {
 	azureSubnetLedgers.Lock()
 	defer azureSubnetLedgers.Unlock()
@@ -309,16 +288,14 @@ func azureReleaseSubnetAddress(subnetID, owner string, ip net.IP) {
 	ledger.release(owner, ip)
 }
 
-// azureForgetSubnetLedger drops a subnet's ledger, for a subnet that is
-// deleted or whose prefix changed; the next lease rebuilds it from the store.
+// The next lease rebuilds the ledger from the store.
 func azureForgetSubnetLedger(subnetID string) {
 	azureSubnetLedgers.Lock()
 	defer azureSubnetLedgers.Unlock()
 	delete(azureSubnetLedgers.bySubnet, strings.ToLower(subnetID))
 }
 
-// azureWriteAddressLeaseError answers a network interface write whose address
-// lease the subnet refused, with the Network resource provider's own codes.
+// With the Network resource provider's own codes.
 func azureWriteAddressLeaseError(w http.ResponseWriter, nicID string, err error) {
 	var fault *azureAddressFault
 	switch {
@@ -336,8 +313,7 @@ func azureWriteAddressLeaseError(w http.ResponseWriter, nicID string, err error)
 	}
 }
 
-// azurePrimaryIPConfigIndex is the IP configuration Azure treats as the
-// interface's primary: the one marked primary, or the first when none is.
+// The one marked primary, or the first.
 func azurePrimaryIPConfigIndex(nic NetworkInterface) int {
 	for i, ipcfg := range nic.Properties.IPConfigurations {
 		if ipcfg.Properties.Primary {
@@ -351,8 +327,6 @@ func azurePrimaryIPConfig(nic NetworkInterface) NetworkInterfaceIPConfiguration 
 	return nic.Properties.IPConfigurations[azurePrimaryIPConfigIndex(nic)]
 }
 
-// azureNICSecondaryAddresses lists the private addresses of the interface's
-// secondary IP configurations.
 func azureNICSecondaryAddresses(nic NetworkInterface) []net.IP {
 	primary := azurePrimaryIPConfigIndex(nic)
 	var out []net.IP
@@ -367,12 +341,10 @@ func azureNICSecondaryAddresses(nic NetworkInterface) []net.IP {
 	return out
 }
 
-// azureLeaseNICAddresses gives every IP configuration of nic an address in its
-// subnet and writes it into the configuration. A configuration keeps the
-// address it held in prev, the interface as stored before this write, unless
-// it asks for another static one; the addresses of configurations nic no
-// longer has go back to the subnet first, so a new configuration may take
-// one of them. A write that fails leaves prev's leases as they were.
+// A configuration keeps the address it held in prev unless it asks for another
+// static one; addresses of dropped configurations return to the subnet first,
+// so a new configuration may take one. A failed write leaves prev's leases as
+// they were.
 func azureLeaseNICAddresses(nic *NetworkInterface, prev *NetworkInterface) error {
 	type lease struct {
 		subnetID, owner string
@@ -426,8 +398,8 @@ func azureLeaseNICAddresses(nic *NetworkInterface, prev *NetworkInterface) error
 			released = append(released, before)
 		}
 	}
-	// Nothing runs between a release and its re-lease under the lock, so a
-	// restore of what this write released cannot be refused.
+	// Nothing runs between a release and its re-lease under the lock, so restoring
+	// what this write released cannot be refused.
 	restore := func(err error) error {
 		for _, l := range leased {
 			ledgers[strings.ToLower(l.subnetID)].release(l.owner, l.ip)
@@ -471,7 +443,6 @@ func azureLeaseNICAddresses(nic *NetworkInterface, prev *NetworkInterface) error
 	return nil
 }
 
-// azureReleaseNICAddresses returns every address the interface holds.
 func azureReleaseNICAddresses(nic NetworkInterface) {
 	for _, ipcfg := range nic.Properties.IPConfigurations {
 		if ipcfg.Properties.Subnet == nil {

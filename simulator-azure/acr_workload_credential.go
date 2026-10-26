@@ -6,9 +6,9 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// acrWorkloadRegistry is a registry credential a workload declares: an Azure
-// Container Apps `registries` entry, or an App Service site's Azure
-// Container Registry managed identity or `DOCKER_REGISTRY_SERVER_*` settings.
+// acrWorkloadRegistry is a registry credential a workload declares: a Container
+// Apps `registries` entry, or an App Service site's managed identity or
+// `DOCKER_REGISTRY_SERVER_*` settings.
 type acrWorkloadRegistry struct {
 	Server   string
 	Username string
@@ -16,13 +16,11 @@ type acrWorkloadRegistry struct {
 	Identity string
 }
 
-// acrWorkloadRegistryAuth is the credential an Azure workload host presents
-// when it pulls image for a workload that declared registries: for a registry
-// the workload reaches with a managed identity, an identity token of that
-// identity, which the engine exchanges through the registry's refresh-token
-// grant; for one it reaches with a username and password, that credential;
-// and nothing for a registry the workload did not declare, which the host
-// reaches anonymously, as the platform does.
+// acrWorkloadRegistryAuth returns, for a registry reached with a managed
+// identity, an identity token the engine exchanges through the refresh-token
+// grant; for one reached with a password, that credential; and nothing for an
+// undeclared registry, which the host reaches anonymously, as the platform
+// does.
 func acrWorkloadRegistryAuth(image string, registries []acrWorkloadRegistry) string {
 	host, _, found := strings.Cut(image, "/")
 	if !found {
@@ -50,8 +48,8 @@ func acrWorkloadRegistryAuth(image string, registries []acrWorkloadRegistry) str
 	return ""
 }
 
-// acaAppWorkloadRegistries is what a Container App declares, its password
-// references resolved against its secrets' values.
+// acaAppWorkloadRegistries resolves password references against the app's
+// secrets.
 func acaAppWorkloadRegistries(app ContainerApp, secrets map[string]string) []acrWorkloadRegistry {
 	if app.Properties.Configuration == nil {
 		return nil
@@ -63,8 +61,8 @@ func acaAppWorkloadRegistries(app ContainerApp, secrets map[string]string) []acr
 	return out
 }
 
-// acaJobWorkloadRegistries is what a Container Apps Job declares, its password
-// references resolved against its secrets' values.
+// acaJobWorkloadRegistries resolves password references against the job's
+// secrets.
 func acaJobWorkloadRegistries(cfg *JobConfiguration, secrets map[string]string) []acrWorkloadRegistry {
 	if cfg == nil {
 		return nil
@@ -76,10 +74,8 @@ func acaJobWorkloadRegistries(cfg *JobConfiguration, secrets map[string]string) 
 	return out
 }
 
-// siteWorkloadRegistries is what an App Service site declares for its
-// container image: the registry its `DOCKER_REGISTRY_SERVER_*` settings name,
-// reached with the site's Azure Container Registry managed identity when the
-// site config asks for it, else with the settings' username and password.
+// siteWorkloadRegistries uses the site's managed identity when the site config
+// asks for it, else the settings' username and password.
 func siteWorkloadRegistries(site *Site, image string) []acrWorkloadRegistry {
 	settings := siteAppSettings(site)
 	server := settings["DOCKER_REGISTRY_SERVER_URL"]

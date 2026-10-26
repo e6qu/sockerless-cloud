@@ -18,9 +18,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestCosmos_TimeToLiveExpiresItems proves a container's defaultTtl expires
-// items through the azcosmos SDK: an expired item reads as 404 and leaves
-// queries, while an item whose own ttl is -1 never expires.
+// TestCosmos_TimeToLiveExpiresItems: a container's defaultTtl expires items,
+// which then read 404 and leave queries, while an item with ttl -1 never
+// expires.
 func TestCosmos_TimeToLiveExpiresItems(t *testing.T) {
 	t.Parallel()
 	dataPlaneAccount := uniquename.Alnum("sdkdataplane")
@@ -70,9 +70,8 @@ func TestCosmos_TimeToLiveExpiresItems(t *testing.T) {
 	assert.Equal(t, []string{"kept"}, ids)
 }
 
-// TestCosmos_ProvisionedThroughputThrottles proves a container's provisioned
-// RU/s is a budget: writes beyond it are answered 429 with
-// x-ms-retry-after-ms, and the SDK's retry of exactly that carries a burst
+// TestCosmos_ProvisionedThroughputThrottles: writes beyond the provisioned RU/s
+// answer 429 with x-ms-retry-after-ms, and the SDK's retry carries a burst
 // larger than the budget through.
 func TestCosmos_ProvisionedThroughputThrottles(t *testing.T) {
 	t.Parallel()
@@ -119,10 +118,10 @@ func TestCosmos_ProvisionedThroughputThrottles(t *testing.T) {
 	assert.Equal(t, "3200", throttled.Header.Get("x-ms-substatus"))
 }
 
-// TestCosmos_AllVersionsAndDeletesChangeFeed proves the second change-feed
-// mode: on an account with continuous backup, `A-IM: Full-Fidelity Feed`
-// returns every create, replace and delete since the continuation, where the
-// latest-version feed shows only surviving items once.
+// TestCosmos_AllVersionsAndDeletesChangeFeed: on an account with continuous
+// backup, `A-IM: Full-Fidelity Feed` returns every create, replace and delete
+// since the continuation, where the latest-version feed shows each surviving
+// item once.
 func TestCosmos_AllVersionsAndDeletesChangeFeed(t *testing.T) {
 	t.Parallel()
 	account := uniquename.Alnum("sdkcosmosavad")
@@ -182,7 +181,6 @@ func TestCosmos_AllVersionsAndDeletesChangeFeed(t *testing.T) {
 	assert.Equal(t, "b", docs[0]["id"])
 }
 
-// cosmosChangeFeedPageIn is a latest-version change-feed read of any container.
 func cosmosChangeFeedPageIn(t *testing.T, account, coll, continuation string) ([]map[string]any, string, int) {
 	t.Helper()
 	headers := map[string]string{"A-IM": "Incremental feed"}
@@ -203,10 +201,7 @@ func cosmosChangeFeedPageIn(t *testing.T, account, coll, continuation string) ([
 }
 
 // TestCosmos_ItemVerbsHonourETagsAndExistence drives every item verb through
-// the azcosmos SDK — POST /dbs/{database}/colls/{container}/docs (create and
-// query), GET /dbs/{database}/colls/{container}/docs (read feed),
-// GET, PUT, PATCH and DELETE /dbs/{database}/colls/{container}/docs/{doc} —
-// and holds replace to its ETag and to the item existing.
+// azcosmos and holds replace to its ETag and to the item existing.
 func TestCosmos_ItemVerbsHonourETagsAndExistence(t *testing.T) {
 	t.Parallel()
 	dataPlaneAccount := uniquename.Alnum("sdkdataplane")

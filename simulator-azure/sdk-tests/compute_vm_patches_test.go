@@ -9,23 +9,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Patch assessment, patch installation and image capture, driven through the
-// official SDK against a machine that really booted.
-//
-// All three answer from the guest itself: an assessment reports what the
-// machine's own package manager says is upgradable, an installation runs that
-// package manager, and a capture copies the disk the machine is running on. So
-// each assertion here is on what the guest produced, not on a record that the
-// call happened — a machine reported fully patched because nothing looked is
-// indistinguishable from a real answer unless the test reads the guest.
+// Patch assessment, patch installation and image capture answer from the
+// guest of a booted machine, so each assertion is on what the guest produced.
 func TestCompute_VirtualMachinePatchOperations(t *testing.T) {
 	t.Parallel()
 	const rg = "vm-patch-rg-e4fd"
 	const vmName = "vm-patch"
 	nicID := vmOperationsFixture(t, rg, "vm-patch", "10.98.0.0/16")
-	// A capture writes the image into a storage account, and the machine names
-	// the account through its boot-diagnostics profile — so a machine that is
-	// going to be captured has to have one, exactly as in Azure.
+	// A capture writes into the storage account the boot-diagnostics profile
+	// names, so the machine needs one, as in Azure.
 	vmClient := createOperationsVM(t, rg, vmName, nicID, func(vm *armcompute.VirtualMachine) {
 		vm.Properties.DiagnosticsProfile = &armcompute.DiagnosticsProfile{
 			BootDiagnostics: &armcompute.BootDiagnostics{
@@ -41,14 +33,11 @@ func TestCompute_VirtualMachinePatchOperations(t *testing.T) {
 		result, err := poller.PollUntilDone(ctx, nil)
 		require.NoError(t, err)
 
-		// The assessment ran to completion against a reachable guest.
 		assert.Equal(t, armcompute.PatchOperationStatusSucceeded,
 			derefPatchStatus(result.Status),
 			"assessment did not succeed, so nothing inspected the guest")
 		require.NotNil(t, result.AssessmentActivityID)
-		// A Debian guest reports a package count rather than an error; the
-		// number itself depends on the image, so the contract is that it was
-		// counted at all.
+		// The count depends on the image; the contract is that it was counted.
 		require.NotNil(t, result.CriticalAndSecurityPatchCount)
 		require.NotNil(t, result.OtherPatchCount)
 	})
@@ -68,15 +57,13 @@ func TestCompute_VirtualMachinePatchOperations(t *testing.T) {
 			derefPatchStatus(result.Status),
 			"installation did not succeed, so the package manager did not run")
 		require.NotNil(t, result.InstallationActivityID)
-		// Never-reboot was asked for, so the machine must not have rebooted.
+		// Never-reboot was asked for.
 		assert.Equal(t, armcompute.VMGuestPatchRebootStatusNotNeeded,
 			derefRebootStatus(result.RebootStatus))
 	})
 
-	// Azure generalizes only a stopped machine, and captures only a generalized
-	// one, so this is the order every capture is performed in. It is reachable
-	// because the machine's disk outlives its guest process — the whole of what
-	// the sequence depends on.
+	// Azure generalizes only a stopped machine and captures only a generalized
+	// one, which works because the disk outlives the guest process.
 	t.Run("Generalize refuses a running machine", func(t *testing.T) {
 		_, err := vmClient.Generalize(ctx, rg, vmName, nil)
 		require.Error(t, err)
@@ -103,8 +90,7 @@ func TestCompute_VirtualMachinePatchOperations(t *testing.T) {
 		captured, err := poller.PollUntilDone(ctx, nil)
 		require.NoError(t, err)
 
-		// The template names the disk that was copied rather than an empty
-		// shell, which is what distinguishes a capture from a record of one.
+		// The template names the copied disk, not an empty shell.
 		require.NotEmpty(t, captured.Resources, "capture produced no image resource")
 	})
 }

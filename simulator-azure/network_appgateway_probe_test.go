@@ -11,10 +11,8 @@ import (
 	"time"
 )
 
-// An Application Gateway probe grades the status the server itself returned:
-// the default criterion (200-399) accepts a redirect as it stands, and a match
-// naming 200 alone rejects it, rather than either following it to the page it
-// names.
+// The default criterion (200-399) accepts a redirect as it stands, and a match
+// naming 200 alone rejects it; neither follows it.
 func TestApplicationGatewayProbeGradesARedirectByItsOwnCode(t *testing.T) {
 	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/health" {
@@ -50,10 +48,8 @@ func TestApplicationGatewayProbeGradesARedirectByItsOwnCode(t *testing.T) {
 	}
 }
 
-// A probe's minServers is the "minimum number of servers that are always
-// marked healthy": with no member probed Up, a gateway whose probe sets it
-// still routes to the pool's first member, and one whose probe leaves it at 0
-// routes nowhere.
+// With no member Up, a probe with minServers still routes to the first member;
+// with 0 it routes nowhere.
 func TestApplicationGatewayMinServersKeepsAMemberInService(t *testing.T) {
 	gw := ApplicationGateway{}
 	gw.ID = "/subscriptions/s/resourceGroups/rg/providers/Microsoft.Network/applicationGateways/minservers"

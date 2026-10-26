@@ -1,15 +1,9 @@
 package azure_sdk_test
 
-// Literal ARM path coverage doc for the Microsoft.Logic ratchet.
-//
-// The armlogic ARM clients (and the `az rest` CLI tests) build request URLs
-// internally, so the literal route strings registered in
-// simulator-azure/logicapps_more.go never appear verbatim in the test source.
-// This block records every such route so the simulator-testing-contract hook
-// (scripts/check-simulator-tests.sh, which greps changed test files for each
-// route's literal path) can see the coverage. Each line is a real route mounted
-// in simulator-azure/logicapps_more.go, driven by a genuine armlogic SDK call
-// in logic_more_test.go (or `az rest` in cli-tests/logic_more_test.go).
+// The armlogic clients and `az rest` build request URLs internally, so the
+// literal routes these tests drive never appear in test source. List them for
+// scripts/check-simulator-tests.sh, which matches a newly mounted route's
+// literal path in the changed test files.
 //
 //   DELETE /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Logic/integrationAccounts/{integrationAccountName}
 //   DELETE /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Logic/integrationAccounts/{integrationAccountName}/agreements/{agreementName}

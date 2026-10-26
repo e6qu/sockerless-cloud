@@ -23,9 +23,7 @@ import (
 )
 
 // filesSDKService builds an azfile service client for one account at the
-// simulator's coordinate. Everything below drives the real azfile clients — the
-// same code and identifiers a client uses against Azure Files, differing only in
-// the endpoint they are pointed at.
+// simulator's endpoint.
 func filesSDKService(t *testing.T, account string) *fileservice.Client {
 	t.Helper()
 	client, err := fileservice.NewClientWithNoCredential(storageSDKURL(t, account, "file"),
@@ -35,10 +33,9 @@ func filesSDKService(t *testing.T, account string) *fileservice.Client {
 }
 
 // TestFilesSDK_NestedDirectoryTreeEndToEnd is the path an Azure Container Apps
-// or Azure Functions volume depends on: a directory tree is created, a file is
-// written at depth, the tree is listed at that depth, the file is renamed, and
-// everything is removed — and the whole time the share's backing directory,
-// which a mounting workload sees, agrees with what the data plane reports.
+// or Azure Functions volume depends on: create a tree, write at depth, list,
+// rename and remove, with the share's backing directory, which a mounting
+// workload sees, agreeing at each step.
 func TestFilesSDK_NestedDirectoryTreeEndToEnd(t *testing.T) {
 	t.Parallel()
 	const (
@@ -59,7 +56,7 @@ func TestFilesSDK_NestedDirectoryTreeEndToEnd(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// A directory is only created inside a directory that already exists.
+	// A directory is created only inside one that exists.
 	orphan := shareClient.NewDirectoryClient("missing").NewSubdirectoryClient("child")
 	_, err = orphan.Create(ctx, nil)
 	require.Error(t, err, "Create Directory must fail when its parent does not exist")
@@ -68,8 +65,7 @@ func TestFilesSDK_NestedDirectoryTreeEndToEnd(t *testing.T) {
 	_, err = artifactsDir.Create(ctx, nil)
 	require.NoError(t, err)
 
-	// The directory really exists in the share's backing tree — the tree a
-	// workload with the share mounted walks.
+	// The directory exists in the backing tree a mounting workload walks.
 	onDisk := filepath.Join(azureFilesDataDir, account, share, "build", "artifacts")
 	info, err := os.Stat(onDisk)
 	require.NoError(t, err, "Create Directory must materialize %s", onDisk)
@@ -101,7 +97,6 @@ func TestFilesSDK_NestedDirectoryTreeEndToEnd(t *testing.T) {
 	require.NoError(t, err, "a file created at depth must land at %s", nested)
 	assert.Equal(t, payload, written)
 
-	// Listing at depth enumerates the directory's own contents.
 	pager := artifactsDir.NewListFilesAndDirectoriesPager(nil)
 	page, err := pager.NextPage(ctx)
 	require.NoError(t, err)
@@ -112,7 +107,6 @@ func TestFilesSDK_NestedDirectoryTreeEndToEnd(t *testing.T) {
 	require.NotNil(t, page.DirectoryPath)
 	assert.Equal(t, "build/artifacts", *page.DirectoryPath)
 
-	// The parent lists the subdirectory, not the file inside it.
 	parentPager := buildDir.NewListFilesAndDirectoriesPager(nil)
 	parentPage, err := parentPager.NextPage(ctx)
 	require.NoError(t, err)
@@ -122,7 +116,6 @@ func TestFilesSDK_NestedDirectoryTreeEndToEnd(t *testing.T) {
 	assert.Equal(t, "artifacts", *parentPage.Segment.Directories[0].Name)
 	assert.Empty(t, parentPage.Segment.Files)
 
-	// Rename moves the file within the tree.
 	renamed, err := fileClient.Rename(ctx, "build/artifacts/bundle-v2.tar", nil)
 	require.NoError(t, err)
 	require.NotNil(t, renamed.ETag)
@@ -136,7 +129,7 @@ func TestFilesSDK_NestedDirectoryTreeEndToEnd(t *testing.T) {
 	assert.Equal(t, int64(len(payload)), n)
 	assert.Equal(t, payload, buf, "rename must move the bytes, not copy or lose them")
 
-	// A directory holding anything cannot be deleted.
+	// Azure Files refuses to delete a directory holding anything.
 	_, err = artifactsDir.Delete(ctx, nil)
 	require.Error(t, err, "Delete Directory must refuse a directory that is not empty")
 
@@ -145,7 +138,6 @@ func TestFilesSDK_NestedDirectoryTreeEndToEnd(t *testing.T) {
 	_, err = artifactsDir.Delete(ctx, nil)
 	require.NoError(t, err)
 
-	// Rename works on directories too.
 	_, err = buildDir.Rename(ctx, "release", nil)
 	require.NoError(t, err)
 	releaseDir := shareClient.NewDirectoryClient("release")
@@ -157,9 +149,8 @@ func TestFilesSDK_NestedDirectoryTreeEndToEnd(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestFilesSDK_DirectoryListingPagesWithPrefixAndMarker drives the paging
-// contract a client depends on when a directory holds more entries than one
-// page.
+// TestFilesSDK_DirectoryListingPagesWithPrefixAndMarker covers listing a
+// directory that holds more than one page.
 func TestFilesSDK_DirectoryListingPagesWithPrefixAndMarker(t *testing.T) {
 	t.Parallel()
 	const (
@@ -178,8 +169,8 @@ func TestFilesSDK_DirectoryListingPagesWithPrefixAndMarker(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	// Prefix narrows the enumeration; MaxResults bounds each page; the pager
-	// follows NextMarker until the enumeration is exhausted.
+	// Prefix narrows, MaxResults bounds each page, and the pager follows
+	// NextMarker to the end.
 	pager := root.NewListFilesAndDirectoriesPager(&directory.ListFilesAndDirectoriesOptions{
 		Prefix:     to.Ptr("keep-"),
 		MaxResults: to.Ptr(int32(2)),
@@ -201,9 +192,8 @@ func TestFilesSDK_DirectoryListingPagesWithPrefixAndMarker(t *testing.T) {
 	assert.Greater(t, pages, 1, "MaxResults=2 over three entries must produce more than one page")
 }
 
-// TestFilesSDK_ShareLeaseGuardsWrites: a share lease is a lock, and a write
-// without the matching lease id is refused with the service's own precondition
-// failure.
+// TestFilesSDK_ShareLeaseGuardsWrites: a write without the share lease's ID is
+// refused with the service's precondition failure.
 func TestFilesSDK_ShareLeaseGuardsWrites(t *testing.T) {
 	t.Parallel()
 	const (
@@ -224,13 +214,11 @@ func TestFilesSDK_ShareLeaseGuardsWrites(t *testing.T) {
 	require.NotNil(t, acquired.LeaseID)
 	assert.Equal(t, "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", *acquired.LeaseID)
 
-	// The share reports the lock.
 	props, err := shareClient.GetProperties(ctx, nil)
 	require.NoError(t, err)
 	require.NotNil(t, props.LeaseState)
 	assert.Equal(t, "leased", string(*props.LeaseState))
 
-	// A write without the lease id is refused, and the share survives it.
 	_, err = shareClient.SetMetadata(ctx, &fileshare.SetMetadataOptions{
 		Metadata: map[string]*string{"owner": to.Ptr("intruder")},
 	})
@@ -238,7 +226,6 @@ func TestFilesSDK_ShareLeaseGuardsWrites(t *testing.T) {
 	_, err = shareClient.Delete(ctx, nil)
 	require.Error(t, err, "Delete Share must be refused while the share is leased")
 
-	// The holder writes.
 	_, err = shareClient.SetMetadata(ctx, &fileshare.SetMetadataOptions{
 		Metadata:              map[string]*string{"owner": to.Ptr("sockerless")},
 		LeaseAccessConditions: &fileshare.LeaseAccessConditions{LeaseID: acquired.LeaseID},
@@ -258,13 +245,12 @@ func TestFilesSDK_ShareLeaseGuardsWrites(t *testing.T) {
 	_, err = leaseClient.Release(ctx, nil)
 	require.NoError(t, err)
 
-	// With the lease gone the share is everyone's again.
 	_, err = shareClient.Delete(ctx, nil)
 	require.NoError(t, err)
 }
 
-// TestFilesSDK_FileLeaseGuardsWrites is the file-level lock: an unleased write
-// is refused and leaves the bytes alone.
+// TestFilesSDK_FileLeaseGuardsWrites: an unleased write to a leased file is
+// refused and leaves the bytes alone.
 func TestFilesSDK_FileLeaseGuardsWrites(t *testing.T) {
 	t.Parallel()
 	const (
@@ -312,8 +298,6 @@ func TestFilesSDK_FileLeaseGuardsWrites(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestFilesSDK_FilePropertiesRangesAndHandles drives Set File Properties,
-// Resize, Clear Range, List Ranges and the handle operations.
 func TestFilesSDK_FilePropertiesRangesAndHandles(t *testing.T) {
 	t.Parallel()
 	const (
@@ -333,8 +317,8 @@ func TestFilesSDK_FilePropertiesRangesAndHandles(t *testing.T) {
 	_, err = fileClient.Create(ctx, int64(len(payload)), nil)
 	require.NoError(t, err)
 
-	// A file that has only been allocated holds no data yet, so it lists no
-	// ranges; after a write the range covering the written bytes is reported.
+	// An allocated file holds no data, so it lists no ranges; after a write the
+	// written range is reported.
 	empty, err := fileClient.GetRangeList(ctx, nil)
 	require.NoError(t, err)
 	assert.Empty(t, empty.Ranges, "a freshly allocated file has no valid ranges")
@@ -350,8 +334,6 @@ func TestFilesSDK_FilePropertiesRangesAndHandles(t *testing.T) {
 	require.NotNil(t, listed.FileContentLength)
 	assert.Equal(t, int64(len(payload)), *listed.FileContentLength)
 
-	// Set File Properties records the content type, and Get File Properties
-	// reads it back.
 	_, err = fileClient.SetHTTPHeaders(ctx, &file.SetHTTPHeadersOptions{
 		HTTPHeaders: &file.HTTPHeaders{ContentType: to.Ptr("application/octet-stream")},
 	})
@@ -369,7 +351,6 @@ func TestFilesSDK_FilePropertiesRangesAndHandles(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "sdk", storageMetadataValue(props.Metadata, "origin"))
 
-	// Resize really changes the file's size.
 	_, err = fileClient.Resize(ctx, 8, nil)
 	require.NoError(t, err)
 	props, err = fileClient.GetProperties(ctx, nil)
@@ -377,7 +358,6 @@ func TestFilesSDK_FilePropertiesRangesAndHandles(t *testing.T) {
 	require.NotNil(t, props.ContentLength)
 	assert.Equal(t, int64(8), *props.ContentLength)
 
-	// Clear Range zeroes the bytes it names.
 	_, err = fileClient.ClearRange(ctx, file.HTTPRange{Offset: 0, Count: 4}, nil)
 	require.NoError(t, err)
 	buf := make([]byte, 8)
@@ -386,8 +366,7 @@ func TestFilesSDK_FilePropertiesRangesAndHandles(t *testing.T) {
 	assert.Equal(t, []byte{0, 0, 0, 0}, buf[:4], "Clear Range must zero the range it names")
 	assert.Equal(t, payload[4:8], buf[4:])
 
-	// No SMB or NFS session can be open against a simulator share, so the
-	// handle enumeration is empty and closing handles closes none.
+	// Nothing opens SMB or NFS sessions against the share, so no handles exist.
 	handles, err := fileClient.ListHandles(ctx, nil)
 	require.NoError(t, err)
 	assert.Empty(t, handles.Handles)
@@ -405,27 +384,23 @@ func TestFilesSDK_FilePropertiesRangesAndHandles(t *testing.T) {
 	assert.Equal(t, int32(0), *dirClosed.NumberOfHandlesClosed)
 }
 
-// TestFilesSDK_ClearRangeDeallocatesTheRange: clearing a range must make the
-// range stop existing, not merely read as zeros. List Ranges reports the
-// extents the file actually holds, so a cleared range that stayed allocated
-// would keep being reported — the caller would be told a range it cleared is
-// still there.
+// TestFilesSDK_ClearRangeDeallocatesTheRange: a cleared range stops existing,
+// so List Ranges no longer reports it, rather than reading as zeros.
 func TestFilesSDK_ClearRangeDeallocatesTheRange(t *testing.T) {
 	t.Parallel()
 	const (
 		account  = "sdkfileclear"
 		share    = "sdk-clear-share"
 		fileName = "cleared.bin"
-		// Large enough, and cleared on boundaries large enough, that the
-		// cleared window spans whole filesystem allocation units on any
-		// filesystem the simulator runs on.
+		// Clear whole filesystem allocation units on any filesystem the simulator runs
+		// on.
 		size      = 4 << 20
 		clearFrom = 1 << 20
 		clearTo   = 3 << 20
 	)
 	payload := make([]byte, size)
 	for i := range payload {
-		payload[i] = byte(i%251) + 1 // never zero, so a cleared byte is visible
+		payload[i] = byte(i%251) + 1 // never zero, so a cleared byte shows
 	}
 
 	serviceClient := filesSDKService(t, account)
@@ -456,8 +431,8 @@ func TestFilesSDK_ClearRangeDeallocatesTheRange(t *testing.T) {
 			*rg.Start, *rg.End, clearFrom, clearTo-1)
 	}
 
-	// The file keeps its size, the cleared bytes read as zeros, and the bytes
-	// on either side are untouched.
+	// The file keeps its size, the cleared bytes read as zeros, and the bytes on
+	// either side are untouched.
 	props, err := fileClient.GetProperties(ctx, nil)
 	require.NoError(t, err)
 	require.NotNil(t, props.ContentLength)
@@ -472,7 +447,7 @@ func TestFilesSDK_ClearRangeDeallocatesTheRange(t *testing.T) {
 	assert.Equal(t, make([]byte, clearTo-clearFrom), buf[clearFrom:clearTo],
 		"the cleared window must read as zeros")
 
-	// Clearing the whole file leaves it holding nothing at all.
+	// Clearing the whole file leaves no ranges at all.
 	_, err = fileClient.ClearRange(ctx, file.HTTPRange{Offset: 0, Count: size}, nil)
 	require.NoError(t, err)
 	empty, err := fileClient.GetRangeList(ctx, nil)
@@ -480,8 +455,8 @@ func TestFilesSDK_ClearRangeDeallocatesTheRange(t *testing.T) {
 	assert.Empty(t, empty.Ranges, "a fully cleared file must report no ranges")
 }
 
-// TestFilesSDK_CopyAndUploadRangeFromURL drives Copy File and Upload Range from
-// URL against a source in the same share.
+// TestFilesSDK_CopyAndUploadRangeFromURL copies from a source in the same
+// share.
 func TestFilesSDK_CopyAndUploadRangeFromURL(t *testing.T) {
 	t.Parallel()
 	const (
@@ -513,13 +488,12 @@ func TestFilesSDK_CopyAndUploadRangeFromURL(t *testing.T) {
 	assert.Equal(t, int64(len(payload)), n)
 	assert.Equal(t, payload, buf, "Copy File must copy the source bytes")
 
-	// A copy on the simulator finishes inside the request that starts it, so
-	// there is never a pending copy to abort and the service says exactly that.
+	// The copy finished inside the request that started it, so there is no
+	// pending copy to abort, and the service says so.
 	require.NotNil(t, copied.CopyID)
 	_, err = destination.AbortCopy(ctx, *copied.CopyID, nil)
 	require.Error(t, err, "Abort Copy must report that no copy is pending")
 
-	// Upload Range from URL fills a destination range from the source's.
 	fromURL := root.NewFileClient("from-url.txt")
 	_, err = fromURL.Create(ctx, int64(len(payload)), nil)
 	require.NoError(t, err)
@@ -531,9 +505,8 @@ func TestFilesSDK_CopyAndUploadRangeFromURL(t *testing.T) {
 	assert.Equal(t, payload, buf, "Upload Range from URL must write the source range")
 }
 
-// TestFilesSDK_HardAndSymbolicLinks drives Create Hard Link, Create Symbolic
-// Link and Read Symbolic Link, which are real links in the share's directory
-// tree.
+// TestFilesSDK_HardAndSymbolicLinks: the links are real links in the share's
+// directory tree.
 func TestFilesSDK_HardAndSymbolicLinks(t *testing.T) {
 	t.Parallel()
 	const (
@@ -561,8 +534,8 @@ func TestFilesSDK_HardAndSymbolicLinks(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, payload, buf, "a hard link must read the target's bytes")
 
-	// A hard link is a second name for one inode, so the filesystem the share
-	// is backed by counts two links to it.
+	// A hard link is a second name for one inode, so the backing filesystem counts
+	// two links.
 	targetOnDisk := filepath.Join(azureFilesDataDir, account, share, "target.txt")
 	hardOnDisk := filepath.Join(azureFilesDataDir, account, share, "hard.txt")
 	targetInfo, err := os.Stat(targetOnDisk)
@@ -584,15 +557,15 @@ func TestFilesSDK_HardAndSymbolicLinks(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotZero(t, linkInfo.Mode()&os.ModeSymlink, "Create Symbolic Link must make a real symbolic link")
 
-	// A link text that would leave the share is refused.
+	// A link target outside the share is refused.
 	escaping := root.NewFileClient("escape.txt")
 	_, err = escaping.CreateSymbolicLink(ctx, "../../../etc/passwd", nil)
 	require.Error(t, err, "a symbolic link must not be a way out of the share")
 }
 
 // TestFilesSDK_SharePermissionsStatisticsAndProperties drives the share-level
-// operations an administrator uses: stored security descriptors, usage
-// statistics, quota and the metadata round trip.
+// administration operations: security descriptors, usage statistics, quota and
+// metadata.
 func TestFilesSDK_SharePermissionsStatisticsAndProperties(t *testing.T) {
 	t.Parallel()
 	const (
@@ -613,8 +586,7 @@ func TestFilesSDK_SharePermissionsStatisticsAndProperties(t *testing.T) {
 	require.NotNil(t, created.FilePermissionKey)
 	permissionKey := *created.FilePermissionKey
 
-	// The same descriptor always maps to the same key, which is what lets a
-	// client cache it.
+	// The same descriptor maps to the same key, which lets a client cache it.
 	again, err := shareClient.CreatePermission(ctx, sddl, nil)
 	require.NoError(t, err)
 	require.NotNil(t, again.FilePermissionKey)
@@ -632,7 +604,7 @@ func TestFilesSDK_SharePermissionsStatisticsAndProperties(t *testing.T) {
 	require.NotNil(t, props.Quota)
 	assert.Equal(t, int32(64), *props.Quota, "Set Share Properties must change the quota")
 
-	// Share statistics measure what is actually stored.
+	// Share statistics measure what is stored.
 	stats, err := shareClient.GetStatistics(ctx, nil)
 	require.NoError(t, err)
 	require.NotNil(t, stats.ShareUsageBytes)
@@ -649,8 +621,8 @@ func TestFilesSDK_SharePermissionsStatisticsAndProperties(t *testing.T) {
 		"Get Share Statistics must report the bytes the share actually holds")
 }
 
-// TestFilesSDK_ShareSnapshotFreezesContents: a snapshot is a real copy, so it
-// keeps answering with the bytes the share held when it was taken.
+// TestFilesSDK_ShareSnapshotFreezesContents: a snapshot keeps answering with
+// the bytes the share held when it was taken.
 func TestFilesSDK_ShareSnapshotFreezesContents(t *testing.T) {
 	t.Parallel()
 	const (
@@ -677,7 +649,6 @@ func TestFilesSDK_ShareSnapshotFreezesContents(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, snapshot.Snapshot)
 
-	// The share moves on.
 	_, err = fileClient.Create(ctx, int64(len(replacement)), nil)
 	require.NoError(t, err)
 	require.NoError(t, fileClient.UploadBuffer(ctx, replacement, nil))
@@ -687,7 +658,7 @@ func TestFilesSDK_ShareSnapshotFreezesContents(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, replacement, live)
 
-	// The snapshot does not.
+	// The snapshot keeps the earlier bytes.
 	snapshotShare, err := shareClient.WithSnapshot(*snapshot.Snapshot)
 	require.NoError(t, err)
 	snapshotFile := snapshotShare.NewRootDirectoryClient().NewFileClient(fileName)
@@ -696,7 +667,6 @@ func TestFilesSDK_ShareSnapshotFreezesContents(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, original, frozen, "a snapshot must keep the bytes it froze")
 
-	// The snapshot is listed beside the share it was taken of.
 	pager := serviceClient.NewListSharesPager(&fileservice.ListSharesOptions{
 		Include: fileservice.ListSharesInclude{Snapshots: true},
 	})
@@ -712,15 +682,14 @@ func TestFilesSDK_ShareSnapshotFreezesContents(t *testing.T) {
 	}
 	assert.Contains(t, snapshots, *snapshot.Snapshot)
 
-	// Deleting a snapshot leaves the share alone.
 	_, err = snapshotShare.Delete(ctx, nil)
 	require.NoError(t, err)
 	_, err = fileClient.GetProperties(ctx, nil)
 	require.NoError(t, err, "deleting a snapshot must not touch the share")
 }
 
-// TestFilesSDK_ServicePropertiesAndUserDelegationKey drives the two
-// service-level operations beyond listing shares.
+// TestFilesSDK_ServicePropertiesAndUserDelegationKey drives the service-level
+// operations beyond listing shares.
 func TestFilesSDK_ServicePropertiesAndUserDelegationKey(t *testing.T) {
 	t.Parallel()
 	const account = "sdkfileservice"
@@ -747,10 +716,9 @@ func TestFilesSDK_ServicePropertiesAndUserDelegationKey(t *testing.T) {
 	require.NotNil(t, props.HourMetrics.RetentionPolicy.Days)
 	assert.Equal(t, int32(9), *props.HourMetrics.RetentionPolicy.Days)
 
-	// Get User Delegation Key issues a key bound to the window it is asked
-	// for, and only to a Microsoft Entra caller: the operation is OAuth-only
-	// on Azure, so the probe carries a token whose audience is the storage
-	// resource rather than the Shared Key everything else in this file uses.
+	// Get User Delegation Key is OAuth-only on Azure, so the probe carries a token
+	// for the storage resource instead of Shared Key; the key is bound to the
+	// window asked for.
 	start := time.Now().UTC().Truncate(time.Second)
 	expiry := start.Add(time.Hour)
 	storageBearer, _, err := fetchSimAccessToken("https://storage.azure.com/.default")
@@ -767,9 +735,9 @@ func TestFilesSDK_ServicePropertiesAndUserDelegationKey(t *testing.T) {
 	assert.Contains(t, string(body), "<SignedService>f</SignedService>")
 }
 
-// TestFilesSDK_ShareSoftDeleteAndRestore: with the account's File service
-// carrying a share delete-retention policy, Delete Share keeps the share and
-// Restore Share brings it back with its contents.
+// TestFilesSDK_ShareSoftDeleteAndRestore: with a share delete-retention policy
+// on the File service, Delete Share keeps the share and Restore Share brings it
+// back with its contents.
 func TestFilesSDK_ShareSoftDeleteAndRestore(t *testing.T) {
 	t.Parallel()
 	const (
@@ -779,8 +747,7 @@ func TestFilesSDK_ShareSoftDeleteAndRestore(t *testing.T) {
 	)
 	payload := []byte("bytes that must survive a soft delete")
 
-	// An administrator enables share soft delete on the storage account's File
-	// service, the way the policy is configured on real Azure.
+	// Enable share soft delete on the account's File service, as on Azure.
 	const rgName = "sdk-files-softdelete-rg"
 	createStorageAccountForARM(t, rgName, account)
 	fsClient, err := armstorage.NewFileServicesClient(subscriptionID, &fakeCredential{}, clientOpts())
@@ -809,8 +776,7 @@ func TestFilesSDK_ShareSoftDeleteAndRestore(t *testing.T) {
 	_, err = shareClient.GetProperties(ctx, nil)
 	require.Error(t, err, "a soft-deleted share is not readable until it is restored")
 
-	// The deleted share is enumerable, which is how a client learns the version
-	// Restore Share needs.
+	// Listing deleted shares gives the version Restore Share needs.
 	pager := serviceClient.NewListSharesPager(&fileservice.ListSharesOptions{
 		Include: fileservice.ListSharesInclude{Deleted: true},
 	})
@@ -837,8 +803,8 @@ func TestFilesSDK_ShareSoftDeleteAndRestore(t *testing.T) {
 	assert.Equal(t, payload, buf, "Restore Share must bring the share's contents back")
 }
 
-// storageRawBody issues one storage data-plane request carrying a body at the
-// `<account>.<service>.<host>` coordinate.
+// storageRawBodyAuthorized sends one storage data-plane request with a body to
+// `<account>.<service>.<host>`.
 func storageRawBodyAuthorized(t *testing.T, method, account, service, target, body, authorization string) *http.Response {
 	t.Helper()
 	req, err := http.NewRequestWithContext(ctx, method, strings.TrimRight(baseURL, "/")+target, strings.NewReader(body))
@@ -851,8 +817,7 @@ func storageRawBodyAuthorized(t *testing.T, method, account, service, target, bo
 	if authorization != "" {
 		req.Header.Set("Authorization", authorization)
 	}
-	// The data plane authorizes every request; one that carries no credential
-	// of its own presents the account key.
+	// A request with no credential of its own presents the account key.
 	storageSignSharedKey(req, req.Host)
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)

@@ -13,12 +13,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// A packet capture records the traffic that crosses a machine's interface, and
-// the container backend running the machine exposes no tap a capture could
-// read from, so Network Watcher refuses to start one rather than fabricate an
-// empty file: a caller cannot tell an empty capture from a real one that saw
-// no traffic. This test pins that refusal against a real virtual machine and
-// proves the control plane keeps nothing behind it.
+// The container backend running a machine exposes no tap to read frames from,
+// so Network Watcher refuses to start a capture rather than produce an empty
+// file a caller could not tell from a real one, and keeps nothing behind.
 func TestNetworkWatcher_PacketCaptureRefusesAMachineWithoutATap(t *testing.T) {
 	t.Parallel()
 	const (
@@ -75,7 +72,7 @@ func TestNetworkWatcher_PacketCaptureRefusesAMachineWithoutATap(t *testing.T) {
 	assert.Contains(t, err.Error(), "no interface a capture can tap",
 		"the refusal names why the capture cannot run")
 
-	// The refusal left nothing behind: no resource to read and nothing listed.
+	// The refusal left no resource to read and nothing listed.
 	_, err = captureClient.Get(ctx, rg, watcher, capture, nil)
 	requireAzureErrorCode(t, err, "ResourceNotFound", "a refused capture is not a resource")
 
@@ -89,11 +86,8 @@ func TestNetworkWatcher_PacketCaptureRefusesAMachineWithoutATap(t *testing.T) {
 	}
 }
 
-// TestNetworkWatcher_PacketCaptureRefusesATargetItCannotRecord pins the
-// behaviour that keeps a capture honest: a target with no interface to read
-// frames from is an error, never an empty capture file. A caller cannot
-// distinguish a fabricated empty capture from a real one that saw no traffic,
-// so the simulator must not produce one.
+// TestNetworkWatcher_PacketCaptureRefusesATargetItCannotRecord: a target with
+// no interface to read frames from is an error, never an empty capture file.
 func TestNetworkWatcher_PacketCaptureRefusesATargetItCannotRecord(t *testing.T) {
 	t.Parallel()
 	const rg = "pcap-missing-rg"
@@ -136,8 +130,8 @@ func TestNetworkWatcher_PacketCaptureRefusesATargetItCannotRecord(t *testing.T) 
 		"the error names why the capture cannot run, got: %v", err)
 }
 
-// packetCaptureFixtureVM builds the network and the running virtual machine a
-// capture reads frames from, and returns the machine's resource id.
+// packetCaptureFixtureVM builds the network and the running machine a capture
+// reads frames from, and returns the machine's resource ID.
 func packetCaptureFixtureVM(t *testing.T, rg, vnetName, subnetName, nicName, vmName string) string {
 	t.Helper()
 

@@ -15,9 +15,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// A site's processes are read from the container it really runs in, so killing
-// one removes it from the table the reads beside it return, and the modules
-// reported are the ones the process actually loaded.
+// A site's processes are read from its container, so killing one removes it
+// from the table, and the modules reported are the ones the process loaded.
 func TestSDK_WebApps_ProcessModulesAndKill(t *testing.T) {
 	t.Parallel()
 	rg, name := "sdk-proc-verbs-rg", "sdk-proc-verbs-app"
@@ -34,8 +33,7 @@ func TestSDK_WebApps_ProcessModulesAndKill(t *testing.T) {
 		},
 	}, nil)
 	require.NoError(t, err)
-	// Invoking the site starts its container, exactly as a request to the site
-	// does — the processes below are that container's.
+	// A request to the site starts its container.
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/api/function", strings.NewReader("{}"))
 	require.NoError(t, err)
 	req.Header.Set("Content-Type", "application/json")
@@ -50,15 +48,10 @@ func TestSDK_WebApps_ProcessModulesAndKill(t *testing.T) {
 	require.NotEmpty(t, procs, "a running site has processes")
 	pid := *procs[0].Properties.Identifier
 
-	// The modules a process loaded are read from its own mapping table, so this
-	// asserts they are that and not a placeholder: an absolute path to the file
-	// the process mapped, and a base address that is an address rather than a
-	// number that happens to be to hand. Both were wrong before — the answer
-	// was one module per process whose base_address was the PID in hex.
-	//
-	// A host that does not share the container engine's kernel has no such
-	// mapping table, and says so. Either answer is correct and a third is not,
-	// which is what this checks: a client is never handed an invented module.
+	// The modules come from the process's own mapping table: an absolute path to
+	// the mapped file, and a real base address. A host that does not share the
+	// container engine's kernel has no such table and says so; a client is never
+	// handed an invented module.
 	modules := client.NewListProcessModulesPager(rg, name, itoa(int(pid)), nil)
 	modulePage, modulesErr := modules.NextPage(ctx)
 	if modulesErr != nil {
@@ -90,11 +83,9 @@ func TestSDK_WebApps_ProcessModulesAndKill(t *testing.T) {
 		assert.Contains(t, err.Error(), "No module is mapped")
 	}
 
-	// A process dump is the memory image of the process, so this asserts the
-	// bytes are one: an ELF core a debugger opens, with segments carrying the
-	// process's real mappings. A host that will not let the simulator read
-	// another process's memory says so instead, which is the other correct
-	// answer and the only other one.
+	// A process dump is an ELF core a debugger opens, with segments carrying the
+	// process's mappings; a host that does not let the simulator read another
+	// process's memory says so.
 	dump, dumpErr := client.GetProcessDump(ctx, rg, name, itoa(int(pid)), nil)
 	if dumpErr != nil {
 		require.Contains(t, dumpErr.Error(), "read from its own", // the message names /proc, whose angle brackets JSON escapes

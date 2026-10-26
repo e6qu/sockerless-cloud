@@ -20,7 +20,6 @@ const (
 	acaProbeLiveness  = "Liveness"
 )
 
-// acaProbe is one probe of a container with Kubernetes' defaults filled in.
 type acaProbe struct {
 	kind         string
 	http         *ContainerAppProbeHTTPGet
@@ -61,9 +60,8 @@ func acaProbeKind(t string) string {
 	return t
 }
 
-// acaDefaultProbes are the probes Container Apps adds to the container its
-// ingress targets for each type the template leaves unset: TCP connections
-// to the target port.
+// acaDefaultProbes: Container Apps adds a TCP probe of each type the template
+// leaves unset to the container its ingress targets.
 func acaDefaultProbes(port int32) map[string]acaProbe {
 	tcp := &ContainerAppProbeTCPSocket{Port: port}
 	return map[string]acaProbe{
@@ -76,9 +74,6 @@ func acaDefaultProbes(port int32) map[string]acaProbe {
 	}
 }
 
-// acaContainerProbes returns a container's probes by type: the template's,
-// and for the container ingress targets, the platform's defaults for each
-// type the template leaves unset.
 func acaContainerProbes(app ContainerApp, c JobContainer, ingressTarget bool) map[string]acaProbe {
 	probes := map[string]acaProbe{}
 	for _, p := range c.Probes {
@@ -95,9 +90,8 @@ func acaContainerProbes(app ContainerApp, c JobContainer, ingressTarget bool) ma
 	return probes
 }
 
-// acaValidateProbes checks a template's probes as the service does: each
-// names its type once per container and one handler, inside the API's
-// bounds.
+// acaValidateProbes: each type once per container, one handler, within the
+// API's bounds.
 func acaValidateProbes(t *ContainerAppTemplate) error {
 	if t == nil {
 		return nil
@@ -155,9 +149,8 @@ func acaValidateProbes(t *ContainerAppTemplate) error {
 	return nil
 }
 
-// check runs the probe once against the pod at address as the kubelet does:
-// straight to the container, a redirect counting as success rather than being
-// followed, and an HTTPS probe not verifying the container's certificate.
+// check probes as the kubelet does: straight to the container, a redirect
+// counting as success, an HTTPS certificate unverified.
 func (p acaProbe) check(ctx context.Context, address string) error {
 	if p.tcp != nil {
 		host := p.tcp.Host
@@ -187,8 +180,6 @@ func (p acaProbe) check(ctx context.Context, address string) error {
 	return err
 }
 
-// runner is the probe as the replica's probe runner runs it against the pod
-// at address.
 func (p acaProbe) runner(address string) *replicas.Probe {
 	return &replicas.Probe{
 		Check:            func(ctx context.Context) error { return p.check(ctx, address) },
@@ -200,7 +191,6 @@ func (p acaProbe) runner(address string) *replicas.Probe {
 	}
 }
 
-// acaReplicaProbes are a container's probes run against the pod at address.
 func acaReplicaProbes(probes map[string]acaProbe, address string) replicas.Probes {
 	var out replicas.Probes
 	for kind, into := range map[string]**replicas.Probe{
@@ -213,10 +203,9 @@ func acaReplicaProbes(probes map[string]acaProbe, address string) replicas.Probe
 	return out
 }
 
-// startProbes runs a container's startup probe, then its readiness probe
-// until it first passes, which together make the container started and
-// ready; from there its readiness probe keeps its readiness current and its
-// liveness probe restarts the pod, through restart, once it fails.
+// startProbes runs the startup probe, then readiness until it first passes;
+// from there readiness keeps the container's readiness current and a failing
+// liveness probe restarts the pod.
 func (c *acaReplicaContainer) startProbes(ctx context.Context, probes map[string]acaProbe, member, owner placement.Handle, restart func()) error {
 	started := time.Now()
 	if len(probes) == 0 {
@@ -235,7 +224,6 @@ func (c *acaReplicaContainer) startProbes(ctx context.Context, probes map[string
 	return acaReplicaProbes(probes, address).Run(ctx, started, member.Exited(), c.setReady, restart)
 }
 
-// watchProbes keeps a running container's readiness and liveness probes.
 func (c *acaReplicaContainer) watchProbes(probes map[string]acaProbe, member placement.Handle, address string, restart func()) {
 	acaReplicaProbes(probes, address).Watch(member.Exited(), c.setReady, restart)
 }

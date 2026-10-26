@@ -13,15 +13,10 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
-// TestACIProcessRuntimeRejectsWorkloadExecution asserts the refusal itself, not
-// merely that the create failed. A status code alone would not do: five
-// distinct paths through handleACIContainerGroupPut answer 400, and on a host
-// with no reachable container engine the deployment would fail with one of them
-// even if the runtime guard were deleted — so a status-only assertion passes on
-// exactly the hosts where it proves the least. The error code and the reason
-// the simulator gives, plus the absence of a stored group, are what separate
-// "the process runtime refused to execute a workload" from "the engine was not
-// there".
+// TestACIProcessRuntimeRejectsWorkloadExecution asserts the refusal's code and
+// reason and that no group is stored: five paths answer 400, and on a host
+// with no engine a status-only check would pass even without the runtime
+// guard.
 func TestACIProcessRuntimeRejectsWorkloadExecution(t *testing.T) {
 	t.Setenv("SIM_RUNTIME", "process")
 	srv, err := buildSimulator(sim.Config{Provider: "azure", ListenAddr: ":0", LogLevel: "error"})
@@ -29,14 +24,11 @@ func TestACIProcessRuntimeRejectsWorkloadExecution(t *testing.T) {
 		t.Fatalf("build simulator: %v", err)
 	}
 	t.Cleanup(srv.StopBackground)
-	// Long-running operations complete in a goroutine. One still running
-	// when this test ends would read and write the stores while the next
-	// test rebuilds them.
+	// Long-running operations complete in a goroutine; one still running when
+	// this test ends would race the next test's store rebuild.
 	t.Cleanup(bg.Await)
 
-	// The ARM plane requires a valid bearer; mint one the way a client acquires
-	// it from the token endpoint so the request reaches the container-group
-	// handler and exercises the process-runtime rejection under test.
+	// The plane requires a simulator-minted bearer.
 	now := time.Now()
 	token, err := mintBootstrapSimJWT("https://management.azure.com/", now, now.Add(time.Hour))
 	if err != nil {
@@ -70,8 +62,7 @@ func TestACIProcessRuntimeRejectsWorkloadExecution(t *testing.T) {
 		t.Fatalf("the refusal must name the runtime that cannot execute a workload; got %q", envelope.Error.Message)
 	}
 
-	// A refused deployment leaves nothing behind: the handler rolls the group
-	// back, so the resource must not be readable afterwards.
+	// The handler rolls a refused group back.
 	read := httptest.NewRequest(http.MethodGet,
 		"/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg/providers/Microsoft.ContainerInstance/containerGroups/workload?api-version=2021-10-01", nil)
 	read.Header.Set("Authorization", "Bearer "+token)

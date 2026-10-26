@@ -31,11 +31,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The restart suite launches its own simulator with SIM_PERSIST=true and a
-// dedicated SIM_DATA_DIR (the shared TestMain instance runs without
-// persistence), exercises real client surfaces, terminates the process with
-// SIGTERM, relaunches it against the same data directory, and asserts the
-// cloud state a real Azure tenant would retain is still there.
+// The restart tests launch their own simulator with SIM_PERSIST=true and a
+// dedicated SIM_DATA_DIR, drive real client surfaces, stop it with SIGTERM,
+// relaunch it on the same data directory, and assert the state an Azure tenant
+// retains is still there.
 
 func freeAzureSimPort(t *testing.T) int {
 	t.Helper()
@@ -66,15 +65,14 @@ func startPersistentAzureSimulatorOn(t *testing.T, runtime, stateDir string, por
 	return cmd
 }
 
-// shutdownAzureSimulator sends SIGTERM, the orderly-shutdown signal the
-// simulator checkpoints its SQLite WAL on, and waits for a clean exit.
+// shutdownAzureSimulator sends SIGTERM, on which the simulator checkpoints its
+// SQLite WAL, and waits for a clean exit.
 func shutdownAzureSimulator(cmd *exec.Cmd) error {
 	return simready.Stop(cmd, simShutdownGrace)
 }
 
-// fetchAccessTokenFrom performs the OAuth2 client_credentials grant against an
-// arbitrary simulator endpoint — the same request a real Azure AD confidential
-// client makes — and returns the minted access token.
+// fetchAccessTokenFrom performs the OAuth2 client_credentials grant against the
+// given simulator endpoint.
 func fetchAccessTokenFrom(endpoint, clientID, clientSecret, scope string) (string, error) {
 	form := url.Values{
 		"grant_type":    {"client_credentials"},
@@ -106,9 +104,8 @@ func fetchAccessTokenFrom(endpoint, clientID, clientSecret, scope string) (strin
 	return out.AccessToken, nil
 }
 
-// restartCredential is the azcore TokenCredential for the restart suite's
-// private simulator instance: it acquires real bearer tokens through the
-// client_credentials grant at that instance's endpoint.
+// restartCredential acquires tokens through the client_credentials grant at the
+// restart suite's private simulator.
 type restartCredential struct{ endpoint string }
 
 func (c *restartCredential) GetToken(_ context.Context, opts policy.TokenRequestOptions) (azcore.AccessToken, error) {
@@ -139,12 +136,9 @@ func restartClientOpts(endpoint string) *arm.ClientOptions {
 	}
 }
 
-// restartRawReq performs a raw HTTP request against the private instance,
-// optionally with a Host override (subdomain-routed data planes) and a bearer.
-// restartServiceBusAuthorization provisions a Service Bus namespace on the
-// restart suite's private simulator through ARM — which auto-provisions
-// RootManageSharedAccessKey — reads that rule's real key with listKeys, and
-// returns the Authorization header value a data-plane caller presents.
+// restartServiceBusAuthorization provisions a Service Bus namespace through ARM,
+// which provisions RootManageSharedAccessKey, reads that rule's key with
+// listKeys, and returns the Authorization value a data-plane caller presents.
 func restartServiceBusAuthorization(t *testing.T, endpoint, bearer, namespace string) string {
 	t.Helper()
 	const apiVersion = "2022-10-01-preview"
@@ -178,6 +172,8 @@ func restartServiceBusAuthorization(t *testing.T, endpoint, bearer, namespace st
 		"https://"+namespace+".servicebus.localhost/")
 }
 
+// restartRawReq sends a request to the private instance, with an optional Host
+// for a subdomain-routed data plane and an optional bearer.
 func restartRawReq(t *testing.T, method, endpoint, path, host, bearer string, body []byte, headers map[string]string) *http.Response {
 	t.Helper()
 	var br io.Reader
@@ -195,18 +191,16 @@ func restartRawReq(t *testing.T, method, endpoint, path, host, bearer string, bo
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}
-	// A storage-addressed request with no credential of its own presents the
-	// account key, as any real client must — read from the simulator instance
-	// this request targets, which for these tests is a child booted with its
-	// own state directory.
+	// A storage request with no credential of its own presents the account key of
+	// the simulator instance it targets.
 	storageSignSharedKeyAt(req, endpoint, req.Host)
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	return resp
 }
 
-// sbSequenceNumber parses the SequenceNumber out of a Service Bus receive
-// response's BrokerProperties header.
+// sbSequenceNumber parses SequenceNumber from a receive response's
+// BrokerProperties header.
 func sbSequenceNumber(t *testing.T, resp *http.Response) int64 {
 	t.Helper()
 	raw := resp.Header.Get("BrokerProperties")
@@ -228,13 +222,13 @@ func TestAzureServiceStateSurvivesSimulatorRestart_SDK(t *testing.T) {
 	cmd := startPersistentAzureSimulator(t, stateDir, port)
 	t.Cleanup(func() { _ = shutdownAzureSimulator(cmd) })
 
-	// ---- (f) mint an ARM bearer BEFORE the restart ----
+	// (f) Mint an ARM bearer before the restart.
 	preRestartBearer, err := fetchAccessTokenFrom(endpoint, "test-client-id", "test-client-secret", "https://management.azure.com/.default")
 	require.NoError(t, err)
 	graphBearer, err := fetchAccessTokenFrom(endpoint, "test-client-id", "test-client-secret", "https://graph.microsoft.com/.default")
 	require.NoError(t, err)
 
-	// ---- (a) Microsoft Graph: user + app registration + client secret ----
+	// (a) Microsoft Graph: a user, an app registration and a client secret.
 	resp := restartRawReq(t, "POST", endpoint, "/v1.0/users", "", graphBearer, []byte(`{
 		"displayName": "Persistent User",
 		"userPrincipalName": "persistent.user@sockerless.example",
@@ -278,10 +272,9 @@ func TestAzureServiceStateSurvivesSimulatorRestart_SDK(t *testing.T) {
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
 	resp.Body.Close()
 
-	// ---- (b) Service Bus: enqueue a message before the restart ----
-	// The data plane authenticates every caller with a Shared Access
-	// Signature, so the namespace is provisioned through ARM first and the
-	// message is signed with its root rule's real key.
+	// (b) Service Bus: enqueue a message, signed with the namespace root rule's
+	// key, since the data plane authenticates every caller with a Shared Access
+	// Signature.
 	const sbHost = "persistns.servicebus.localhost"
 	sbAuth := restartServiceBusAuthorization(t, endpoint, preRestartBearer, "persistns")
 	resp = restartRawReq(t, "POST", endpoint, "/persistqueue/messages", sbHost, "",
@@ -292,7 +285,7 @@ func TestAzureServiceStateSurvivesSimulatorRestart_SDK(t *testing.T) {
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
 	resp.Body.Close()
 
-	// ---- (c) Cosmos: a document reachable by QUERY ----
+	// (c) Azure Cosmos DB: a document reachable by query.
 	cosmosClient := cosmosSimClientAt(t, endpoint, dataPlaneAccount)
 	_, err = cosmosClient.CreateDatabase(ctx, azcosmos.DatabaseProperties{ID: "persistdb"}, nil)
 	require.NoError(t, err)
@@ -310,7 +303,7 @@ func TestAzureServiceStateSurvivesSimulatorRestart_SDK(t *testing.T) {
 		[]byte(`{"id":"survivor","team":"platform","name":"alice"}`), nil)
 	require.NoError(t, err)
 
-	// ---- (d) Azure Files: file bytes written through the data plane ----
+	// (d) Azure Files: bytes written through the data plane.
 	const filesHost = "persistacct.file.localhost"
 	payload := []byte("bytes that must survive the restart")
 	resp = restartRawReq(t, "PUT", endpoint, "/persistshare?restype=share", filesHost, "", nil, nil)
@@ -328,14 +321,13 @@ func TestAzureServiceStateSurvivesSimulatorRestart_SDK(t *testing.T) {
 	})
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
 	resp.Body.Close()
-	// With SIM_DATA_DIR configured (and no SIM_AZURE_FILES_DATA_DIR override)
-	// the share contents live under <SIM_DATA_DIR>/files, beside the SQLite
-	// database, so reattaching the data directory reattaches the bytes.
+	// With SIM_DATA_DIR set and no SIM_AZURE_FILES_DATA_DIR, the share lives under
+	// <SIM_DATA_DIR>/files beside the SQLite database.
 	onDisk, err := os.ReadFile(filepath.Join(stateDir, "files", "persistacct", "persistshare", "persisted.txt"))
 	require.NoError(t, err, "share contents must live under SIM_DATA_DIR/files")
 	require.Equal(t, payload, onDisk)
 
-	// ---- (e) EventGrid: rotate a topic key before the restart ----
+	// (e) Event Grid: rotate a topic key.
 	rgName := "persist-rg"
 	resp = restartRawReq(t, "PUT", endpoint,
 		"/subscriptions/"+subscriptionID+"/resourceGroups/"+rgName+"?api-version=2021-04-01",
@@ -366,7 +358,7 @@ func TestAzureServiceStateSurvivesSimulatorRestart_SDK(t *testing.T) {
 		"simulator must exit cleanly before its SQLite database is reopened")
 	cmd = startPersistentAzureSimulator(t, stateDir, port)
 
-	// ---- (f) the pre-restart bearer is still authorized ----
+	// (f) The pre-restart bearer is still authorized.
 	resp = restartRawReq(t, "GET", endpoint,
 		"/subscriptions/"+subscriptionID+"/resourceGroups?api-version=2021-04-01",
 		"", preRestartBearer, nil, nil)
@@ -374,7 +366,8 @@ func TestAzureServiceStateSurvivesSimulatorRestart_SDK(t *testing.T) {
 		"a bearer minted before the restart must still verify against the persisted signing key")
 	resp.Body.Close()
 
-	// ---- (a) directory state readable; pre-restart app secret still grants ----
+	// (a) The directory state reads back, and the pre-restart app secret still
+	// grants.
 	resp = restartRawReq(t, "GET", endpoint, "/v1.0/users/"+createdUser.ID, "", graphBearer, nil, nil)
 	require.Equal(t, http.StatusOK, resp.StatusCode, "Graph user must survive the restart")
 	var persistedUser struct {
@@ -397,11 +390,9 @@ func TestAzureServiceStateSurvivesSimulatorRestart_SDK(t *testing.T) {
 	require.NoError(t, err, "the client_credentials grant with the pre-restart app secret must still succeed")
 	require.NotEmpty(t, grantToken)
 
-	// ---- (b) the enqueued message is received with its sequence number, and
-	// a post-restart message gets a strictly higher one. The Shared Access
-	// Signature minted BEFORE the restart is reused throughout: the
-	// authorization rule and its key material are durable, so a token issued
-	// against the pre-restart simulator must still authenticate. ----
+	// (b) The message comes back with its sequence number, and a new one gets a
+	// higher number. The pre-restart Shared Access Signature still authenticates:
+	// the rule and its key are durable.
 	resp = restartRawReq(t, "DELETE", endpoint, "/persistqueue/messages/head", sbHost, "", nil,
 		map[string]string{"Authorization": sbAuth})
 	require.Equal(t, http.StatusOK, resp.StatusCode,
@@ -427,7 +418,7 @@ func TestAzureServiceStateSurvivesSimulatorRestart_SDK(t *testing.T) {
 	assert.Greater(t, postSeq, preSeq,
 		"sequence numbers must stay monotonic across the restart — a rewound counter breaks consumer checkpoints")
 
-	// ---- (c) the Cosmos document is found by QUERY, not just point-read ----
+	// (c) A query finds the document, not just a point read.
 	cosmosClient = cosmosSimClientAt(t, endpoint, dataPlaneAccount)
 	cosmosContainer, err = cosmosClient.NewContainer("persistdb", "people")
 	require.NoError(t, err)
@@ -451,14 +442,14 @@ func TestAzureServiceStateSurvivesSimulatorRestart_SDK(t *testing.T) {
 	require.True(t, found,
 		"the persisted document must be reachable by QUERY — cosmosDocsFor filters on the stored Account/DB/Coll")
 
-	// ---- (d) the file's bytes are readable through the data plane ----
+	// (d) The file's bytes read through the data plane.
 	resp = restartRawReq(t, "GET", endpoint, "/persistshare/persisted.txt", filesHost, "", nil, nil)
 	require.Equal(t, http.StatusOK, resp.StatusCode, "Azure Files file must be readable after the restart")
 	fileBytes, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
 	assert.Equal(t, payload, fileBytes)
 
-	// ---- (e) listKeys returns the ROTATED key after the restart ----
+	// (e) listKeys returns the rotated key.
 	topicsClient, err = armeventgrid.NewTopicsClient(subscriptionID, &restartCredential{endpoint: endpoint}, restartClientOpts(endpoint))
 	require.NoError(t, err)
 	persistedKeys, err := topicsClient.ListSharedAccessKeys(ctx, rgName, "persist-topic", nil)

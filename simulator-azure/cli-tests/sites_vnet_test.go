@@ -7,16 +7,13 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// TestSiteVNetIntegration_CLI_RoundTrip exercises App Service regional VNet
-// integration (the "swift" virtual network connection) through the az CLI — the
-// ARM endpoint sockerless's azure-functions backend uses for cloud-dns service
-// discovery. A site joins a Microsoft.Web-delegated subnet; the connection
-// round-trips on GET and is removable.
+// TestSiteVNetIntegration_CLI_RoundTrip: a site joins a Microsoft.Web-delegated
+// subnet through regional virtual network integration (the "swift"
+// connection), which round-trips on GET and deletes.
 func TestSiteVNetIntegration_CLI_RoundTrip(t *testing.T) {
 	t.Parallel()
-	// A site that is not Always On and receives no request runs no container,
-	// so VNet integration only records the connection — keeping this an ARM
-	// round-trip test, not a workload test.
+	// A site that is not Always On and gets no request runs no container, so the
+	// integration only records the connection.
 	url := funcURL("sites/cli-sitevnet-app")
 	body := `{
 		"location": "eastus",
@@ -29,8 +26,8 @@ func TestSiteVNetIntegration_CLI_RoundTrip(t *testing.T) {
 	}`
 	runCLI(t, azRest("PUT", url, body))
 
-	// The subnet the site joins exists in the Microsoft.Network store, as it
-	// must on Azure: the integration resolves it to the network it is in.
+	// As on Azure, the integration resolves the subnet to its network, so the
+	// subnet must exist.
 	runCLI(t, azRest("PUT", armURL("Microsoft.Network", "virtualNetworks/cli-sitevnet", "2024-05-01"),
 		`{"location":"eastus","properties":{"addressSpace":{"addressPrefixes":["10.72.0.0/16"]}}}`))
 	runCLI(t, azRest("PUT", armURL("Microsoft.Network", "virtualNetworks/cli-sitevnet/subnets/appservice", "2024-05-01"),
@@ -54,19 +51,17 @@ func TestSiteVNetIntegration_CLI_RoundTrip(t *testing.T) {
 	parseJSON(t, out, &conn)
 	assert.Equal(t, subnetID, conn.Properties.SubnetResourceID)
 	assert.True(t, conn.Properties.SwiftSupported)
-	// The operation path is .../networkConfig/virtualNetwork, but the resource's
-	// canonical ARM id is the config sub-resource .../config/virtualNetwork.
+	// The operation path is .../networkConfig/virtualNetwork; the canonical ID is
+	// .../config/virtualNetwork.
 	assert.True(t, strings.HasSuffix(conn.ID, "/config/virtualNetwork"),
 		"swift connection id must be the canonical config sub-resource; got %s", conn.ID)
 
-	// GET — connection round-trips.
 	out = runCLI(t, azRest("GET", swiftURL, ""))
 	parseJSON(t, out, &conn)
 	assert.Equal(t, subnetID, conn.Properties.SubnetResourceID)
 	assert.True(t, strings.HasSuffix(conn.ID, "/config/virtualNetwork"),
 		"swift connection id must be the canonical config sub-resource; got %s", conn.ID)
 
-	// DELETE — disconnect, then cleanup the site.
 	runCLI(t, azRest("DELETE", swiftURL, ""))
 	runCLI(t, azRest("DELETE", url, ""))
 }

@@ -19,21 +19,13 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/archive"
 )
 
-// web_deploy_extras.go implements the Microsoft.Web deployment surface beyond
-// the /deployments publishing log: the MSDeploy site extension (site, slot and
-// per-instance variants, as Azure-AsyncOperation long-running operations),
-// OneDeploy, the deploymentStatus read model, repository sync, publishing
-// password rotation, and the provider-global publishing user and source
-// control token catalogs.
-//
-// Deployments do real work: the package the request's packageUri names is
-// fetched over HTTP, unpacked, and written into the site's /home/site/wwwroot
-// on its persistent /home share. Webjobs are discovered from that content
-// (web_webjobs.go), so the deploy → discover → run chain is the same one the
-// real platform executes.
+// Deployment beyond the /deployments log: the MSDeploy extension (site, slot
+// and instance, as long-running operations), OneDeploy, deploymentStatus,
+// repository sync, publishing-password rotation, and the provider-global
+// publishing user and source control catalogs. A deployment fetches the
+// packageUri, unpacks it into /home/site/wwwroot on the site's persistent
+// /home share, and rediscovers webjobs from it (web_webjobs.go).
 
-// WebMSDeployRecord is the durable state of a site's (or instance's) latest
-// MSDeploy operation, served by WebApps_GetMSDeployStatus / GetMSDeployLog.
 // Keyed by "<resID>[/instances/<id>]/extensions/MSDeploy".
 type WebMSDeployRecord struct {
 	ID                string             `json:"id"`
@@ -47,7 +39,6 @@ type WebMSDeployRecord struct {
 	PackageURI        string             `json:"packageUri,omitempty"`
 }
 
-// WebMSDeployEntry is one MSDeployLog entry (type: Message/Warning/Error).
 type WebMSDeployEntry struct {
 	Time    string `json:"time"`
 	Type    string `json:"type"`
@@ -56,9 +47,7 @@ type WebMSDeployEntry struct {
 
 var webMSDeployOps sim.Store[WebMSDeployRecord]
 
-// WebOneDeployRecord is the durable state of a site's latest OneDeploy
-// operation (WebApps_GetOneDeployStatus), in the Kudu deployment shape the
-// real endpoint proxies.
+// In the Kudu deployment shape the endpoint proxies.
 type WebOneDeployRecord struct {
 	ID           string `json:"id"`
 	SiteID       string `json:"siteId"`
@@ -73,9 +62,8 @@ type WebOneDeployRecord struct {
 
 var webOneDeployOps sim.Store[WebOneDeployRecord]
 
-// WebDeploymentStatusRecord is one CsmDeploymentStatus row —
-// WebApps_{Get,List}ProductionSiteDeploymentStatus — created by each MSDeploy
-// / OneDeploy operation. Keyed by "<resID>/deploymentStatus/<id>".
+// CsmDeploymentStatus, created by each MSDeploy or OneDeploy, keyed by
+// "<resID>/deploymentStatus/<id>".
 type WebDeploymentStatusRecord struct {
 	ID           string   `json:"id"`
 	SiteID       string   `json:"siteId"`
@@ -85,17 +73,14 @@ type WebDeploymentStatusRecord struct {
 	Successful   int      `json:"numberOfInstancesSuccessful"`
 	Failed       int      `json:"numberOfInstancesFailed"`
 	Errors       []string `json:"errors,omitempty"`
-	// OpID names the Azure Resource Manager async operation driving this
-	// deployment, so the in-progress GET can advertise its Azure-AsyncOperation
-	// poll URL.
+	// The driving async operation, whose URL the in-progress GET advertises.
 	OpID string `json:"opId,omitempty"`
 }
 
 var webDeploymentStatuses sim.Store[WebDeploymentStatusRecord]
 
-// WebDeployManifest lists the wwwroot files a site's last zip deployment
-// wrote, the manifest KuduSync diffs the next zip deployment against. Keyed
-// by the site's resource ID.
+// The files the last zip deployment wrote, which KuduSync diffs the next one
+// against. Keyed by site resource ID.
 type WebDeployManifest struct {
 	ID    string   `json:"id"`
 	Paths []string `json:"paths"`
@@ -103,9 +88,7 @@ type WebDeployManifest struct {
 
 var webDeployManifests sim.Store[WebDeployManifest]
 
-// WebPublishingUserRow is the provider-global publishing user
-// (GetPublishingUser / UpdatePublishingUser). The password is stored but,
-// like real Azure's x-ms-secret member, never echoed on reads.
+// The password is stored but never echoed, as Azure's x-ms-secret member.
 type WebPublishingUserRow struct {
 	PublishingUserName string `json:"publishingUserName"`
 	PublishingPassword string `json:"publishingPassword,omitempty"`
@@ -114,8 +97,7 @@ type WebPublishingUserRow struct {
 
 var webPublishingUser sim.Store[WebPublishingUserRow]
 
-// WebProviderSourceControlRow is one provider-global source control token
-// (GitHub / Bitbucket / Dropbox / OneDrive), keyed by type.
+// Keyed by type: GitHub, Bitbucket, Dropbox, OneDrive.
 type WebProviderSourceControlRow struct {
 	Name           string `json:"name"`
 	Token          string `json:"token,omitempty"`
@@ -126,11 +108,9 @@ type WebProviderSourceControlRow struct {
 
 var webProviderSourceControls sim.Store[WebProviderSourceControlRow]
 
-// webKnownSourceControls are the provider-global source control rows real
-// Azure enumerates even before any token is set.
+// Azure lists these before any token is set.
 var webKnownSourceControls = []string{"Bitbucket", "Dropbox", "GitHub", "OneDrive"}
 
-// initWebDeployStores wires the stores of this slice.
 func initWebDeployStores(srv *sim.Server) {
 	webMSDeployOps = sim.MakeStore[WebMSDeployRecord](srv.DB(), "web_msdeploy_ops")
 	webOneDeployOps = sim.MakeStore[WebOneDeployRecord](srv.DB(), "web_onedeploy_ops")
@@ -139,9 +119,8 @@ func initWebDeployStores(srv *sim.Server) {
 	initWebKuduStore(srv)
 	webPublishingUser = sim.MakeStore[WebPublishingUserRow](srv.DB(), "web_publishing_user")
 	webProviderSourceControls = sim.MakeStore[WebProviderSourceControlRow](srv.DB(), "web_provider_sourcecontrols")
-	// An MSDeploy operation persisted mid-flight lost its goroutine with the
-	// previous process; real ARM reports such an operation failed rather than
-	// running forever.
+	// An MSDeploy persisted mid-flight lost its goroutine; Azure Resource Manager
+	// reports such an operation failed rather than running forever.
 	for _, rec := range webMSDeployOps.List() {
 		if rec.ProvisioningState == "accepted" || rec.ProvisioningState == "running" {
 			webMSDeployOps.Update(rec.ID, func(row *WebMSDeployRecord) {
@@ -167,9 +146,8 @@ func initWebDeployStores(srv *sim.Server) {
 	}
 }
 
-// webCleanupDeployments removes every deployment artifact and record stored
-// under a deleted site or slot, and drops its publishing-password rotation
-// counter so a recreated site starts from fresh credentials.
+// Also drops the publishing-password rotation counter, so a recreated site
+// starts from fresh credentials.
 func webCleanupDeployments(resID string) {
 	subPrefix := resID + "/"
 	for _, rec := range webMSDeployOps.Filter(func(rec WebMSDeployRecord) bool { return strings.HasPrefix(rec.ID, subPrefix) }) {
@@ -198,24 +176,19 @@ func webCleanupDeployments(resID string) {
 	webCleanupBackups(resID)
 }
 
-// webPublishingPassword derives the site's current SCM publishing password:
-// stable per resource ID across reads, rotated by
-// WebApps_GenerateNewSitePublishingPassword through the shared key-rotation
-// counter.
+// Stable per resource ID; WebApps_GenerateNewSitePublishingPassword rotates it
+// through the shared key-rotation counter.
 func webPublishingPassword(resID string) string {
 	seed, _ := azureKeyGenSeed(resID, "publishingPassword")
 	sum := sha256.Sum256([]byte("sim-publishing-pwd:" + resID + "|" + seed))
 	return hex.EncodeToString(sum[:12])
 }
 
-// webDeployPackageLimit bounds a fetched deployment package.
 const webDeployPackageLimit = 256 << 20 // 256 MiB
 
-// webSiteContentLimit bounds the files a package or backup unpacks to: the
-// 1 GB file system quota of the Free tier, the smallest App Service plan.
+// The 1 GB file system quota of the Free tier, the smallest plan.
 const webSiteContentLimit = 1 << 30
 
-// webFetchPackage fetches the deployment package at packageURI.
 func webFetchPackage(packageURI string) ([]byte, error) {
 	client := &http.Client{Timeout: 60 * time.Second}
 	resp, err := client.Get(packageURI)
@@ -236,8 +209,7 @@ func webFetchPackage(packageURI string) ([]byte, error) {
 	return data, nil
 }
 
-// webApplyDeploymentPackage fetches the package at packageURI and unpacks it
-// over the site's wwwroot, as MSDeploy syncs a package, restarting the site.
+// Unpacks over wwwroot as MSDeploy syncs a package, restarting the site.
 // Returns the number of files written.
 func webApplyDeploymentPackage(resID, packageURI string) (int, error) {
 	if packageURI == "" {
@@ -250,8 +222,6 @@ func webApplyDeploymentPackage(resID, packageURI string) (int, error) {
 	return webDeployArtifact(resID, data, webArtifact{Type: "zip", Target: webWWWRoot, Restart: true})
 }
 
-// webFetchAndDeployArtifact fetches the package at packageURI and lands it as
-// the artifact a describes.
 func webFetchAndDeployArtifact(resID, packageURI string, a webArtifact) (int, error) {
 	data, err := webFetchPackage(packageURI)
 	if err != nil {
@@ -260,8 +230,7 @@ func webFetchAndDeployArtifact(resID, packageURI string, a webArtifact) (int, er
 	return webDeployArtifact(resID, data, a)
 }
 
-// webJSONFlag renders a JSON boolean or string flag the way a query string
-// carries it; an absent flag is "".
+// An absent flag is "".
 func webJSONFlag(v any) string {
 	if v == nil {
 		return ""
@@ -269,31 +238,24 @@ func webJSONFlag(v any) string {
 	return fmt.Sprint(v)
 }
 
-// webWWWRoot is the directory a site serves its content from.
 const webWWWRoot = "/home/site/wwwroot"
 
-// webArtifact is where and how one deployment artifact lands: the OneDeploy
-// placement the Kudu publish API, its Azure Resource Manager twin, zip deploy
-// and MSDeploy share.
+// The OneDeploy placement shared by the Kudu publish API, its Azure Resource
+// Manager twin, zip deploy and MSDeploy.
 type webArtifact struct {
-	// Type is the OneDeploy artifact type: zip, war, jar, ear, lib, static
-	// or startup.
+	// zip, war, jar, ear, lib, static or startup.
 	Type string
-	// Target is an absolute path under /home: the directory a zip unpacks
-	// into, the file any other artifact becomes.
-	Target string
-	// Clean empties the target directory before the artifact lands.
-	Clean bool
-	// Restart restarts the site once the artifact landed.
+	// An absolute path under /home: the directory a zip unpacks into, the file any
+	// other artifact becomes.
+	Target  string
+	Clean   bool
 	Restart bool
-	// SyncManifest gives zip deploy's KuduSync semantics: files the
-	// previous zip deployment wrote that the new package lacks are deleted,
-	// and files no zip deployment wrote are kept.
+	// KuduSync semantics: files the previous zip deployment wrote that the new
+	// package lacks are deleted; files no zip deployment wrote are kept.
 	SyncManifest bool
 }
 
-// oneDeployRefusal is a OneDeploy request Kudu refuses, worded as Kudu
-// words it.
+// Worded as Kudu words it.
 type oneDeployRefusal string
 
 func (e oneDeployRefusal) Error() string { return string(e) }
@@ -302,9 +264,7 @@ func refuseOneDeploy(format string, args ...any) error {
 	return oneDeployRefusal(fmt.Sprintf(format, args...))
 }
 
-// webOneDeployArtifact resolves the OneDeploy query a client sent — type,
-// path, clean, restart — into the artifact's placement, applying each type's
-// defaults the way the platform does.
+// Applies each type's defaults as the platform does.
 func webOneDeployArtifact(site *Site, artifactType, targetPath, clean, restart string) (webArtifact, error) {
 	a := webArtifact{Type: strings.ToLower(strings.TrimSpace(artifactType)), Restart: true}
 	base := webWWWRoot
@@ -362,23 +322,19 @@ func webOneDeployArtifact(site *Site, artifactType, targetPath, clean, restart s
 	return a, nil
 }
 
-// siteIsLinux reports whether the site runs on Linux.
 func siteIsLinux(site *Site) bool {
 	return site.Properties.Reserved || strings.Contains(strings.ToLower(site.Kind), "linux")
 }
 
-// webSiteRunsFromDeployedPackage reports whether the site has
-// WEBSITE_RUN_FROM_PACKAGE=1: every zip deployment then becomes the whole of
-// wwwroot, which the site mounts read-only.
+// With WEBSITE_RUN_FROM_PACKAGE=1 every zip deployment becomes all of wwwroot,
+// mounted read-only.
 func webSiteRunsFromDeployedPackage(site *Site) bool {
 	return strings.TrimSpace(siteAppSettings(site)["WEBSITE_RUN_FROM_PACKAGE"]) == "1"
 }
 
-// webDeployArtifact lands one artifact under /home in the site's persistent
-// storage, then rediscovers the site's webjobs, records the app-state
-// snapshot, and restarts a site that runs its content, as a deployment
-// restarts the app.
-// Returns the number of files written.
+// Then rediscovers webjobs, records the app-state snapshot, and restarts a site
+// running its content, as a deployment restarts the app. Returns the number of
+// files written.
 func webDeployArtifact(resID string, data []byte, a webArtifact) (int, error) {
 	site, ok := webJobSite(resID)
 	if !ok {
@@ -403,9 +359,8 @@ func webDeployArtifact(resID string, data []byte, a webArtifact) (int, error) {
 	return webDeployFiles(&site, files, a)
 }
 
-// webDeployFiles lands files as the artifact a describes, then rediscovers
-// the site's webjobs, records the app-state snapshot, and restarts a site
-// that runs its content. Returns the number of files written.
+// Then rediscovers webjobs, records the app-state snapshot, and restarts a site
+// running its content. Returns the number of files written.
 func webDeployFiles(site *Site, files []archive.File, a webArtifact) (int, error) {
 	resID := site.ID
 	if a.Type == "zip" && webSiteRunsFromDeployedPackage(site) {
@@ -424,8 +379,8 @@ func webDeployFiles(site *Site, files []archive.File, a webArtifact) (int, error
 	if err := webDiscoverWebJobs(resID); err != nil {
 		return written, err
 	}
-	// The app's content just changed, so the platform's automatic-backup
-	// snapshot of this app state exists from here on.
+	// The content changed, so the automatic-backup snapshot of this state exists
+	// from here on.
 	webCaptureAppSnapshot(resID)
 	if a.Restart {
 		if site, ok := webJobSite(resID); ok {
@@ -437,8 +392,7 @@ func webDeployFiles(site *Site, files []archive.File, a webArtifact) (int, error
 	return written, nil
 }
 
-// webWWWRootRelative returns target relative to wwwroot ("" for wwwroot
-// itself) when it lies inside it.
+// "" for wwwroot itself.
 func webWWWRootRelative(target string) (string, bool) {
 	if target == webWWWRoot {
 		return "", true
@@ -447,8 +401,7 @@ func webWWWRootRelative(target string) (string, bool) {
 	return rel, ok
 }
 
-// webWriteSiteHome writes files under dir, an absolute /home path outside
-// wwwroot, into the site's persistent /home storage.
+// dir is an absolute /home path outside wwwroot.
 func webWriteSiteHome(site *Site, dir string, files []archive.File, clean bool) (int, error) {
 	home := webSiteHomeDir(site)
 	rel := strings.TrimPrefix(strings.TrimPrefix(dir, "/home"), "/")
@@ -484,14 +437,12 @@ func webWriteSiteHome(site *Site, dir string, files []archive.File, clean bool) 
 	return len(files), nil
 }
 
-// webPublishingScmURI is the scmUri a site's publishing credentials carry:
-// its SCM site with the credentials embedded.
+// The SCM site with the credentials embedded.
 func webPublishingScmURI(site *Site, user, password string) string {
 	return (&url.URL{Scheme: "https", User: url.UserPassword(user, password), Host: siteScmHost(site)}).String()
 }
 
-// webSiteHomeDir is the persistent /home storage of a site or slot. A slot's
-// is its own, beside its app's.
+// A slot's is its own, beside its app's.
 func webSiteHomeDir(site *Site) string {
 	return siteHomeDir(site.Name)
 }
@@ -546,8 +497,8 @@ func webDeploymentStatusTerminal(status string) bool {
 }
 
 func oneDeployWire(rec WebOneDeployRecord) map[string]any {
-	// The Kudu deployment object OneDeploy status reads proxy (the swagger
-	// declares no schema for this operation).
+	// The Kudu deployment object OneDeploy status proxies; the swagger declares no
+	// schema.
 	out := map[string]any{
 		"id":          rec.DeploymentID,
 		"status":      rec.Status,
@@ -599,9 +550,8 @@ func providerSourceControlWire(row WebProviderSourceControlRow) map[string]any {
 	}
 }
 
-// registerWebDeploymentExtras mounts the site/slot-level deployment routes.
-// The MSDeploy extension exists on sites, slots and their instances; OneDeploy
-// exists on production sites only, exactly as the specification declares.
+// MSDeploy exists on sites, slots and their instances; OneDeploy on production
+// sites only, as the specification declares.
 func registerWebDeploymentExtras(both, site func(string, string, http.HandlerFunc)) {
 	msDeployGet := func(idSuffix string) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
@@ -662,7 +612,7 @@ func registerWebDeploymentExtras(both, site func(string, string, http.HandlerFun
 			recID := resID + idSuffixExpand(r, idSuffix) + "/extensions/MSDeploy"
 			if existing, ok := webMSDeployOps.Get(recID); ok &&
 				(existing.ProvisioningState == "accepted" || existing.ProvisioningState == "running") {
-				// Real MSDeploy refuses a second deployment while one runs.
+				// MSDeploy refuses a second deployment while one runs.
 				AzureError(w, "Conflict", "Another MSDeploy operation is in progress.", http.StatusConflict)
 				return
 			}
@@ -735,16 +685,14 @@ func registerWebDeploymentExtras(both, site func(string, string, http.HandlerFun
 		}
 	}
 
-	// Site/slot-level MSDeploy extension.
 	both("GET", "/extensions/MSDeploy", msDeployGet(""))
 	both("PUT", "/extensions/MSDeploy", msDeployPut(""))
 	both("GET", "/extensions/MSDeploy/log", msDeployLog(""))
-	// Per-instance MSDeploy extension.
 	both("GET", "/instances/{instanceId}/extensions/MSDeploy", msDeployGet("instance"))
 	both("PUT", "/instances/{instanceId}/extensions/MSDeploy", msDeployPut("instance"))
 	both("GET", "/instances/{instanceId}/extensions/MSDeploy/log", msDeployLog("instance"))
 
-	// OneDeploy — production site only, per the specification.
+	// Production site only, per the specification.
 	site("GET", "/extensions/onedeploy", func(w http.ResponseWriter, r *http.Request) {
 		if webMissing(w, r) {
 			return
@@ -827,7 +775,6 @@ func registerWebDeploymentExtras(both, site func(string, string, http.HandlerFun
 		sim.WriteJSON(w, http.StatusOK, oneDeployWire(rec))
 	})
 
-	// deploymentStatus — the CsmDeploymentStatus read model.
 	both("GET", "/deploymentStatus", func(w http.ResponseWriter, r *http.Request) {
 		if webMissing(w, r) {
 			return
@@ -851,10 +798,8 @@ func registerWebDeploymentExtras(both, site func(string, string, http.HandlerFun
 				"Deployment status %q not found.", sim.PathParam(r, "deploymentStatusId"))
 			return
 		}
-		// The operation is declared long-running: while the deployment is
-		// still building, answer 202 with the poll coordinates (the driving
-		// operation's Azure-AsyncOperation URL and this URL as Location);
-		// terminal states answer 200.
+		// Declared long-running: while building, 202 with Azure-AsyncOperation and this
+		// URL as Location; terminal states answer 200.
 		if !webDeploymentStatusTerminal(rec.Status) {
 			if rec.OpID != "" {
 				w.Header().Set("Azure-AsyncOperation", azureAsyncOperationHeader(r, sim.PathParam(r, "subscriptionId"),
@@ -869,10 +814,8 @@ func registerWebDeploymentExtras(both, site func(string, string, http.HandlerFun
 		sim.WriteJSON(w, http.StatusOK, deploymentStatusWire(rec))
 	})
 
-	// POST /newpassword — WebApps_GenerateNewSitePublishingPassword: rotate
-	// the site's SCM publishing password. The rotation is observable through
-	// POST /config/publishingcredentials/list, which derives from the same
-	// rotation counter.
+	// The rotation shows through POST /config/publishingcredentials/list, which
+	// reads the same counter.
 	both("POST", "/newpassword", func(w http.ResponseWriter, r *http.Request) {
 		if webMissing(w, r) {
 			return
@@ -882,9 +825,7 @@ func registerWebDeploymentExtras(both, site func(string, string, http.HandlerFun
 	})
 }
 
-// idSuffixExpand resolves the store-key suffix for the MSDeploy handler
-// variants: "" for the site/slot extension, the instance path for the
-// per-instance extension.
+// "" for the site/slot extension, the instance path for the per-instance one.
 func idSuffixExpand(r *http.Request, kind string) string {
 	if kind == "instance" {
 		return "/instances/" + sim.PathParam(r, "instanceId")
@@ -892,9 +833,8 @@ func idSuffixExpand(r *http.Request, kind string) string {
 	return ""
 }
 
-// webSiteOperationLocation names the location segment of an async operation
-// URL for a site-scoped operation: the site's own region when the record
-// exists, Azure's default US region otherwise.
+// The site's region when the record exists, Azure's default US region
+// otherwise.
 func webSiteOperationLocation(resID string) string {
 	if site, ok := webJobSite(resID); ok && site.Location != "" {
 		return strings.ToLower(strings.ReplaceAll(site.Location, " ", ""))
@@ -902,16 +842,11 @@ func webSiteOperationLocation(resID string) string {
 	return "eastus"
 }
 
-// registerWebPublishingGlobals mounts the provider-global (subscription-free)
-// Microsoft.Web routes: the publishing user and the source control token
-// catalog.
 func registerWebPublishingGlobals(srv *sim.Server) {
-	// GET /providers/Microsoft.Web/publishingUsers/web — GetPublishingUser.
 	srv.HandleFunc("GET /providers/Microsoft.Web/publishingUsers/web", func(w http.ResponseWriter, r *http.Request) {
 		row, _ := webPublishingUser.Get("web")
 		sim.WriteJSON(w, http.StatusOK, publishingUserWire(row))
 	})
-	// PUT /providers/Microsoft.Web/publishingUsers/web — UpdatePublishingUser.
 	srv.HandleFunc("PUT /providers/Microsoft.Web/publishingUsers/web", func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			Properties WebPublishingUserRow `json:"properties"`
@@ -928,8 +863,7 @@ func registerWebPublishingGlobals(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, publishingUserWire(req.Properties))
 	})
 
-	// GET /providers/Microsoft.Web/sourcecontrols — ListSourceControls: the
-	// provider catalog, merged with any stored tokens.
+	// The provider catalog merged with any stored tokens.
 	srv.HandleFunc("GET /providers/Microsoft.Web/sourcecontrols", func(w http.ResponseWriter, r *http.Request) {
 		out := make([]any, 0, len(webKnownSourceControls))
 		for _, name := range webKnownSourceControls {
@@ -941,8 +875,6 @@ func registerWebPublishingGlobals(srv *sim.Server) {
 		}
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"value": out})
 	})
-	// GET /providers/Microsoft.Web/sourcecontrols/{sourceControlType} —
-	// GetSourceControl.
 	srv.HandleFunc("GET /providers/Microsoft.Web/sourcecontrols/{sourceControlType}", func(w http.ResponseWriter, r *http.Request) {
 		name := sim.PathParam(r, "sourceControlType")
 		row, ok := webProviderSourceControls.Get(name)
@@ -951,9 +883,7 @@ func registerWebPublishingGlobals(srv *sim.Server) {
 		}
 		sim.WriteJSON(w, http.StatusOK, providerSourceControlWire(row))
 	})
-	// PUT /providers/Microsoft.Web/sourcecontrols/{sourceControlType} —
-	// UpdateSourceControl: store the OAuth token set. The token is echoed, as
-	// real Azure echoes the SourceControl resource written.
+	// The token is echoed, as Azure echoes the SourceControl written.
 	srv.HandleFunc("PUT /providers/Microsoft.Web/sourcecontrols/{sourceControlType}", func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			Properties WebProviderSourceControlRow `json:"properties"`

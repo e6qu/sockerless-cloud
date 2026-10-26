@@ -18,18 +18,13 @@ import (
 	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 )
 
-// Differential testing of the Cosmos slice against Microsoft's own Cosmos DB
-// emulator (the vNext Linux emulator in HTTP mode). The SAME azcosmos client code
-// runs every scenario against the sim and the emulator, differing only in the
-// endpoint, and the observable outcome must match. As with the DynamoDB-Local and
-// Firestore differentials, the emulator is a REFERENCE, not a ceiling: a case
-// where the sim is intentionally more faithful is recorded in
-// cosmosDiffKnownDivergences and asserted exactly — the sim is never regressed to
-// match the oracle.
-//
-// The emulator is required: the harness provisions it end to end (pulling the
-// image when the host does not have it — CI pre-pulls only to keep the job
-// budget predictable) and any provisioning failure fails the test loudly.
+// Differential tests against Microsoft's Azure Cosmos DB emulator (the vNext
+// Linux emulator in HTTP mode): the same azcosmos code runs each scenario
+// against both, differing only in the endpoint, and the outcomes must match.
+// The emulator is a reference, not a ceiling: a case where the simulator is
+// deliberately more faithful goes in cosmosDiffKnownDivergences and is
+// asserted exactly. The emulator is required; a provisioning failure fails the
+// test.
 
 type cosmosDiffResult struct {
 	value   string // canonical JSON of the observable (user fields only), or sentinel
@@ -42,7 +37,7 @@ type cosmosDiffDivergence struct {
 	reason string
 }
 
-// Empty today: every scenario below agrees with the emulator.
+// Every scenario agrees with the emulator.
 var cosmosDiffKnownDivergences = map[string]cosmosDiffDivergence{}
 
 func TestCosmos_DifferentialVsEmulator(t *testing.T) {
@@ -191,7 +186,7 @@ func cosmosDiffScenarios() []cosmosDiffScenario {
 			if _, err := cc.CreateItem(ctx, p1, r1, nil); err != nil {
 				return nil, err
 			}
-			// Same id "x" but a different partition — a DISTINCT item, not a 409.
+			// Same id in a different partition is a distinct item, not a 409.
 			r2, _ := json.Marshal(map[string]any{"id": "x", "pk": "p2", "v": 2})
 			if _, err := cc.CreateItem(ctx, p2, r2, nil); err != nil {
 				return nil, err
@@ -207,14 +202,14 @@ func cosmosDiffScenarios() []cosmosDiffScenario {
 			return map[string]any{
 				"p1": cosmosUnmarshal(g1.Value)["v"],
 				"p2": cosmosUnmarshal(g2.Value)["v"],
-			}, nil // distinct items → {p1:1, p2:2}
+			}, nil // {p1:1, p2:2}
 		}},
 		{"create-pk-mismatch-400", func(t *testing.T, c *azcosmos.Client, dbID string) (map[string]any, error) {
 			cc := makeContainer(t, c, dbID)
-			// Header says partition "p" but the document's /pk value is "other".
+			// The header names partition "p" but the document's /pk is "other".
 			raw, _ := json.Marshal(map[string]any{"id": "x", "pk": "other", "v": 1})
 			_, err := cc.CreateItem(ctx, azcosmos.NewPartitionKeyString("p"), raw, nil)
-			return nil, err // real Cosmos → 400 BadRequest
+			return nil, err // Azure answers 400 BadRequest
 		}},
 		{"single-partition-query-scopes", func(t *testing.T, c *azcosmos.Client, dbID string) (map[string]any, error) {
 			cc := makeContainer(t, c, dbID)
@@ -232,7 +227,6 @@ func cosmosDiffScenarios() []cosmosDiffScenario {
 					return nil, err
 				}
 			}
-			// A query scoped to partition p1 returns only p1's docs.
 			pager := cc.NewQueryItemsPager("SELECT c.id FROM c ORDER BY c.id ASC", p1, nil)
 			var ids []any
 			for pager.More() {
@@ -254,8 +248,8 @@ func cosmosDiffScenarios() []cosmosDiffScenario {
 					return nil, err
 				}
 			}
-			// PageSizeHint=1 sets x-ms-max-item-count=1; the pager must walk every
-			// page (via x-ms-continuation) and return the full ordered set.
+			// PageSizeHint=1 sets x-ms-max-item-count=1; the pager walks every page via
+			// x-ms-continuation.
 			pager := cc.NewQueryItemsPager("SELECT c.id FROM c ORDER BY c.id ASC", pk,
 				&azcosmos.QueryOptions{PageSizeHint: 1})
 			var ids []any
@@ -268,7 +262,6 @@ func cosmosDiffScenarios() []cosmosDiffScenario {
 					ids = append(ids, cosmosUnmarshal(it)["id"])
 				}
 			}
-			// The full ordered set must come back across pages (paged 1-at-a-time).
 			return map[string]any{"ids": ids}, nil // [a, b, c, d, e]
 		}},
 		{"request-charge-present-on-write-and-read", func(t *testing.T, c *azcosmos.Client, dbID string) (map[string]any, error) {
@@ -282,11 +275,8 @@ func cosmosDiffScenarios() []cosmosDiffScenario {
 			if err != nil {
 				return nil, err
 			}
-			// The emulator and the sim both report a non-zero RU charge on writes
-			// and reads, and a write costs at least as much as a point read of the
-			// same item. The exact RU value legitimately differs between the two, so
-			// the agreed observable is the presence + the write≥read ordering — not
-			// the magnitude.
+			// Both report a non-zero request charge, and a write costs at least a point
+			// read of the same item; the magnitudes legitimately differ.
 			return map[string]any{
 				"createChargePositive": createResp.RequestCharge > 0,
 				"readChargePositive":   readResp.RequestCharge > 0,
@@ -300,9 +290,8 @@ func cosmosDiffScenarios() []cosmosDiffScenario {
 			if err != nil {
 				return nil, err
 			}
-			// Both the emulator and the sim issue an x-ms-session-token on a write
-			// under the default Session consistency; a Session read that sends it
-			// back observes the write (read-your-writes).
+			// Both issue x-ms-session-token on a write under Session consistency, and a
+			// Session read sending it back sees the write.
 			session := azcosmos.ConsistencyLevelSession.ToPtr()
 			rd, err := cc.ReadItem(ctx, pk, "x", &azcosmos.ItemOptions{
 				ConsistencyLevel: session,
@@ -318,10 +307,8 @@ func cosmosDiffScenarios() []cosmosDiffScenario {
 			}, nil
 		}},
 		{"throughput-offer-roundtrip", func(t *testing.T, c *azcosmos.Client, dbID string) (map[string]any, error) {
-			// A container created WITH dedicated throughput has its own offer;
-			// ReadThroughput/ReplaceThroughput must round-trip a manual value on both
-			// the emulator and the sim. (A container WITHOUT dedicated throughput has
-			// no offer → 404; covered by throughput-offer-shared-404 below.)
+			// A container with dedicated throughput has its own offer, and
+			// ReadThroughput/ReplaceThroughput round-trip a manual value.
 			if _, err := c.CreateDatabase(ctx, azcosmos.DatabaseProperties{ID: dbID}, nil); err != nil {
 				return nil, err
 			}
@@ -354,9 +341,8 @@ func cosmosDiffScenarios() []cosmosDiffScenario {
 			}, nil
 		}},
 		{"throughput-offer-shared-404", func(t *testing.T, c *azcosmos.Client, dbID string) (map[string]any, error) {
-			// A container created WITHOUT dedicated throughput shares throughput and
-			// has no offer; ReadThroughput returns 404 on both the emulator and the
-			// sim. This guards that the sim does NOT fabricate a default offer.
+			// A container without dedicated throughput has no offer, so ReadThroughput is
+			// 404: the simulator must not invent a default offer.
 			cc := makeContainer(t, c, dbID)
 			_, err := cc.ReadThroughput(ctx, nil)
 			return nil, err
@@ -391,18 +377,14 @@ func cosmosDiffScenarios() []cosmosDiffScenario {
 	}
 }
 
-// ── normalization ────────────────────────────────────────────────────────────
-
 func cosmosUnmarshal(b []byte) map[string]any {
 	var m map[string]any
 	_ = json.Unmarshal(b, &m)
 	return m
 }
 
-// cosmosCanon renders the observable comparably, dropping Cosmos system fields
-// (_rid/_self/_etag/_ts/_attachments) that legitimately differ between the sim
-// and the emulator, and normalizing numbers so int vs float formatting doesn't
-// cause false mismatches.
+// cosmosCanon drops the system fields (_rid, _self, _etag, _ts, _attachments)
+// that legitimately differ, and normalizes number formatting.
 func cosmosCanon(data map[string]any) string {
 	b, _ := json.Marshal(cosmosCanonValue(stripCosmosSystemFields(data)))
 	return string(b)
@@ -439,26 +421,15 @@ func cosmosCanonValue(v any) any {
 		}
 		return out
 	case float64:
-		// JSON numbers decode as float64; render without trailing-zero noise.
 		return fmt.Sprintf("%g", t)
 	default:
 		return t
 	}
 }
 
-// ── emulator lifecycle ───────────────────────────────────────────────────────
-
-// cosmosEmulatorEngine runs one container-engine command under a bound and
-// returns its combined output.
-//
-// Every engine call in the bring-up below used to be unbounded, and the
-// readiness budget covered only the probing that happens once the container is
-// running. When the engine itself stopped answering — this host's Podman does,
-// leaving a container sitting in `Created` — `docker run` never returned, the
-// whole suite hit Go's twenty-minute test timeout, and the panic named this
-// test rather than the engine. A bound turns that into one failing test that
-// says which engine command hung, and leaves the rest of the suite's result
-// intact.
+// cosmosEmulatorEngine runs one container-engine command under a bound, so an
+// engine that stops answering (Podman can leave a container in `Created`)
+// fails this test naming the command, not the suite at Go's test timeout.
 func cosmosEmulatorEngine(bound time.Duration, args ...string) ([]byte, error) {
 	cctx, cancel := context.WithTimeout(ctx, bound)
 	defer cancel()
@@ -470,15 +441,13 @@ func cosmosEmulatorEngine(bound time.Duration, args ...string) ([]byte, error) {
 	return out, err
 }
 
-// cosmosEmulatorTests are the tests that compare the simulator with the
-// Microsoft Azure Cosmos DB emulator. They run serially, so they finish before
-// the parallel phase starts: the emulator initialises and serves them on a
-// runner nothing else is loading, and the last of them removes it before the
-// parallel tests need the CPU.
+// cosmosEmulatorTests run serially, before the parallel phase, so the emulator
+// initialises on an idle runner and is gone before the parallel tests need
+// the CPU.
 var cosmosEmulatorTests = []string{"TestCosmos_DifferentialVsEmulator", "TestCosmosScripts_DifferentialVsEmulator"}
 
-// One emulator serves every selected oracle test; TestMain starts it before the
-// tests run so its initialisation overlaps the suite's start-up.
+// TestMain starts the one shared emulator before the tests run, so its
+// initialisation overlaps the suite's start-up.
 var cosmosEmulator struct {
 	once     sync.Once
 	endpoint string
@@ -489,7 +458,6 @@ var cosmosEmulator struct {
 	users int
 }
 
-// cosmosEmulatorSelected counts the oracle tests this run's -run filter selects.
 func cosmosEmulatorSelected() int {
 	n := 0
 	for _, name := range cosmosEmulatorTests {
@@ -500,7 +468,6 @@ func cosmosEmulatorSelected() int {
 	return n
 }
 
-// warmCosmosEmulator boots the shared emulator for the selected oracle tests.
 func warmCosmosEmulator() {
 	cosmosEmulator.once.Do(func() {
 		cosmosEmulator.mu.Lock()
@@ -510,7 +477,6 @@ func warmCosmosEmulator() {
 	})
 }
 
-// stopCosmosEmulator removes the shared emulator if a test has not already.
 func stopCosmosEmulator() {
 	cosmosEmulator.mu.Lock()
 	defer cosmosEmulator.mu.Unlock()
@@ -520,9 +486,8 @@ func stopCosmosEmulator() {
 	}
 }
 
-// startCosmosEmulator returns the shared emulator, waiting for the warm-up
-// TestMain began. The returned release removes the emulator once every selected
-// oracle test has released it.
+// startCosmosEmulator waits for the warm-up TestMain began; the returned
+// release removes the emulator once every selected oracle test released it.
 func startCosmosEmulator(t *testing.T) (endpoint string, release func()) {
 	t.Helper()
 	warmCosmosEmulator()
@@ -549,38 +514,27 @@ func startCosmosEmulator(t *testing.T) (endpoint string, release func()) {
 func bootCosmosEmulator() (endpoint string, stop func(), err error) {
 	const image = "mcr.microsoft.com/cosmosdb/linux/azure-cosmos-emulator:vnext-preview"
 	if _, err := cosmosEmulatorEngine(60*time.Second, "image", "inspect", image); err != nil {
-		// CI pre-pulls the image so the job budget stays predictable; a host
-		// that lacks it pulls it here, once. The oracle is required, so a
-		// failed pull is a failure, never a skip.
+		// CI pre-pulls the image; a host that lacks it pulls it here. The oracle is
+		// required, so a failed pull fails.
 		if pullOut, perr := cosmosEmulatorEngine(10*time.Minute, "pull", image); perr != nil {
 			return "", nil, fmt.Errorf("pulling Cosmos emulator image %s: %w\n%s", image, perr, pullOut)
 		}
 	}
 
-	// The emulator advertises its data-plane endpoint back to the client in
-	// the account-discovery response, built from its configured --port; the
-	// azcosmos global endpoint manager then routes every data-plane request
-	// to that advertised coordinate. Container port, published host port, and
-	// advertised port must therefore be one number — so reserve an
-	// OS-selected free port and hand the same number to both docker -p and
-	// the emulator's --port, instead of contending for the default 8081.
+	// The emulator advertises its endpoint, built from --port, in account
+	// discovery, and azcosmos routes every request there, so the container port,
+	// the published port and --port must be one number.
 	ln, lerr := net.Listen("tcp", "127.0.0.1:0")
 	if lerr != nil {
 		return "", nil, fmt.Errorf("reserving a host port for the Cosmos emulator: %w", lerr)
 	}
 	hostPort := ln.Addr().(*net.TCPAddr).Port
 	_ = ln.Close()
-	// Reap a leaked emulator before starting one. `docker run --rm` removes a
-	// container when it EXITS, so a test binary that is killed — a timeout, a
-	// cancelled run — leaves the emulator running forever, and a second
-	// emulator on the same host starves the new one's pgcosmos extension: it
-	// answers "pgcosmos extension is still starting" until the readiness budget
-	// runs out, and every later run of this test fails until someone removes
-	// the leak by hand. The label makes the leak identifiable and this run
-	// removes it, so the suite recovers on its own.
+	// Reap a leaked emulator first: `docker run --rm` removes a container only
+	// when it exits, so a killed test binary leaves one running, and a second
+	// emulator on the host starves the new one's pgcosmos extension.
 	const emulatorLabel = "sockerless-sim-azure-cosmos-emulator=differential"
-	// Bounded by the suite's own deadline rather than by how long the emulator
-	// would like: go test gets 13 minutes and this is one test in the suite.
+	// The suite's go test deadline is 13 minutes, and this is one test of many.
 	const readinessBudget = 280 * time.Second
 	stale, _ := cosmosEmulatorEngine(60*time.Second, "ps", "-aq", "--filter", "label="+emulatorLabel)
 	for _, id := range strings.Fields(string(stale)) {
@@ -606,8 +560,8 @@ func bootCosmosEmulator() (endpoint string, stop func(), err error) {
 	var lastProbeErr error
 	for i := 0; time.Now().Before(deadline); i++ {
 		cctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-		// A unique db id per attempt so a successful create on a slow first
-		// attempt isn't masked by a 409 "already exists" on the retry.
+		// A unique ID per attempt keeps a slow first create from turning the retry
+		// into a 409.
 		_, perr := probe.CreateDatabase(cctx, azcosmos.DatabaseProperties{ID: fmt.Sprintf("readyprobe%d", i)}, nil)
 		cancel()
 		if perr == nil {
@@ -618,19 +572,10 @@ func bootCosmosEmulator() (endpoint string, stop func(), err error) {
 	}
 	logs, _ := cosmosEmulatorEngine(60*time.Second, "logs", "--tail", "30", id)
 	stop()
-	// The emulator's own log said healthy once while the probe still could
-	// not reach it, and the probe's error was the half this message lacked.
-	//
-	// The two ways this deadline expires need telling apart, because they lead
-	// opposite places. "pgcosmos extension is still starting" is the emulator
-	// answering: it is alive and initialising, and the budget expired because
-	// the host could not give it enough CPU to finish — a starved machine, not
-	// a simulator or emulator defect, and it recurs when this suite runs
-	// alongside others. Anything else is the emulator not answering at all,
-	// which is a real fault worth chasing. The budget is deliberately not
-	// extended for the first case: the suite's own go-test deadline is 13
-	// minutes and this step's is 14, so buying more readiness time trades a
-	// named failure for an opaque step kill.
+	// "pgcosmos extension is still starting" means the emulator is alive but
+	// starved of CPU; anything else means it never answered, a real fault. The
+	// budget stays fixed: the go test deadline is 13 minutes and this step's 14,
+	// so more readiness time would trade a named failure for an opaque step kill.
 	classification := "the emulator never answered — chase this"
 	if lastProbeErr != nil && strings.Contains(lastProbeErr.Error(), "still starting") {
 		classification = "the emulator was alive and still initialising when the budget " +

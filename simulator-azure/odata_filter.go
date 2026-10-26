@@ -12,9 +12,9 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/listq"
 )
 
-// azureApplyListQuery applies `$filter` and `$orderby` to items and returns
-// the matches in that order, each keyed by its $orderby values and then by
-// id. The $filter grammar is the Azure Resource Manager / OData subset clients use:
+// azureApplyListQuery applies `$filter` and `$orderby`, keying each match by
+// its $orderby values and then its id. The $filter grammar is the OData subset
+// Azure Resource Manager clients use:
 //
 //	expr       = or
 //	or         = and { "or" and }
@@ -63,8 +63,7 @@ func azureApplyListQuery[T any](items []T, r *http.Request, id func(T) string) (
 	return keyed, nil
 }
 
-// armQueryPage applies $filter and $orderby to items and pages the result in
-// that order, breaking ties by id, which must be unique within items.
+// Ties break by id, which must be unique within items.
 func armQueryPage[T any](w http.ResponseWriter, r *http.Request, items []T, id func(T) string) ([]T, string, bool) {
 	keyed, err := azureApplyListQuery(items, r, id)
 	if err != nil {
@@ -74,10 +73,9 @@ func armQueryPage[T any](w http.ResponseWriter, r *http.Request, items []T, id f
 	return armKeyedPage(w, r, keyed)
 }
 
-// azureOrderTermKey spells one $orderby value so that byte order matches
-// listq.CompareOrdered: a number orders numerically and ahead of any string.
-// Every spelling is prefix-free, which lets a descending term invert its
-// bytes and lets the terms concatenate.
+// Byte order matches listq.CompareOrdered: a number orders numerically and
+// ahead of any string. Every spelling is prefix-free, so a descending term can
+// invert its bytes and terms can concatenate.
 func azureOrderTermKey(value string, desc bool) []byte {
 	var key []byte
 	if f, err := strconv.ParseFloat(value, 64); err == nil {
@@ -130,8 +128,7 @@ func odataTest(op, value string) listq.Test {
 	return test
 }
 
-// odataLambda is an any or all lambda over the collection at Path: each
-// element, or the member Sub of each element, is compared with Test.
+// Each element, or its member Sub, is compared with Test.
 type odataLambda struct {
 	Path, Sub string
 	All       bool
@@ -177,8 +174,6 @@ func odataFunc(name, field, value string) listq.Node {
 	}
 	return listq.Cmp{Path: field, Sep: "/", Test: test}
 }
-
-// ── tokenizer ──────────────────────────────────────────────────────────────
 
 type odataTokKind int
 
@@ -242,11 +237,8 @@ func azureODataTokenize(s string) []odataTok {
 				sc.Next()
 			}
 			word := sc.Slice(start, sc.Pos())
-			// Typed-literal prefix: datetime'…' / guid'…' / X'…' / binary'…'.
-			// Real OData wraps a typed value in `<type>'<value>'`; the inner
-			// value is what the filter compares against. Recognise the prefix
-			// (case-insensitive) immediately followed by a quote and emit a
-			// single string token carrying the unwrapped value.
+			// OData wraps a typed value as `<type>'<value>'` (datetime'…', guid'…', X'…',
+			// binary'…'); emit the unwrapped value as one string token.
 			if sc.Peek() == '\'' && odataIsTypedLiteralPrefix(word) {
 				sc.Next() // opening quote
 				var b strings.Builder
@@ -268,8 +260,7 @@ func azureODataTokenize(s string) []odataTok {
 				toks = append(toks, odataTok{odataString, b.String()})
 				continue
 			}
-			// Numeric type suffix: 123L / 1.5f / 2.0d / 9.99m. Strip the suffix
-			// and emit the bare number as a word (numeric comparison unwraps it).
+			// Strip a numeric type suffix (123L, 1.5f, 2.0d, 9.99m).
 			if stripped, ok := odataStripNumericSuffix(word); ok {
 				word = stripped
 			}
@@ -279,8 +270,6 @@ func azureODataTokenize(s string) []odataTok {
 	return append(toks, odataTok{odataEOF, ""})
 }
 
-// odataIsTypedLiteralPrefix reports whether word is one of the OData typed-value
-// prefixes that wrap their payload in quotes.
 func odataIsTypedLiteralPrefix(word string) bool {
 	switch strings.ToLower(word) {
 	case "datetime", "datetimeoffset", "guid", "binary", "x", "time", "duration":
@@ -289,8 +278,6 @@ func odataIsTypedLiteralPrefix(word string) bool {
 	return false
 }
 
-// odataStripNumericSuffix removes a single OData numeric type suffix (L/f/d/m,
-// case-insensitive) from an otherwise-numeric literal, returning the bare number.
 func odataStripNumericSuffix(word string) (string, bool) {
 	if len(word) < 2 {
 		return word, false
@@ -308,8 +295,6 @@ func odataStripNumericSuffix(word string) (string, bool) {
 	return bare, true
 }
 
-// ── parser ─────────────────────────────────────────────────────────────────
-
 type odataParser struct {
 	toks  []odataTok
 	pos   int
@@ -317,24 +302,18 @@ type odataParser struct {
 	err   error
 }
 
-// fail records the first parse error. Subsequent calls are no-ops so the
-// earliest, most specific diagnostic survives.
+// Keep the earliest, most specific error.
 func (p *odataParser) fail(format string, args ...any) {
 	if p.err == nil {
 		p.err = fmt.Errorf(format, args...)
 	}
 }
 
-// maxODataParseDepth bounds parenthesis nesting so a pathological $filter can't
-// overflow the goroutine stack and crash the sim process (a Go stack-overflow
-// fatal error is not recoverable).
+// A Go stack overflow is fatal and unrecoverable, so bound parenthesis nesting.
 const maxODataParseDepth = 1000
 
-// azureParseODataFilter parses an ARM/OData `$filter` expression. A malformed
-// filter is a client error: real Azure rejects it with HTTP 400 ("Invalid
-// $filter") rather than matching every item, so this returns an error the
-// callers surface as 400 BadRequest. An empty filter is the documented
-// "no filter" case and matches everything.
+// Azure rejects a malformed filter with 400 ("Invalid $filter") rather than
+// matching everything; an empty filter matches everything.
 func azureParseODataFilter(s string) (listq.Node, error) {
 	s = strings.TrimSpace(s)
 	if s == "" {
@@ -411,7 +390,6 @@ func (p *odataParser) parseTerm() listq.Node {
 		}
 		return inner
 	}
-	// Function call: name ( args )
 	if p.peek().kind == odataWord {
 		switch strings.ToLower(p.peek().text) {
 		case "startswith", "endswith", "contains":
@@ -420,12 +398,10 @@ func (p *odataParser) parseTerm() listq.Node {
 			return odataFunc(name, field, value)
 		case "substringof":
 			p.next()
-			// substringof('value', field)
 			value, field := p.parseFuncValueField()
 			return odataFunc("substringof", field, value)
 		}
 	}
-	// comparison: field op value
 	if p.peek().kind != odataWord {
 		p.fail("Invalid syntax in $filter: expected a field name, got %q", p.peek().text)
 		return listq.True{}
@@ -457,8 +433,7 @@ func odataIsLambda(word string) bool {
 	return strings.EqualFold(word, "any") || strings.EqualFold(word, "all")
 }
 
-// parseLambda parses the body of collection/any(x:x op value) or
-// collection/all(x:x/member op value).
+// collection/any(x:x op value) or collection/all(x:x/member op value).
 func (p *odataParser) parseLambda(collection string, all bool) listq.Node {
 	p.next()
 	if p.peek().kind != odataWord {
@@ -497,8 +472,6 @@ func (p *odataParser) parseLambda(collection string, all bool) listq.Node {
 	return odataLambda{Path: collection, Sub: sub, All: all, Test: odataTest(op, value)}
 }
 
-// odataIsComparisonOp reports whether op is one of the OData scalar comparison
-// operators the filter grammar accepts.
 func odataIsComparisonOp(op string) bool {
 	switch op {
 	case "eq", "ne", "gt", "ge", "lt", "le":

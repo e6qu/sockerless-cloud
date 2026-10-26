@@ -20,52 +20,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestTerraformApplyDestroy provisions a foundation set of Azure
-// resources against the Azure simulator using the `azurerm` provider
-// (the sim ships /metadata/endpoints + OAuth2 token endpoint + JWKS so
-// azurerm can bootstrap its cloud config + auth without ever reaching
-// real Azure). Then asserts canonical resource-id paths round-trip and
-// terraform destroy cleans up.
-//
-// Slices exercised against the simulator:
-//   - Microsoft.Resources/resourceGroups
-//   - Microsoft.Network/virtualNetworks
-//   - Microsoft.Network/virtualNetworks/subnets
-//   - Microsoft.Network/networkSecurityGroups
-//   - Microsoft.Network/networkSecurityGroups/securityRules
-//   - Microsoft.Storage/storageAccounts
-//   - Microsoft.KeyVault/vaults
-//   - Microsoft.ContainerRegistry/registries
-//   - Microsoft.Cache/Redis + firewallRules
-//   - Microsoft.ManagedIdentity/userAssignedIdentities
-//   - Microsoft.Network/publicIPAddresses + publicIPPrefixes + natGateways +
-//     subnet NAT associations + loadBalancers
-//   - Microsoft.Network/privateDnsZones
-//   - Microsoft.Network/dnsZones + dnsZones/A
-//   - Microsoft.ServiceBus/namespaces + queues
-//   - Microsoft.EventGrid/topics
-//   - Microsoft.DocumentDB/databaseAccounts + sqlDatabases + containers
-//   - Microsoft.OperationalInsights/workspaces
-//   - Microsoft.Insights/components
-//   - Microsoft.DBforPostgreSQL/flexibleServers + databases + firewallRules
-//   - Microsoft.App/managedEnvironments + containerApps + jobs
-//   - Microsoft.Web/serverfarms + sites (Function App)
-//   - Microsoft.Web/sites/networkConfig/virtualNetwork (App Service regional
-//     VNet "swift" integration) + a Microsoft.Web/serverFarms-delegated subnet
-//   - Microsoft.Network/applicationSecurityGroups
-//   - Microsoft.Network/privateLinkServices + privateEndpoints (both halves of
-//     Azure Private Link, including the endpoint's application-security-group
-//     association and a Key Vault-targeted endpoint whose private DNS zone
-//     group publishes into a Microsoft.Network/privateDnsZones zone)
-//   - Microsoft.Network/networkProfiles
-//   - Microsoft.Network/serviceEndpointPolicies
-//   - Microsoft.Web/hostingEnvironments (App Service Environment v3, in a
-//     subnet delegated to Microsoft.Web/hostingEnvironments)
-//
-// The Microsoft.Subscription alias slice runs separately in
-// TestTerraformSubscriptionApplyDestroy (its own CI shard): each
-// azurerm_subscription create and cancel sits through the provider's fixed
-// StateChangeConf settle delays, too slow for this stack's CI budget.
+// TestTerraformApplyDestroy provisions the shared stack through azurerm, which
+// bootstraps from the simulator's /metadata/endpoints, token endpoint and JWKS,
+// asserts the canonical resource ID paths, and destroys it. The
+// Microsoft.Subscription alias slice runs in TestTerraformSubscriptionApplyDestroy:
+// each azurerm_subscription create and cancel sits through the provider's fixed
+// StateChangeConf settle delays, too slow for this stack's budget.
 func TestTerraformApplyDestroy(t *testing.T) {
 	dir := tfStackWorkspace(t)
 	nodeAppPackageURL = serveZipPackage(t, map[string]string{
@@ -89,9 +49,8 @@ func TestTerraformApplyDestroy(t *testing.T) {
 	out, err = runTimed(t, "terraform apply", terraformCmd(dir, "apply", "-auto-approve"))
 	require.NoError(t, err, "terraform apply failed:\n%s", out)
 
-	// Idempotency: a second plan must show no drift. -detailed-exitcode makes
-	// terraform exit 2 (non-zero) on any drift, which runTimed surfaces as an
-	// error — so a clean plan (exit 0) is the only pass.
+	// A second plan must show no drift: -detailed-exitcode exits 2 on drift, which
+	// runTimed surfaces as an error.
 	out, err = runTimed(t, "terraform plan", terraformCmd(dir, "plan", "-detailed-exitcode"))
 	require.NoError(t, err, "terraform plan showed drift after apply (not idempotent):\n%s", out)
 
@@ -135,8 +94,8 @@ func TestTerraformApplyDestroy(t *testing.T) {
 	require.True(t, strings.Contains(kvURI, "tf-test-kv.vault."),
 		"vault uri must include vault subdomain (azurerm/keyvault SDK parses URLs this way); got %s", kvURI)
 
-	// Each canonical ARM path is asserted so a future provider/SDK
-	// upgrade that mangles the URL surfaces in CI.
+	// Assert each canonical ARM path, so a provider or SDK upgrade that mangles a
+	// URL fails here.
 	azrmRG := outputs.must(t, "azrm_resource_group_id")
 	require.True(t, strings.HasSuffix(azrmRG, "/resourceGroups/tf-azrm-rg"),
 		"azurerm RG id must end with /resourceGroups/{name}; got %s", azrmRG)
@@ -155,17 +114,16 @@ func TestTerraformApplyDestroy(t *testing.T) {
 	require.Contains(t, azrmACR, "/providers/Microsoft.ContainerRegistry/registries/tfazrmacr",
 		"azurerm ACR id must include canonical ARM path; got %s", azrmACR)
 
-	// The registry's data plane authenticates the admin credential the
-	// provider surfaces: an unauthenticated read is refused with the Docker
-	// Registry v2 Bearer challenge naming this registry's token service, and
-	// the admin_username/admin_password pair is accepted.
+	// The registry's data plane refuses an unauthenticated read with the Docker
+	// Registry v2 Bearer challenge naming its token service, and accepts the
+	// admin_username/admin_password the provider surfaces.
 	assertACRDataPlaneAuthenticates(t,
 		outputs.must(t, "azrm_acr_login_server"),
 		outputs.must(t, "azrm_acr_admin_username"),
 		outputs.must(t, "azrm_acr_admin_password"))
 
-	// The run-now resource exists only once its TaskRunRequest run of the
-	// task reached Succeeded.
+	// The run-now resource exists only once its TaskRunRequest run reached
+	// Succeeded.
 	azrmTask := outputs.must(t, "azrm_acr_task_id")
 	require.Contains(t, azrmTask, "/registries/tfazrmacr/tasks/tfazrmtask",
 		"azurerm ACR task id must include canonical ARM path; got %s", azrmTask)
@@ -324,11 +282,8 @@ func TestTerraformApplyDestroy(t *testing.T) {
 		"azurerm container group id must include canonical ARM path; got %s", azrmACI)
 
 	azrmSP := outputs.must(t, "azrm_service_plan_id")
-	// terraform-provider-azurerm normalizes Microsoft.Web/serverfarms
-	// to the SDK-canonical `serverFarms` (camelCase) in state. The
-	// sim emits lowercase in its ARM responses; the provider's ID
-	// parser uppercases the F before storing. Match the provider's
-	// canonical form here.
+	// terraform-provider-azurerm stores Microsoft.Web/serverfarms as `serverFarms`
+	// in state while the simulator answers lowercase, so compare case-insensitively.
 	require.Contains(t, strings.ToLower(azrmSP), "/providers/microsoft.web/serverfarms/tf-azrm-sp",
 		"azurerm Service Plan id must include canonical ARM path (case-insensitive); got %s", azrmSP)
 
@@ -351,10 +306,9 @@ func TestTerraformApplyDestroy(t *testing.T) {
 		"/providers/Microsoft.Storage/storageAccounts/tfazrmst12345/fileServices/default/shares/tfazrmshare",
 		"azurerm storage share id must include the canonical ARM path; got %s", azrmStorageShare)
 
-	// The nested directory the Files data plane created: the provider addresses
-	// it inside the share it was created in, and reads it back on every
-	// refresh — so the clean idempotency plan above also proves Get Directory
-	// Properties answers for a directory below the share root.
+	// The provider reads the nested directory back inside its share on every
+	// refresh, so the clean plan above also proves Get Directory Properties
+	// answers below the share root.
 	azrmShareDirectory := outputs.must(t, "azrm_storage_share_directory_id")
 	require.Contains(t, azrmShareDirectory, "tfazrmshare",
 		"azurerm storage share directory id must address the share it lives in; got %s", azrmShareDirectory)
@@ -371,10 +325,8 @@ func TestTerraformApplyDestroy(t *testing.T) {
 	require.Contains(t, azrmSwiftSubnet, "/virtualNetworks/tf-azrm-swift-vnet/subnets/tf-azrm-swift-subnet",
 		"azurerm App Service swift subnet id must include the canonical ARM path; got %s", azrmSwiftSubnet)
 
-	// The site reports its regional integration back as
-	// virtual_network_subnet_id, which is what makes the modern spelling
-	// idempotent — and what made the deprecated standalone swift-connection
-	// resource conflict with the app that owns the site.
+	// The site reports its regional integration as virtual_network_subnet_id,
+	// which keeps the modern spelling idempotent.
 	azrmSwiftIntegration := outputs.must(t, "azrm_swift_integration_subnet_id")
 	require.Equal(t, azrmSwiftSubnet, azrmSwiftIntegration,
 		"the site must report the subnet its regional integration uses; got %s", azrmSwiftIntegration)
@@ -415,8 +367,7 @@ func TestTerraformApplyDestroy(t *testing.T) {
 	require.Contains(t, azrmPE, "/providers/Microsoft.Network/privateEndpoints/tf-azrm-pe",
 		"private endpoint id must include canonical ARM path; got %s", azrmPE)
 
-	// The address the endpoint reports is the one its subnet allocated, so it
-	// has to fall inside that subnet's prefix rather than be an invented value.
+	// The endpoint's address comes from its subnet's prefix.
 	azrmPEIP := outputs.must(t, "azrm_private_endpoint_private_ip")
 	require.True(t, strings.HasPrefix(azrmPEIP, "10.95.2."),
 		"private endpoint address must come from its own subnet 10.95.2.0/24; got %s", azrmPEIP)
@@ -450,12 +401,9 @@ func TestTerraformApplyDestroy(t *testing.T) {
 	azrmAppGateway := outputs.must(t, "azrm_application_gateway_id")
 	require.Contains(t, azrmAppGateway, "/providers/Microsoft.Network/applicationGateways/tf-azrm-appgw",
 		"application gateway id must include canonical ARM path; got %s", azrmAppGateway)
-	// The gateway's child collections are addressed under the gateway itself,
-	// which is what the sibling references inside its own configuration resolve
-	// against — the provider reads those ids straight back out of the create.
-	// The whole declared set has to come back, not merely a well-shaped subset:
-	// a gateway that answered with one of its two backend pools would satisfy a
-	// per-element shape check while having dropped a pool the routing rules name.
+	// The provider reads the gateway's child IDs, addressed under the gateway,
+	// straight from the create; the whole declared set must come back, since a
+	// per-element shape check would pass a gateway that dropped a pool.
 	require.ElementsMatch(t,
 		[]string{
 			azrmAppGateway + "/backendAddressPools/web",
@@ -523,9 +471,9 @@ func TestTerraformApplyDestroy(t *testing.T) {
 	require.NoError(t, err, "terraform destroy failed:\n%s", out)
 }
 
-// assertContainerFunctionAppServes sends a request to the container Function
-// App's hostname and reads the answer of the startup command the provider
-// configured: the command ran on the image's entrypoint, on WEBSITES_PORT.
+// assertContainerFunctionAppServes requests the container function app's
+// hostname: the startup command ran on the image's entrypoint, on
+// WEBSITES_PORT.
 func assertContainerFunctionAppServes(t *testing.T, hostname, commandLine string) {
 	t.Helper()
 	require.Equal(t, "tf-azrm-container-fa.azurewebsites.net", hostname)
@@ -544,12 +492,9 @@ func assertContainerFunctionAppServes(t *testing.T, hostname, commandLine string
 }
 
 // zipAppPackagePath is the local package the zip-deployed web app's
-// zip_deploy_file names; terraformCmd passes it as the zip_app_package_path
-// variable.
+// zip_deploy_file names, passed as the zip_app_package_path variable.
 var zipAppPackagePath string
 
-// writeZipPackage writes a zip of files to a local path, the coordinate
-// zip_deploy_file names.
 func writeZipPackage(t *testing.T, files map[string]string) string {
 	t.Helper()
 	var buf bytes.Buffer
@@ -566,9 +511,8 @@ func writeZipPackage(t *testing.T, files map[string]string) string {
 	return p
 }
 
-// assertZipDeployedWebAppServes requests the zip-deployed web app's hostname:
-// it answers from the package the provider published through the app's SCM
-// site, on the platform's Node 20 image.
+// assertZipDeployedWebAppServes: the web app answers from the package the
+// provider published through its SCM site, on the platform's Node 20 image.
 func assertZipDeployedWebAppServes(t *testing.T, host string) {
 	t.Helper()
 	require.Equal(t, "tf-azrm-zip-app.azurewebsites.net", host)
@@ -585,13 +529,13 @@ func assertZipDeployedWebAppServes(t *testing.T, host string) {
 }
 
 // nodeFunctionPackageURL is the package the Node function app's
-// WEBSITE_RUN_FROM_PACKAGE names; terraformCmd passes it as the
-// node_function_package_url variable.
+// WEBSITE_RUN_FROM_PACKAGE names, passed as the node_function_package_url
+// variable.
 var nodeFunctionPackageURL string
 
-// assertNodeFunctionAppServes requests the Node function app's function: the
-// Azure Functions host refuses it without a key and runs it, on Node 22, with
-// the default host key the provider's data source read.
+// assertNodeFunctionAppServes: the Azure Functions host refuses the function
+// without a key and runs it, on Node 22, with the default host key the
+// provider's data source read.
 func assertNodeFunctionAppServes(t *testing.T, host, defaultKey string) {
 	t.Helper()
 	require.Equal(t, "tf-azrm-node-fa.azurewebsites.net", host)
@@ -614,8 +558,8 @@ func assertNodeFunctionAppServes(t *testing.T, host, defaultKey string) {
 }
 
 // appGatewayEchoIP and appGatewayEchoPort address the server behind the
-// application gateway's web pool; terraformCmd passes them as the
-// appgw_echo_ip and appgw_echo_port variables.
+// application gateway's web pool, passed as the appgw_echo_ip and
+// appgw_echo_port variables.
 var appGatewayEchoIP, appGatewayEchoPort string
 
 // serveHeaderEcho serves the request headers it receives as JSON, and its
@@ -631,9 +575,8 @@ func serveHeaderEcho(t *testing.T) (string, string) {
 	return ip, port
 }
 
-// assertApplicationGatewayForwardedHeaders sends a request at the application
-// gateway's frontend address. The gateway's web pool is the header-echoing
-// server, which sees the six headers the gateway inserts into every request.
+// assertApplicationGatewayForwardedHeaders: the header-echoing server behind
+// the gateway sees the six headers the gateway inserts.
 func assertApplicationGatewayForwardedHeaders(t *testing.T, frontendIP string) {
 	t.Helper()
 	require.NotEmpty(t, frontendIP)
@@ -646,7 +589,7 @@ func assertApplicationGatewayForwardedHeaders(t *testing.T, frontendIP string) {
 		require.NoError(t, err)
 		return resp
 	}
-	// The gateway forwards only once its probe has found the server Up.
+	// The gateway forwards only once its probe found the server Up.
 	var resp *http.Response
 	require.Eventually(t, func() bool {
 		resp = request()
@@ -668,11 +611,10 @@ func assertApplicationGatewayForwardedHeaders(t *testing.T, frontendIP string) {
 }
 
 // nodeAppPackageURL is the package the Node web app's WEBSITE_RUN_FROM_PACKAGE
-// names; terraformCmd passes it as the node_app_package_url variable.
+// names, passed as the node_app_package_url variable.
 var nodeAppPackageURL string
 
-// serveZipPackage hosts a zip of files over HTTP, the coordinate a
-// WEBSITE_RUN_FROM_PACKAGE URL points at.
+// serveZipPackage serves a zip for a WEBSITE_RUN_FROM_PACKAGE URL.
 func serveZipPackage(t *testing.T, files map[string]string) string {
 	t.Helper()
 	var buf bytes.Buffer
@@ -693,10 +635,9 @@ func serveZipPackage(t *testing.T, files map[string]string) string {
 	return srv.URL + "/node-app.zip"
 }
 
-// assertStackWebAppsServe requests each built-in-stack web app's hostname: the
-// Node app answers from the package it runs from, on the platform's Node 20
-// image, and the Python app, with no content, serves the platform's default
-// page.
+// assertStackWebAppsServe: the Node app answers from its package on the
+// platform's Node 20 image, and the Python app, with no content, serves the
+// platform's default page.
 func assertStackWebAppsServe(t *testing.T, nodeHost, pythonHost string) {
 	t.Helper()
 	get := func(host, path string) (int, string) {
@@ -721,11 +662,9 @@ func assertStackWebAppsServe(t *testing.T, nodeHost, pythonHost string) {
 	require.Contains(t, body, "waiting for your content")
 }
 
-// assertACRDataPlaneAuthenticates drives the container registry's own data
-// plane at the login server the provider recorded. The registry answers an
-// unauthenticated request with the Docker Registry v2 Bearer challenge and
-// serves the same request once it carries the admin credential the provider
-// exposes as admin_username / admin_password.
+// assertACRDataPlaneAuthenticates: the registry at the provider's login server
+// answers an unauthenticated request with the Docker Registry v2 Bearer
+// challenge, and serves it with the admin credential.
 func assertACRDataPlaneAuthenticates(t *testing.T, loginServer, username, password string) {
 	t.Helper()
 	require.Equal(t, "tfazrmacr", username, "the admin username is the registry name")
@@ -762,13 +701,9 @@ func assertACRDataPlaneAuthenticates(t *testing.T, loginServer, username, passwo
 		"a wrong password must be refused")
 }
 
-// tfStackWorkspace copies the checked-in stack configuration into a
-// per-test directory. Running terraform in the checked-in directory made two
-// concurrent runs share one state file and one provider lock: whichever
-// started second wiped the first run's state mid-apply, and the first then
-// re-planned resources it had just created — indistinguishable from a
-// simulator refresh defect. A private workspace per run also leaves the tree
-// free of state, lock, and crash artifacts.
+// tfStackWorkspace copies the stack configuration into a per-test directory,
+// so concurrent runs do not share a state file and provider lock, and the tree
+// stays free of state and crash artifacts.
 func tfStackWorkspace(t *testing.T) string {
 	t.Helper()
 	src := tfStackDir()
@@ -805,8 +740,7 @@ func (o tfOutputs) must(t *testing.T, key string) string {
 	return s
 }
 
-// mustList reads a list-of-strings output, which the application gateway's
-// child-id outputs and the network manager's scope accesses are.
+// mustList reads a list-of-strings output.
 func (o tfOutputs) mustList(t *testing.T, key string) []string {
 	t.Helper()
 	v, ok := o[key]
@@ -832,8 +766,8 @@ func readOutputs(t *testing.T, dir string) tfOutputs {
 	return outputs
 }
 
-// assertBlobCORSPreflight sends a browser's preflight to the account's Blob
-// endpoint: the origin the cors_rule allows is answered, another is refused.
+// assertBlobCORSPreflight sends a browser preflight to the Blob endpoint: the
+// origin the cors_rule allows is answered, another is refused.
 func assertBlobCORSPreflight(t *testing.T, blobEndpoint string) {
 	t.Helper()
 	client, err := trustedHTTPClient(caCertFile)

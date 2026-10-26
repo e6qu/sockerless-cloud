@@ -10,24 +10,14 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// The Azure Container Registry data plane's properties APIs: what a registry
-// holds, described and administered per repository, per manifest and per tag.
+// The Azure Container Registry data plane's properties APIs. Every figure is
+// read from what the registry holds; the only state they add is the four
+// changeable attributes, which the registry enforces.
 //
-// Every figure here is read from the registry itself — the manifests it stores,
-// the tags pointing at them, the size of the manifest document, the platform
-// its image config declares, and when the registry received it. The only state
-// these APIs add is the one a client sets: the four changeable attributes that
-// decide whether a repository, manifest or tag can be read, listed, written or
-// deleted, and which the registry then enforces.
-//
-// The whole family shares one path prefix and a repository name that may itself
-// contain slashes, so each method is mounted once on a greedy path and split
-// here — `/acr/v1/<repo>/_tags/<tag>` and `/acr/v1/<repo>` differ only by a
-// suffix that the repository name is allowed to look like.
+// Each method mounts once on a greedy path: `/acr/v1/<repo>/_tags/<tag>` and
+// `/acr/v1/<repo>` differ only by a suffix a repository name may contain.
 
-// acrAttributes is what a client has set on one addressable thing in a
-// registry. All four default to true, which is what a freshly pushed artifact
-// permits, and the registry honours them on the data plane.
+// acrAttributes all default to true, what a freshly pushed artifact permits.
 type acrAttributes struct {
 	Key           string `json:"key"`
 	DeleteEnabled *bool  `json:"deleteEnabled,omitempty"`
@@ -38,8 +28,6 @@ type acrAttributes struct {
 
 var acrChangeableAttributes sim.Store[acrAttributes]
 
-// acrWriteableAttributes is the request body all three update methods take —
-// the same four members, whichever thing they are set on.
 type acrWriteableAttributes struct {
 	DeleteEnabled *bool `json:"deleteEnabled"`
 	WriteEnabled  *bool `json:"writeEnabled"`
@@ -47,10 +35,6 @@ type acrWriteableAttributes struct {
 	ReadEnabled   *bool `json:"readEnabled"`
 }
 
-// registerACRDataPlaneProperties mounts the nine properties operations. The
-// catalog and the tag list are mounted beside them in acr.go; these are
-// dispatched from one handler per method because a repository name may contain
-// the separators the suffixes use.
 func registerACRDataPlaneProperties(srv *sim.Server, reg *sim.OCIRegistry) {
 	acrChangeableAttributes = sim.MakeStore[acrAttributes](srv.DB(), "acr_changeable_attributes")
 
@@ -62,7 +46,6 @@ func registerACRDataPlaneProperties(srv *sim.Server, reg *sim.OCIRegistry) {
 	})
 }
 
-// acrPropertiesTarget is what an /acr/v1 path addresses.
 type acrPropertiesTarget struct {
 	repo   string
 	kind   string // "repository", "manifests", "manifest", "tag"
@@ -70,10 +53,8 @@ type acrPropertiesTarget struct {
 	tag    string
 }
 
-// acrParsePropertiesPath splits an /acr/v1 path into the thing it addresses.
-// The repository name is everything before the suffix, so the suffix is looked
-// for from the right: a repository legitimately named "a/_tags" would otherwise
-// swallow the tag it is being asked about.
+// acrParsePropertiesPath looks for the suffix from the right: a repository
+// legitimately named "a/_tags" would otherwise swallow the tag.
 func acrParsePropertiesPath(path string) (acrPropertiesTarget, bool) {
 	path = strings.Trim(path, "/")
 	if path == "" || path == "_catalog" {
@@ -94,7 +75,6 @@ func acrParsePropertiesPath(path string) (acrPropertiesTarget, bool) {
 	return acrPropertiesTarget{repo: path, kind: "repository"}, true
 }
 
-// acrSplitOnLast splits around the last occurrence of sep.
 func acrSplitOnLast(path, sep string) (string, string, bool) {
 	i := strings.LastIndex(path, sep)
 	if i < 0 {
@@ -103,7 +83,6 @@ func acrSplitOnLast(path, sep string) (string, string, bool) {
 	return path[:i], path[i+len(sep):], true
 }
 
-// acrDispatchProperties routes a write to the thing its path addresses.
 func acrDispatchProperties(w http.ResponseWriter, r *http.Request, reg *sim.OCIRegistry, method string) {
 	target, ok := acrParsePropertiesPath(sim.PathParam(r, "path"))
 	if !ok {
@@ -126,8 +105,8 @@ func acrDispatchProperties(w http.ResponseWriter, r *http.Request, reg *sim.OCIR
 	}
 }
 
-// acrPropertiesNotFound answers in the registry's own error shape, which is the
-// one its clients parse.
+// acrPropertiesNotFound answers in the registry's own error shape, which its
+// clients parse.
 func acrPropertiesNotFound(w http.ResponseWriter, detail string) {
 	sim.WriteJSON(w, http.StatusNotFound, map[string]any{
 		"errors": []any{map[string]any{
@@ -137,7 +116,6 @@ func acrPropertiesNotFound(w http.ResponseWriter, detail string) {
 	})
 }
 
-// acrAttributeKey names one addressable thing's attributes.
 func acrAttributeKey(scope, repo, suffix string) string {
 	if suffix == "" {
 		return scope + "|" + repo
@@ -145,8 +123,6 @@ func acrAttributeKey(scope, repo, suffix string) string {
 	return scope + "|" + repo + "|" + suffix
 }
 
-// acrAttributesFor reads what a client has set, or the all-permitted defaults
-// a freshly pushed artifact has.
 func acrAttributesFor(key string) acrWriteableAttributes {
 	yes := true
 	held, ok := acrChangeableAttributes.Get(key)
@@ -166,8 +142,8 @@ func acrAttributesFor(key string) acrWriteableAttributes {
 	return set
 }
 
-// acrApplyAttributes merges the members the request carries. A member the
-// caller left out keeps the value it had, which is what a PATCH means.
+// acrApplyAttributes keeps the value of every member the request leaves out, as
+// a PATCH means.
 func acrApplyAttributes(w http.ResponseWriter, r *http.Request, key string) (acrWriteableAttributes, bool) {
 	var body acrWriteableAttributes
 	if err := azureReadRequiredJSON(r, &body); err != nil {
@@ -198,7 +174,6 @@ func acrApplyAttributes(w http.ResponseWriter, r *http.Request, key string) (acr
 	return merged, true
 }
 
-// acrAttributesDoc renders the four members.
 func acrAttributesDoc(set acrWriteableAttributes) map[string]any {
 	return map[string]any{
 		"deleteEnabled": *set.DeleteEnabled,
@@ -208,8 +183,7 @@ func acrAttributesDoc(set acrWriteableAttributes) map[string]any {
 	}
 }
 
-// acrRepositoryManifests are the digest-keyed rows of one repository — one per
-// manifest the registry holds, without the tag aliases pointing at them.
+// acrRepositoryManifests returns the digest-keyed rows, without the tag aliases.
 func acrRepositoryManifests(reg *sim.OCIRegistry, scope, repo string) []sim.OCIManifest {
 	held := reg.Manifests.Filter(func(m sim.OCIManifest) bool {
 		return m.Scope == scope && m.Repo == repo && m.Ref == m.Digest
@@ -218,7 +192,6 @@ func acrRepositoryManifests(reg *sim.OCIRegistry, scope, repo string) []sim.OCIM
 	return held
 }
 
-// acrRepositoryTags are the tag rows of one repository.
 func acrRepositoryTags(reg *sim.OCIRegistry, scope, repo string) []sim.OCIManifest {
 	held := reg.Manifests.Filter(func(m sim.OCIManifest) bool {
 		return m.Scope == scope && m.Repo == repo && m.Ref != "" && m.Ref != m.Digest &&
@@ -228,29 +201,23 @@ func acrRepositoryTags(reg *sim.OCIRegistry, scope, repo string) []sim.OCIManife
 	return held
 }
 
-// acrStamp renders a registry timestamp. A manifest stored before the registry
-// began recording push times has none, and reports the zero instant rather than
-// a moment invented for it.
+// acrStamp reports the zero instant for a manifest stored before the registry
+// recorded push times, rather than inventing one.
 func acrStamp(at time.Time) string {
 	return at.UTC().Format(time.RFC3339Nano)
 }
 
-// acrRepositoryExists reports whether the registry holds anything under a
-// repository name.
 func acrRepositoryExists(reg *sim.OCIRegistry, scope, repo string) bool {
 	return len(reg.Manifests.Filter(func(m sim.OCIManifest) bool {
 		return m.Scope == scope && m.Repo == repo
 	})) > 0
 }
 
-// acrRepositoryPropertiesDoc describes a repository from what it holds.
 func acrRepositoryPropertiesDoc(reg *sim.OCIRegistry, scope, registry, repo string) map[string]any {
 	manifests := acrRepositoryManifests(reg, scope, repo)
 	tags := acrRepositoryTags(reg, scope, repo)
 
-	// A repository was created when its earliest manifest arrived and last
-	// changed when its latest did — both read from the registry rather than
-	// tracked separately, so they cannot drift from what it holds.
+	// Read both times from the manifests held, so they cannot drift.
 	var earliest, latest time.Time
 	for _, m := range append(append([]sim.OCIManifest{}, manifests...), tags...) {
 		if m.Pushed.IsZero() {
@@ -274,9 +241,6 @@ func acrRepositoryPropertiesDoc(reg *sim.OCIRegistry, scope, registry, repo stri
 	}
 }
 
-// acrManifestPropertiesDoc describes one manifest: its size and platform read
-// out of the document the registry stored, and the tags currently pointing at
-// it read out of the registry's own tag rows.
 func acrManifestPropertiesDoc(reg *sim.OCIRegistry, scope, registry, repo string, m sim.OCIManifest) map[string]any {
 	var parsed struct {
 		Config struct {
@@ -299,9 +263,8 @@ func acrManifestPropertiesDoc(reg *sim.OCIRegistry, scope, registry, repo string
 		}
 	}
 
-	// An index names the platforms it covers; a single-platform manifest points
-	// at a config blob that does. Either way the platform is read from the
-	// registry's own bytes, never assumed.
+	// An index names the platforms it covers; a single-platform manifest points at
+	// a config blob that does.
 	references := []any{}
 	architecture, operatingSystem := "", ""
 	for _, child := range parsed.Manifests {
@@ -339,9 +302,8 @@ func acrManifestPropertiesDoc(reg *sim.OCIRegistry, scope, registry, repo string
 	return map[string]any{"registry": registry, "imageName": repo, "manifest": manifest}
 }
 
-// acrManifestPlatform reads a single-platform manifest's architecture and
-// operating system out of the image config blob it points at, which is where
-// the registry actually holds them.
+// acrManifestPlatform reads the architecture and OS from the image config blob
+// the manifest points at.
 func acrManifestPlatform(reg *sim.OCIRegistry, scope, repo string, m sim.OCIManifest) ([2]string, bool) {
 	var manifest struct {
 		Config struct {
@@ -365,7 +327,6 @@ func acrManifestPlatform(reg *sim.OCIRegistry, scope, repo string, m sim.OCIMani
 	return [2]string{config.Architecture, config.OS}, true
 }
 
-// acrTagPropertiesDoc describes one tag.
 func acrTagPropertiesDoc(scope, registry, repo string, m sim.OCIManifest) map[string]any {
 	return map[string]any{
 		"registry":  registry,
@@ -381,7 +342,7 @@ func acrTagPropertiesDoc(scope, registry, repo string, m sim.OCIManifest) map[st
 	}
 }
 
-// acrUpdateRepositoryProperties — ContainerRegistry_UpdateProperties.
+// acrUpdateRepositoryProperties is ContainerRegistry_UpdateProperties.
 func acrUpdateRepositoryProperties(w http.ResponseWriter, r *http.Request, reg *sim.OCIRegistry, repo string) {
 	if !acrAuthorize(w, r, acrRepositoryResource(repo, acrActionMetadataWrite, acrActionMetadataWrite)) {
 		return
@@ -397,9 +358,7 @@ func acrUpdateRepositoryProperties(w http.ResponseWriter, r *http.Request, reg *
 	sim.WriteJSON(w, http.StatusOK, acrRepositoryPropertiesDoc(reg, scope, acrRegistryName(r), repo))
 }
 
-// acrDeleteRepository — ContainerRegistry_DeleteRepository. Deleting a
-// repository deletes everything under it, which is what the registry then no
-// longer holds.
+// acrDeleteRepository is ContainerRegistry_DeleteRepository.
 func acrDeleteRepository(w http.ResponseWriter, r *http.Request, reg *sim.OCIRegistry, repo string) {
 	if !acrAuthorize(w, r, acrRepositoryResource(repo, acrActionDelete, acrActionDelete)) {
 		return
@@ -422,7 +381,7 @@ func acrDeleteRepository(w http.ResponseWriter, r *http.Request, reg *sim.OCIReg
 	w.WriteHeader(http.StatusAccepted)
 }
 
-// acrUpdateManifestProperties — ContainerRegistry_UpdateManifestProperties.
+// acrUpdateManifestProperties is ContainerRegistry_UpdateManifestProperties.
 func acrUpdateManifestProperties(w http.ResponseWriter, r *http.Request, reg *sim.OCIRegistry, repo, digest string) {
 	if !acrAuthorize(w, r, acrRepositoryResource(repo, acrActionMetadataWrite, acrActionMetadataWrite)) {
 		return
@@ -439,7 +398,7 @@ func acrUpdateManifestProperties(w http.ResponseWriter, r *http.Request, reg *si
 	sim.WriteJSON(w, http.StatusOK, acrManifestPropertiesDoc(reg, scope, acrRegistryName(r), repo, held))
 }
 
-// acrUpdateTagAttributes — ContainerRegistry_UpdateTagAttributes.
+// acrUpdateTagAttributes is ContainerRegistry_UpdateTagAttributes.
 func acrUpdateTagAttributes(w http.ResponseWriter, r *http.Request, reg *sim.OCIRegistry, repo, tag string) {
 	if !acrAuthorize(w, r, acrRepositoryResource(repo, acrActionMetadataWrite, acrActionMetadataWrite)) {
 		return
@@ -456,9 +415,8 @@ func acrUpdateTagAttributes(w http.ResponseWriter, r *http.Request, reg *sim.OCI
 	sim.WriteJSON(w, http.StatusOK, acrTagPropertiesDoc(scope, acrRegistryName(r), repo, held))
 }
 
-// acrDeleteTag — ContainerRegistry_DeleteTag. Deleting a tag removes the name,
-// not the manifest it pointed at: the manifest stays addressable by digest,
-// which is what makes an untagged manifest untagged rather than gone.
+// acrDeleteTag is ContainerRegistry_DeleteTag. It removes the name, not the
+// manifest, which stays addressable by digest.
 func acrDeleteTag(w http.ResponseWriter, r *http.Request, reg *sim.OCIRegistry, repo, tag string) {
 	if !acrAuthorize(w, r, acrRepositoryResource(repo, acrActionDelete, acrActionDelete)) {
 		return
@@ -477,15 +435,12 @@ func acrDeleteTag(w http.ResponseWriter, r *http.Request, reg *sim.OCIRegistry, 
 	w.WriteHeader(http.StatusAccepted)
 }
 
-// acrPropertiesDenied answers the refusal a disabled attribute produces.
 func acrPropertiesDenied(w http.ResponseWriter, detail string) {
 	sim.WriteJSON(w, http.StatusMethodNotAllowed, map[string]any{
 		"errors": []any{map[string]any{"code": "DENIED", "message": detail}},
 	})
 }
 
-// acrRegistryName is the registry a data-plane request reached, which is the
-// registry the properties documents name themselves after.
 func acrRegistryName(r *http.Request) string {
 	if reg, ok := acrRegistryForHost(r.Host); ok {
 		return reg.Properties.LoginServer
@@ -493,7 +448,6 @@ func acrRegistryName(r *http.Request) string {
 	return ""
 }
 
-// acrFindManifest resolves a manifest by digest.
 func acrFindManifest(reg *sim.OCIRegistry, scope, repo, digest string) (sim.OCIManifest, bool) {
 	for _, held := range acrRepositoryManifests(reg, scope, repo) {
 		if strings.EqualFold(held.Digest, digest) {
@@ -503,7 +457,6 @@ func acrFindManifest(reg *sim.OCIRegistry, scope, repo, digest string) (sim.OCIM
 	return sim.OCIManifest{}, false
 }
 
-// acrFindTag resolves a tag by name.
 func acrFindTag(reg *sim.OCIRegistry, scope, repo, tag string) (sim.OCIManifest, bool) {
 	for _, held := range acrRepositoryTags(reg, scope, repo) {
 		if held.Ref == tag {
@@ -513,8 +466,8 @@ func acrFindTag(reg *sim.OCIRegistry, scope, repo, tag string) (sim.OCIManifest,
 	return sim.OCIManifest{}, false
 }
 
-// acrReadProperties answers the three properties reads and the manifest list
-// that share the /acr/v1 GET path with the tag list.
+// acrReadProperties answers the three properties reads and the manifest list,
+// which share the /acr/v1 GET path with the tag list.
 func acrReadProperties(w http.ResponseWriter, r *http.Request, reg *sim.OCIRegistry, target acrPropertiesTarget) {
 	if !acrAuthorize(w, r, acrRepositoryResource(target.repo, acrActionMetadataRead, acrActionMetadataRead)) {
 		return

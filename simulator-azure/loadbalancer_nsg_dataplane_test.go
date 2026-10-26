@@ -18,11 +18,8 @@ import (
 )
 
 func TestAzureNSGCompilerPreservesPriorityAndVNetDefault(t *testing.T) {
-	// These are package-level stores shared with every other test in the
-	// package. Restore what was there rather than clearing to nil: a nil store
-	// makes any later test that reads one without first rebuilding the
-	// simulator panic on a nil map, which turns this test into an ordering
-	// hazard for tests it has nothing to do with.
+	// Restore the package-level stores rather than clearing them: a nil store
+	// panics any later test that reads it without rebuilding the simulator.
 	priorNSGs, priorSubnets, priorVnets := azureNSGs, azureSubnets, azureVnets
 	azureNSGs = sim.MakeStore[NetworkSecurityGroup](nil, "test_nsgs")
 	azureSubnets = sim.MakeStore[Subnet](nil, "test_subnets")
@@ -111,8 +108,7 @@ func TestAzureLoadBalancerDataPlaneProxiesBackendPoolNIC(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new server: %v", err)
 	}
-	// Restored rather than cleared, for the reason given above: a nil store
-	// left behind panics whichever test runs next against it.
+	// Restore rather than clear, as above.
 	priorPublicIPs, priorLBs, priorNICs := azurePublicIPs, azureLBs, azureNICs
 	azurePublicIPs = sim.MakeStore[PublicIPAddress](nil, "test_public_ips")
 	azureLBs = sim.MakeStore[LoadBalancer](nil, "test_lbs")

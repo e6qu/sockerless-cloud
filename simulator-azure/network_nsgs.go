@@ -28,7 +28,6 @@ func registerNetworkSecurityGroups(srv *sim.Server, armBase string, nsgs sim.Sto
 				return
 			}
 		}
-		// Set IDs on security rules
 		for i := range req.Properties.SecurityRules {
 			req.Properties.SecurityRules[i].ID = fmt.Sprintf("%s/securityRules/%s", resourceID, req.Properties.SecurityRules[i].Name)
 			req.Properties.SecurityRules[i].Type = "Microsoft.Network/networkSecurityGroups/securityRules"
@@ -49,7 +48,7 @@ func registerNetworkSecurityGroups(srv *sim.Server, armBase string, nsgs sim.Sto
 		nsgs.Put(resourceID, nsg)
 		azureReapplyIngress()
 
-		// go-azure-sdk expects 200 for sync creates
+		// go-azure-sdk expects 200 for a synchronous create.
 		sim.WriteJSON(w, http.StatusOK, nsg)
 	})
 
@@ -79,16 +78,11 @@ func registerNetworkSecurityGroups(srv *sim.Server, armBase string, nsgs sim.Sto
 		w.WriteHeader(http.StatusOK)
 	})
 
-	// This is handled via the subnet PUT endpoint above (networkSecurityGroup property on subnet).
-	// The azurerm_subnet_network_security_group_association resource just PUTs the subnet
-	// with the networkSecurityGroup reference set.
+	// azurerm_subnet_network_security_group_association PUTs the subnet with the
+	// networkSecurityGroup reference, which the subnet handler serves.
 
-	// The NSG handlers above let callers embed SecurityRules in the
-	// NSG body, but armnetwork.SecurityRulesClient CRUDs each rule
-	// via its sub-resource path. Expose those so the backend can use
-	// the per-rule client.
+	// armnetwork.SecurityRulesClient CRUDs each rule at its sub-resource path.
 
-	// PUT rule
 	srv.HandleFunc("PUT "+armBase+"/networkSecurityGroups/{nsgName}/securityRules/{ruleName}",
 		func(w http.ResponseWriter, r *http.Request) {
 			sub := sim.PathParam(r, "subscriptionId")
@@ -121,12 +115,8 @@ func registerNetworkSecurityGroups(srv *sim.Server, armBase string, nsgs sim.Sto
 			req.Type = "Microsoft.Network/networkSecurityGroups/securityRules"
 			req.Properties.ProvisioningState = "Succeeded"
 
-			// Real Azure rejects duplicate priorities within an NSG +
-			// direction (a rule cannot share a (Priority, Direction)
-			// pair with another rule on the same NSG). The error code
-			// is `SecurityRuleParameterPriorityAlreadyTaken`. Match
-			// that contract so terraform configurations and SDK callers
-			// see the real validation flow instead of a silent overwrite.
+			// Azure rejects a rule sharing (priority, direction) with another on the same
+			// NSG with SecurityRuleParameterPriorityAlreadyTaken.
 			for _, existing := range nsg.Properties.SecurityRules {
 				if existing.Name == ruleName {
 					continue
@@ -141,7 +131,8 @@ func registerNetworkSecurityGroups(srv *sim.Server, armBase string, nsgs sim.Sto
 				}
 			}
 
-			// Upsert inside NSG.Properties.SecurityRules so GET NSG stays consistent.
+			// Upsert inside NSG.Properties.SecurityRules so the NSG's Get stays
+			// consistent.
 			found := false
 			for i := range nsg.Properties.SecurityRules {
 				if nsg.Properties.SecurityRules[i].Name == ruleName {
@@ -159,7 +150,6 @@ func registerNetworkSecurityGroups(srv *sim.Server, armBase string, nsgs sim.Sto
 			sim.WriteJSON(w, http.StatusOK, req)
 		})
 
-	// GET rule
 	srv.HandleFunc("GET "+armBase+"/networkSecurityGroups/{nsgName}/securityRules/{ruleName}",
 		func(w http.ResponseWriter, r *http.Request) {
 			sub := sim.PathParam(r, "subscriptionId")
@@ -184,7 +174,6 @@ func registerNetworkSecurityGroups(srv *sim.Server, armBase string, nsgs sim.Sto
 				"Security rule '%s' not found in NSG '%s'.", ruleName, nsgName)
 		})
 
-	// DELETE rule
 	srv.HandleFunc("DELETE "+armBase+"/networkSecurityGroups/{nsgName}/securityRules/{ruleName}",
 		func(w http.ResponseWriter, r *http.Request) {
 			sub := sim.PathParam(r, "subscriptionId")
@@ -210,7 +199,6 @@ func registerNetworkSecurityGroups(srv *sim.Server, armBase string, nsgs sim.Sto
 			w.WriteHeader(http.StatusOK)
 		})
 
-	// LIST rules
 	srv.HandleFunc("GET "+armBase+"/networkSecurityGroups/{nsgName}/securityRules",
 		func(w http.ResponseWriter, r *http.Request) {
 			sub := sim.PathParam(r, "subscriptionId")

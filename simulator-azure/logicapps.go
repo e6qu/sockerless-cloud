@@ -10,9 +10,8 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// Microsoft.Logic/workflows ARM control plane. The slice stores the full
-// workflow definition/parameters payload that clients send and exposes the
-// lifecycle/status operations used by the Azure SDK, az CLI, and Terraform.
+// Microsoft.Logic/workflows: the full definition and parameters, and the
+// lifecycle and status operations.
 
 type LogicWorkflow struct {
 	ID         string            `json:"id"`
@@ -61,22 +60,16 @@ func registerLogicApps(srv *sim.Server) {
 	startLogicRecurrences(srv)
 }
 
-// logicNewWorkflowAccessIdentifier mints the identifier a workflow is addressed
-// by on the Logic Apps service host. Real Logic Apps addresses a Consumption
-// workflow as `/workflows/{identifier}` — a 32-character hexadecimal handle
-// that carries neither the subscription, the resource group nor the workflow
-// name (`https://prod-03.westus.logic.azure.com/workflows/d4690301f3b340de9330256bb2e83974/triggers/requestTrigger/paths/invoke`,
-// the response Microsoft publishes for Workflows - List Callback Url). Because
-// nothing about the resource's address is encoded in it, a callback URL issued
-// before a move keeps working after one.
+// A Consumption workflow is addressed as `/workflows/{identifier}`, a
+// 32-character hex handle carrying no subscription, group or name (as in the
+// published Workflows - List Callback Url response), so a callback URL survives
+// a move.
 func logicNewWorkflowAccessIdentifier() string {
 	return strings.ReplaceAll(sim.NewUUID(), "-", "")
 }
 
-// logicAccessEndpoint is the workflow's advertised endpoint: the service host
-// and the workflow's identifier, with no trigger path and no query string,
-// which is what real Logic Apps serves as properties.accessEndpoint and as the
-// base path of a callback URL.
+// The service host and identifier, with no trigger path or query: Logic Apps'
+// properties.accessEndpoint and the base of a callback URL.
 func logicAccessEndpoint(r *http.Request, identifier string) string {
 	return fmt.Sprintf("%s://%s/workflows/%s", azureRequestScheme(r), r.Host, identifier)
 }
@@ -112,10 +105,8 @@ func handleLogicWorkflowPut(w http.ResponseWriter, r *http.Request) {
 		if created, ok := existing.Properties["createdTime"]; ok {
 			props["createdTime"] = created
 		}
-		// The access endpoint is the workflow's own identity on the service
-		// host and is issued once, when the workflow is created: every callback
-		// URL already handed out is addressed through it, and an update must
-		// not move them.
+		// The access endpoint is issued once, at create: every callback URL handed out
+		// is addressed through it, so an update must not move it.
 		if endpoint, ok := existing.Properties["accessEndpoint"].(string); ok && endpoint != "" {
 			props["accessEndpoint"] = endpoint
 		}

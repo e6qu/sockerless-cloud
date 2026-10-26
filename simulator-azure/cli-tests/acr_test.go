@@ -41,25 +41,18 @@ func TestACR_CreateAndShow(t *testing.T) {
 	assert.NotEmpty(t, registry.Properties.LoginServer)
 	assert.Equal(t, "LegacyRegistryPermissions", registry.Properties.RoleAssignmentMode)
 
-	// The advertised loginServer is a simulator coordinate (the request host,
-	// SIM_AZURE_ARM_EXTERNAL_DATA_PLANE_URLS_JSON's "cli-shim.localhost"
-	// template applied here) — never the unreachable real-cloud
-	// "<name>.azurecr.io" host a browser or client couldn't resolve against
-	// the simulator (BUG-2643).
+	// The loginServer follows the simulator's configured data-plane host template,
+	// not the real-cloud "<name>.azurecr.io" host a client cannot resolve here.
 	assert.False(t, strings.HasSuffix(registry.Properties.LoginServer, ".azurecr.io"),
 		"loginServer must not be the real-cloud host, got %q", registry.Properties.LoginServer)
 	assert.Contains(t, registry.Properties.LoginServer, "clitestregistry.azurecr.cli-shim.localhost")
 
-	// GET
 	out = runCLI(t, azRest("GET", url, ""))
 	parseJSON(t, out, &registry)
 	assert.Equal(t, "clitestregistry", registry.Name)
 
-	// The advertised loginServer must actually resolve to this simulator: a
-	// direct HTTP request to the loopback base URL carrying that host in the
-	// Host header must reach that registry's data plane, which answers an
-	// unauthenticated read with its own Bearer challenge — naming this
-	// registry's token service, not some other registry's.
+	// The loginServer must reach this registry's data plane: an unauthenticated
+	// read carrying it as Host answers with this registry's own Bearer challenge.
 	req, err := http.NewRequest(http.MethodGet, baseURL+"/acr/v1/_catalog", nil)
 	if err != nil {
 		t.Fatalf("build catalog request: %v", err)
@@ -78,14 +71,11 @@ func TestACR_CreateAndShow(t *testing.T) {
 		t.Fatalf("challenge %q must name this registry's login server", challenge)
 	}
 
-	// Cleanup
 	runCLI(t, azRest("DELETE", url, ""))
 }
 
-// TestACR_CacheRuleCRUD drives the `cacheRules` sub-resource
-// through the `az rest` CLI. `az acr cache` commands are higher-level
-// but route through the same ARM endpoints, so exercising via az rest
-// covers both paths.
+// TestACR_CacheRuleCRUD drives the cacheRules sub-resource through `az rest`;
+// `az acr cache` routes through the same ARM endpoints.
 func TestACR_CacheRuleCRUD(t *testing.T) {
 	t.Parallel()
 	regURL := acrURL("registries/cliregforcache")
@@ -95,7 +85,6 @@ func TestACR_CacheRuleCRUD(t *testing.T) {
 
 	ruleURL := acrURL("registries/cliregforcache/cacheRules/docker-hub")
 
-	// Create.
 	body := `{"properties":{"sourceRepository":"docker.io/library/*","targetRepository":"docker-hub/library/*"}}`
 	out := runCLI(t, azRest("PUT", ruleURL, body))
 	var rule struct {
@@ -112,12 +101,10 @@ func TestACR_CacheRuleCRUD(t *testing.T) {
 	assert.Equal(t, "docker-hub/library/*", rule.Properties.TargetRepository)
 	assert.Equal(t, "Succeeded", rule.Properties.ProvisioningState)
 
-	// Get.
 	out = runCLI(t, azRest("GET", ruleURL, ""))
 	parseJSON(t, out, &rule)
 	assert.Equal(t, "docker-hub", rule.Name)
 
-	// List.
 	listURL := acrURL("registries/cliregforcache/cacheRules")
 	out = runCLI(t, azRest("GET", listURL, ""))
 	var listResp struct {
@@ -134,13 +121,11 @@ func TestACR_CacheRuleCRUD(t *testing.T) {
 	}
 	assert.True(t, found, "expected List to return the created cache rule")
 
-	// Delete.
 	runCLI(t, azRest("DELETE", ruleURL, ""))
 }
 
-// TestACR_ImageCatalogAndTags pushes a manifest via the OCI distribution
-// protocol (raw HTTP, same path that az acr and docker CLI use), then
-// verifies the ACR data-plane catalog and tags endpoints that
+// TestACR_ImageCatalogAndTags pushes a manifest over the OCI distribution
+// protocol, then reads the catalog and tags endpoints that
 // `az acr repository list` and `az acr repository show-tags` wrap.
 func TestACR_ImageCatalogAndTags(t *testing.T) {
 	t.Parallel()
@@ -150,8 +135,7 @@ func TestACR_ImageCatalogAndTags(t *testing.T) {
 		imageTag     = "stable"
 	)
 
-	// Create the ACR registry via ARM, with the admin user its data plane
-	// authenticates enabled.
+	// Enable the admin user the data plane authenticates.
 	regURL := acrURL("registries/" + registryName)
 	createOut := runCLI(t, azRest("PUT", regURL,
 		`{"location":"eastus","sku":{"name":"Basic"},"properties":{"adminUserEnabled":true}}`))
@@ -167,8 +151,7 @@ func TestACR_ImageCatalogAndTags(t *testing.T) {
 		baseURL+registry.ID+"/listcredentials?api-version="+acrAPIVersion)
 	authorization := acrCLIBasic(username, passwords[0])
 
-	// Push a minimal manifest via OCI distribution PUT, authenticated with the
-	// admin credential a `docker login` presents.
+	// Authenticate the push with the admin credential `docker login` presents.
 	manifestJSON := `{"schemaVersion":2,"mediaType":"application/vnd.docker.distribution.manifest.v2+json","config":{"mediaType":"application/vnd.docker.container.image.v1+json","size":7,"digest":"sha256:0000000000000000000000000000000000000000000000000000000000000000"},"layers":[]}`
 	putPath := fmt.Sprintf("/v2/%s/manifests/%s", imageName, imageTag)
 	req, err := http.NewRequest(http.MethodPut, baseURL+putPath, bytes.NewBufferString(manifestJSON))
@@ -187,7 +170,6 @@ func TestACR_ImageCatalogAndTags(t *testing.T) {
 		t.Fatalf("expected 201 from PUT manifest, got %d", resp.StatusCode)
 	}
 
-	// GET /acr/v1/_catalog — list repositories, must include imageName
 	catResp, err := acrCLIDataPlaneGet(baseURL+"/acr/v1/_catalog", registry.Properties.LoginServer, authorization)
 	if err != nil {
 		t.Fatalf("GET catalog: %v", err)
@@ -208,7 +190,6 @@ func TestACR_ImageCatalogAndTags(t *testing.T) {
 	}
 	assert.True(t, found, "expected catalog to include %q, got %v", imageName, catalog.Repositories)
 
-	// GET /acr/v1/{name}/_tags — list tags for imageName
 	tagsResp, err := acrCLIDataPlaneGet(fmt.Sprintf("%s/acr/v1/%s/_tags", baseURL, imageName),
 		registry.Properties.LoginServer, authorization)
 	if err != nil {
@@ -233,9 +214,6 @@ func TestACR_ImageCatalogAndTags(t *testing.T) {
 	assert.True(t, foundTag, "expected tags list to include %q, got %v", imageTag, tagList.Tags)
 }
 
-// acrCLIDataPlaneGet reads a registry data-plane endpoint at the loopback base
-// URL while carrying the registry's login server as the Host and the admin
-// credential the data plane authenticates.
 func acrCLIDataPlaneGet(rawURL, loginServer, authorization string) (*http.Response, error) {
 	req, err := http.NewRequest(http.MethodGet, rawURL, nil)
 	if err != nil {
@@ -255,11 +233,9 @@ func readBody(t *testing.T, resp *http.Response) string {
 	return buf.String()
 }
 
-// TestACR_ConnectedRegistryDeactivateTakesEffect exercises the action that
-// takes a connected registry offline. A 200 that leaves the registry Active
-// reports work that did not happen, and the read straight after contradicts
-// it. Driven through `az rest` because the operation is a preview surface the
-// pinned Go management SDK does not expose, while the CLI does.
+// TestACR_ConnectedRegistryDeactivateTakesEffect checks that deactivate takes a
+// connected registry offline. It runs through `az rest` because the pinned Go
+// management SDK does not expose this preview operation.
 func TestACR_ConnectedRegistryDeactivateTakesEffect(t *testing.T) {
 	t.Parallel()
 	const registryName = "connectedhostregistry"
@@ -271,10 +247,8 @@ func TestACR_ConnectedRegistryDeactivateTakesEffect(t *testing.T) {
 
 	childURL := acrURL("registries/" + registryName + "/connectedRegistries/" + connected)
 	parentID := strings.SplitN(registryURL, "?", 2)[0]
-	// A connected registry's parent declares its sync properties, and those in
-	// turn declare the token they sync with and how long a message lives —
-	// what a real caller sends, because a connected registry with no sync
-	// configuration syncs with nothing.
+	// A connected registry with no sync configuration syncs with nothing, so the
+	// parent declares its sync token and message TTL, as a real caller does.
 	runCLI(t, azRest("PUT", childURL,
 		`{"properties":{"mode":"ReadOnly","parent":{"id":"`+parentID+`",`+
 			`"syncProperties":{"tokenId":"`+parentID+`/tokens/edge-token","messageTtl":"P1D"}}}}`))
@@ -295,8 +269,7 @@ func TestACR_ConnectedRegistryDeactivateTakesEffect(t *testing.T) {
 	assert.Equal(t, "Inactive", got.Properties.Activation.Status)
 	assert.Equal(t, "Offline", got.Properties.ConnectionState)
 
-	// Deactivating one that does not exist is not found, rather than reported
-	// done.
+	// Deactivating a connected registry that does not exist is not found.
 	runCLIExpectFailure(t, azRest("POST", acrURL("registries/"+registryName+
 		"/connectedRegistries/no-such-edge/deactivate"), ""))
 }

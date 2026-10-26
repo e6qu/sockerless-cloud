@@ -10,18 +10,10 @@ import (
 )
 
 // TestWorkloadContainersDeriveTheirPlatformFromTheImage holds every workload
-// this simulator starts to one rule: the platform it hands the container engine
-// is read off the image's own manifest, never chosen by the simulator.
-//
-// This is a structural check rather than a runtime one because the failure it
-// guards is a source-level habit, and because a runtime check would only ever
-// cover the one workload family the test happened to start. It reads the
-// package's syntax tree rather than its text: a substring search for one
-// spelling of one hardcoded platform is satisfied by "linux/" + "arm64", by a
-// host-derived value, and by any file the search did not name — and a
-// host-derived platform is precisely the defect this found in the Azure
-// Container Instances group launcher, in a file the old two-file text search
-// never read.
+// launcher to one rule: the platform handed to the engine comes from the
+// image's manifest, never from the simulator. It walks the package's syntax
+// tree, because a text search misses "linux/" + "arm64", host-derived values
+// and files it does not name.
 func TestWorkloadContainersDeriveTheirPlatformFromTheImage(t *testing.T) {
 	fset := token.NewFileSet()
 	pkgs, err := parser.ParseDir(fset, ".", func(fi fs.FileInfo) bool {
@@ -31,10 +23,8 @@ func TestWorkloadContainersDeriveTheirPlatformFromTheImage(t *testing.T) {
 		t.Fatalf("parse the simulator package: %v", err)
 	}
 
-	// The identifiers a platform may legitimately come from: the helper that
-	// inspects the image manifest, and the local variable each caller assigns
-	// its result to. A workload.Container's Config names no platform at all:
-	// workload.StartGroup reads it off the image with the same helper.
+	// A workload.Container names no platform: workload.StartGroup reads it off the
+	// image with the same helper.
 	const platformHelper = "workload.LocalImagePlatform"
 	isPlatformHelper := func(fun ast.Expr) bool {
 		sel, ok := fun.(*ast.SelectorExpr)
@@ -144,8 +134,7 @@ func TestWorkloadContainersDeriveTheirPlatformFromTheImage(t *testing.T) {
 		}
 	}
 
-	// The walk has to have found the workload launchers; a parse that matched
-	// nothing would report every rule satisfied.
+	// A parse that matched nothing would report every rule satisfied.
 	if found < 5 {
 		t.Fatalf("only %d ContainerConfig literals were found in the package — the syntax walk is not reaching the workload launchers", found)
 	}

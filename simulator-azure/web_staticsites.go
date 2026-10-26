@@ -14,21 +14,10 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// Azure Static Web Apps (Microsoft.Web/staticSites) — the full StaticSites_*
-// family of the vendored web-arm-openapi-2025-03-01 swagger: the ARM resource
-// CRUD, builds (environments), application settings in both the appsettings
-// and functionappsettings spellings, custom domains with DNS-backed
-// validation, users and role invitations, deployment secrets and API-key
-// reset, basic auth, database connections, linked backends, user-provided
-// function apps, private endpoint connections and private link resources,
-// zip deployments (Azure-AsyncOperation LROs), workflow-file preview and
-// repository detach.
-//
 // Every sub-collection with an independent lifecycle lives in its own store,
-// keyed by the canonical ARM resource id, so the whole tree hangs off
-// webStaticSites and a site delete cascades by id prefix.
+// keyed by the canonical ARM resource id, so a site delete cascades by id
+// prefix.
 
-// StaticSiteResource mirrors armappservice.StaticSiteARMResource.
 type StaticSiteResource struct {
 	ID         string                `json:"id,omitempty"`
 	Name       string                `json:"name,omitempty"`
@@ -41,19 +30,14 @@ type StaticSiteResource struct {
 	Properties *StaticSiteProperties `json:"properties,omitempty"`
 }
 
-// StaticSiteSku mirrors armappservice.SKUDescription (the subset the
-// simulator round-trips).
 type StaticSiteSku struct {
 	Name string `json:"name,omitempty"`
 	Tier string `json:"tier,omitempty"`
 }
 
-// StaticSiteProperties mirrors armappservice.StaticSite. The read-only
-// aggregate members (customDomains, userProvidedFunctionApps, linkedBackends,
-// databaseConnections) are never stored — staticSiteView assembles them from
-// the child stores on every read, so they always reflect the live children.
-// repositoryToken is write-only in real Azure (a GET never returns it); the
-// simulator moves it into the site's secrets record before storing.
+// The read-only aggregate members are never stored: staticSiteView assembles
+// them from the child stores on every read. repositoryToken is write-only, so
+// it moves into the site's secrets record before storing.
 type StaticSiteProperties struct {
 	DefaultHostname           string                                         `json:"defaultHostname,omitempty"`
 	RepositoryURL             string                                         `json:"repositoryUrl,omitempty"`
@@ -73,9 +57,6 @@ type StaticSiteProperties struct {
 	DatabaseConnections       []DatabaseConnectionOverview                   `json:"databaseConnections,omitempty"`
 }
 
-// StaticSiteBuildProperties mirrors the swagger StaticSiteBuildProperties —
-// the build *configuration* block (app/api locations and build commands)
-// carried inside StaticSite.buildProperties and the workflow preview request.
 type StaticSiteBuildProperties struct {
 	AppLocation                        string `json:"appLocation,omitempty"`
 	APILocation                        string `json:"apiLocation,omitempty"`
@@ -87,9 +68,8 @@ type StaticSiteBuildProperties struct {
 	GithubActionSecretNameOverride     string `json:"githubActionSecretNameOverride,omitempty"`
 }
 
-// StaticSiteBuildARMResource mirrors armappservice.StaticSiteBuildARMResource
-// (one build environment: "default" for production, one per staging
-// environment created by a build-scoped zip deployment).
+// One build environment: "default" for production, one per staging
+// environment a build-scoped zip deployment creates.
 type StaticSiteBuildARMResource struct {
 	ID         string                               `json:"id,omitempty"`
 	Name       string                               `json:"name,omitempty"`
@@ -98,9 +78,6 @@ type StaticSiteBuildARMResource struct {
 	Properties StaticSiteBuildARMResourceProperties `json:"properties"`
 }
 
-// StaticSiteBuildARMResourceProperties mirrors the swagger definition of the
-// same name. The nested aggregate arrays are assembled from the child stores
-// at read time, exactly like the site-level ones.
 type StaticSiteBuildARMResourceProperties struct {
 	BuildID                  string                                         `json:"buildId,omitempty"`
 	SourceBranch             string                                         `json:"sourceBranch,omitempty"`
@@ -114,8 +91,6 @@ type StaticSiteBuildARMResourceProperties struct {
 	DatabaseConnections      []DatabaseConnectionOverview                   `json:"databaseConnections,omitempty"`
 }
 
-// StaticSiteLinkedBackend mirrors the swagger StaticSiteLinkedBackend — the
-// flattened backend link nested inside site and build views.
 type StaticSiteLinkedBackend struct {
 	BackendResourceID string `json:"backendResourceId,omitempty"`
 	Region            string `json:"region,omitempty"`
@@ -123,8 +98,6 @@ type StaticSiteLinkedBackend struct {
 	ProvisioningState string `json:"provisioningState,omitempty"`
 }
 
-// StaticSiteLinkedBackendARMResource mirrors
-// armappservice.StaticSiteLinkedBackendARMResource.
 type StaticSiteLinkedBackendARMResource struct {
 	ID         string                  `json:"id,omitempty"`
 	Name       string                  `json:"name,omitempty"`
@@ -133,9 +106,6 @@ type StaticSiteLinkedBackendARMResource struct {
 	Properties StaticSiteLinkedBackend `json:"properties"`
 }
 
-// StaticSiteUserProvidedFunctionAppARMResource mirrors the swagger resource
-// of the same name; the same shape serves the nested
-// StaticSiteUserProvidedFunctionApp items in site and build views.
 type StaticSiteUserProvidedFunctionAppARMResource struct {
 	ID         string                                      `json:"id,omitempty"`
 	Name       string                                      `json:"name,omitempty"`
@@ -144,17 +114,14 @@ type StaticSiteUserProvidedFunctionAppARMResource struct {
 	Properties StaticSiteUserProvidedFunctionAppProperties `json:"properties"`
 }
 
-// StaticSiteUserProvidedFunctionAppProperties mirrors the swagger
-// StaticSiteUserProvidedFunctionAppProperties.
 type StaticSiteUserProvidedFunctionAppProperties struct {
 	FunctionAppResourceID string `json:"functionAppResourceId,omitempty"`
 	FunctionAppRegion     string `json:"functionAppRegion,omitempty"`
 	CreatedOn             string `json:"createdOn,omitempty"`
 }
 
-// DatabaseConnection mirrors armappservice.DatabaseConnection. The
-// connection string is returned only by the "...WithDetails" (POST .../show)
-// operations, exactly as real Azure does; the plain GETs strip it.
+// Only the WithDetails (POST .../show) operations return the connection
+// string, as on Azure.
 type DatabaseConnection struct {
 	ID         string                       `json:"id,omitempty"`
 	Name       string                       `json:"name,omitempty"`
@@ -163,7 +130,6 @@ type DatabaseConnection struct {
 	Properties DatabaseConnectionProperties `json:"properties"`
 }
 
-// DatabaseConnectionProperties mirrors the swagger definition of the same name.
 type DatabaseConnectionProperties struct {
 	ResourceID         string `json:"resourceId,omitempty"`
 	ConnectionIdentity string `json:"connectionIdentity,omitempty"`
@@ -171,9 +137,6 @@ type DatabaseConnectionProperties struct {
 	Region             string `json:"region,omitempty"`
 }
 
-// DatabaseConnectionOverview mirrors the swagger DatabaseConnectionOverview —
-// the connection summary nested inside site and build views (never the
-// connection string).
 type DatabaseConnectionOverview struct {
 	ResourceID         string `json:"resourceId,omitempty"`
 	ConnectionIdentity string `json:"connectionIdentity,omitempty"`
@@ -181,11 +144,9 @@ type DatabaseConnectionOverview struct {
 	Name               string `json:"name,omitempty"`
 }
 
-// StaticSiteCustomDomainOverviewARMResource mirrors the swagger resource of
-// the same name. ValidationMethod is the write-only member of the create
-// request; it is persisted (json:"-" fields ride the persistence sidecar) so
-// re-validation on later reads checks the same DNS record kind the caller
-// asked for, but it is never a member of the overview response.
+// ValidationMethod is write-only: it persists through the sidecar so later
+// re-validation checks the DNS record kind the caller asked for, and never
+// appears on the wire.
 type StaticSiteCustomDomainOverviewARMResource struct {
 	ID         string                                              `json:"id,omitempty"`
 	Name       string                                              `json:"name,omitempty"`
@@ -196,8 +157,6 @@ type StaticSiteCustomDomainOverviewARMResource struct {
 	ValidationMethod string `json:"-"`
 }
 
-// StaticSiteCustomDomainOverviewARMResourceProperties mirrors the swagger
-// definition of the same name.
 type StaticSiteCustomDomainOverviewARMResourceProperties struct {
 	DomainName      string `json:"domainName,omitempty"`
 	CreatedOn       string `json:"createdOn,omitempty"`
@@ -206,7 +165,6 @@ type StaticSiteCustomDomainOverviewARMResourceProperties struct {
 	ErrorMessage    string `json:"errorMessage,omitempty"`
 }
 
-// StaticSiteUserARMResource mirrors armappservice.StaticSiteUserARMResource.
 type StaticSiteUserARMResource struct {
 	ID         string                              `json:"id,omitempty"`
 	Name       string                              `json:"name,omitempty"`
@@ -215,8 +173,6 @@ type StaticSiteUserARMResource struct {
 	Properties StaticSiteUserARMResourceProperties `json:"properties"`
 }
 
-// StaticSiteUserARMResourceProperties mirrors the swagger definition of the
-// same name.
 type StaticSiteUserARMResourceProperties struct {
 	Provider    string `json:"provider,omitempty"`
 	UserID      string `json:"userId,omitempty"`
@@ -224,10 +180,8 @@ type StaticSiteUserARMResourceProperties struct {
 	Roles       string `json:"roles,omitempty"`
 }
 
-// StaticSiteBasicAuthPropertiesARMResource mirrors the swagger resource of
-// the same name. The password is write-only in real Azure — a GET reports
-// only secretState — so it is persisted through the sidecar and never
-// serialized.
+// The password is write-only — a read reports only secretState — so it
+// persists through the sidecar and is never serialized.
 type StaticSiteBasicAuthPropertiesARMResource struct {
 	ID         string                                             `json:"id,omitempty"`
 	Name       string                                             `json:"name,omitempty"`
@@ -238,9 +192,6 @@ type StaticSiteBasicAuthPropertiesARMResource struct {
 	Password string `json:"-"`
 }
 
-// StaticSiteBasicAuthPropertiesARMResourceProperties mirrors the swagger
-// definition of the same name, minus the write-only password (held on the
-// resource wrapper above).
 type StaticSiteBasicAuthPropertiesARMResourceProperties struct {
 	SecretURL                  string   `json:"secretUrl,omitempty"`
 	ApplicableEnvironmentsMode string   `json:"applicableEnvironmentsMode"`
@@ -248,10 +199,6 @@ type StaticSiteBasicAuthPropertiesARMResourceProperties struct {
 	SecretState                string   `json:"secretState,omitempty"`
 }
 
-// StaticSiteRemotePrivateEndpointConnection is the stored ARM representation
-// of a private endpoint connection on a static site, matching the swagger
-// RemotePrivateEndpointConnectionARMResource shape (properties kept as a map,
-// following the Cosmos DB private-endpoint-connection precedent).
 type StaticSiteRemotePrivateEndpointConnection struct {
 	ID         string         `json:"id,omitempty"`
 	Name       string         `json:"name,omitempty"`
@@ -260,21 +207,15 @@ type StaticSiteRemotePrivateEndpointConnection struct {
 	Properties map[string]any `json:"properties,omitempty"`
 }
 
-// staticSiteSecrets is storage-only state for one static site: the
-// deployment API key served by listSecrets and the repository token, which
-// real Azure accepts on writes but never returns on reads.
+// Azure accepts the repository token on writes but never returns it.
 type staticSiteSecrets struct {
 	APIKey          string `json:"apiKey"`
 	RepositoryToken string `json:"repositoryToken,omitempty"`
 }
 
-// staticSiteSettings is the storage shape for one application-settings bag.
-// Static Web Apps expose the same bag under two spellings — config/appsettings
-// and config/functionappsettings (the pre-rename name of the same settings, as
-// both operations' swagger descriptions state) — so one record per scope
-// serves all four site/build × app/functionapp operations. ID repeats the
-// store key so a site delete can cascade by prefix; the wire response is
-// hand-assembled and never serializes this type.
+// config/appsettings and config/functionappsettings are two spellings of one
+// bag, so one record per scope serves all four operations. ID repeats the
+// store key so a site delete can cascade by prefix.
 type staticSiteSettings struct {
 	ID       string            `json:"id"`
 	Settings map[string]string `json:"settings"`
@@ -296,17 +237,12 @@ var (
 
 const staticSitesPattern = webProvider + "/staticSites/{name}"
 
-// webSubscriptionProvider is the subscription-scoped Microsoft.Web route
-// prefix (no resource group), used by the subscription-wide static-site list
-// and the location-scoped workflow preview.
 const webSubscriptionProvider = "/subscriptions/{subscriptionId}/providers/Microsoft.Web"
 
 func staticSiteARMID(r *http.Request) string {
 	return armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Web", "staticSites", sim.PathParam(r, "name"))
 }
 
-// staticSiteOr404 loads the addressed static site, writing the canonical ARM
-// 404 (the same envelope webMissing writes for sites) when it does not exist.
 func staticSiteOr404(w http.ResponseWriter, r *http.Request) (StaticSiteResource, bool) {
 	ss, ok := webStaticSites.Get(staticSiteARMID(r))
 	if !ok {
@@ -317,8 +253,6 @@ func staticSiteOr404(w http.ResponseWriter, r *http.Request) (StaticSiteResource
 	return ss, true
 }
 
-// staticSiteBuildOr404 loads the addressed build, writing the canonical ARM
-// 404 when either the site or the build environment does not exist.
 func staticSiteBuildOr404(w http.ResponseWriter, r *http.Request) (StaticSiteBuildARMResource, bool) {
 	if _, ok := staticSiteOr404(w, r); !ok {
 		return StaticSiteBuildARMResource{}, false
@@ -335,9 +269,8 @@ func staticSiteBuildOr404(w http.ResponseWriter, r *http.Request) (StaticSiteBui
 
 func staticSiteNow() string { return time.Now().UTC().Format(time.RFC3339) }
 
-// staticSiteFlexInt decodes a JSON integer that clients spell either as a
-// number or as a quoted string — the Azure CLI sends
-// numHoursToExpiration="12" and real Azure accepts both spellings.
+// The Azure CLI sends numHoursToExpiration="12", and Azure accepts a number
+// or a quoted string.
 type staticSiteFlexInt int
 
 func (f *staticSiteFlexInt) UnmarshalJSON(b []byte) error {
@@ -354,8 +287,7 @@ func (f *staticSiteFlexInt) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
-// staticSiteAPIKey mints a deployment API key with the shape real Static Web
-// Apps deployment tokens have: a long lowercase hex string.
+// Static Web Apps deployment tokens are long lowercase hex strings.
 func staticSiteAPIKey() string {
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
@@ -379,7 +311,6 @@ func registerWebStaticSites(srv *sim.Server) {
 
 	base := staticSitesPattern
 
-	// Resource CRUD + lists.
 	srv.HandleFunc("GET "+webSubscriptionProvider+"/staticSites", handleStaticSitesListBySubscription)
 	srv.HandleFunc("GET "+webProvider+"/staticSites", handleStaticSitesListByResourceGroup)
 	srv.HandleFunc("GET "+base, handleStaticSiteGet)
@@ -388,9 +319,8 @@ func registerWebStaticSites(srv *sim.Server) {
 	srv.HandleFunc("DELETE "+base, handleStaticSiteDelete)
 	srv.HandleFunc("POST "+base+"/detach", handleStaticSiteDetach)
 
-	// Secrets and settings. The /listsecrets route is registered lowercase:
-	// AzurePathNormalizationMiddleware canonicalizes every casing of that
-	// segment to lowercase before the mux.
+	// AzurePathNormalizationMiddleware lowercases every casing of /listsecrets
+	// before the mux.
 	srv.HandleFunc("POST "+base+"/listsecrets", handleStaticSiteListSecrets)
 	srv.HandleFunc("POST "+base+"/resetapikey", handleStaticSiteResetAPIKey)
 	srv.HandleFunc("PUT "+base+"/config/appsettings", handleStaticSiteSettingsPut)
@@ -402,65 +332,50 @@ func registerWebStaticSites(srv *sim.Server) {
 	srv.HandleFunc("POST "+base+"/builds/{environmentName}/listAppSettings", handleStaticSiteBuildSettingsList)
 	srv.HandleFunc("POST "+base+"/builds/{environmentName}/listFunctionAppSettings", handleStaticSiteBuildSettingsList)
 
-	// Builds (environments).
 	srv.HandleFunc("GET "+base+"/builds", handleStaticSiteBuildsList)
 	srv.HandleFunc("GET "+base+"/builds/{environmentName}", handleStaticSiteBuildGet)
 	srv.HandleFunc("DELETE "+base+"/builds/{environmentName}", handleStaticSiteBuildDelete)
 
-	// Zip deployments (Azure-AsyncOperation LROs).
 	srv.HandleFunc("POST "+base+"/zipdeploy", handleStaticSiteZipDeploy)
 	srv.HandleFunc("POST "+base+"/builds/{environmentName}/zipdeploy", handleStaticSiteBuildZipDeploy)
 
-	// Functions.
 	srv.HandleFunc("GET "+base+"/functions", handleStaticSiteFunctionsList)
 	srv.HandleFunc("GET "+base+"/builds/{environmentName}/functions", handleStaticSiteBuildFunctionsList)
 
-	// Users, roles and invitations.
 	srv.HandleFunc("POST "+base+"/authproviders/{authprovider}/listUsers", handleStaticSiteUsersList)
 	srv.HandleFunc("PATCH "+base+"/authproviders/{authprovider}/users/{userid}", handleStaticSiteUserUpdate)
 	srv.HandleFunc("DELETE "+base+"/authproviders/{authprovider}/users/{userid}", handleStaticSiteUserDelete)
 	srv.HandleFunc("POST "+base+"/createUserInvitation", handleStaticSiteCreateUserInvitation)
 	srv.HandleFunc("POST "+base+"/listConfiguredRoles", handleStaticSiteListConfiguredRoles)
 
-	// Custom domains.
 	srv.HandleFunc("GET "+base+"/customDomains", handleStaticSiteCustomDomainsList)
 	srv.HandleFunc("GET "+base+"/customDomains/{domainName}", handleStaticSiteCustomDomainGet)
 	srv.HandleFunc("PUT "+base+"/customDomains/{domainName}", handleStaticSiteCustomDomainPut)
 	srv.HandleFunc("DELETE "+base+"/customDomains/{domainName}", handleStaticSiteCustomDomainDelete)
 	srv.HandleFunc("POST "+base+"/customDomains/{domainName}/validate", handleStaticSiteCustomDomainValidate)
 
-	// Basic auth.
 	srv.HandleFunc("GET "+base+"/basicAuth", handleStaticSiteBasicAuthList)
 	srv.HandleFunc("GET "+base+"/basicAuth/{basicAuthName}", handleStaticSiteBasicAuthGet)
 	srv.HandleFunc("PUT "+base+"/basicAuth/{basicAuthName}", handleStaticSiteBasicAuthPut)
 
-	// Database connections — the same six operations at site and build scope.
 	registerStaticSiteDatabaseConnections(srv, base, "")
 	registerStaticSiteDatabaseConnections(srv, base+"/builds/{environmentName}", "builds/")
 
-	// Linked backends — the same five operations at site and build scope.
 	registerStaticSiteLinkedBackends(srv, base, "")
 	registerStaticSiteLinkedBackends(srv, base+"/builds/{environmentName}", "builds/")
 
-	// User-provided function apps — the same four operations at both scopes.
 	registerStaticSiteUserProvidedFunctionApps(srv, base, "")
 	registerStaticSiteUserProvidedFunctionApps(srv, base+"/builds/{environmentName}", "builds/")
 
-	// Private endpoint connections + private link resources.
 	srv.HandleFunc("GET "+base+"/privateEndpointConnections", handleStaticSitePECList)
 	srv.HandleFunc("GET "+base+"/privateEndpointConnections/{privateEndpointConnectionName}", handleStaticSitePECGet)
 	srv.HandleFunc("PUT "+base+"/privateEndpointConnections/{privateEndpointConnectionName}", handleStaticSitePECPut)
 	srv.HandleFunc("DELETE "+base+"/privateEndpointConnections/{privateEndpointConnectionName}", handleStaticSitePECDelete)
 	srv.HandleFunc("GET "+base+"/privateLinkResources", handleStaticSitePrivateLinkResources)
 
-	// Workflow-file preview (location-scoped).
 	srv.HandleFunc("POST "+webSubscriptionProvider+"/locations/{location}/previewStaticSiteWorkflowFile", handleStaticSitePreviewWorkflow)
 }
 
-// staticSiteView returns the site with its read-only aggregate members
-// (customDomains, userProvidedFunctionApps, linkedBackends,
-// databaseConnections) assembled from the child stores, as real Azure
-// reports them on every GET.
 func staticSiteView(ss StaticSiteResource) StaticSiteResource {
 	props := StaticSiteProperties{}
 	if ss.Properties != nil {
@@ -540,18 +455,13 @@ func handleStaticSitePut(w http.ResponseWriter, r *http.Request) {
 		props = &StaticSiteProperties{}
 	}
 	props.DefaultHostname = name + ".azurestaticapps.net"
-	// The repository token is write-only: it moves to the secrets record and
-	// never appears on a read.
 	repoToken := props.RepositoryToken
 	props.RepositoryToken = ""
-	// Read-only aggregates are assembled from the child stores on every read;
-	// whatever the caller sent is ignored, as real ARM ignores read-only
-	// members.
+	// Ignore read-only members the caller sent, as Azure Resource Manager does.
 	props.CustomDomains = nil
 	props.UserProvidedFunctionApps = nil
 	props.LinkedBackends = nil
 	props.DatabaseConnections = nil
-	// Defaults real Azure applies on create.
 	if props.Provider == "" {
 		props.Provider = "None"
 	}
@@ -597,8 +507,7 @@ func handleStaticSitePut(w http.ResponseWriter, r *http.Request) {
 	}
 	webStaticSites.Put(ss.ID, ss)
 
-	// The deployment API key exists from the moment the site does; a
-	// re-deploying PUT keeps the existing key.
+	// A re-deploying PUT keeps the existing key.
 	secrets, ok := webStaticSiteSecrets.Get(id)
 	if !ok {
 		secrets = staticSiteSecrets{APIKey: staticSiteAPIKey()}
@@ -608,8 +517,8 @@ func handleStaticSitePut(w http.ResponseWriter, r *http.Request) {
 	}
 	webStaticSiteSecrets.Put(id, secrets)
 
-	// The production build environment ("default") exists for every static
-	// site; staging environments are created by build-scoped deployments.
+	// Every static site has the production build environment ("default");
+	// build-scoped deployments create the staging ones.
 	buildID := id + "/builds/default"
 	if _, ok := webStaticSiteBuilds.Get(buildID); !ok {
 		webStaticSiteBuilds.Put(buildID, StaticSiteBuildARMResource{
@@ -699,11 +608,7 @@ func handleStaticSiteDelete(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-// staticSiteCascadeDelete removes every child record stored under a deleted
-// static site — builds, settings, domains, users, basic auth, database
-// connections, backends, function-app links, private endpoint connections and
-// the secrets record — so a site recreated under the same name does not
-// inherit the deleted site's children.
+// Remove every child so a site recreated under the same name inherits none.
 func staticSiteCascadeDelete(siteID string) {
 	prefix := siteID + "/"
 	for _, b := range webStaticSiteBuilds.Filter(func(b StaticSiteBuildARMResource) bool { return strings.HasPrefix(b.ID, prefix) }) {
@@ -791,13 +696,8 @@ func handleStaticSiteResetAPIKey(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-// staticSiteSettingsScope returns the settings-store key for a scope (site or
-// build ARM id). Both the appsettings and functionappsettings spellings of
-// the API address the same bag, so both resolve to the same key.
 func staticSiteSettingsScope(scopeID string) string { return scopeID + "/config/appsettings" }
 
-// staticSiteSettingsName reports the config-resource leaf name the response
-// carries, derived from which spelling of the route the client called.
 func staticSiteSettingsName(r *http.Request) string {
 	if strings.Contains(strings.ToLower(r.URL.Path), "functionappsettings") {
 		return "functionappsettings"
@@ -871,8 +771,6 @@ func handleStaticSiteBuildSettingsList(w http.ResponseWriter, r *http.Request) {
 	writeStaticSiteSettings(w, b.ID, staticSiteSettingsName(r), true, stored.Settings)
 }
 
-// staticSiteBuildView returns the build with its read-only aggregate members
-// assembled from the child stores.
 func staticSiteBuildView(b StaticSiteBuildARMResource) StaticSiteBuildARMResource {
 	prefix := b.ID + "/"
 	b.Properties.UserProvidedFunctionApps = append(b.Properties.UserProvidedFunctionApps,
@@ -919,8 +817,8 @@ func handleStaticSiteBuildDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	env := sim.PathParam(r, "environmentName")
 	if env == "default" {
-		// Real Azure refuses to delete the production environment; it is
-		// deleted with the site.
+		// Azure refuses to delete the production environment; it goes with the
+		// site.
 		AzureError(w, "BadRequest",
 			"The default build of a static site cannot be deleted. Delete the static site instead.",
 			http.StatusBadRequest)
@@ -931,7 +829,6 @@ func handleStaticSiteBuildDelete(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
-	// Remove everything scoped under the deleted environment.
 	prefix := id + "/"
 	for _, c := range webStaticSiteDBConns.Filter(func(c DatabaseConnection) bool { return strings.HasPrefix(c.ID, prefix) }) {
 		webStaticSiteDBConns.Delete(c.ID)
@@ -946,8 +843,6 @@ func handleStaticSiteBuildDelete(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-// StaticSiteZipDeployment mirrors the swagger StaticSiteZipDeployment request
-// properties.
 type StaticSiteZipDeployment struct {
 	AppZipURL        string `json:"appZipUrl,omitempty"`
 	APIZipURL        string `json:"apiZipUrl,omitempty"`
@@ -956,10 +851,8 @@ type StaticSiteZipDeployment struct {
 	FunctionLanguage string `json:"functionLanguage,omitempty"`
 }
 
-// staticSiteZipDeploy runs one zip deployment as the Azure-AsyncOperation LRO
-// real Azure issues: the build flips to Uploading immediately, the 202 carries
-// the operation headers, and the polled operation completes with the build
-// Ready.
+// The build flips to Uploading at once, the 202 carries the operation
+// headers, and the polled operation completes with the build Ready.
 func staticSiteZipDeploy(w http.ResponseWriter, r *http.Request, ss StaticSiteResource, env string) {
 	var req struct {
 		Properties StaticSiteZipDeployment `json:"properties"`
@@ -1024,12 +917,9 @@ func handleStaticSiteBuildZipDeploy(w http.ResponseWriter, r *http.Request) {
 	staticSiteZipDeploy(w, r, ss, sim.PathParam(r, "environmentName"))
 }
 
-// Managed functions are produced by the Static Web Apps build pipeline (Oryx
-// building the repository's api folder), which has no ARM surface the
-// simulator could run; with no pipeline-built functions, the list is
-// truthfully empty. Functions brought via linked user-provided function apps
-// are listed by the userProvidedFunctionApps operations, not here — matching
-// real Azure.
+// Managed functions come from the Static Web Apps build pipeline, which has
+// no Azure Resource Manager surface for the simulator to run, so the list is
+// empty. The userProvidedFunctionApps operations list linked function apps.
 func handleStaticSiteFunctionsList(w http.ResponseWriter, r *http.Request) {
 	if _, ok := staticSiteOr404(w, r); !ok {
 		return
@@ -1124,8 +1014,8 @@ func handleStaticSiteCreateUserInvitation(w http.ResponseWriter, r *http.Request
 		AzureError(w, "BadRequest", "provider and userDetails are required.", http.StatusBadRequest)
 		return
 	}
-	// The invitation domain must be one the site serves — its default
-	// hostname or a registered custom domain.
+	// The invitation domain must be the default hostname or a registered custom
+	// domain.
 	valid := ss.Properties != nil && strings.EqualFold(p.Domain, ss.Properties.DefaultHostname)
 	if !valid {
 		for _, d := range webStaticSiteDomains.Filter(func(d StaticSiteCustomDomainOverviewARMResource) bool {
@@ -1142,9 +1032,8 @@ func handleStaticSiteCreateUserInvitation(w http.ResponseWriter, r *http.Request
 			"The domain '%s' is not a valid domain for this static site.", p.Domain)
 		return
 	}
-	// The end-user acceptance handshake happens on the site's hostname,
-	// outside the ARM plane, so the simulator records the invited user at
-	// invitation time — the ARM-visible end state of an accepted invitation.
+	// The acceptance handshake happens on the site's hostname, outside Azure
+	// Resource Manager, so record the invited user at invitation time.
 	userID := sim.NewUUID()
 	user := StaticSiteUserARMResource{
 		ID:   ss.ID + "/authproviders/" + p.Provider + "/users/" + userID,
@@ -1180,7 +1069,6 @@ func handleStaticSiteListConfiguredRoles(w http.ResponseWriter, r *http.Request)
 	if !ok {
 		return
 	}
-	// The built-in roles plus every role assigned to a user of this site.
 	seen := map[string]bool{"anonymous": true, "authenticated": true}
 	roles := []string{"anonymous", "authenticated"}
 	for _, u := range webStaticSiteUsers.Filter(func(u StaticSiteUserARMResource) bool { return strings.HasPrefix(u.ID, ss.ID+"/") }) {
@@ -1196,15 +1084,13 @@ func handleStaticSiteListConfiguredRoles(w http.ResponseWriter, r *http.Request)
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"properties": roles})
 }
 
-// staticSiteDomainDNSValidated answers, truthfully off the simulator's Azure
-// DNS record sets, whether the domain's ownership proof is in place:
-// cname-delegation needs a CNAME at the domain pointing to the site's default
-// hostname; dns-txt-token needs a TXT record at the domain (or its _dnsauth
-// child) carrying the validation token.
+// staticSiteDomainDNSValidated reads the simulator's Azure DNS record sets:
+// cname-delegation needs a CNAME at the domain pointing to the default
+// hostname; dns-txt-token needs a TXT record at the domain or its _dnsauth
+// child carrying the validation token.
 func staticSiteDomainDNSValidated(method, domain, token, defaultHostname string) (bool, string) {
-	// A record set's FQDN is derived from its ARM id
-	// (.../dnsZones/{zone}/{TYPE}/{relativeName}); the record set body's fqdn
-	// member is optional on writes.
+	// Derive the FQDN from the record set's ARM id: the body's fqdn member is
+	// optional on writes.
 	fqdnOf := func(rs PublicRecordSet) string {
 		if f := strings.TrimSuffix(rs.Properties.Fqdn, "."); f != "" {
 			return f
@@ -1252,9 +1138,8 @@ func staticSiteDomainDNSValidated(method, domain, token, defaultHostname string)
 	return false, fmt.Sprintf("No CNAME record pointing from '%s' to '%s' was found.", domain, defaultHostname)
 }
 
-// staticSiteRefreshDomain re-evaluates a still-validating domain against the
-// current DNS state — real Azure's validation poller observing that the
-// required record has appeared — and persists the transition to Ready.
+// staticSiteRefreshDomain re-evaluates a validating domain against the
+// current DNS state and persists the transition to Ready.
 func staticSiteRefreshDomain(d StaticSiteCustomDomainOverviewARMResource, ss StaticSiteResource) StaticSiteCustomDomainOverviewARMResource {
 	if d.Properties.Status != "Validating" {
 		return d
@@ -1383,8 +1268,6 @@ func handleStaticSiteCustomDomainValidate(w http.ResponseWriter, r *http.Request
 		method = "cname-delegation"
 	}
 	domainName := sim.PathParam(r, "domainName")
-	// A domain already registered to a different static site can never be
-	// added.
 	suffix := "/customDomains/" + domainName
 	for _, d := range webStaticSiteDomains.Filter(func(d StaticSiteCustomDomainOverviewARMResource) bool {
 		return strings.HasSuffix(strings.ToLower(d.ID), strings.ToLower(suffix))
@@ -1396,8 +1279,7 @@ func handleStaticSiteCustomDomainValidate(w http.ResponseWriter, r *http.Request
 		}
 	}
 	if method == "dns-txt-token" {
-		// The token handshake happens after creation (the token is minted by
-		// the create); at validate time the domain is addable.
+		// The create mints the token, so at validate time the domain is addable.
 		w.WriteHeader(http.StatusOK)
 		return
 	}
@@ -1416,8 +1298,8 @@ func handleStaticSiteCustomDomainValidate(w http.ResponseWriter, r *http.Request
 	w.WriteHeader(http.StatusOK)
 }
 
-// staticSiteDefaultBasicAuth is the record real Azure reports before basic
-// auth has ever been configured: applicable to no environments, no secret set.
+// staticSiteDefaultBasicAuth is what Azure reports before basic auth is ever
+// configured.
 func staticSiteDefaultBasicAuth(siteID string) StaticSiteBasicAuthPropertiesARMResource {
 	return StaticSiteBasicAuthPropertiesARMResource{
 		ID:   siteID + "/basicAuth/default",
@@ -1492,9 +1374,6 @@ func handleStaticSiteBasicAuthPut(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, ba)
 }
 
-// registerStaticSiteDatabaseConnections mounts the six database-connection
-// operations at one scope (site or build); idSuffix distinguishes the
-// resource type the build-scoped children carry.
 func registerStaticSiteDatabaseConnections(srv *sim.Server, pattern, scope string) {
 	buildScoped := scope != ""
 	resType := "Microsoft.Web/staticSites/databaseConnections"
@@ -1509,9 +1388,6 @@ func registerStaticSiteDatabaseConnections(srv *sim.Server, pattern, scope strin
 		ss, ok := staticSiteOr404(w, r)
 		return ss.ID, ok
 	}
-	// The connection string is a secret: the plain reads strip it, the
-	// ".../show" spellings return it — exactly the WithDetails split the
-	// swagger draws.
 	redact := func(c DatabaseConnection) DatabaseConnection {
 		c.Properties.ConnectionString = ""
 		return c
@@ -1625,11 +1501,8 @@ func registerStaticSiteDatabaseConnections(srv *sim.Server, pattern, scope strin
 	})
 }
 
-// staticSiteResolveBackend checks a backendResourceId against the simulator's
-// own resource stores — the backend types Static Web Apps can link are App
-// Service / Azure Functions sites (Microsoft.Web/sites), Azure Container Apps
-// (Microsoft.App/containerApps) and Azure API Management services
-// (Microsoft.ApiManagement/service).
+// Static Web Apps links App Service sites, Azure Container Apps and Azure API
+// Management services.
 func staticSiteResolveBackend(backendID string) (string, bool) {
 	lower := strings.ToLower(backendID)
 	switch {
@@ -1654,8 +1527,6 @@ func staticSiteResolveBackend(backendID string) (string, bool) {
 	return "", true
 }
 
-// registerStaticSiteLinkedBackends mounts the five linked-backend operations
-// at one scope (site or build).
 func registerStaticSiteLinkedBackends(srv *sim.Server, pattern, scope string) {
 	buildScoped := scope != ""
 	resType := "Microsoft.Web/staticSites/linkedBackends"
@@ -1761,11 +1632,8 @@ func registerStaticSiteLinkedBackends(srv *sim.Server, pattern, scope string) {
 	})
 }
 
-// registerStaticSiteUserProvidedFunctionApps mounts the four user-provided
-// function-app operations at one scope (site or build). Registration links an
-// EXISTING Microsoft.Web site: the functionAppResourceId is resolved against
-// the simulator's real sites store and rejected when the site does not exist,
-// as real Azure rejects it.
+// Registration links an existing Microsoft.Web site and rejects a missing
+// one, as Azure does.
 func registerStaticSiteUserProvidedFunctionApps(srv *sim.Server, pattern, scope string) {
 	buildScoped := scope != ""
 	resType := "Microsoft.Web/staticSites/userProvidedFunctionApps"
@@ -1901,8 +1769,8 @@ func handleStaticSitePECPut(w http.ResponseWriter, r *http.Request) {
 	if props == nil {
 		props = map[string]any{}
 	}
-	// The owner's approve/reject PUT carries only the connection state; the
-	// endpoint linkage established when the connection was created survives.
+	// The approve/reject PUT carries only the state; the endpoint linkage made
+	// at creation survives.
 	if existing, found := webStaticSitePECs.Get(id); found {
 		if props["privateEndpoint"] == nil {
 			props["privateEndpoint"] = existing.Properties["privateEndpoint"]

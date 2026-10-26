@@ -18,22 +18,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// A flexible-server backup carries the data, and PointInTimeRestore returns
-// to it.
-//
-// This is the property that separates a backup from a metadata row: rows
-// written before the backup exist in the restored server, and rows written
-// after it do not. Both halves are asserted through a stock PostgreSQL
-// driver against the server's real data plane — the client resolves the
-// fullyQualifiedDomainName through the simulator's DNS front to a listener
-// the simulator owns at PostgreSQL's own port (the ARM contract carries no
-// address), the engine is a real PostgreSQL on a named volume, and the
-// restore clones the backup volume into the new server before its data
-// plane installs.
-//
-// Azure's wire defaults hold too: require_secure_transport is ON, so the
-// same driver without TLS is refused with SQLSTATE 28000, and the ARM
-// surface never echoes administratorLoginPassword back.
+// A flexible-server backup carries the data, and PointInTimeRestore returns to
+// it: rows written before the backup exist in the restored server, rows written
+// after do not. A stock PostgreSQL driver checks both against the data plane,
+// resolving fullyQualifiedDomainName through the simulator's DNS front to a
+// listener at PostgreSQL's port; the engine runs on a named volume, and the
+// restore clones the backup volume. Azure's defaults hold too:
+// require_secure_transport is ON, so a non-TLS connection is refused with
+// SQLSTATE 28000, and ARM never echoes administratorLoginPassword.
 func TestAzurePGFlexibleServer_BackupCapturesDataAndRestoreReturnsToIt(t *testing.T) {
 	t.Parallel()
 	testContext, cancel := context.WithTimeout(ctx, 15*time.Minute)
@@ -64,7 +56,7 @@ func TestAzurePGFlexibleServer_BackupCapturesDataAndRestoreReturnsToIt(t *testin
 	server := pgDataGetServer(t, serverPath)
 	fqdn, _ := server["fullyQualifiedDomainName"].(string)
 	require.NotEmpty(t, fqdn)
-	// administratorLoginPassword is x-ms-secret: the wire never echoes it.
+	// administratorLoginPassword is x-ms-secret.
 	_, echoed := server["administratorLoginPassword"]
 	require.False(t, echoed, "GET must not echo administratorLoginPassword")
 
@@ -92,8 +84,8 @@ func TestAzurePGFlexibleServer_BackupCapturesDataAndRestoreReturnsToIt(t *testin
 	_, err = source.Exec(testContext, `INSERT INTO ledger VALUES ('before-backup')`)
 	require.NoError(t, err)
 
-	// require_secure_transport holds its Azure default (ON): the same driver
-	// without TLS is refused at the wire with SQLSTATE 28000.
+	// require_secure_transport is ON by default, so a non-TLS connection is
+	// refused with SQLSTATE 28000.
 	plainConfig, err := pgx.ParseConfig(fmt.Sprintf(
 		"postgres://%s@%s:5432/postgres?sslmode=disable", adminLogin, fqdn))
 	require.NoError(t, err)
@@ -104,8 +96,7 @@ func TestAzurePGFlexibleServer_BackupCapturesDataAndRestoreReturnsToIt(t *testin
 	assert.True(t, strings.Contains(err.Error(), "SSL") || strings.Contains(err.Error(), "28000"),
 		"the refusal must be the require_secure_transport error, got: %v", err)
 
-	// Back up, and wait for the operation the way a real client does: the
-	// long-running operation succeeds only once the capture settles.
+	// The backup's long-running operation succeeds only once the capture settles.
 	resp = armReq(t, "PUT", serverPath+"/backups/"+backupName, "")
 	require.Equal(t, http.StatusAccepted, resp.StatusCode)
 	require.NotEmpty(t, resp.Header.Get("Azure-AsyncOperation"))
@@ -119,7 +110,7 @@ func TestAzurePGFlexibleServer_BackupCapturesDataAndRestoreReturnsToIt(t *testin
 	assert.Contains(t, string(backupBody), `"completedTime"`,
 		"a settled backup must carry its completedTime")
 
-	// Rows written after the backup are the half a restore must NOT have.
+	// Rows written after the backup are the half a restore must not have.
 	_, err = source.Exec(testContext, `INSERT INTO ledger VALUES ('after-backup')`)
 	require.NoError(t, err)
 	require.NoError(t, source.Close(testContext))
@@ -156,8 +147,6 @@ func TestAzurePGFlexibleServer_BackupCapturesDataAndRestoreReturnsToIt(t *testin
 		"the restore must return to the backup: rows from before it, and none from after it")
 }
 
-// pgDataGetServer reads a flexible server back through ARM and returns its
-// properties object.
 func pgDataGetServer(t *testing.T, path string) map[string]any {
 	t.Helper()
 	resp := armReq(t, "GET", path, "")
@@ -172,8 +161,8 @@ func pgDataGetServer(t *testing.T, path string) map[string]any {
 	return server.Properties
 }
 
-// azureDNSResolver resolves through the simulator's DNS listener — the
-// coordinate a deployment points its resolver at — instead of the host's.
+// azureDNSResolver resolves through the simulator's DNS listener, the resolver
+// a deployment points at.
 func azureDNSResolver() *net.Resolver {
 	return &net.Resolver{
 		PreferGo: true,
@@ -184,18 +173,17 @@ func azureDNSResolver() *net.Resolver {
 	}
 }
 
-// azurePGLookupLoopback resolves a server's fullyQualifiedDomainName through
-// the simulator's DNS and requires the loopback address the data plane owns.
+// azurePGLookupLoopback resolves fullyQualifiedDomainName through the
+// simulator's DNS and requires the loopback address the data plane owns.
 func azurePGLookupLoopback(t *testing.T, fqdn string) string {
 	t.Helper()
 	lookupCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	addresses, err := azureDNSResolver().LookupHost(lookupCtx, fqdn)
 	if err != nil || len(addresses) == 0 || net.ParseIP(addresses[0]) == nil || !net.ParseIP(addresses[0]).IsLoopback() {
-		// The data plane needs PostgreSQL's port on a per-server loopback
-		// address. Linux provides loopback aliases natively, so a modeled
-		// server there is a defect; macOS cannot provide one without root —
-		// a host-kernel capability no test can install.
+		// The data plane needs PostgreSQL's port on a per-server loopback address.
+		// Linux provides loopback aliases, so a missing listener there is a defect;
+		// macOS cannot provide one without root.
 		if runtime.GOOS == "linux" {
 			t.Fatalf("server %s resolves to %v (err %v): on Linux the data plane must install", fqdn, addresses, err)
 		}

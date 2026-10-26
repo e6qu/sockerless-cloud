@@ -6,36 +6,20 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// Cross-resource-group move for Microsoft.Network. The hook table in
-// resource_move.go dispatches Resources_MoveResources here.
+// Cross-resource-group move for Microsoft.Network (dispatched from
+// resource_move.go). A network resource is defined largely by what it names —
+// an interface names a subnet, an NSG and a public IP; a subnet an NSG, a route
+// table and endpoint policies; a load balancer public IPs and subnets — so the
+// hook re-homes the record and the repointing pass rewrites every reference to
+// it. No Microsoft.Network resource derives a credential from its ID, so
+// nothing is pinned.
 //
-// Networking is the family the repointing pass in resource_move.go exists for.
-// A network resource is defined largely by the other resources it names: a
-// network interface names a subnet, a network security group and a public IP
-// address; a subnet names a network security group, a route table and service
-// endpoint policies; a virtual network link names a virtual network; a private
-// endpoint names a subnet and the private-link resource it connects to; a load
-// balancer names public IP addresses and subnets. Moving one of those without
-// re-pointing every referrer would leave the fabric naming addresses nothing
-// answers to, so the move hook re-homes the record and the repointing pass
-// rewrites every reference held to it from anywhere in the simulator.
-//
-// No Microsoft.Network resource carries a credential derived from its resource
-// ID, so no hook here pins key material.
-//
-// Which types get a hook is decided by what real Azure Resource Manager
-// actually moves, published per type in "Azure resource types for move
-// operations" (Microsoft.Network section, "Resource group" column). The types
-// that column marks No — applicationgateways, natgateways, networkprofiles,
-// privatelinkservices, virtualnetworktaps — get no hook and keep answering
-// ResourceMoveNotSupported, and so do the two types the table does not list at
-// all, networkmanagers and the network watcher's packet captures. Adding a hook
-// for a type Azure refuses would make the simulator less faithful, not more.
+// Only types "Azure resource types for move operations" marks movable get a
+// hook. applicationgateways, natgateways, networkprofiles,
+// privatelinkservices and virtualnetworktaps (marked No), and networkmanagers
+// and packet captures (unlisted), answer ResourceMoveNotSupported.
 
-// registerNetworkResourceMoveHooks registers the move hook of every
-// Microsoft.Network type Azure Resource Manager moves between resource groups.
-// It runs from registerNetwork, after the stores those hooks read have been
-// assigned.
+// registerNetwork calls this after assigning the stores the hooks read.
 func registerNetworkResourceMoveHooks() {
 	registerNetworkMoveHook("Microsoft.Network/virtualNetworks", func() sim.Store[VirtualNetwork] { return azureVnets },
 		func(v *VirtualNetwork) *string { return &v.ID })
@@ -55,8 +39,7 @@ func registerNetworkResourceMoveHooks() {
 		func(a *ApplicationSecurityGroup) *string { return &a.ID })
 	registerNetworkMoveHook("Microsoft.Network/privateEndpoints", func() sim.Store[PrivateEndpoint] { return azurePrivateEndpoints },
 		func(p *PrivateEndpoint) *string { return &p.ID })
-	// A private endpoint is the one Microsoft.Network type whose movability
-	// depends on the individual resource rather than on the type.
+	// A private endpoint's movability depends on the resource, not the type.
 	privateEndpoints := resourceMoveHooks["microsoft.network/privateendpoints"]
 	privateEndpoints.supported = privateEndpointMoveSupported
 	registerResourceMoveHook("Microsoft.Network/privateEndpoints", privateEndpoints)
@@ -70,14 +53,8 @@ func registerNetworkResourceMoveHooks() {
 		func(z *PrivateDnsZone) *string { return &z.ID })
 }
 
-// registerNetworkMoveHook registers one Microsoft.Network type's participation
-// in a cross-resource-group move: the record re-keys onto the destination
-// group, and the repointing pass carries the child rows stored beneath it and
-// every reference any other resource holds to it.
-//
-// The store is read through an accessor at request time so a rebuild of the
-// simulator in the same process moves resources in the build that is serving,
-// not in the build that registered the hook.
+// The store is read through an accessor at request time, so a rebuild in the
+// same process moves resources in the serving build, not the registering one.
 func registerNetworkMoveHook[T any](typeName string, store func() sim.Store[T], id func(*T) *string) {
 	registerResourceMoveHook(typeName, resourceMoveHook{
 		exists: func(resID string) bool {
@@ -104,14 +81,10 @@ func registerNetworkMoveHook[T any](typeName string, store func() sim.Store[T], 
 	})
 }
 
-// privateLinkResourcesSupportingMove are the private-link resource types Azure
-// publishes as supporting a private endpoint move, in "Move networking
-// resources to new resource group or subscription" § Private endpoints: "The
-// following private-link resources support move: … All other private-link
-// resources don't support move." That is why the move-support table's Resource
-// group cell for privateendpoints reads "Yes - for supported private-link
-// resources / No - for all other private-link resources" rather than a flat
-// Yes, and it is what privateEndpointMoveSupported decides against.
+// "Move networking resources to new resource group or subscription" §
+// Private endpoints: "The following private-link resources support move: …
+// All other private-link resources don't support move." Hence the
+// move-support table's "Yes - for supported private-link resources" cell.
 var privateLinkResourcesSupportingMove = map[string]bool{
 	"microsoft.aadiam/privatelinkforazuread":    true,
 	"microsoft.documentdb/databaseaccounts":     true,
@@ -126,10 +99,8 @@ var privateLinkResourcesSupportingMove = map[string]bool{
 	"microsoft.dbformysql/flexibleservers":      true,
 }
 
-// privateEndpointMoveSupported reports whether Azure Resource Manager moves
-// this private endpoint, which turns on the type of private-link resource it
-// connects to. An endpoint with no connection at all names no private-link
-// resource, so there is nothing that supports the move.
+// An endpoint with no connection names no private-link resource, so nothing
+// supports its move.
 func privateEndpointMoveSupported(resID string) (bool, string) {
 	endpoint, ok := azurePrivateEndpoints.Get(resID)
 	if !ok {

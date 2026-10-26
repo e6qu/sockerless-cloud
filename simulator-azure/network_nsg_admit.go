@@ -11,16 +11,13 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/netrules"
 )
 
-// A flow the simulator mediates — a load balancer's or an application
-// gateway's forward to a backend — reaches the interface holding the target
-// only when every network security group on the interface's inbound path
-// admits it; the subnet's first, the interface's own second, each ending in
-// DenyAllInBound. Traffic between two containers on one network is not
-// mediated and stays unfiltered.
+// A flow the simulator mediates — a load balancer's or application gateway's
+// forward — reaches the target interface only when every NSG on its inbound
+// path admits it, the subnet's first, each ending in DenyAllInBound. Traffic
+// between containers on one network is not mediated.
 
-// azureAdmitIngress applies the target interface's groups to a flow from
-// source to target's port over protocol. A target no stored interface holds
-// is admitted: nothing of the simulator's sits in front of it.
+// A target no stored interface holds is admitted: nothing of the simulator's
+// sits in front of it.
 func azureAdmitIngress(protocol string, source netip.Addr, target string, port int) error {
 	nic, ok := azureNICByPrivateAddress(target)
 	if !ok {
@@ -38,9 +35,8 @@ func azureAdmitIngress(protocol string, source netip.Addr, target string, port i
 	return nil
 }
 
-// azurePacketRulesAccept evaluates one group's inbound rules in priority
-// order: the first rule matching the packet decides, and a packet no rule
-// matches meets DenyAllInBound.
+// In priority order the first matching rule decides; an unmatched packet meets
+// DenyAllInBound.
 func azurePacketRulesAccept(rules []netrules.PacketRule, protocol string, source netip.Addr, port int) bool {
 	for _, rule := range rules {
 		if azurePacketRuleMatches(rule, protocol, source, port) {
@@ -68,8 +64,7 @@ func azurePacketRuleMatches(rule netrules.PacketRule, protocol string, source ne
 	return prefix.Contains(source.Unmap())
 }
 
-// azureNICByPrivateAddress finds the interface whose IP configuration holds
-// the private address, as "host" or "host:port".
+// target is "host" or "host:port".
 func azureNICByPrivateAddress(target string) (NetworkInterface, bool) {
 	host := target
 	if h, _, err := net.SplitHostPort(target); err == nil {

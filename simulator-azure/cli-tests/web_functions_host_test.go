@@ -14,14 +14,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestFunctionApp_CLI_NodeHostRunsTheDeployedFunctions drives a Linux
-// function app on a built-in stack with the native az commands: `az
-// functionapp list-runtimes` reads the function app stack catalogue, `az
-// functionapp create --runtime node` creates the app on a stack from it, `az
-// functionapp deploy` deploys a package the Azure Functions host then runs,
-// and the keys `az functionapp keys` and `az functionapp function keys` manage
-// are the keys the running host accepts. list-runtimes reads
-// GET /providers/Microsoft.Web/functionAppStacks.
+// TestFunctionApp_CLI_NodeHostRunsTheDeployedFunctions: `az functionapp
+// list-runtimes` reads the function app stack catalogue, `az functionapp create
+// --runtime node` creates the app on a stack from it, `az functionapp deploy`
+// deploys a package the Azure Functions host runs, and the keys
+// `az functionapp keys` and `az functionapp function keys` manage are the keys
+// the running host accepts.
 func TestFunctionApp_CLI_NodeHostRunsTheDeployedFunctions(t *testing.T) {
 	t.Parallel()
 	env := startAzTLSSimulator(t)
@@ -124,7 +122,7 @@ func TestFunctionApp_CLI_NodeHostRunsTheDeployedFunctions(t *testing.T) {
 	out, err = invoke("/api/hello?code=" + hostKeys.FunctionKeys["default"])
 	require.NoError(t, err, out)
 
-	// az functionapp keys set prints the key redacted; the list reads it.
+	// `az functionapp keys set` prints the key redacted; the list reads it.
 	runCLI(t, env.command("functionapp", "keys", "set", "-g", rg, "-n", app,
 		"--key-type", "functionKeys", "--key-name", "deploy", "-o", "json"))
 	parseJSON(t, runCLI(t, env.command("functionapp", "keys", "list", "-g", rg, "-n", app, "-o", "json")), &hostKeys)
@@ -133,12 +131,10 @@ func TestFunctionApp_CLI_NodeHostRunsTheDeployedFunctions(t *testing.T) {
 	require.NoError(t, err, out)
 }
 
-// TestFunctionApp_CLI_BlobSecretStoreHoldsTheKeys drives the default secret
-// store with the native az commands: `az functionapp create` sets
-// AzureWebJobsStorage to the storage account's connection string, and the
-// keys `az functionapp keys` lists and sets live in the blob
-// azure-webjobs-secrets/<app>/host.json that `az storage blob download` reads
-// from that account.
+// TestFunctionApp_CLI_BlobSecretStoreHoldsTheKeys: `az functionapp create` sets
+// AzureWebJobsStorage to the storage account's connection string, and the keys
+// `az functionapp keys` lists and sets live in the blob
+// azure-webjobs-secrets/<app>/host.json of that account.
 func TestFunctionApp_CLI_BlobSecretStoreHoldsTheKeys(t *testing.T) {
 	t.Parallel()
 	env := startAzLoginSimulator(t)

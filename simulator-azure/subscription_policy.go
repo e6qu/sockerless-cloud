@@ -1,18 +1,12 @@
 package main
 
-// Microsoft.Subscription (2021-10-01) policy surface — the tenant policy that
-// governs whether subscriptions may cross a tenant boundary, and the read-only
-// projection of a billing account's transfer policy.
-//
-// A tenant policy is a singleton named "default" under the tenant of the
-// calling principal: PUT replaces it, GET reads it, and the list operation
-// returns the same singleton as a one-element page. The two block members are
-// enforced, not merely stored — blockSubscriptionsLeavingTenant denies an
-// alias creation that directs a subscription at a different tenant, and
-// blockSubscriptionsIntoTenant denies the acceptance of ownership that would
-// bring one in — and exemptedPrincipals lifts both for the object ids it
-// names. Wire shapes mirror the vendored Swagger
-// (specs/cloud-api/azure/subscription-arm-subscriptions-2021-10-01).
+// Microsoft.Subscription 2021-10-01 policies: the tenant policy governing
+// whether subscriptions cross a tenant boundary, and a billing account's
+// transfer policy. The tenant policy is a "default" singleton under the
+// caller's tenant: PUT replaces, GET reads, list returns it alone. Its blocks
+// are enforced — blockSubscriptionsLeavingTenant denies an alias directing a
+// subscription elsewhere, blockSubscriptionsIntoTenant denies an ownership
+// acceptance bringing one in — and exemptedPrincipals lifts both.
 
 import (
 	"fmt"
@@ -23,9 +17,7 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// SubscriptionTenantPolicyRecord mirrors the TenantPolicy definition in the
-// Microsoft.Subscription 2021-10-01 Swagger (spec field spelling kept), keyed
-// by the tenant whose policy it is.
+// TenantPolicy, spec field spelling kept, keyed by tenant.
 type SubscriptionTenantPolicyRecord struct {
 	TenantID                        string
 	PolicyID                        string
@@ -34,21 +26,15 @@ type SubscriptionTenantPolicyRecord struct {
 	ExemptedPrincipals              []string
 }
 
-// The tenant-policy members, spelled as the Swagger spells them. A denial
-// answers with the member that produced it as its error code: the 2021-10-01
-// contract declares only the generic ErrorResponseBody for a failed request,
-// so the policy member is the machine-readable discriminator a client has.
+// The contract declares only the generic ErrorResponseBody, so a denial's error
+// code is the policy member that produced it.
 const (
 	policyBlockSubscriptionsLeavingTenant = "blockSubscriptionsLeavingTenant"
 	policyBlockSubscriptionsIntoTenant    = "blockSubscriptionsIntoTenant"
 )
 
-// billingAccountAllowTransfers is the transfer disposition the simulator
-// reports for a billing account. allowTransfers is a billing-account setting:
-// the Microsoft.Subscription 2021-10-01 surface only reads it, and the
-// operation that changes it lives in Microsoft.Billing, which is outside this
-// slice — so the value projected here is the one a billing account with no
-// transfer restriction reports.
+// allowTransfers is changed through Microsoft.Billing, outside this slice, so
+// report what an unrestricted billing account reports.
 const billingAccountAllowTransfers = true
 
 var azureSubscriptionTenantPolicies sim.Store[SubscriptionTenantPolicyRecord]
@@ -56,9 +42,8 @@ var azureSubscriptionTenantPolicies sim.Store[SubscriptionTenantPolicyRecord]
 func registerSubscriptionPolicy(srv *sim.Server) {
 	azureSubscriptionTenantPolicies = sim.MakeStore[SubscriptionTenantPolicyRecord](srv.DB(), "azure_subscription_tenant_policies")
 
-	// PUT - SubscriptionPolicy_AddUpdatePolicyForTenant. The body is the bare
-	// PutTenantPolicyRequestProperties, not an ARM resource envelope, and it
-	// replaces the policy rather than merging into it.
+	// The body is the bare PutTenantPolicyRequestProperties, and it replaces the
+	// policy rather than merging.
 	srv.HandleFunc("PUT /providers/Microsoft.Subscription/policies/default", func(w http.ResponseWriter, r *http.Request) {
 		tenant, _, err := azureARMCallerPrincipal(r)
 		if err != nil {
@@ -82,7 +67,6 @@ func registerSubscriptionPolicy(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, subscriptionTenantPolicyResponse(policy))
 	})
 
-	// GET - SubscriptionPolicy_GetPolicyForTenant.
 	srv.HandleFunc("GET /providers/Microsoft.Subscription/policies/default", func(w http.ResponseWriter, r *http.Request) {
 		tenant, _, err := azureARMCallerPrincipal(r)
 		if err != nil {
@@ -92,8 +76,7 @@ func registerSubscriptionPolicy(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, subscriptionTenantPolicyResponse(azureSubscriptionTenantPolicy(tenant)))
 	})
 
-	// GET - SubscriptionPolicy_ListPolicyForTenant. A tenant holds exactly one
-	// subscription policy, so the pageable list is that policy alone.
+	// A tenant holds exactly one policy, so the list is that policy alone.
 	srv.HandleFunc("GET /providers/Microsoft.Subscription/policies", func(w http.ResponseWriter, r *http.Request) {
 		tenant, _, err := azureARMCallerPrincipal(r)
 		if err != nil {
@@ -105,14 +88,11 @@ func registerSubscriptionPolicy(srv *sim.Server) {
 		})
 	})
 
-	// GET - BillingAccount_GetPolicy.
 	srv.HandleFunc("GET /providers/Microsoft.Billing/billingAccounts/{billingAccountId}/providers/Microsoft.Subscription/policies/default",
 		func(w http.ResponseWriter, r *http.Request) {
 			account := sim.PathParam(r, "billingAccountId")
 			sim.WriteJSON(w, http.StatusOK, map[string]any{
-				// The identifier of a billing account's policy is a constant —
-				// the policy is the billing account's one policy, and the
-				// account it belongs to is carried by `name`.
+				// The policy's ID is constant; `name` carries the account.
 				"id":   "/providers/Microsoft.Subscription/Policies/policyForBillingAccount",
 				"name": account,
 				"type": "Microsoft.Subscription/policies",
@@ -124,11 +104,9 @@ func registerSubscriptionPolicy(srv *sim.Server) {
 		})
 }
 
-// azureSubscriptionTenantPolicy returns a tenant's subscription policy. Every
-// tenant has one: absent an explicit PUT it is the permissive default, and the
-// service assigns it an identifier once and keeps it. Materializing that
-// default on first read is what makes the identifier stable across reads and
-// across simulator restarts.
+// Every tenant has a policy, permissive by default, whose ID the service
+// assigns once; materializing it on first read keeps the ID stable across
+// reads and restarts.
 func azureSubscriptionTenantPolicy(tenantID string) SubscriptionTenantPolicyRecord {
 	if rec, ok := azureSubscriptionTenantPolicies.Get(tenantID); ok {
 		return rec
@@ -142,9 +120,7 @@ func azureSubscriptionTenantPolicy(tenantID string) SubscriptionTenantPolicyReco
 	return rec
 }
 
-// azureSubscriptionPolicyDenies reports whether a tenant's subscription policy
-// blocks the requested tenant-boundary crossing for the calling principal.
-// A principal named in exemptedPrincipals is subject to neither block.
+// exemptedPrincipals are subject to neither block.
 func azureSubscriptionPolicyDenies(tenantID, callerObjectID, member string) bool {
 	policy := azureSubscriptionTenantPolicy(tenantID)
 	var blocked bool
@@ -171,9 +147,8 @@ func subscriptionTenantPolicyResponse(policy SubscriptionTenantPolicyRecord) map
 		exempted = []string{}
 	}
 	return map[string]any{
-		// The identifier and type of a tenant policy are spelled the way the
-		// specification spells them — relative, and with the type carrying the
-		// providers/ prefix.
+		// Relative, with the type carrying the providers/ prefix, as the
+		// specification spells them.
 		"id":   "providers/Microsoft.Subscription/policies/default",
 		"name": "default",
 		"type": "providers/Microsoft.Subscription/policies",
@@ -186,11 +161,8 @@ func subscriptionTenantPolicyResponse(policy SubscriptionTenantPolicyRecord) map
 	}
 }
 
-// subscriptionBillingAccountServiceTenants reports the tenants a billing
-// account serves: the distinct tenants that hold subscriptions created under
-// it, read back from the alias records that named the account in their billing
-// scope. A billing account that has funded no subscription yet serves no
-// tenant, and says so with an empty list.
+// The distinct tenants holding subscriptions created under the account, read
+// from the aliases naming it; an account that funded none serves none.
 func subscriptionBillingAccountServiceTenants(billingAccountID string) []map[string]any {
 	seen := map[string]bool{}
 	var tenants []string
@@ -216,10 +188,8 @@ func subscriptionBillingAccountServiceTenants(billingAccountID string) []map[str
 	return out
 }
 
-// subscriptionBillingAccountID extracts the billing account from a billing
-// scope. Every documented scope spelling — invoice section, customer, and
-// enrollment account — names the account in the segment after
-// "billingAccounts".
+// Every documented scope spelling (invoice section, customer, enrollment
+// account) names the account after "billingAccounts".
 func subscriptionBillingAccountID(billingScope string) string {
 	segs := strings.Split(strings.Trim(billingScope, "/"), "/")
 	for i, seg := range segs {
@@ -230,12 +200,9 @@ func subscriptionBillingAccountID(billingScope string) string {
 	return ""
 }
 
-// azureARMCallerPrincipal returns the tenant and object id of the principal
-// whose Azure Resource Manager bearer authenticates the request. The
-// Microsoft.Subscription resource provider authorizes against the caller's own
-// identity — its tenant owns the subscription policy, and its object id is
-// what exemptedPrincipals names — so the provider reads the same claims the
-// bearer verification already validated.
+// The resource provider authorizes against the caller: its tenant owns the
+// policy and its object ID is what exemptedPrincipals names. These are claims
+// the bearer verification already validated.
 func azureARMCallerPrincipal(r *http.Request) (tenantID, objectID string, err error) {
 	auth := r.Header.Get("Authorization")
 	if !strings.HasPrefix(auth, "Bearer ") {

@@ -4,19 +4,15 @@ import (
 	"strings"
 )
 
-// Event Grid advanced filters, as the service documents them (Event Grid
-// "Understand event filtering", Advanced filtering): a filter reads the value
-// at its key — an event property such as Subject or id, or a data field in dot
-// notation such as data.key1 — and compares it with its operator. Values of
-// another type than the operator's are ignored. When the key names an array
-// and the subscription enables advanced filtering on arrays, each element is
-// compared; a positive operator matches when any element matches one of the
-// filter's values, and a negated operator fails when any does. Strings compare
-// without case. Filters of one subscription are ANDed; the values of one
-// filter are ORed.
+// Event Grid advanced filters ("Understand event filtering"): a filter reads
+// the value at its key — an event property such as Subject, or a data field
+// such as data.key1 — and compares it with its operator, ignoring values of
+// another type. With advanced filtering on arrays, each element of an array is
+// compared: a positive operator matches when any element matches a value, a
+// negated one fails when any does. Strings compare case-insensitively. A
+// subscription's filters are ANDed; one filter's values are ORed.
 
-// eventGridMatchWhenAbsent lists the operators that admit an event lacking the
-// filter's key; every other operator refuses it.
+// Every other operator refuses an event lacking the key.
 var eventGridMatchWhenAbsent = map[string]bool{
 	"NumberNotIn":       true,
 	"StringNotIn":       true,
@@ -93,9 +89,8 @@ func eventGridAdvancedFilterMatches(spec map[string]any, event map[string]any, o
 	return false
 }
 
-// eventGridFilterKey reads the value a filter key names. Each dot-separated
-// segment selects an object member, compared without case, so Subject reads
-// an Event Grid event's subject.
+// Each dot-separated segment selects a member case-insensitively, so Subject
+// reads an Event Grid event's subject.
 func eventGridFilterKey(event map[string]any, key string) (any, bool) {
 	var current any = event
 	for _, segment := range strings.Split(key, ".") {

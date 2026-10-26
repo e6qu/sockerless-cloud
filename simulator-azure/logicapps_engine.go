@@ -14,14 +14,11 @@ import (
 	"time"
 )
 
-// A Logic Apps workflow run executes the definition's actions in the order
-// their runAfter conditions allow, evaluating Workflow Definition Language
-// expressions in their inputs. The engine executes the action types it can
-// run for real — Http, Response, Compose, InitializeVariable, SetVariable,
-// If (Condition), Foreach, Scope and Terminate — and fails an action of any
-// other type, naming the type, rather than reporting work it never did.
+// A run executes the definition's actions in runAfter order, evaluating
+// Workflow Definition Language expressions in their inputs. It executes Http,
+// Response, Compose, InitializeVariable, SetVariable, If, Foreach, Scope and
+// Terminate, and fails any other action type, naming it.
 
-// logicActionResult is what one action execution left behind.
 type logicActionResult struct {
 	Status    string
 	Code      string
@@ -32,7 +29,6 @@ type logicActionResult struct {
 	EndTime   time.Time
 }
 
-// logicRun is the state of one workflow run.
 type logicRun struct {
 	ctx        context.Context
 	parameters map[string]any
@@ -44,14 +40,13 @@ type logicRun struct {
 	terminated *logicTermination
 }
 
-// logicTermination is a Terminate action's verdict on the run.
 type logicTermination struct {
 	Status string
 	Error  map[string]any
 }
 
-// logicRunOutcome is the finished run: its status, error, the definition's
-// outputs, and every action's result in execution order.
+// The status, error, the definition's outputs, and every action's result in
+// execution order.
 type logicRunOutcome struct {
 	Status  string
 	Error   map[string]any
@@ -60,7 +55,6 @@ type logicRunOutcome struct {
 	Results map[string]*logicActionResult
 }
 
-// logicExecute runs a workflow definition for one trigger firing.
 func logicExecute(ctx context.Context, definition, parameters, triggerOutputs map[string]any) logicRunOutcome {
 	run := &logicRun{
 		ctx:        ctx,
@@ -97,8 +91,7 @@ func logicExecute(ctx context.Context, definition, parameters, triggerOutputs ma
 	return outcome
 }
 
-// logicParameterValues resolves each declared parameter to the workflow's
-// value for it, or its declared default.
+// A declared parameter takes the workflow's value, or its default.
 func logicParameterValues(definition, parameters map[string]any) map[string]any {
 	values := map[string]any{}
 	declared, _ := definition["parameters"].(map[string]any)
@@ -119,10 +112,9 @@ func logicParameterValues(definition, parameters map[string]any) map[string]any 
 	return values
 }
 
-// runActions executes one scope's actions and returns the scope's status:
-// Failed when an action failed and no action ran after the failure, else
-// Succeeded. An action whose runAfter statuses its predecessors did not reach
-// is Skipped.
+// runActions: Failed when an action failed and no action ran after it, else
+// Succeeded. An action whose runAfter statuses its predecessors missed is
+// Skipped.
 func (run *logicRun) runActions(actions map[string]any) string {
 	names := make([]string, 0, len(actions))
 	for name := range actions {
@@ -196,9 +188,8 @@ func (run *logicRun) record(name string, result *logicActionResult) {
 	run.results[name] = result
 }
 
-// dependencies reports whether an action's predecessors have all finished,
-// and whether it must be skipped because one finished in a status its
-// runAfter does not list (Succeeded when it lists none).
+// skip: a predecessor finished in a status runAfter does not list (Succeeded
+// when it lists none).
 func (run *logicRun) dependencies(action map[string]any, done map[string]bool) (ready, skip bool) {
 	after, _ := action["runAfter"].(map[string]any)
 	for predecessor, statuses := range after {
@@ -374,8 +365,6 @@ func (run *logicRun) execute(name string, action map[string]any) *logicActionRes
 		logicErrorf("The simulator cannot execute action '%s' of type '%s'.", name, typ))
 }
 
-// logicCoerceVariable checks an initial value against the variable's declared
-// type.
 func logicCoerceVariable(typ, value any) (any, error) {
 	t, _ := typ.(string)
 	switch strings.ToLower(t) {
@@ -427,9 +416,7 @@ func logicCoerceVariable(typ, value any) (any, error) {
 	return nil, logicErrorf("The variable value of type '%s' does not match the declared type '%s'.", logicTypeName(value), t)
 }
 
-// logicHTTPAction sends an Http action's request and returns its outputs: the
-// response's status code, headers and body. A response outside 2xx fails the
-// action with the status's name as its code.
+// A response outside 2xx fails the action with the status's name as its code.
 func logicHTTPAction(ctx context.Context, inputs any) (map[string]any, string, error) {
 	spec, _ := inputs.(map[string]any)
 	method, _ := spec["method"].(string)
@@ -450,8 +437,8 @@ func logicHTTPAction(ctx context.Context, inputs any) (map[string]any, string, e
 		}
 		body, contentType = bytes.NewReader(encoded), "application/json"
 	}
-	// Multitenant Logic Apps fails an outbound request the server has not
-	// answered within 120 seconds.
+	// Multitenant Logic Apps fails an outbound request unanswered within 120
+	// seconds.
 	reqCtx, cancel := context.WithTimeout(ctx, 120*time.Second)
 	defer cancel()
 	req, err := http.NewRequestWithContext(reqCtx, strings.ToUpper(method), uri, body)
@@ -501,8 +488,7 @@ func logicHTTPAction(ctx context.Context, inputs any) (map[string]any, string, e
 	return outputs, code, nil
 }
 
-// logicFailure is an error whose text is the message Logic Apps reports on
-// the action or run, sentence case and all.
+// The message Logic Apps reports on the action or run, sentence case and all.
 type logicFailure string
 
 func (e logicFailure) Error() string { return string(e) }
@@ -529,8 +515,7 @@ func logicTypeName(v any) string {
 	return fmt.Sprintf("%T", v)
 }
 
-// logicActionOutputs is the outputs object an action exposes to outputs()
-// and body().
+// The outputs object outputs() and body() read.
 func (run *logicRun) logicActionOutputs(name string) (map[string]any, error) {
 	result, ok := run.results[name]
 	if !ok {

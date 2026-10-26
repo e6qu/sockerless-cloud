@@ -14,9 +14,8 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
-// newServiceBusMoveTestStores wires the stores the Microsoft.ServiceBus move
-// hook re-keys, so the hook can be driven directly against the same
-// verification path the data plane uses.
+// Wires the stores the hook re-keys, so it runs against the data plane's own
+// verification.
 func newServiceBusMoveTestStores(t *testing.T) {
 	t.Helper()
 	bg.Await()
@@ -40,9 +39,7 @@ func newServiceBusMoveTestStores(t *testing.T) {
 	t.Cleanup(bg.Await)
 }
 
-// seedServiceBusMoveNamespace provisions a namespace with the root
-// authorization rule real Service Bus auto-provisions, a queue, and a
-// queue-scoped rule, and returns the namespace resource ID.
+// The root rule Service Bus auto-provisions, a queue, and a queue-scoped rule.
 func seedServiceBusMoveNamespace(sub, rg, name string) string {
 	id := sbNamespaceID(sub, rg, name)
 	sbNamespaces.Put(id, SBNamespace{
@@ -66,8 +63,7 @@ func seedServiceBusMoveNamespace(sub, rg, name string) string {
 	return id
 }
 
-// serviceBusMoveTestToken signs the Shared Access Signature a client presents,
-// exactly as the official SDKs do.
+// Signed as the official SDKs sign it.
 func serviceBusMoveTestToken(keyName, key, audience string) string {
 	escaped := strings.ToLower(url.QueryEscape(audience))
 	expiry := strconv.FormatInt(time.Now().Add(time.Hour).Unix(), 10)
@@ -77,12 +73,8 @@ func serviceBusMoveTestToken(keyName, key, audience string) string {
 	return "SharedAccessSignature sr=" + escaped + "&sig=" + signature + "&se=" + expiry + "&skn=" + url.QueryEscape(keyName)
 }
 
-// TestServiceBusMovePinsAuthorizationRuleKeys drives the Microsoft.ServiceBus
-// move hook against the data plane's own Shared Access Signature verification.
-// A namespace's SAS keys are derived from each authorization rule's resource
-// ID, which embeds the resource group, so the move has to pin them: a
-// credential minted before the move must still authenticate after it, at both
-// the namespace and the queue rule.
+// Credentials minted before the move still authenticate at both the namespace
+// and the queue rule.
 func TestServiceBusMovePinsAuthorizationRuleKeys(t *testing.T) {
 	newServiceBusMoveTestStores(t)
 
@@ -106,7 +98,6 @@ func TestServiceBusMovePinsAuthorizationRuleKeys(t *testing.T) {
 
 	moveServiceBusNamespaceARM(oldID, newID)
 
-	// The ARM subtree re-homed.
 	if _, ok := sbNamespaces.Get(newID); !ok {
 		t.Fatalf("the namespace did not re-key onto %s", newID)
 	}
@@ -125,7 +116,7 @@ func TestServiceBusMovePinsAuthorizationRuleKeys(t *testing.T) {
 		t.Errorf("the root authorization rule did not re-key onto %s", movedRootRule)
 	}
 
-	// listKeys serves the same material at the destination coordinates.
+	// listKeys serves the same material at the destination.
 	if got := azureKeyMaterial32(movedRootRule, "primary"); got != rootKeyBefore {
 		t.Errorf("the namespace rule's primary key rotated across the move: %q != %q", got, rootKeyBefore)
 	}
@@ -137,8 +128,6 @@ func TestServiceBusMovePinsAuthorizationRuleKeys(t *testing.T) {
 		t.Error("the namespace rule's secondary key rotated across the move")
 	}
 
-	// The credentials minted before the move still authenticate against the
-	// data plane's own verification.
 	if _, err := verifyMessagingSAS(name, namespaceToken); err != nil {
 		t.Errorf("the pre-move namespace credential stopped authenticating after the move: %v", err)
 	}
@@ -146,8 +135,7 @@ func TestServiceBusMovePinsAuthorizationRuleKeys(t *testing.T) {
 		t.Errorf("the pre-move queue credential stopped authenticating after the move: %v", err)
 	}
 
-	// A rotation after the move clears the pin and yields genuinely new
-	// material, so the move does not freeze the rotation contract.
+	// A rotation after the move clears the pin and yields new material.
 	azureBumpKeyGen(movedRootRule, "primary", "")
 	if got := azureKeyMaterial32(movedRootRule, "primary"); got == rootKeyBefore {
 		t.Error("regenerating the primary key after the move served the pinned material again")
@@ -157,12 +145,8 @@ func TestServiceBusMovePinsAuthorizationRuleKeys(t *testing.T) {
 	}
 }
 
-// TestServiceBusMoveWithoutKeyPinningBreaksTheCredential is the negative
-// control for the pin. It re-keys the same namespace the way a move that only
-// re-homed the ARM records would — the records land at the destination, but
-// nothing carries the derived key material — and shows the credential minted
-// before the move no longer authenticates. That failure is what the pin in
-// moveServiceBusNamespaceARM exists to prevent.
+// The negative control: re-keying only the records leaves the credential
+// minted before the move unable to authenticate.
 func TestServiceBusMoveWithoutKeyPinningBreaksTheCredential(t *testing.T) {
 	newServiceBusMoveTestStores(t)
 
@@ -178,8 +162,7 @@ func TestServiceBusMoveWithoutKeyPinningBreaksTheCredential(t *testing.T) {
 		t.Fatalf("the credential must authenticate before the move: %v", err)
 	}
 
-	// The move, minus the pin: the namespace and its subtree re-key and
-	// nothing else happens.
+	// The move, minus the pin.
 	ns, ok := sbNamespaces.Get(oldID)
 	if !ok {
 		t.Fatal("seeded namespace missing")

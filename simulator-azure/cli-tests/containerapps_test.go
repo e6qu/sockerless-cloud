@@ -18,7 +18,6 @@ func acaURL(path string) string {
 
 func TestContainerApps_CLI_StartAndCheckLogs(t *testing.T) {
 	t.Parallel()
-	// Create a Container Apps Job with echo command
 	jobURL := acaURL("jobs/cli-aca-job")
 	envID, customerID := cliLogsEnvironment(t)
 	jobBody := fmt.Sprintf(`{
@@ -41,7 +40,6 @@ func TestContainerApps_CLI_StartAndCheckLogs(t *testing.T) {
 	}`, envID)
 	runCLI(t, azRest("PUT", jobURL, jobBody))
 
-	// Start execution
 	rawStartURL := armURL("Microsoft.App", "jobs/cli-aca-job/start", acaAPIVersion)
 	out := runCLI(t, azRest("POST", rawStartURL, ""))
 
@@ -52,8 +50,6 @@ func TestContainerApps_CLI_StartAndCheckLogs(t *testing.T) {
 	parseJSON(t, out, &startResult)
 	require.NotEmpty(t, startResult.Name)
 
-	// Poll until the execution completes (async in the sim) — a fixed sleep
-	// races a loaded runner.
 	execURL := armURL("Microsoft.App", "jobs/cli-aca-job/executions/"+startResult.Name, acaAPIVersion)
 	var execResult struct {
 		Properties struct {
@@ -81,14 +77,12 @@ func TestContainerApps_CLI_StartAndCheckLogs(t *testing.T) {
 	assert.Equal(t, startResult.Name, listed.Value[0].Name)
 	assert.Equal(t, "Succeeded", listed.Value[0].Properties.Status)
 
-	// Poll Log Analytics until the real process output is ingested.
 	require.Eventually(t, func() bool {
 		out = cliQueryWorkspace(t, customerID, `ContainerAppConsoleLogs_CL | where ContainerGroupName_s == "cli-aca-job"`)
 		return strings.Contains(out, "hello-from-aca")
 	}, 60*time.Second, 300*time.Millisecond)
 	assert.Contains(t, out, "hello-from-aca", "expected real process output in Log Analytics")
 
-	// Cleanup
 	runCLI(t, azRest("DELETE", jobURL, ""))
 }
 
@@ -116,7 +110,6 @@ func TestContainerApps_CLI_StartFailure(t *testing.T) {
 	}`, envID)
 	runCLI(t, azRest("PUT", jobURL, jobBody))
 
-	// Start execution
 	rawStartURL := armURL("Microsoft.App", "jobs/cli-aca-fail-job/start", acaAPIVersion)
 	out := runCLI(t, azRest("POST", rawStartURL, ""))
 
@@ -126,7 +119,6 @@ func TestContainerApps_CLI_StartFailure(t *testing.T) {
 	parseJSON(t, out, &startResult)
 	require.NotEmpty(t, startResult.Name)
 
-	// Poll until the execution reaches a terminal status (async in the sim).
 	execURL := armURL("Microsoft.App", "jobs/cli-aca-fail-job/executions/"+startResult.Name, acaAPIVersion)
 	var execResult struct {
 		Properties struct {
@@ -142,6 +134,5 @@ func TestContainerApps_CLI_StartFailure(t *testing.T) {
 	assert.True(t, strings.Contains(execResult.Properties.Status, "Failed"),
 		"expected status to be Failed, got: %s", execResult.Properties.Status)
 
-	// Cleanup
 	runCLI(t, azRest("DELETE", jobURL, ""))
 }

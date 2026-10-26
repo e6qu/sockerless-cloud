@@ -9,11 +9,10 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/placement"
 )
 
-// azureReapplyIngress programs every running virtual machine with what the
-// network security groups of its interface and its subnet allow now, one
-// stage each, after a group, a rule, an interface or a subnet changed. A
-// machine on no group receives everything, as on Azure; a backend that does
-// not filter is left as it is.
+// azureReapplyIngress programs every running virtual machine with what its
+// interface's and subnet's network security groups allow, one stage each. A
+// machine on no group receives everything, as on Azure; a backend that does not
+// filter is left as it is.
 func azureReapplyIngress() {
 	if azureVMs == nil || azureNICs == nil {
 		return

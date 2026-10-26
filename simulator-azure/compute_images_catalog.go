@@ -11,11 +11,9 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/workload"
 )
 
-// A marketplace image — publisher, offer, SKU, version — names the OCI image a
-// virtual machine created from it boots, pinned by digest for each
-// architecture. The Compute resource provider lists them under
-// locations/{location}/publishers, and a machine's storageProfile.imageReference
-// resolves against the same table, so what the catalog lists is what boots.
+// A marketplace image names the OCI image a machine created from it boots,
+// pinned by digest per architecture. The location's publishers listing and
+// imageReference resolution read the same table, so what lists is what boots.
 
 type azureMarketplaceImage struct {
 	Publisher, Offer, SKU, Version string
@@ -33,8 +31,7 @@ var azureMarketplaceImages = []azureMarketplaceImage{
 		Image: vminstance.Image{OCI: "mirror.gcr.io/library/debian:12@sha256:854dd8ab51d62866dbd8f5431d15ce77b12983a2a4a1e1fe43a2395dc7ef9f61", Architecture: "linux/arm64"}},
 }
 
-// azureMarketplaceImageFor resolves an imageReference's publisher, offer, SKU
-// and version; "latest" takes the newest version of the SKU.
+// "latest" takes the newest version of the SKU.
 func azureMarketplaceImageFor(publisher, offer, sku, version string) (azureMarketplaceImage, bool) {
 	var found azureMarketplaceImage
 	ok := false
@@ -165,10 +162,10 @@ func registerVirtualMachineImages(srv *sim.Server) {
 	})
 }
 
-// A customer image (Microsoft.Compute/images) is an OCI image too: one a
-// capture committed from a machine, named by the blob the capture wrote, or
-// one storageProfile.osDisk.blobUri names as an OCI reference, or the
-// filesystem of a sourceVirtualMachine committed when the image is created.
+// A customer image (Microsoft.Compute/images) is an OCI image too: committed
+// by a capture and named by the blob it wrote, named by
+// storageProfile.osDisk.blobUri as an OCI reference, or a sourceVirtualMachine's
+// filesystem committed at create.
 
 type ComputeImage struct {
 	ID         string                 `json:"id"`
@@ -188,22 +185,18 @@ type ComputeImageProperties struct {
 
 var (
 	azureComputeImages sim.Store[ComputeImage]
-	// azureImageBackings maps an image resource (by id) or a captured disk
-	// blob (by its URI), both lower-cased, to the OCI image it boots.
+	// Keyed by lowercased image resource ID or captured blob URI.
 	azureImageBackings sim.Store[vminstance.Image]
 )
 
 func azureImageBackingKey(key string) string { return strings.ToLower(key) }
 
-// azureRecordCapturedImage records the OCI image a capture committed under
-// the blob URI the capture's template names.
 func azureRecordCapturedImage(blobURI string, image vminstance.Image) {
 	azureImageBackings.Put(azureImageBackingKey(blobURI), image)
 }
 
-// azureResolveImageBlobURI is the OCI image a storageProfile.osDisk.blobUri
-// (or osDisk.image.uri) names: a blob a capture wrote, or an OCI reference
-// the engine pulls and reports the platform of.
+// azureResolveImageBlobURI resolves a blob a capture wrote, or an OCI
+// reference the engine pulls.
 func azureResolveImageBlobURI(ctx context.Context, uri string) (vminstance.Image, error) {
 	if image, ok := azureImageBackings.Get(azureImageBackingKey(uri)); ok {
 		return image, nil
@@ -359,14 +352,11 @@ func registerComputeImages(srv *sim.Server) {
 	})
 }
 
-// azureVMImageReference reads the machine's storageProfile.imageReference.
 func azureVMImageReference(vm VirtualMachine) map[string]any {
 	ref, _ := vm.Properties.StorageProfile["imageReference"].(map[string]any)
 	return ref
 }
 
-// azureVMImageNotFoundFault is the Compute resource provider's refusal of a
-// machine whose image it cannot find, raised at request validation.
 func azureVMImageNotFoundFault(publisher, offer, sku, version string) *azureVMRequestFault {
 	return &azureVMRequestFault{
 		code:   "PlatformImageNotFound",
@@ -376,9 +366,8 @@ func azureVMImageNotFoundFault(publisher, offer, sku, version string) *azureVMRe
 	}
 }
 
-// azureResolveVMImage is the OCI image the machine boots: the marketplace
-// image its imageReference names, the customer image its imageReference's id
-// names, or the captured disk its osDisk.image.uri names.
+// azureResolveVMImage resolves the marketplace image, the customer image by
+// id, or the captured disk osDisk.image.uri names.
 func azureResolveVMImage(ctx context.Context, vm VirtualMachine) (vminstance.Image, error) {
 	osDisk, _ := vm.Properties.StorageProfile["osDisk"].(map[string]any)
 	if diskImage, _ := osDisk["image"].(map[string]any); diskImage != nil {

@@ -5,13 +5,12 @@ import (
 	"strings"
 )
 
-// AzureResourceGroupScopeMiddleware answers for Azure Resource Manager before a
-// resource provider sees a request beneath a resource group: a group that does
-// not exist refuses every method with 404 ResourceGroupNotFound, and a group
-// whose delete is running refuses writes and actions with 409
-// ResourceGroupBeingDeleted while its resources stay readable and deletable.
-// The group's own delete reaches its resources through the mux directly
-// (serveAzureInternal), so this check never sees it.
+// AzureResourceGroupScopeMiddleware answers before a provider sees a request
+// beneath a resource group: a missing group refuses every method with 404
+// ResourceGroupNotFound, and a deleting group refuses writes and actions with
+// 409 ResourceGroupBeingDeleted while its resources stay readable and
+// deletable. The group's own delete reaches its resources through
+// serveAzureInternal, bypassing this check.
 func AzureResourceGroupScopeMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !isAzureARMPath(r.URL.Path) || azureARMPathUsesSessionAuth(r.URL.Path) {
@@ -41,9 +40,8 @@ func AzureResourceGroupScopeMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-// azureResourceGroupScope reports the subscription and group of a path that
-// addresses something beneath a resource group. The group's own path is not
-// beneath it: its handlers answer for a missing or deleting group themselves.
+// The group's own path is not beneath it; its handlers answer for a missing or
+// deleting group.
 func azureResourceGroupScope(path string) (sub, group string, ok bool) {
 	segments := strings.Split(strings.Trim(path, "/"), "/")
 	if len(segments) < 5 || segments[0] != "subscriptions" || !strings.EqualFold(segments[2], "resourceGroups") ||
@@ -53,8 +51,8 @@ func azureResourceGroupScope(path string) (sub, group string, ok bool) {
 	return segments[1], segments[3], true
 }
 
-// azureLookupResourceGroup finds a group the way ARM does, ignoring the case
-// of the subscription ID and the group name.
+// Case-insensitive in subscription ID and group name, as Azure Resource
+// Manager is.
 func azureLookupResourceGroup(sub, name string) (ResourceGroup, bool) {
 	id := armResourceGroupID(sub, name)
 	if group, ok := azureResourceGroups.Get(id); ok {

@@ -12,11 +12,10 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
-// Azure Cosmos DB owns the simulator's API root: the azcosmos SDK's global
-// endpoint manager reads account properties from it, so the console's bare-root
-// redirect cannot be mounted on the mux beside it. A visitor who types the bare
-// origin into a browser must still reach the console rather than a bare 404,
-// and Cosmos must keep the root for its own clients.
+// Azure Cosmos DB owns the API root — the azcosmos SDK's global endpoint
+// manager reads account properties from it — so the console's bare-root
+// redirect cannot sit on the mux beside it. A browser at the bare origin must
+// still reach the console.
 func TestBareRootReachesConsoleWhileCosmosKeepsAPIRoot(t *testing.T) {
 	t.Setenv("SIM_RUNTIME", "process")
 	console := t.TempDir()
@@ -28,9 +27,8 @@ func TestBareRootReachesConsoleWhileCosmosKeepsAPIRoot(t *testing.T) {
 		t.Fatalf("buildSimulator: %v", err)
 	}
 	t.Cleanup(srv.StopBackground)
-	// Long-running operations complete in a goroutine. One still running
-	// when this test ends would read and write the stores while the next
-	// test rebuilds them.
+	// Long-running operations complete in a goroutine; one still running when
+	// this test ends would race the next test's store rebuild.
 	t.Cleanup(bg.Await)
 	// A browser at the bare origin carries none of Cosmos's data-plane headers.
 	rec := httptest.NewRecorder()
@@ -39,10 +37,8 @@ func TestBareRootReachesConsoleWhileCosmosKeepsAPIRoot(t *testing.T) {
 		t.Fatalf("bare root: got %d %q, want 307 to /ui/", rec.Code, rec.Header().Get("Location"))
 	}
 
-	// A real Cosmos client still gets account properties from the same route.
-	// It addresses the account's own hostname and signs the read: the account
-	// root is a data-plane resource like any other, so the SDK's endpoint
-	// manager sends an authorized request and an unauthorized one is refused.
+	// The SDK's endpoint manager signs its read at the account's own hostname; the
+	// account root is a data-plane resource like any other.
 	keys := cosmosProvisionAccount(t, srv, "simaccount")
 	status, body := cosmosSignedRequest(t, srv, http.MethodGet, "/", "simaccount", keys.PrimaryMasterKey, "")
 	if status != http.StatusOK {
@@ -54,7 +50,6 @@ func TestBareRootReachesConsoleWhileCosmosKeepsAPIRoot(t *testing.T) {
 		}
 	}
 
-	// The console itself is served where it always was.
 	rec = httptest.NewRecorder()
 	srv.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/ui/", nil))
 	if rec.Code != http.StatusOK || rec.Body.Len() == 0 {

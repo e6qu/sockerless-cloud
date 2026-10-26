@@ -17,9 +17,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// outsideListener is a listener of the test's own on an address a machine
-// reaches only by leaving its virtual network: the host's own address, where
-// the test records who connected.
+// outsideListener listens on the host's own address, which a machine reaches
+// only by leaving its virtual network, and records who connected.
 func outsideListener(t *testing.T) (address string, lastRemote func() string) {
 	t.Helper()
 	probe, err := net.Dial("udp4", "192.0.2.1:9")
@@ -47,10 +46,9 @@ func outsideListener(t *testing.T) (address string, lastRemote func() string) {
 }
 
 // A machine on a subnet attached to a NAT gateway leaves its virtual network
-// through the gateway: what it opens outside arrives from the gateway and
-// not from the machine, and the gateway's Azure Monitor metrics count the
-// connection and its bytes. Detached from the gateway, the subnet's
-// machines leave the gateway's metrics alone.
+// through the gateway: its connections arrive from the gateway, and the
+// gateway's Azure Monitor metrics count them and their bytes. Detached, the
+// subnet's machines leave those metrics alone.
 func TestCompute_NatGatewayCarriesAMachinesConnections(t *testing.T) {
 	t.Parallel()
 	const rg = "vm-nat-rg"
@@ -106,8 +104,7 @@ func TestCompute_NatGatewayCarriesAMachinesConnections(t *testing.T) {
 	require.NoError(t, err)
 	machineIP := *nic.Properties.IPConfigurations[0].Properties.PrivateIPAddress
 
-	// The image carries bash and no curl: the request goes through bash's
-	// own TCP device.
+	// The image has bash and no curl, so use bash's own TCP device.
 	get := fmt.Sprintf(`bash -c 'if timeout 5 bash -c "exec 3<>/dev/tcp/%s && printf \"GET / HTTP/1.0\\r\\n\\r\\n\" >&3 && cat <&3 >/dev/null"; then echo reach=ok; else echo reach=failed; fi'`, strings.Replace(outside, ":", "/", 1))
 	require.Contains(t, runInGuest(t, rg, "vm-nat", "reach-1", get), "reach=ok", "the machine does not reach the outside through the NAT gateway")
 	assert.NotEqual(t, machineIP, lastRemote(), "the connection arrived from the machine's own address, not the gateway's")
@@ -134,9 +131,8 @@ func TestCompute_NatGatewayCarriesAMachinesConnections(t *testing.T) {
 		}
 		return sum
 	}
-	// The gateway reports a connection's bytes when it ends, which the
-	// request's close brings about; the metric follows on the cloud's own
-	// cadence.
+	// The gateway reports a connection's bytes when it ends, which the request's
+	// close brings about; the metric follows on the cloud's own cadence.
 	require.Eventually(t, func() bool { return total("ByteCount") > 0 }, time.Minute, 2*time.Second, "the gateway counted no bytes")
 	assert.GreaterOrEqual(t, total("SNATConnectionCount"), 1.0)
 	attempts := total("SNATConnectionCount")
@@ -171,9 +167,8 @@ func TestCompute_NatGatewayCarriesAMachinesConnections(t *testing.T) {
 	}
 	assert.Equal(t, []string{"Microsoft.Network/natGateways"}, namespaceNames)
 
-	// A subscription-scoped read covers the region's gateways, one series per
-	// gateway named by its resource ID, and the gateway's bytes are in its
-	// own series.
+	// A subscription-scoped read has one series per gateway of the region, named
+	// by its resource ID.
 	gatewayTotal := func(resp armmonitor.Response) float64 {
 		t.Helper()
 		require.Len(t, resp.Value, 1)

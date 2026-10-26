@@ -22,11 +22,9 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/archive"
 )
 
-// The build source a client uploads before it schedules a run lives as a blob
-// in storage the registry service owns, the way ACR hands out a Shared Access
-// Signature URL into its own storage account. The account name carries a
-// hyphen, which no customer storage account name can, so it never collides
-// with an account a client creates.
+// Build sources live in storage the registry service owns, as Azure Container
+// Registry hands out a SAS URL into its own account. The account name carries a
+// hyphen, which no customer account name can, so it never collides.
 const (
 	acrBuildSourceAccount    = "acr-build-source"
 	acrBuildSourcePathPrefix = "/acr/v1/build-source/"
@@ -41,8 +39,7 @@ func acrIsBuildSourcePath(p string) bool {
 	return strings.HasPrefix(p, acrBuildSourcePathPrefix)
 }
 
-// acrBuildSourceContainer is the container holding one registry's uploads.
-// Registry names are globally unique, which is what lets them name it.
+// Registry names are globally unique, so they name the container.
 func acrBuildSourceContainer(registryName string) string {
 	return strings.ToLower(registryName)
 }
@@ -61,9 +58,8 @@ func acrBuildSourceSign(container, blob string, q url.Values) string {
 	return base64.StdEncoding.EncodeToString(mac.Sum(nil))
 }
 
-// handleACRListBuildSourceUploadURL answers Registries_GetBuildSourceUploadUrl
-// with a blob URL signed for writing, and the path a run request names the
-// uploaded source by.
+// handleACRListBuildSourceUploadURL answers a blob URL signed for writing and the
+// path a run request names the source by.
 func handleACRListBuildSourceUploadURL(w http.ResponseWriter, r *http.Request) {
 	if _, ok := acrRegistryID(r); !ok {
 		acrRegistryNotFound(w, r)
@@ -85,10 +81,8 @@ func handleACRListBuildSourceUploadURL(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleACRBuildSource serves the upload URL with the Blob service's own
-// protocol, Put Blob and Put Block List included, once the request's Shared
-// Access Signature verifies against the key the registry service signed it
-// with.
+// handleACRBuildSource speaks the Blob service's protocol, Put Blob and Put
+// Block List included, once the SAS verifies.
 func handleACRBuildSource(w http.ResponseWriter, r *http.Request) {
 	container, blob, ok := strings.Cut(strings.TrimPrefix(r.URL.Path, acrBuildSourcePathPrefix), "/")
 	if !ok || container == "" || blob == "" {
@@ -129,9 +123,9 @@ func handleACRBuildSource(w http.ResponseWriter, r *http.Request) {
 	handleBlobDataPlane(w, r, acrBuildSourceAccount)
 }
 
-// acrOpenSource opens the source archive a run request names: an absolute blob
-// URL in a storage account, or the relative path listBuildSourceUploadUrl
-// handed out for this registry. An empty location is a run without source.
+// acrOpenSource opens an absolute blob URL, or the relative path
+// listBuildSourceUploadUrl handed out. An empty location is a run without
+// source.
 func acrOpenSource(reg Registry, location string) (io.ReadCloser, error) {
 	if location == "" {
 		return nil, nil
@@ -161,9 +155,8 @@ func acrOpenSource(reg Registry, location string) (io.ReadCloser, error) {
 	return body, nil
 }
 
-// acrExtractSource unpacks a source tar archive, gzip-compressed or not, into
-// dir. The az CLI archives the source directory itself as an entry named "/",
-// and `docker cp` names it "./"; both are the root dir already is.
+// acrExtractSource unpacks a tar, gzipped or not. The az CLI names the root
+// entry "/" and `docker cp` names it "./".
 func acrExtractSource(r io.Reader, dir string) error {
 	br := bufio.NewReader(r)
 	var src io.Reader = br

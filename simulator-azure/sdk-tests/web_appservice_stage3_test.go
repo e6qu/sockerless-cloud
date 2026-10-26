@@ -18,8 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// SDK coverage for the App Service functions-keys, webjobs and
-// deployment-extras surfaces:
+// The App Service function keys, webjobs and deployment surfaces.
 //
 //	POST /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Web/sites/{siteName}/host/default/listkeys
 //	PUT+DELETE /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Web/sites/{siteName}/host/default/{keyType}/{keyName}
@@ -72,9 +71,8 @@ import (
 
 const stage3AlpineImage = "mirror.gcr.io/library/alpine:3.20"
 
-// makeJobsZip builds an in-memory zip whose entries are path → file content
-// (shell scripts get the executable bit, as a real deployment package
-// carries).
+// makeJobsZip builds an in-memory zip from path to content; shell scripts get
+// the executable bit, as in a deployment package.
 func makeJobsZip(t *testing.T, files map[string]string) []byte {
 	t.Helper()
 	var buf bytes.Buffer
@@ -95,8 +93,7 @@ func makeJobsZip(t *testing.T, files map[string]string) []byte {
 	return buf.Bytes()
 }
 
-// servePackage hosts a deployment package over HTTP, the coordinate a
-// packageUri points at.
+// servePackage serves a deployment package for a packageUri to name.
 func servePackage(t *testing.T, pkg []byte) string {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -107,8 +104,8 @@ func servePackage(t *testing.T, pkg []byte) string {
 	return srv.URL + "/package.zip"
 }
 
-// stage3CreateFunction declares a function's config (the ARM FunctionEnvelope
-// carrying its function.json bindings) through the SDK.
+// stage3CreateFunction declares a function's FunctionEnvelope, carrying its
+// function.json bindings.
 func stage3CreateFunction(t *testing.T, client *armappservice.WebAppsClient, rg, site, fn, authLevel string) {
 	t.Helper()
 	poller, err := client.BeginCreateFunction(ctx, rg, site, fn, armappservice.FunctionEnvelope{
@@ -125,9 +122,8 @@ func stage3CreateFunction(t *testing.T, client *armappservice.WebAppsClient, rg,
 	require.NoError(t, err)
 }
 
-// stage3Invoke performs the real invocation request (Host-routed
-// POST /api/function) with an optional key in the given carrier, returning
-// the HTTP status.
+// stage3Invoke sends the Host-routed POST /api/function with an optional key
+// in the given carrier and returns the status.
 func stage3Invoke(t *testing.T, siteName, key, carrier string) int {
 	t.Helper()
 	url := baseURL + "/api/function"
@@ -158,8 +154,8 @@ func TestSDK_WebApps_HostAndFunctionKeys(t *testing.T) {
 	client, err := armappservice.NewWebAppsClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)
 
-	// The host key set real Azure provisions with the site: a master key and
-	// a "default" host function key.
+	// Azure provisions the host key set with the site: a master key and a
+	// "default" host function key.
 	hostKeys, err := client.ListHostKeys(ctx, rg, name, nil)
 	require.NoError(t, err)
 	require.NotNil(t, hostKeys.MasterKey)
@@ -167,8 +163,8 @@ func TestSDK_WebApps_HostAndFunctionKeys(t *testing.T) {
 	require.Contains(t, hostKeys.FunctionKeys, "default")
 	require.NotEmpty(t, *hostKeys.FunctionKeys["default"])
 
-	// Host secret create (generated value), read-back, delete, and the 404 a
-	// second delete answers.
+	// A host secret is created with a generated value, read back and deleted; a
+	// second delete answers 404.
 	created, err := client.CreateOrUpdateHostSecret(ctx, rg, name, "functionKeys", "deploy", armappservice.KeyInfo{}, nil)
 	require.NoError(t, err)
 	require.NotNil(t, created.Value)
@@ -182,7 +178,7 @@ func TestSDK_WebApps_HostAndFunctionKeys(t *testing.T) {
 	_, err = client.DeleteHostSecret(ctx, rg, name, "functionKeys", "deploy", nil)
 	require.Error(t, err, "deleting an already-deleted host secret must 404")
 
-	// An explicit master key set through the same operation.
+	// The same operation sets an explicit master key.
 	newMaster := "stage3-master-" + name
 	_, err = client.CreateOrUpdateHostSecret(ctx, rg, name, "masterKey", "master", armappservice.KeyInfo{Value: to.Ptr(newMaster)}, nil)
 	require.NoError(t, err)
@@ -190,7 +186,8 @@ func TestSDK_WebApps_HostAndFunctionKeys(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, newMaster, *rotated.MasterKey)
 
-	// Function keys: minted with the function, listable, settable, deletable.
+	// A function's keys are minted with it, and are listable, settable and
+	// deletable.
 	stage3CreateFunction(t, client, rg, name, "hello", "function")
 	fnKeys, err := client.ListFunctionKeys(ctx, rg, name, "hello", nil)
 	require.NoError(t, err)
@@ -210,9 +207,9 @@ func TestSDK_WebApps_HostAndFunctionKeys(t *testing.T) {
 	_, err = client.DeleteFunctionSecret(ctx, rg, name, "hello", "ci", nil)
 	require.Error(t, err, "deleting an already-deleted function key must 404")
 
-	// The functions admin token is an HS256 JWT for the site's Functions
-	// host; TestSDK_FunctionApps_NodeHostRunsTheDeployedFunctions presents
-	// one to a running host, which checks the signature.
+	// The functions admin token is an HS256 JWT for the site's Functions host;
+	// TestSDK_FunctionApps_NodeHostRunsTheDeployedFunctions presents one to a
+	// running host, which checks the signature.
 	token, err := client.GetFunctionsAdminToken(ctx, rg, name, nil)
 	require.NoError(t, err)
 	require.NotNil(t, token.Value)
@@ -228,7 +225,6 @@ func TestSDK_WebApps_HostAndFunctionKeys(t *testing.T) {
 	assert.Equal(t, "https://"+name+".azurewebsites.net/azurefunctions", claims.Aud)
 	assert.Greater(t, claims.Exp, time.Now().Unix())
 
-	// Host sync family.
 	_, err = client.SyncFunctions(ctx, rg, name, nil)
 	require.NoError(t, err)
 	_, err = client.ListSyncStatus(ctx, rg, name, nil)
@@ -240,7 +236,7 @@ func TestSDK_WebApps_HostAndFunctionKeys(t *testing.T) {
 	assert.Equal(t, newMaster, *syncTriggers.Key)
 	assert.Contains(t, *syncTriggers.TriggerURL, "/admin/host/synctriggers")
 
-	// A deployment slot carries its own key set, distinct from production.
+	// A deployment slot carries its own key set.
 	slotPoller, err := client.BeginCreateOrUpdateSlot(ctx, rg, name, "staging", armappservice.Site{Location: to.Ptr("eastus")}, nil)
 	require.NoError(t, err)
 	_, err = slotPoller.PollUntilDone(ctx, nil)
@@ -264,12 +260,10 @@ func TestSDK_WebApps_HostAndFunctionKeys(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestSDK_WebApps_InvokeAuthLevelContract is the end-to-end contract of the
-// Azure Functions authLevel enforcement on the real invocation path: the
-// declared httpTrigger authLevel decides which key (if any) POST /api/function
-// demands, and a wrong or missing key answers 401 exactly as the real
-// Functions host does. The app runs a container that answers every request it
-// is let through.
+// TestSDK_WebApps_InvokeAuthLevelContract: the declared httpTrigger authLevel
+// decides which key POST /api/function demands, and a wrong or missing key
+// answers 401, as the Functions host does. The app's container answers every
+// request let through.
 func TestSDK_WebApps_InvokeAuthLevelContract(t *testing.T) {
 	t.Parallel()
 	rg, name := "sdk-invoke-auth-rg", "invoke-auth-app"
@@ -280,8 +274,8 @@ func TestSDK_WebApps_InvokeAuthLevelContract(t *testing.T) {
 	client, err := armappservice.NewWebAppsClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)
 
-	// authLevel "function": no key → 401; the function's own key, a host
-	// function key, or the master key → 200.
+	// authLevel "function": no key answers 401; the function's key, a host
+	// function key or the master key answers 200.
 	stage3CreateFunction(t, client, rg, name, "function", "function")
 	assert.Equal(t, http.StatusUnauthorized, stage3Invoke(t, name, "", ""), "no key must be rejected")
 	assert.Equal(t, http.StatusUnauthorized, stage3Invoke(t, name, "wrong-key", "header"), "a wrong key must be rejected")
@@ -303,7 +297,7 @@ func TestSDK_WebApps_InvokeAuthLevelContract(t *testing.T) {
 	assert.Equal(t, http.StatusUnauthorized, stage3Invoke(t, name, *hostKeys.FunctionKeys["default"], "header"), "a host function key must not open an admin function")
 	assert.Equal(t, http.StatusOK, stage3Invoke(t, name, *hostKeys.MasterKey, "header"), "the master key must open an admin function")
 
-	// authLevel "anonymous": keyless.
+	// authLevel "anonymous": no key needed.
 	stage3CreateFunction(t, client, rg, name, "function", "anonymous")
 	assert.Equal(t, http.StatusOK, stage3Invoke(t, name, "", ""), "an anonymous function must stay keyless")
 }
@@ -312,8 +306,8 @@ func TestSDK_WebApps_WebJobsRealRuns(t *testing.T) {
 	t.Parallel()
 	pullImageWithRetry(t, stage3AlpineImage)
 	rg, name := "sdk-webjobs-rg", "sdk-webjobs-app"
-	// The site's own container answers HTTP on port 80, so the deployment's
-	// restart reaches RuntimeSuccessful.
+	// The site's container answers HTTP on port 80, so the deployment's restart
+	// reaches RuntimeSuccessful.
 	azureCreateContainerSite(t, rg, name, stage3AlpineImage,
 		`sh -c "while true; do printf 'HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n' | nc -l -p 80; done"`, nil)
 	defer azureDeleteSite(rg, name)
@@ -330,7 +324,6 @@ func TestSDK_WebApps_WebJobsRealRuns(t *testing.T) {
 	})
 	pkgURL := servePackage(t, pkg)
 
-	// Deploy the package through the MSDeploy long-running operation.
 	deployPoller, err := client.BeginCreateMSDeployOperation(ctx, rg, name, armappservice.MSDeploy{
 		Properties: &armappservice.MSDeployCore{PackageURI: to.Ptr(pkgURL)},
 	}, nil)
@@ -351,7 +344,7 @@ func TestSDK_WebApps_WebJobsRealRuns(t *testing.T) {
 	require.NotNil(t, logResp.Properties)
 	require.GreaterOrEqual(t, len(logResp.Properties.Entries), 2, "the MSDeploy log must record start and completion")
 
-	// The combined webjobs view sees all three deployed jobs.
+	// The combined webjobs view lists all three jobs.
 	var allJobs []*armappservice.WebJob
 	pager := client.NewListWebJobsPager(rg, name, nil)
 	for pager.More() {
@@ -374,8 +367,8 @@ func TestSDK_WebApps_WebJobsRealRuns(t *testing.T) {
 	}
 	require.Len(t, triggered, 2)
 
-	// A real run: the job's run.sh executes in a container of the site's own
-	// image; the history records the container's actual exit status.
+	// The job's run.sh runs in a container of the site's image; the history
+	// records its exit status.
 	_, err = client.RunTriggeredWebJob(ctx, rg, name, "report", nil)
 	require.NoError(t, err)
 	successRun := stage3AwaitRun(t, client, rg, name, "report")
@@ -388,7 +381,7 @@ func TestSDK_WebApps_WebJobsRealRuns(t *testing.T) {
 	assert.Equal(t, armappservice.TriggeredWebJobStatusFailed, *failedRun.Properties.Runs[0].Status,
 		"a run whose process exits non-zero must record Failed")
 
-	// A single history entry is addressable by its run id.
+	// A history entry is addressable by its run ID.
 	runID := *successRun.Name
 	one, err := client.GetTriggeredWebJobHistory(ctx, rg, name, "report", runID, nil)
 	require.NoError(t, err)
@@ -398,7 +391,7 @@ func TestSDK_WebApps_WebJobsRealRuns(t *testing.T) {
 	require.NotNil(t, jobDetail.Properties.LatestRun)
 
 	// The continuous job auto-started with the deployment (no WEBJOBS_STOPPED
-	// setting) and runs a real container; stop kills it, start revives it.
+	// setting); stop kills its container, start revives it.
 	stage3AwaitContinuousStatus(t, client, rg, name, "worker", armappservice.ContinuousWebJobStatusRunning)
 	_, err = client.StopContinuousWebJob(ctx, rg, name, "worker", nil)
 	require.NoError(t, err)
@@ -416,7 +409,7 @@ func TestSDK_WebApps_WebJobsRealRuns(t *testing.T) {
 	}
 	require.Len(t, continuous, 1)
 
-	// Deletes remove the jobs (the continuous one's container included).
+	// Deleting the continuous job removes its container.
 	_, err = client.DeleteTriggeredWebJob(ctx, rg, name, "flaky", nil)
 	require.NoError(t, err)
 	_, err = client.GetTriggeredWebJob(ctx, rg, name, "flaky", nil)
@@ -426,8 +419,8 @@ func TestSDK_WebApps_WebJobsRealRuns(t *testing.T) {
 	_, err = client.GetContinuousWebJob(ctx, rg, name, "worker", nil)
 	require.Error(t, err)
 
-	// The deployment left a deployment-status record observable through the
-	// CsmDeploymentStatus surface, including its long-running GET.
+	// The deployment left a CsmDeploymentStatus record, readable through its
+	// long-running GET too.
 	var statuses []*armappservice.CsmDeploymentStatus
 	spager := client.NewListProductionSiteDeploymentStatusesPager(rg, name, nil)
 	for spager.More() {
@@ -440,8 +433,8 @@ func TestSDK_WebApps_WebJobsRealRuns(t *testing.T) {
 	assert.Equal(t, armappservice.DeploymentBuildStatusRuntimeSuccessful, *finalStatus.Properties.Status)
 }
 
-// stage3AwaitRun polls a triggered webjob's history until its newest run
-// reaches a terminal status.
+// stage3AwaitRun polls a triggered webjob's history until its newest run is
+// terminal.
 func stage3AwaitRun(t *testing.T, client *armappservice.WebAppsClient, rg, name, job string) *armappservice.TriggeredJobHistory {
 	t.Helper()
 	deadline := time.Now().Add(120 * time.Second)
@@ -454,8 +447,8 @@ func stage3AwaitRun(t *testing.T, client *armappservice.WebAppsClient, rg, name,
 			entries = append(entries, page.Value...)
 		}
 		if len(entries) > 0 && len(entries[0].Properties.Runs) > 0 {
-			// The SDK's enum predates the 2025-03-01 "Running" member, so the
-			// in-flight state is compared as the wire string it is.
+			// The SDK's enum predates the 2025-03-01 "Running" member, so compare the wire
+			// string.
 			if status := *entries[0].Properties.Runs[0].Status; string(status) != "Running" {
 				return entries[0]
 			}
@@ -467,8 +460,6 @@ func stage3AwaitRun(t *testing.T, client *armappservice.WebAppsClient, rg, name,
 	}
 }
 
-// stage3AwaitContinuousStatus polls a continuous webjob until it reports the
-// wanted status.
 func stage3AwaitContinuousStatus(t *testing.T, client *armappservice.WebAppsClient, rg, name, job string, want armappservice.ContinuousWebJobStatus) {
 	t.Helper()
 	deadline := time.Now().Add(120 * time.Second)
@@ -498,9 +489,8 @@ func TestSDK_WebApps_DeploymentExtras(t *testing.T) {
 	pkg := makeJobsZip(t, map[string]string{"server.js": kuduFileServer, "index.html": "<h1>stage3</h1>"})
 	pkgURL := servePackage(t, pkg)
 
-	// OneDeploy. The swagger models no request body for
-	// WebApps_CreateOneDeployOperation, so the deployment source travels the
-	// way az webapp deploy sends it: a JSON body naming the packageUri.
+	// The swagger models no body for WebApps_CreateOneDeployOperation, so send
+	// what `az webapp deploy` sends: a JSON body naming the packageUri.
 	putURL := baseURL + "/subscriptions/" + subscriptionID + "/resourceGroups/" + rg +
 		"/providers/Microsoft.Web/sites/" + name + "/extensions/onedeploy?api-version=2025-03-01"
 	putReq, err := http.NewRequestWithContext(ctx, "PUT", putURL,
@@ -521,7 +511,7 @@ func TestSDK_WebApps_DeploymentExtras(t *testing.T) {
 	assert.Equal(t, float64(4), oneDeployObj["status"], "OneDeploy must report Kudu status 4 (Success)")
 	assert.Equal(t, "OneDeploy", oneDeployObj["deployer"])
 
-	// The OneDeploy deployment produced a deployment-status record.
+	// OneDeploy produced a deployment status record.
 	var statuses []*armappservice.CsmDeploymentStatus
 	spager := client.NewListProductionSiteDeploymentStatusesPager(rg, name, nil)
 	for spager.More() {
@@ -537,7 +527,7 @@ func TestSDK_WebApps_DeploymentExtras(t *testing.T) {
 	require.Equal(t, http.StatusOK, status, "%s", served)
 	assert.Equal(t, "<h1>stage3</h1>", string(served))
 
-	// Instance-scoped MSDeploy (the sim's one instance).
+	// Instance-scoped MSDeploy, on the site's one instance.
 	instPoller, err := client.BeginCreateInstanceMSDeployOperation(ctx, rg, name, "0", armappservice.MSDeploy{
 		Properties: &armappservice.MSDeployCore{PackageURI: to.Ptr(pkgURL)},
 	}, nil)
@@ -551,11 +541,11 @@ func TestSDK_WebApps_DeploymentExtras(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, instLog.Properties.Entries)
 
-	// An app with no source control configured has no repository to sync.
+	// An app with no source control has no repository to sync.
 	_, err = client.SyncRepository(ctx, rg, name, nil)
 	require.Error(t, err)
 
-	// newpassword rotates the SCM publishing password observably.
+	// newpassword rotates the SCM publishing password.
 	credsPoller, err := client.BeginListPublishingCredentials(ctx, rg, name, nil)
 	require.NoError(t, err)
 	before, err := credsPoller.PollUntilDone(ctx, nil)
@@ -569,8 +559,7 @@ func TestSDK_WebApps_DeploymentExtras(t *testing.T) {
 	assert.NotEqual(t, *before.Properties.PublishingPassword, *after.Properties.PublishingPassword,
 		"newpassword must rotate the publishing password")
 
-	// Provider-global publishing user: write, echo without the password, and
-	// read back.
+	// The provider-global publishing user echoes without the password.
 	mgmt, err := armappservice.NewWebSiteManagementClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)
 	updated, err := mgmt.UpdatePublishingUser(ctx, armappservice.User{
@@ -586,7 +575,7 @@ func TestSDK_WebApps_DeploymentExtras(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "stage3-deployer", *fetched.Properties.PublishingUserName)
 
-	// Provider-global source controls: catalog, token write, read-back.
+	// Provider-global source controls: the catalog, a token write, the read-back.
 	var sourceControls []*armappservice.SourceControl
 	scPager := mgmt.NewListSourceControlsPager(nil)
 	for scPager.More() {
@@ -609,8 +598,7 @@ func TestSDK_WebApps_DeploymentExtras(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "gho_stage3", *scFetched.Properties.Token)
 
-	// Slot mirrors of the deployment surface: MSDeploy + deploymentStatus on
-	// a slot.
+	// MSDeploy and deploymentStatus on a slot.
 	slotPoller, err := client.BeginCreateOrUpdateSlot(ctx, rg, name, "staging", armappservice.Site{Location: to.Ptr("eastus")}, nil)
 	require.NoError(t, err)
 	_, err = slotPoller.PollUntilDone(ctx, nil)

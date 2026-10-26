@@ -9,10 +9,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestAzureResources_CompletionSurfaces exercises the completion of the
-// Microsoft.Resources control plane: tag management at an arbitrary ARM scope
-// (CreateOrUpdateAtScope / GetAtScope / UpdateAtScope / DeleteAtScope) and
-// resource-provider registration at management-group scope.
+// TestAzureResources_CompletionSurfaces covers tags at an arbitrary ARM scope
+// and provider registration at management-group scope.
 func TestAzureResources_CompletionSurfaces(t *testing.T) {
 	t.Parallel()
 	rg := "resources-completion-rg"
@@ -52,10 +50,8 @@ func TestAzureResources_CompletionSurfaces(t *testing.T) {
 		require.NoError(t, err)
 	})
 
-	// Registering and unregistering a provider have to survive the call. A
-	// client registers precisely so the read that follows says Registered, and
-	// Terraform polls that read — an unregister whose state reverts on the next
-	// GET reports work that did not happen.
+	// A client registers so the next read says Registered, and Terraform polls
+	// that read, so registration state must persist.
 	t.Run("RegistrationStateSurvivesTheCall", func(t *testing.T) {
 		client, err := armresources.NewProvidersClient(subscriptionID, cred, clientOpts())
 		require.NoError(t, err)
@@ -82,16 +78,14 @@ func TestAzureResources_CompletionSurfaces(t *testing.T) {
 		require.NotNil(t, back.RegistrationState)
 		assert.Equal(t, "Registered", *back.RegistrationState)
 
-		// A namespace this subscription never unregistered is registered, and
-		// one subscription's choice is not another's.
+		// A namespace this subscription never unregistered is registered, and one
+		// subscription's choice is not another's.
 		other, err := client.Get(ctx, "Microsoft.Storage", nil)
 		require.NoError(t, err)
 		require.NotNil(t, other.RegistrationState)
 		assert.Equal(t, "Registered", *other.RegistrationState)
 
-		// The listing reports the same state the single read does. Two reads
-		// of one fact must not disagree — the list built its own answer and
-		// said Registered for a namespace just unregistered.
+		// The list reports the same state as the single read.
 		_, err = client.Unregister(ctx, ns, nil)
 		require.NoError(t, err)
 		var listed string

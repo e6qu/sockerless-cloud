@@ -34,16 +34,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestACRTasks_ScheduleRunDockerBuild exercises the ACR Tasks quick-build
-// slice exactly as backends/aca does for the reverse-agent bootstrap
-// overlay: upload a build context to blob storage, then
-// RegistriesClient.BeginScheduleRun with a DockerBuildRequest pointing at
-// that blob. The simulator fetches the context, runs `docker build` on the
-// host engine, and — faithful to real ACR Tasks with IsPushEnabled —
-// `docker push`es the result to the registry and removes the local copy.
-// We point the image at a throwaway registry the engine can reach (a
-// stand-in for the ACR `/v2/` endpoint a workload would pull from) and
-// assert the image landed there and is gone from the local daemon.
+// TestACRTasks_ScheduleRunDockerBuild uploads a build context to Azure Blob
+// Storage and schedules a DockerBuildRequest on it. As ACR Tasks does with
+// IsPushEnabled, the simulator builds on the host engine, pushes the result to
+// the registry and removes the local copy. The image targets a throwaway
+// registry the engine can reach.
 func TestACRTasks_ScheduleRunDockerBuild(t *testing.T) {
 	t.Parallel()
 	if _, err := exec.LookPath("docker"); err != nil {
@@ -58,25 +53,17 @@ func TestACRTasks_ScheduleRunDockerBuild(t *testing.T) {
 		regPort = "5099"
 	)
 	acrEnsureRegistry(t, rg, regName)
-	// A real registry the build host can push to / the test can read, served
-	// over TLS the way every Azure Container Registry login server is, so the
-	// push exercises the certificate-verifying client path a real registry
-	// gets.
+	// The throwaway registry serves TLS like every Azure Container Registry login
+	// server, so the push takes the certificate-verifying path.
 	coordinate := "127.0.0.1:" + regPort
 	authority := startThrowawayRegistry(t, regPort)
 
-	// Negative control for the trust installed below. The pull always fails —
-	// that tag does not exist — so what matters is WHY. A certificate refusal
-	// means the engine does not trust this registry yet, which makes the
-	// installation falsifiable: it must convert that refusal into the
-	// registry's own "manifest unknown", asserted immediately after it.
-	//
-	// Engines genuinely differ here. dockerd treats loopback registries as
-	// insecure by default, so it reaches this coordinate with no trust
-	// configuration at all and answers "manifest unknown" straight away. Where
-	// that happens the installation cannot be falsified at this coordinate, and
-	// this test says so rather than asserting another engine's wording;
-	// proving the mechanism itself belongs to testutil/registrytrust.
+	// Negative control for the trust installed below: the absent tag never
+	// resolves, so what matters is why. A certificate refusal must turn into the
+	// registry's own "manifest unknown" once trust is installed. dockerd treats
+	// loopback registries as insecure and answers "manifest unknown" at once;
+	// there the installation cannot be falsified at this coordinate, and
+	// testutil/registrytrust proves the mechanism instead.
 	probe, err := registrytrust.PullFromRegistryUnderTest(ctx, coordinate+"/sockerless-overlay/aca:absent")
 	require.Error(t, err, "the absent tag must not resolve before anything is pushed: %s", probe)
 	trustIsFalsifiable := strings.Contains(string(probe), "certificate signed by unknown authority")
@@ -92,8 +79,7 @@ func TestACRTasks_ScheduleRunDockerBuild(t *testing.T) {
 	t.Cleanup(func() { require.NoError(t, cleanupTrust()) })
 
 	if trustIsFalsifiable {
-		// The same pull must now be refused by the registry rather than by the
-		// certificate, which is what proves the authority installation worked.
+		// The registry, not the certificate, now refuses the pull.
 		trusted, err := registrytrust.PullFromRegistryUnderTest(ctx, coordinate+"/sockerless-overlay/aca:absent")
 		require.Error(t, err, "the absent tag must still not resolve: %s", trusted)
 		assert.NotContains(t, string(trusted), "certificate signed by unknown authority",
@@ -101,14 +87,12 @@ func TestACRTasks_ScheduleRunDockerBuild(t *testing.T) {
 		assert.Contains(t, string(trusted), "manifest unknown",
 			"after trust is installed the refusal must come from the registry, not the certificate")
 	}
-	// Pre-pull the build's base image so the sim's `docker build` uses the
-	// local cache instead of racing a fresh (throttle-prone) public-mirror
-	// pull mid-build.
+	// Pre-pull the base image so the build does not race a throttle-prone mirror
+	// pull.
 	pullImageWithRetry(t, "mirror.gcr.io/library/alpine:3.20")
 	imageName := fmt.Sprintf("%s/sockerless-overlay/aca:test-%d", coordinate, time.Now().UnixNano())
 
-	// 1. Upload a build context (Dockerfile + a file COPY'd in, mirroring
-	// the bootstrap overlay shape) to the sim's blob storage.
+	// A Dockerfile plus a file it COPYs.
 	blobClient, err := azblob.NewClientWithNoCredential(storageSDKURL(t, account, "blob"),
 		&azblob.ClientOptions{ClientOptions: storageSDKOptions()})
 	require.NoError(t, err)
@@ -126,7 +110,6 @@ func TestACRTasks_ScheduleRunDockerBuild(t *testing.T) {
 	require.NoError(t, err)
 	sourceLocation := fmt.Sprintf("https://%s.blob.core.windows.net/%s/%s", account, ctr, blobName)
 
-	// 2. BeginScheduleRun with the DockerBuildRequest the backend builds.
 	regClient, err := armcontainerregistry.NewRegistriesClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 
@@ -142,7 +125,6 @@ func TestACRTasks_ScheduleRunDockerBuild(t *testing.T) {
 	}, nil)
 	require.NoError(t, err)
 
-	// The operation completes once the run is queued; the build runs after.
 	queued, err := poller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 	require.NotNil(t, queued.Properties)
@@ -157,8 +139,7 @@ func TestACRTasks_ScheduleRunDockerBuild(t *testing.T) {
 	assert.NotNil(t, result.Properties.StartTime)
 	assert.NotNil(t, result.Properties.FinishTime)
 
-	// 3. Faithful build→push: the image must live in the registry (pullable
-	// via /v2/), NOT on the build host's local daemon.
+	// The image lives in the registry, not on the build host's daemon.
 	t.Cleanup(func() { _ = exec.Command("docker", "image", "rm", "-f", imageName).Run() })
 	tagOnly := imageName[strings.LastIndex(imageName, ":")+1:]
 	manifestURL := fmt.Sprintf("https://%s/v2/sockerless-overlay/aca/manifests/%s", coordinate, tagOnly)
@@ -171,8 +152,7 @@ func TestACRTasks_ScheduleRunDockerBuild(t *testing.T) {
 	assert.Error(t, exec.Command("docker", "image", "inspect", imageName).Run(),
 		"built overlay image %s must NOT remain on the local daemon after push", imageName)
 
-	// 4. The run's build log is a blob at the advertised link, read the way
-	// `az acr build` streams it: the Blob service's get-properties, whose
+	// Read the run's log blob as `az acr build` streams it: get-properties, whose
 	// `Complete` metadata says the run ended and how, then the content.
 	sas, err := runsClient.GetLogSasURL(ctx, rg, regName, *result.Properties.RunID, nil)
 	require.NoError(t, err)
@@ -190,17 +170,13 @@ func TestACRTasks_ScheduleRunDockerBuild(t *testing.T) {
 	assert.Contains(t, string(logBytes), "The push refers to repository",
 		"the run log must carry the docker build/push output")
 
-	// A link to the logs of a run that never happened leads nowhere — the
-	// endpoint it points at answers 404 — so the action refuses rather than
-	// handing out a URL that reports a log is there.
+	// A run that never happened has no log link: its endpoint would answer 404.
 	_, err = runsClient.GetLogSasURL(ctx, rg, regName, "ca-does-not-exist", nil)
 	require.Error(t, err, "a run nobody scheduled has no log link")
 }
 
-// pullImageWithRetry pulls an image with bounded exponential backoff so a
-// transient public-mirror throttle (toomanyrequests / network blip) doesn't
-// flake docker-dependent setup — the same strict rate-limit posture the sim
-// pull paths take. Fails the test only after exhausting retries.
+// pullImageWithRetry pulls with bounded exponential backoff so a transient
+// mirror throttle does not flake setup.
 func pullImageWithRetry(t *testing.T, image string) {
 	t.Helper()
 	if err := baseimage.Ensure(image); err != nil {
@@ -208,21 +184,15 @@ func pullImageWithRetry(t *testing.T, image string) {
 	}
 }
 
-// startThrowawayRegistry runs a real registry:2 on 127.0.0.1:<port> for the
-// duration of the test, serving HTTPS from a certificate this test issues — a
-// reachable stand-in for the ACR `/v2/` login server the sim's ACR Tasks pushes
-// to, which is HTTPS in every region. It returns the certificate authority the
-// engine and the test have to trust to reach it.
-//
-// The certificate and key are staged into the container with `docker cp`
-// rather than a bind mount, because the engine resolves a mount source on the
-// host it runs on, which is not the filesystem this test process sees when it
-// runs inside the Linux harness container.
+// startThrowawayRegistry runs registry:2 on 127.0.0.1:<port> over HTTPS from a
+// certificate this test issues, standing in for an ACR login server, and
+// returns the authority the engine and the test must trust. `docker cp` stages
+// the certificate because the engine resolves bind-mount sources on its own
+// host, not in the harness container this test may run in.
 func startThrowawayRegistry(t *testing.T, port string) []byte {
 	t.Helper()
 	const regImage = "mirror.gcr.io/library/registry:2"
-	// Pull the registry image up front with retries so `docker run` doesn't
-	// inline-pull (and exit 125) on a transient public-mirror throttle.
+	// Pre-pull so `docker run` does not inline-pull and exit 125 on a throttle.
 	pullImageWithRetry(t, regImage)
 
 	authority, serving := issueRegistryCertificate(t)
@@ -272,9 +242,9 @@ func startThrowawayRegistry(t *testing.T, port string) []byte {
 	return nil
 }
 
-// issueRegistryCertificate mints a certificate authority and a serving
-// certificate for the loopback registry, and returns the authority's PEM plus
-// a directory holding registry.crt and registry.key for the registry to serve.
+// issueRegistryCertificate mints an authority and a serving certificate, and
+// returns the authority's PEM and a directory holding registry.crt and
+// registry.key.
 func issueRegistryCertificate(t *testing.T) ([]byte, string) {
 	t.Helper()
 	authorityKey, err := rsa.GenerateKey(rand.Reader, 2048)
@@ -321,9 +291,8 @@ func issueRegistryCertificate(t *testing.T) ([]byte, string) {
 	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: authorityDER}), directory
 }
 
-// registryClient returns an HTTP client that verifies the throwaway registry's
-// certificate against the authority that issued it — the same verification the
-// container engine performs, rather than a skipped one.
+// registryClient verifies the throwaway registry's certificate as the
+// container engine does.
 func registryClient(t *testing.T, authority []byte) *http.Client {
 	t.Helper()
 	pool := x509.NewCertPool()
@@ -333,12 +302,9 @@ func registryClient(t *testing.T, authority []byte) *http.Client {
 	return &http.Client{Transport: transport, Timeout: 60 * time.Second}
 }
 
-// TestACRTasks_ScheduleRunMissingContextFails asserts the build fails
-// loudly when the source context blob doesn't exist, rather than silently
-// producing no image. ACR reports a build outcome through the Run's
-// `status` (the run resource is returned successfully; it's the *run* that
-// failed), which is exactly what backends/aca's ACRBuildService checks to
-// surface the error.
+// TestACRTasks_ScheduleRunMissingContextFails: a missing source context fails
+// the run. ACR returns the run resource successfully and reports the outcome
+// in its status.
 func TestACRTasks_ScheduleRunMissingContextFails(t *testing.T) {
 	t.Parallel()
 	if _, err := exec.LookPath("docker"); err != nil {
@@ -376,9 +342,9 @@ func TestACRTasks_ScheduleRunMissingContextFails(t *testing.T) {
 		"the run says why it failed")
 }
 
-// TestACRTasks_CancelStopsARunningBuild schedules a build that would run for
-// ten minutes, waits until it is Running, and cancels it: Runs_Cancel answers
-// once the build has stopped, the run reads Canceled, and no image was built.
+// TestACRTasks_CancelStopsARunningBuild cancels a ten-minute build once it is
+// Running: Runs_Cancel answers once the build stopped, the run reads Canceled,
+// and no image was built.
 func TestACRTasks_CancelStopsARunningBuild(t *testing.T) {
 	t.Parallel()
 	if _, err := exec.LookPath("docker"); err != nil {
@@ -429,8 +395,8 @@ func TestACRTasks_CancelStopsARunningBuild(t *testing.T) {
 	require.NotNil(t, running.Properties.StartTime)
 	assert.Nil(t, running.Properties.FinishTime, "a running run has not finished")
 
-	// Follow the log the way `az acr build` streams it until the build's own
-	// step has started, so the cancel lands on a docker step in flight.
+	// Follow the log until the build's own step starts, so the cancel lands on a
+	// step in flight.
 	sas, err := runsClient.GetLogSasURL(ctx, rg, regName, runID, nil)
 	require.NoError(t, err)
 	logBlob, err := blob.NewClientWithNoCredential(*sas.LogLink, nil)
@@ -454,7 +420,7 @@ func TestACRTasks_CancelStopsARunningBuild(t *testing.T) {
 }
 
 // awaitACRRunLog reads a running run's log blob until it holds want, while the
-// blob carries no `Complete` metadata: the cadence `az acr build` streams at.
+// blob carries no `Complete` metadata, at the cadence `az acr build` streams.
 func awaitACRRunLog(t *testing.T, logBlob *blob.Client, want string) {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Minute)
@@ -480,15 +446,14 @@ func awaitACRRunLog(t *testing.T, logBlob *blob.Client, want string) {
 	}
 }
 
-// awaitACRRun polls the run's own status until it is terminal: ACR Tasks
-// offers no waiter or operation for a run once it is queued.
+// awaitACRRun polls the run's status: ACR Tasks offers no waiter or operation
+// for a run once it is queued.
 func awaitACRRun(t *testing.T, runs *armcontainerregistry.RunsClient, rg, registry, runID string) armcontainerregistry.Run {
 	t.Helper()
 	return awaitACRRunLeaves(t, runs, rg, registry, runID,
 		armcontainerregistry.RunStatusQueued, armcontainerregistry.RunStatusStarted, armcontainerregistry.RunStatusRunning)
 }
 
-// awaitACRRunLeaves polls the run until its status is none of pending.
 func awaitACRRunLeaves(t *testing.T, runs *armcontainerregistry.RunsClient, rg, registry, runID string, pending ...armcontainerregistry.RunStatus) armcontainerregistry.Run {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Minute)
@@ -506,8 +471,7 @@ func awaitACRRunLeaves(t *testing.T, runs *armcontainerregistry.RunsClient, rg, 
 	}
 }
 
-// acrLogCompletion reads the `Complete` metadata of a run's log blob, whose
-// key casing the Blob service does not fix.
+// The Blob service does not fix the casing of the `Complete` metadata key.
 func acrLogCompletion(metadata map[string]*string) string {
 	for key, value := range metadata {
 		if strings.EqualFold(key, "complete") && value != nil {

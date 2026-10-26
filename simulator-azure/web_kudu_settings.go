@@ -11,20 +11,17 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// web_kudu_settings.go serves Kudu's settings API on a site's SCM host: GET
-// /api/settings reads every setting Kudu acts on — its defaults, under the
-// settings written through this API, under the site's app settings — and
-// /api/settings/{key} reads one; POST /api/settings writes settings and
-// DELETE /api/settings/{key} removes one. Kudu keeps the settings written
-// here in /home/site/deployments/settings.xml; the simulator keeps them in a
-// store beside the site, which a slot swap moves with the content.
+// Kudu's settings API: GET /api/settings reads every setting Kudu acts on (its
+// defaults, under API-written settings, under app settings), /api/settings/{key}
+// reads one, POST writes and DELETE removes. Kudu keeps API-written settings in
+// /home/site/deployments/settings.xml; the simulator keeps them in a store
+// beside the site, which a slot swap moves with the content.
 
-// kuduSiteSettings holds the settings written through the API, keyed by the
-// site's resource ID.
+// Keyed by site resource ID.
 var kuduSiteSettings sim.Store[map[string]string]
 
-// kuduSettings is the merged view: an app setting overrides a setting written
-// through the API, which overrides Kudu's default.
+// An app setting overrides an API-written setting, which overrides Kudu's
+// default.
 func kuduSettings(site *Site) map[string]string {
 	out := maps.Clone(kuduSettingDefaults)
 	written, _ := kuduSiteSettings.Get(site.ID)
@@ -37,8 +34,7 @@ func kuduSettings(site *Site) map[string]string {
 	return out
 }
 
-// kuduSetFold sets k in m, replacing a key that differs from it only in case,
-// as Kudu's settings are case-insensitive.
+// Kudu's settings are case-insensitive.
 func kuduSetFold(m map[string]string, k, v string) {
 	for existing := range m {
 		if strings.EqualFold(existing, k) && existing != k {

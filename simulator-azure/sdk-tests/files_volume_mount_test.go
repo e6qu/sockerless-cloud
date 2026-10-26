@@ -15,12 +15,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// An Azure Files share reached through the Files data plane and the same share
-// mounted into a Container Apps job are one resource: `az storage file upload`
-// puts a file where the job's Volume{StorageType: AzureFile} reads it. This
-// test drives both ends with their real clients — the azfile SDK writes, an
-// alpine container mounting the share reads — so nothing but agreement on the
-// bytes can make it pass.
+// A share reached through the Azure Files data plane and the same share
+// mounted into a Container Apps job are one resource: azfile writes, and an
+// alpine container mounting the share reads.
 func TestStorageSDK_FilesDataPlaneBytesReachAContainerAppsMount(t *testing.T) {
 	t.Parallel()
 	const (
@@ -48,15 +45,15 @@ func TestStorageSDK_FilesDataPlaneBytesReachAContainerAppsMount(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, fileClient.UploadBuffer(ctx, payload, nil))
 
-	// The share materializes at <files data dir>/<account>/<share>, which is
-	// the host path the simulator's Container Apps executor bind-mounts.
+	// The simulator's Container Apps executor bind-mounts
+	// <files data dir>/<account>/<share>.
 	hostPath := filepath.Join(azureFilesDataDir, account, share, fileName)
 	onDisk, err := os.ReadFile(hostPath)
 	require.NoError(t, err, "the uploaded file must exist in the directory a volume mount binds: %s", hostPath)
 	assert.Equal(t, payload, onDisk, "the mounted share must hold the uploaded bytes")
 
-	// Now mount it: the environment storage names the account and share, the
-	// job's volume references the storage, and the container reads the file.
+	// The environment storage names the account and share, and the job's volume
+	// references the storage.
 	ensureRG(t, rg)
 	ensureManagedEnv(t, rg, env)
 
@@ -80,8 +77,7 @@ func TestStorageSDK_FilesDataPlaneBytesReachAContainerAppsMount(t *testing.T) {
 
 	jobsClient, err := armappcontainers.NewJobsClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)
-	// The container exits 0 only when the mounted file holds exactly the bytes
-	// the data plane uploaded, so the execution status is the assertion.
+	// The container exits 0 only when the mounted file holds the uploaded bytes.
 	readBack := fmt.Sprintf(`test "$(cat /mnt/share/%s)" = "%s"`, fileName, payload)
 	poller, err := jobsClient.BeginCreateOrUpdate(ctx, rg, jobName, armappcontainers.Job{
 		Location: to.Ptr("eastus"),

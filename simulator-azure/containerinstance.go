@@ -19,10 +19,9 @@ import (
 	dockerclient "github.com/moby/moby/client"
 )
 
-// Microsoft.ContainerInstance/containerGroups. Container groups are ARM
-// resources; in Docker runtime mode the sim also starts real local
-// containers for the group's container specs and records their actual
-// stdout/stderr for the ACI logs endpoint.
+// Microsoft.ContainerInstance/containerGroups. With a container runtime the
+// simulator runs the group's containers and records their output for the Logs
+// API.
 
 type ACIContainerGroup struct {
 	ID         string            `json:"id"`
@@ -35,9 +34,7 @@ type ACIContainerGroup struct {
 	Zones      []string          `json:"zones,omitempty"`
 }
 
-// ACIContainerState is the instance-view state of an Azure Container Instances
-// container/group. Using a named type makes a mistyped state literal a compile
-// error.
+// A named type makes a mistyped state literal a compile error.
 type ACIContainerState string
 
 const (
@@ -62,7 +59,7 @@ type aciExecSession struct {
 }
 
 // aciAttachSession is a pending websocket attach to a running container's
-// standard streams (the analogue of `docker attach`).
+// standard streams.
 type aciAttachSession struct {
 	ContainerID string `json:"containerId"`
 	Password    string `json:"password"`
@@ -74,10 +71,8 @@ var (
 	aciExecSessions    sync.Map
 	aciAttachSessions  sync.Map
 	aciLogMu           sync.Mutex
-	// aciLogs holds each container's log lines, keyed by runtime key. It is
-	// store-backed like the container groups themselves: real Azure serves a
-	// finished container's logs long after the platform restarts, so a
-	// SIM_PERSIST restart must not blank the Logs API while the group persists.
+	// Store-backed so a SIM_PERSIST restart keeps serving a finished container's
+	// logs while its group persists, as Azure does.
 	aciLogs sim.Store[[]string]
 )
 
@@ -100,18 +95,13 @@ func registerContainerInstances(srv *sim.Server) {
 	srv.HandleFunc("POST "+base+"/{containerGroupName}/containers/{containerName}/exec", handleACIContainerExec)
 	srv.HandleFunc("GET "+base+"/{containerGroupName}/containers/{containerName}/execSessions/{sessionID}", handleACIContainerExecSession)
 
-	// Provider operation metadata.
 	srv.HandleFunc("GET /providers/Microsoft.ContainerInstance/operations", handleACIOperationsList)
-	// Per-region capacity, capabilities and cached images.
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/providers/Microsoft.ContainerInstance/locations/{location}/usages", handleACILocationUsages)
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/providers/Microsoft.ContainerInstance/locations/{location}/capabilities", handleACILocationCapabilities)
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/providers/Microsoft.ContainerInstance/locations/{location}/cachedImages", handleACILocationCachedImages)
-	// Outbound network dependency endpoints for a container group.
 	srv.HandleFunc("GET "+base+"/{containerGroupName}/outboundNetworkDependenciesEndpoints", handleACIOutboundNetworkDeps)
-	// Attach to a running container's standard streams (websocket handshake).
 	srv.HandleFunc("POST "+base+"/{containerGroupName}/containers/{containerName}/attach", handleACIContainerAttach)
 	srv.HandleFunc("GET "+base+"/{containerGroupName}/containers/{containerName}/attachSessions/{sessionID}", handleACIContainerAttachSession)
-	// Delete the subnet<->container-group service association link.
 	srv.HandleFunc("DELETE /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Network/virtualNetworks/{virtualNetworkName}/subnets/{subnetName}/providers/Microsoft.ContainerInstance/serviceAssociationLinks/default", handleACISubnetServiceAssociationLinkDelete)
 }
 
@@ -154,8 +144,7 @@ func handleACIContainerGroupPut(w http.ResponseWriter, r *http.Request) {
 		AzureErrorf(w, "ContainerGroupDeploymentFailed", http.StatusBadRequest, "%v", err)
 		return
 	}
-	// Real Azure never echoes osProfile/env secureValue back; strip it from
-	// the stored group once the runtime has consumed it.
+	// Azure never echoes secureValue; strip it once the runtime has consumed it.
 	aciContainerGroups.Update(id, func(stored *ACIContainerGroup) {
 		aciStripSecureValues(stored)
 	})
@@ -428,8 +417,6 @@ func handleACIContainerExecSession(w http.ResponseWriter, r *http.Request) {
 	)
 }
 
-// handleACIOperationsList returns the Microsoft.ContainerInstance resource
-// provider's published operation metadata (Operations_List).
 func handleACIOperationsList(w http.ResponseWriter, _ *http.Request) {
 	op := func(name, resource, operation, description string) map[string]any {
 		return map[string]any{
@@ -461,10 +448,8 @@ func handleACIOperationsList(w http.ResponseWriter, _ *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"value": value})
 }
 
-// handleACILocationUsages reports the subscription's Azure Container Instances
-// usage for a region (Location_ListUsage). Current consumption is computed from
-// the container groups the simulator actually holds in that region; the limits
-// are the published per-region default quotas.
+// handleACILocationUsages (Location_ListUsage) counts the groups held in the
+// region against the published per-region default quotas.
 func handleACILocationUsages(w http.ResponseWriter, r *http.Request) {
 	sub := sim.PathParam(r, "subscriptionId")
 	location := sim.PathParam(r, "location")
@@ -496,8 +481,6 @@ func handleACILocationUsages(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"value": value})
 }
 
-// handleACILocationCapabilities returns the published Azure Container Instances
-// resource capabilities for a region (Location_ListCapabilities).
 func handleACILocationCapabilities(w http.ResponseWriter, r *http.Request) {
 	location := sim.PathParam(r, "location")
 	capability := func(osType, ipType string) map[string]any {
@@ -522,15 +505,12 @@ func handleACILocationCapabilities(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"value": value})
 }
 
-// handleACILocationCachedImages returns the images cached by the platform in a
-// region (Location_ListCachedImages). The simulator maintains no Azure-managed
-// image cache, so the list is empty.
+// The simulator keeps no Azure-managed image cache, so the list is empty.
 func handleACILocationCachedImages(w http.ResponseWriter, _ *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"value": []any{}})
 }
 
-// handleACIOutboundNetworkDeps returns the container group's outbound network
-// dependency endpoints. Per the Azure contract this list is always empty.
+// The Azure contract keeps this list empty.
 func handleACIOutboundNetworkDeps(w http.ResponseWriter, r *http.Request) {
 	id := aciContainerGroupID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "containerGroupName"))
 	if _, ok := aciContainerGroups.Get(id); !ok {
@@ -540,8 +520,6 @@ func handleACIOutboundNetworkDeps(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, []string{})
 }
 
-// handleACIContainerAttach issues the websocket handshake for attaching to a
-// running container's standard streams (Containers_Attach).
 func handleACIContainerAttach(w http.ResponseWriter, r *http.Request) {
 	id := aciContainerGroupID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "containerGroupName"))
 	containerName := sim.PathParam(r, "containerName")
@@ -574,8 +552,6 @@ func handleACIContainerAttach(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleACIContainerAttachSession upgrades the attach websocket and streams the
-// running container's standard streams over it.
 func handleACIContainerAttachSession(w http.ResponseWriter, r *http.Request) {
 	sessionID := sim.PathParam(r, "sessionID")
 	v, ok := aciAttachSessions.LoadAndDelete(sessionID)
@@ -653,14 +629,8 @@ func handleACIContainerAttachSession(w http.ResponseWriter, r *http.Request) {
 	)
 }
 
-// handleACISubnetServiceAssociationLinkDelete removes the service association
-// link that binds a delegated subnet to Azure Container Instances. The
-// simulator holds no such link, so the delete is a no-op success.
-// handleACISubnetServiceAssociationLinkDelete removes the link Azure Container
-// Instances holds on a delegated subnet. The link lives on the subnet, so the
-// subnet has to exist: answering 204 for a subnet the simulator has never heard
-// of reports a delete that removed nothing as a delete that succeeded, and does
-// so for any URL of the right shape.
+// The link lives on the subnet, so the subnet has to exist; answering 204 for
+// any URL of the right shape would report a delete that removed nothing.
 func handleACISubnetServiceAssociationLinkDelete(w http.ResponseWriter, r *http.Request) {
 	subnetName := sim.PathParam(r, "subnetName")
 	vnetName := sim.PathParam(r, "virtualNetworkName")
@@ -677,14 +647,12 @@ func handleACISubnetServiceAssociationLinkDelete(w http.ResponseWriter, r *http.
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// aciLocationMatches compares two Azure region names, ignoring case and the
-// spaces Azure permits in display-form locations ("East US" == "eastus").
+// Azure permits spaces in display-form locations ("East US" == "eastus").
 func aciLocationMatches(a, b string) bool {
 	norm := func(s string) string { return strings.ReplaceAll(strings.ToLower(s), " ", "") }
 	return norm(a) == norm(b)
 }
 
-// aciGroupCPU sums the CPU cores requested across a container group's containers.
 func aciGroupCPU(group *ACIContainerGroup) float64 {
 	var total float64
 	for _, c := range aciContainers(group) {
@@ -780,9 +748,8 @@ func aciSetGroupState(group *ACIContainerGroup, state ACIContainerState) {
 	group.Properties["containers"] = containers
 }
 
-// aciGroupNetwork is the network a container group's containers run on: the
-// virtual network of the subnet its subnetIds name, where each container
-// leases its address, or the platform network.
+// aciGroupNetwork: the virtual network of the subnet subnetIds names, where
+// each container leases its address, or the platform network.
 func aciGroupNetwork(ctx context.Context, group ACIContainerGroup) (azureWorkloadNetwork, string, error) {
 	for _, entry := range propertyObjectSlice(group.Properties, "subnetIds") {
 		subnetID := stringProperty(entry, "id")
@@ -812,8 +779,8 @@ func aciStartGroupContainers(group ACIContainerGroup) error {
 		return err
 	}
 	groupAddress := ""
-	// The group's containers share one network namespace, the first
-	// container's, so they reach each other on localhost.
+	// The group's containers share the first container's network namespace, so
+	// they reach each other on localhost.
 	owner := ""
 	containers := aciContainers(&group)
 	for _, c := range containers {
@@ -849,19 +816,16 @@ func aciStartGroupContainers(group ACIContainerGroup) error {
 		}
 		logKey := key
 		sink := sim.FuncSink(func(line sim.LogLine) {
-			// The append is a read-modify-write on the stored slice; the mutex
-			// keeps concurrent sink callbacks from dropping lines.
+			// The mutex keeps concurrent sink callbacks from dropping lines in this
+			// read-modify-write.
 			aciLogMu.Lock()
 			lines, _ := aciLogs.Get(logKey)
 			aciLogs.Put(logKey, append(lines, line.Text))
 			aciLogMu.Unlock()
 		})
 		localImage := sim.ResolveLocalImage(image)
-		// The platform comes from the image's own manifest, the way every other
-		// workload this simulator starts derives it. Taking the host's
-		// architecture instead runs an image on a platform it may not have been
-		// built for, and reports a container group as running an image the
-		// engine actually resolved to a different variant.
+		// The platform comes from the image's own manifest; the host's architecture
+		// may not be one the image was built for.
 		platform, err := workload.LocalImagePlatform(context.Background(), localImage, "")
 		if err != nil {
 			return fmt.Errorf("inspect container %q image platform: %w", name, err)
@@ -927,7 +891,6 @@ func aciStartGroupContainers(group ACIContainerGroup) error {
 	aciContainerGroups.Update(group.ID, func(stored *ACIContainerGroup) {
 		aciSetGroupState(stored, ACIStateRunning)
 		aciSetGroupProvisioning(stored, "Succeeded")
-		// A group in a subnet reports the private address it holds there.
 		if ip, ok := stored.Properties["ipAddress"].(map[string]any); ok && groupAddress != "" {
 			ip["ip"] = groupAddress
 			stored.Properties["ipAddress"] = ip
@@ -974,9 +937,7 @@ func aciContainers(group *ACIContainerGroup) []map[string]any {
 	return out
 }
 
-// aciStripSecureValues removes write-only env secureValue from every
-// container in the group. Real Azure accepts secureValue on PUT but never
-// returns it on GET.
+// Azure accepts secureValue on PUT and never returns it.
 func aciStripSecureValues(group *ACIContainerGroup) {
 	for _, c := range aciContainers(group) {
 		props, _ := c["properties"].(map[string]any)

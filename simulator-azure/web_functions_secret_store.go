@@ -15,27 +15,22 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// functionsSecretStore is where the Azure Functions host keeps a function
-// app's keys: one JSON document named "host" and one per function, named after
-// the function in lower case.
+// One JSON document named "host" and one per function, named in lower case.
 type functionsSecretStore interface {
-	// list returns the live documents by name, leaving out the snapshots the
-	// host keeps of secrets it cannot decrypt (<name>.<timestamp>.snapshot.json).
+	// Leaves out the snapshots the host keeps of secrets it cannot decrypt
+	// (<name>.<timestamp>.snapshot.json).
 	list() (map[string][]byte, error)
 	put(name string, data []byte) error
 	remove(name string) error
 }
 
-// functionsSecretsContainer is the container BlobStorageSecretsRepository
-// keeps a function app's keys in, under the app's unique slot name.
+// BlobStorageSecretsRepository's container, under the app's unique slot name.
 const functionsSecretsContainer = "azure-webjobs-secrets"
 
-// siteFunctionsSecretStore resolves the store the Functions host picks for a
-// site, as DefaultSecretManagerProvider does: AzureWebJobsSecretStorageType
-// "files" selects the file store, and otherwise, with no
-// AzureWebJobsSecretStorageSas, the AzureWebJobsStorage connection string's
-// Blob service. It returns nil for a store the simulator does not model (Key
-// Vault, Kubernetes, Container Apps, a SAS URI) and for an app with no store.
+// As DefaultSecretManagerProvider picks: AzureWebJobsSecretStorageType "files"
+// selects the file store; otherwise, with no AzureWebJobsSecretStorageSas, the
+// AzureWebJobsStorage account's Blob service. Nil for a store the simulator
+// does not model (Key Vault, Kubernetes, Container Apps, a SAS URI) or none.
 func siteFunctionsSecretStore(site *Site) (functionsSecretStore, error) {
 	settings := siteAppSettings(site)
 	switch strings.ToLower(strings.TrimSpace(settings["AzureWebJobsSecretStorageType"])) {
@@ -55,14 +50,13 @@ func siteFunctionsSecretStore(site *Site) (functionsSecretStore, error) {
 	if err != nil {
 		return nil, err
 	}
-	// The host's slot name is WEBSITE_SITE_NAME in lower case for the
-	// production slot (EnvironmentExtensions.GetAzureWebsiteUniqueSlotName).
+	// The host's slot name is WEBSITE_SITE_NAME in lower case for the production
+	// slot (EnvironmentExtensions.GetAzureWebsiteUniqueSlotName).
 	return blobFunctionsSecretStore{account: account, prefix: strings.ToLower(site.Name) + "/"}, nil
 }
 
-// functionsStorageAccount resolves the storage account an AzureWebJobsStorage
-// connection string names and checks that its credential opens the account's
-// Blob service, since the host reaches its keys with that credential.
+// The host reaches its keys with the connection string's credential, so check
+// it opens the Blob service.
 func functionsStorageAccount(connection string) (string, error) {
 	fields := map[string]string{}
 	for _, part := range strings.Split(connection, ";") {
@@ -131,8 +125,8 @@ func (s fileFunctionsSecretStore) list() (map[string][]byte, error) {
 	return out, nil
 }
 
-// put replaces a secrets file in one rename, so the host's file watcher never
-// reads a partial file, and so a file the host created stays replaceable.
+// One rename, so the host's watcher never reads a partial file and a file the
+// host created stays replaceable.
 func (s fileFunctionsSecretStore) put(name string, data []byte) error {
 	if err := sim.EnsureWritableDir(s.dir); err != nil {
 		return fmt.Errorf("create the function app's secret store: %w", err)
@@ -169,9 +163,8 @@ func (s fileFunctionsSecretStore) remove(name string) error {
 	return err
 }
 
-// blobFunctionsSecretStore keeps the documents as block blobs
-// azure-webjobs-secrets/<slot name>/<name>.json in the account's Blob service,
-// the same blobs the host reads and writes through the data plane.
+// Block blobs azure-webjobs-secrets/<slot name>/<name>.json, the blobs the host
+// reads and writes through the data plane.
 type blobFunctionsSecretStore struct {
 	account string
 	prefix  string
@@ -225,6 +218,6 @@ func (s blobFunctionsSecretStore) put(name string, data []byte) error {
 	return putBlobWithContents(b, data)
 }
 
-// remove keeps a deleted function's secrets: BlobStorageSecretsRepository
-// never deletes a blob, and its purge of stale secrets does nothing.
+// BlobStorageSecretsRepository never deletes a blob, and its stale-secret
+// purge does nothing.
 func (s blobFunctionsSecretStore) remove(string) error { return nil }

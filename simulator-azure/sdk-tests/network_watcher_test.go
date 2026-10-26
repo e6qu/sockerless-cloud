@@ -14,17 +14,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Azure Network Watcher through the official armnetwork client. The diagnostics
-// are asserted against a network the test builds itself — a virtual network, a
-// subnet with a network security group and a route table, and a virtual machine
-// on it — so every verdict the watcher gives is checked against the
-// configuration that produced it rather than against a fixed expectation.
+// The diagnostics run against a network the test builds (a virtual network, a
+// subnet with a network security group and a route table, and a machine on
+// it), so each verdict is checked against the configuration that produced it.
 
-// TestNetworkWatcher_DiagnosticsFollowTheRealConfiguration builds a network,
-// then makes the watcher answer for it: IP flow verify must follow the security
-// rules, next hop must follow the route table, the security group view must
-// report the groups actually attached, and the topology must report what
-// contains what.
+// TestNetworkWatcher_DiagnosticsFollowTheRealConfiguration: IP flow verify
+// follows the security rules, next hop the route table, the security group
+// view the attached groups, and the topology what contains what.
 func TestNetworkWatcher_DiagnosticsFollowTheRealConfiguration(t *testing.T) {
 	t.Parallel()
 	rg := "netwatcher-rg"
@@ -143,8 +139,8 @@ func TestNetworkWatcher_DiagnosticsFollowTheRealConfiguration(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, armnetwork.ProvisioningStateSucceeded, *watcher.Properties.ProvisioningState)
 
-	// The rule that denies SSH has the lower priority number, so it wins over
-	// everything after it and the watcher must name it.
+	// The SSH deny rule has the lower priority number, so it wins and the watcher
+	// names it.
 	denied := verifyIPFlow(t, watcherClient, rg, armnetwork.VerificationIPFlowParameters{
 		TargetResourceID: nic.ID,
 		Direction:        to.Ptr(armnetwork.DirectionInbound),
@@ -182,7 +178,7 @@ func TestNetworkWatcher_DiagnosticsFollowTheRealConfiguration(t *testing.T) {
 	assert.Equal(t, armnetwork.AccessDeny, *fallthroughFlow.Access)
 	assert.Equal(t, "defaultSecurityRules/DenyAllInBound", *fallthroughFlow.RuleName)
 
-	// The route table covers 203.0.113.0/24 and sends it to a virtual appliance.
+	// The route table sends 203.0.113.0/24 to a virtual appliance.
 	viaAppliance := nextHop(t, watcherClient, rg, armnetwork.NextHopParameters{
 		TargetResourceID:     nic.ID,
 		SourceIPAddress:      to.Ptr(nicAddress),
@@ -192,8 +188,8 @@ func TestNetworkWatcher_DiagnosticsFollowTheRealConfiguration(t *testing.T) {
 	assert.Equal(t, "10.70.1.9", *viaAppliance.NextHopIPAddress)
 	assert.Equal(t, *routeTable.ID, *viaAppliance.RouteTableID)
 
-	// An address inside the virtual network is reached without leaving it, and a
-	// system route carries no route table id.
+	// An address inside the virtual network stays in it, and a system route
+	// carries no route table ID.
 	local := nextHop(t, watcherClient, rg, armnetwork.NextHopParameters{
 		TargetResourceID:     nic.ID,
 		SourceIPAddress:      to.Ptr(nicAddress),
@@ -241,8 +237,7 @@ func TestNetworkWatcher_DiagnosticsFollowTheRealConfiguration(t *testing.T) {
 	}
 	assert.True(t, containsNIC, "the subnet must be reported as containing the interface")
 
-	// A destination that answers is reachable; the check opens a real
-	// connection and reports the latency it measured.
+	// The check opens a connection and reports the latency it measured.
 	reachable := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -260,8 +255,8 @@ func TestNetworkWatcher_DiagnosticsFollowTheRealConfiguration(t *testing.T) {
 	assert.Equal(t, int32(0), *connectivity.ProbesFailed)
 	require.Len(t, connectivity.Hops, 2)
 
-	// A port nothing listens on is unreachable, and the failure is reported as
-	// probes that failed rather than as a security rule.
+	// A port nothing listens on is unreachable, reported as failed probes rather
+	// than a security rule.
 	unreachablePort := freeLocalPort(t)
 	unreachablePoller, err := watcherClient.BeginCheckConnectivity(ctx, rg, "NetworkWatcher_eastus", armnetwork.ConnectivityParameters{
 		Source:      &armnetwork.ConnectivitySource{ResourceID: nic.ID},
@@ -318,10 +313,9 @@ func TestNetworkWatcher_DiagnosticsFollowTheRealConfiguration(t *testing.T) {
 	assert.True(t, all["NetworkWatcher_eastus"])
 }
 
-// TestNetworkWatcher_FlowLogsAndConnectionMonitors covers the two configuration
-// children of a watcher and the target-addressed spelling of the flow log
-// configuration, which reads and writes the same record the flow log resource
-// serves.
+// TestNetworkWatcher_FlowLogsAndConnectionMonitors covers the watcher's two
+// configuration children and the target-addressed flow log spelling, which
+// reads and writes the flow log resource's record.
 func TestNetworkWatcher_FlowLogsAndConnectionMonitors(t *testing.T) {
 	t.Parallel()
 	rg := "netwatcher-config-rg"
@@ -363,12 +357,12 @@ func TestNetworkWatcher_FlowLogsAndConnectionMonitors(t *testing.T) {
 	flowLog, err := flowPoller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 	assert.Equal(t, armnetwork.ProvisioningStateSucceeded, *flowLog.Properties.ProvisioningState)
-	// The resource provider fills in the record shape a flow log is written in
-	// when the request leaves it out.
+	// The resource provider fills in the record format when the request leaves it
+	// out.
 	require.NotNil(t, flowLog.Properties.Format)
 	assert.Equal(t, armnetwork.FlowLogFormatTypeJSON, *flowLog.Properties.Format.Type)
 
-	// The target-addressed query reads the very record the resource wrote.
+	// The target-addressed query reads the record the resource wrote.
 	statusPoller, err := watcherClient.BeginGetFlowLogStatus(ctx, rg, "NetworkWatcher_config",
 		armnetwork.FlowLogStatusParameters{TargetResourceID: nsg.ID}, nil)
 	require.NoError(t, err)
@@ -377,7 +371,7 @@ func TestNetworkWatcher_FlowLogsAndConnectionMonitors(t *testing.T) {
 	assert.Equal(t, storageID, *status.Properties.StorageID)
 	assert.True(t, *status.Properties.Enabled)
 
-	// And the target-addressed write changes it, which the resource reads back.
+	// The target-addressed write changes it, and the resource reads it back.
 	configurePoller, err := watcherClient.BeginSetFlowLogConfiguration(ctx, rg, "NetworkWatcher_config",
 		armnetwork.FlowLogInformation{
 			TargetResourceID: nsg.ID,
@@ -493,8 +487,7 @@ func TestNetworkWatcher_FlowLogsAndConnectionMonitors(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestNetworkWatcher_ReportsWhatItCannotObserve pins the two answers the
-// watcher gives for state it genuinely has none of: troubleshooting a resource
+// TestNetworkWatcher_ReportsWhatItCannotObserve: troubleshooting a resource
 // type this deployment does not hold, and the internet-provider measurements
 // Azure collects with its own fleet.
 func TestNetworkWatcher_ReportsWhatItCannotObserve(t *testing.T) {
@@ -553,13 +546,12 @@ func TestNetworkWatcher_ReportsWhatItCannotObserve(t *testing.T) {
 	report, err := reportPoller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 	// The aggregation level follows from how precisely the request located the
-	// providers, and it does even when there is nothing to report.
+	// providers, even with nothing to report.
 	assert.Equal(t, "State", *report.AggregationLevel)
 	assert.Empty(t, report.ReachabilityReport)
 }
 
-// freeLocalPort returns a loopback port with nothing listening on it, so a
-// connectivity check against it has to fail for the reason the test asserts.
+// freeLocalPort returns a loopback port nothing listens on.
 func freeLocalPort(t *testing.T) int32 {
 	t.Helper()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")

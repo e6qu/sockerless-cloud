@@ -5,17 +5,9 @@ import (
 	"testing"
 )
 
-// TestODataDepthGuard: deeply-nested parens must not overflow the stack, and
-// the guard that prevents it must refuse the filter rather than fall back to a
-// filter that matches everything.
-//
-// Surviving the call is only half the contract. A Go stack overflow is fatal
-// and unrecoverable, so a crash would fail the run on its own; what a
-// return-value-free test cannot see is the other failure mode — a depth guard
-// that gives up and hands back a nil filter with a nil error, which every
-// caller reads as "no filter", i.e. serve the whole collection to a request
-// whose filter was never understood. The shallow filter alongside it keeps the
-// guard from passing by refusing everything.
+// A depth guard that gave up with a nil filter and nil error would serve the
+// whole collection, so the guard must refuse; the shallow filter keeps it from
+// passing by refusing everything.
 func TestODataDepthGuard(t *testing.T) {
 	deep := strings.Repeat("(", 2000000) + "a eq 'b'"
 	filter, err := azureParseODataFilter(deep)

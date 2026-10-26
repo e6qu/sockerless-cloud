@@ -9,17 +9,14 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// dnsResourceReferenceRequest is the body of
-// DnsResourceReference_GetByTargetResources: a list of Azure resource IDs whose
-// referencing DNS records the caller wants to resolve.
 type dnsResourceReferenceRequest struct {
 	Properties struct {
 		TargetResources []SubResource `json:"targetResources"`
 	} `json:"properties"`
 }
 
-// dnsResourceReference pairs one target Azure resource with the DNS record sets
-// that reference it (e.g. an A record whose targetResource is a public IP).
+// dnsResourceReference pairs a target resource with the record sets that
+// reference it, such as an A record whose targetResource is a public IP.
 type dnsResourceReference struct {
 	DNSResources   []SubResource `json:"dnsResources"`
 	TargetResource SubResource   `json:"targetResource"`
@@ -31,17 +28,12 @@ type dnsResourceReferenceResult struct {
 	} `json:"properties"`
 }
 
-// registerPublicDNSMore adds the public-DNS operations beyond the core
-// zone/record-set CRUD: the subscription-wide zone list, the zone and
-// record-set PATCH (Update) operations, and the cross-resource
-// getDnsResourceReference lookup.
 func registerPublicDNSMore(srv *sim.Server, zones sim.Store[PublicDnsZone], recordSets sim.Store[PublicRecordSet]) {
 	const armBase = "/subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Network"
 	const subBase = "/subscriptions/{subscriptionId}/providers/Microsoft.Network"
 
-	// Zones_List — every DNS zone in the subscription. The DNS SDK spells the
-	// subscription-wide list path lowercase ("dnszones"), unlike the
-	// resource-group list ("dnsZones"); match it exactly so the mux routes it.
+	// The DNS SDK spells the subscription-wide list "dnszones", unlike the
+	// resource group's "dnsZones".
 	srv.HandleFunc("GET "+subBase+"/dnszones", func(w http.ResponseWriter, r *http.Request) {
 		prefix := armSubscriptionID(sim.PathParam(r, "subscriptionId")) + "/"
 		filtered := zones.Filter(func(z PublicDnsZone) bool { return strings.HasPrefix(z.ID, prefix) })
@@ -49,7 +41,6 @@ func registerPublicDNSMore(srv *sim.Server, zones sim.Store[PublicDnsZone], reco
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"value": filtered})
 	})
 
-	// Zones_Update — PATCH the zone's tags.
 	srv.HandleFunc("PATCH "+armBase+"/dnsZones/{zoneName}", func(w http.ResponseWriter, r *http.Request) {
 		id := publicDNSZoneID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "zoneName"))
 		var req PublicDnsZone
@@ -70,8 +61,7 @@ func registerPublicDNSMore(srv *sim.Server, zones sim.Store[PublicDnsZone], reco
 		sim.WriteJSON(w, http.StatusOK, zone)
 	})
 
-	// RecordSets_Update — PATCH merges TTL / metadata / records onto the
-	// existing record set, one route per supported record type.
+	// RecordSets_Update merges TTL, metadata and records onto the record set.
 	for _, rt := range []string{"A", "AAAA", "CAA", "CNAME", "MX", "NS", "PTR", "SOA", "SRV", "TXT"} {
 		recordType := rt
 		srv.HandleFunc("PATCH "+armBase+"/dnsZones/{zoneName}/"+recordType+"/{recordName}", func(w http.ResponseWriter, r *http.Request) {
@@ -96,8 +86,6 @@ func registerPublicDNSMore(srv *sim.Server, zones sim.Store[PublicDnsZone], reco
 		})
 	}
 
-	// DnsResourceReference_GetByTargetResources — return, for each requested
-	// Azure resource, the DNS record sets that reference it via targetResource.
 	srv.HandleFunc("POST "+subBase+"/getDnsResourceReference", func(w http.ResponseWriter, r *http.Request) {
 		var req dnsResourceReferenceRequest
 		if err := sim.ReadJSON(r, &req); err != nil {
@@ -118,9 +106,8 @@ func registerPublicDNSMore(srv *sim.Server, zones sim.Store[PublicDnsZone], reco
 	})
 }
 
-// mergePublicRecordSet applies the non-empty fields of a PATCH body onto an
-// existing public-DNS record set, mirroring the partial-update semantics of
-// RecordSets_Update.
+// mergePublicRecordSet applies the non-empty fields, RecordSets_Update's
+// partial-update semantics.
 func mergePublicRecordSet(dst *PublicRecordSetProperties, src PublicRecordSetProperties) {
 	if src.TTL != 0 {
 		dst.TTL = src.TTL
@@ -163,10 +150,6 @@ func mergePublicRecordSet(dst *PublicRecordSetProperties, src PublicRecordSetPro
 	}
 }
 
-// registerPrivateDNSMore adds the private-DNS operations beyond the core
-// zone/record-set/vnet-link CRUD: the subscription-wide zone list, the zone /
-// record-set / virtual-network-link PATCH (Update) operations, and the
-// list-all-record-sets read.
 func registerPrivateDNSMore(srv *sim.Server, zones sim.Store[PrivateDnsZone], recordSets sim.Store[RecordSet], vnetLinks sim.Store[VNetLink]) {
 	const armBase = "/subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Network"
 	const subBase = "/subscriptions/{subscriptionId}/providers/Microsoft.Network"
@@ -175,7 +158,6 @@ func registerPrivateDNSMore(srv *sim.Server, zones sim.Store[PrivateDnsZone], re
 		return armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Network", "privateDnsZones", sim.PathParam(r, "zoneName"))
 	}
 
-	// PrivateZones_List — every private DNS zone in the subscription.
 	srv.HandleFunc("GET "+subBase+"/privateDnsZones", func(w http.ResponseWriter, r *http.Request) {
 		prefix := armSubscriptionID(sim.PathParam(r, "subscriptionId")) + "/"
 		all := zones.Filter(func(z PrivateDnsZone) bool { return strings.HasPrefix(z.ID, prefix) })
@@ -190,7 +172,6 @@ func registerPrivateDNSMore(srv *sim.Server, zones sim.Store[PrivateDnsZone], re
 		sim.WriteJSON(w, http.StatusOK, out)
 	})
 
-	// PrivateZones_Update — PATCH the zone's tags.
 	srv.HandleFunc("PATCH "+armBase+"/privateDnsZones/{zoneName}", func(w http.ResponseWriter, r *http.Request) {
 		id := privateZoneID(r)
 		var req PrivateDnsZone
@@ -208,7 +189,7 @@ func registerPrivateDNSMore(srv *sim.Server, zones sim.Store[PrivateDnsZone], re
 		sim.WriteJSON(w, http.StatusOK, zone)
 	})
 
-	// RecordSets_List — every record set in the zone, regardless of type.
+	// RecordSets_List: every record set in the zone, of any type.
 	srv.HandleFunc("GET "+armBase+"/privateDnsZones/{zoneName}/ALL", func(w http.ResponseWriter, r *http.Request) {
 		prefix := privateZoneID(r) + "/"
 		filtered := recordSets.Filter(func(rs RecordSet) bool { return strings.HasPrefix(rs.ID, prefix) })
@@ -216,8 +197,7 @@ func registerPrivateDNSMore(srv *sim.Server, zones sim.Store[PrivateDnsZone], re
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"value": filtered})
 	})
 
-	// RecordSets_Update — PATCH merges TTL / metadata / records onto the
-	// existing record set, one route per supported record type.
+	// RecordSets_Update merges TTL, metadata and records onto the record set.
 	for _, rt := range []string{"A", "AAAA", "CNAME", "MX", "PTR", "SRV", "TXT"} {
 		recordType := rt
 		srv.HandleFunc("PATCH "+armBase+"/privateDnsZones/{zoneName}/"+recordType+"/{recordName}", func(w http.ResponseWriter, r *http.Request) {
@@ -241,7 +221,6 @@ func registerPrivateDNSMore(srv *sim.Server, zones sim.Store[PrivateDnsZone], re
 		})
 	}
 
-	// VirtualNetworkLinks_Update — PATCH the link's registration flag / tags.
 	srv.HandleFunc("PATCH "+armBase+"/privateDnsZones/{zoneName}/virtualNetworkLinks/{linkName}", func(w http.ResponseWriter, r *http.Request) {
 		id := privateZoneID(r) + "/virtualNetworkLinks/" + sim.PathParam(r, "linkName")
 		var req VNetLink
@@ -265,8 +244,8 @@ func registerPrivateDNSMore(srv *sim.Server, zones sim.Store[PrivateDnsZone], re
 	})
 }
 
-// mergePrivateRecordSet applies the non-empty fields of a PATCH body onto an
-// existing private-DNS record set, mirroring RecordSets_Update semantics.
+// mergePrivateRecordSet applies the non-empty fields, RecordSets_Update's
+// partial-update semantics.
 func mergePrivateRecordSet(dst *RecordSetProperties, src RecordSetProperties) {
 	if src.TTL != 0 {
 		dst.TTL = src.TTL

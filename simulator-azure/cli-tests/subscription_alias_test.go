@@ -1,12 +1,8 @@
 package azure_cli_test
 
-// Microsoft.Subscription alias API (2021-10-01) through the Azure CLI.
-// The alias and subscription-action commands (`az account alias create/
-// show/list/delete`, `az account subscription cancel/rename/enable`) live in
-// the preview `account` CLI extension, not azure-cli core, so — following the
-// harness-wide pattern every ARM control-plane test here uses — the same wire
-// requests those commands issue are driven through `az rest` with the
-// extension's documented method, path, api-version, and body. Routes:
+// The alias and subscription-action commands (`az account alias`,
+// `az account subscription`) ship in the preview `account` extension, not
+// azure-cli core, so `az rest` sends the requests those commands issue.
 //
 //	PUT /providers/Microsoft.Subscription/aliases/{aliasName}
 //	GET /providers/Microsoft.Subscription/aliases/{aliasName}
@@ -39,16 +35,15 @@ type cliSubscription struct {
 	State          string `json:"state"`
 }
 
-// TestCLISubscriptionAliasLifecycle drives subscription creation, use, and
-// the rename/cancel/enable actions exactly as `az account alias` and
-// `az account subscription` shape them on the wire.
+// TestCLISubscriptionAliasLifecycle drives subscription creation, use, and the
+// rename, cancel and enable actions as `az account alias` and
+// `az account subscription` send them.
 func TestCLISubscriptionAliasLifecycle(t *testing.T) {
 	t.Parallel()
 	const aliasName = "cli-test-sub-alias"
 	aliasURL := fmt.Sprintf("%s/providers/Microsoft.Subscription/aliases/%s?api-version=2021-10-01", baseURL, aliasName)
 
-	// az account alias create --name cli-test-sub-alias --display-name ...
-	// --workload Production --billing-scope ...
+	// az account alias create
 	out := runCLI(t, azRest("PUT", aliasURL,
 		`{"properties":{"displayName":"CLI Created Subscription","workload":"Production","billingScope":"/providers/Microsoft.Billing/billingAccounts/sim-billing-account/enrollmentAccounts/sim-enrollment"}}`))
 	var created cliAliasResponse
@@ -61,7 +56,7 @@ func TestCLISubscriptionAliasLifecycle(t *testing.T) {
 		t.Fatalf("alias create must mint a fresh subscription id, got %q", newSubID)
 	}
 
-	// az account alias show — also the LRO poll the extension performs.
+	// az account alias show, which is also the extension's LRO poll.
 	var shown cliAliasResponse
 	deadline := time.Now().Add(30 * time.Second)
 	for {
@@ -95,8 +90,7 @@ func TestCLISubscriptionAliasLifecycle(t *testing.T) {
 		t.Fatalf("alias list did not include %q: %s", aliasName, out)
 	}
 
-	// az account subscription list — the created subscription is Enabled and
-	// enumerable.
+	// az account subscription list: the created subscription is Enabled.
 	out = runCLI(t, azRest("GET", baseURL+"/subscriptions?api-version=2021-10-01", ""))
 	var subList struct {
 		Value []cliSubscription `json:"value"`
@@ -115,8 +109,7 @@ func TestCLISubscriptionAliasLifecycle(t *testing.T) {
 		t.Fatalf("created subscription listed as %+v, want display 'CLI Created Subscription' state Enabled", *listed)
 	}
 
-	// The new subscription is a real resource scope: create a resource group
-	// inside it.
+	// The new subscription is a resource scope that holds a resource group.
 	rgURL := fmt.Sprintf("%s/subscriptions/%s/resourceGroups/cli-test-sub-alias-rg?api-version=2021-04-01", baseURL, newSubID)
 	out = runCLI(t, azRest("PUT", rgURL, `{"location":"eastus"}`))
 	var rg struct {
@@ -128,7 +121,7 @@ func TestCLISubscriptionAliasLifecycle(t *testing.T) {
 		t.Fatalf("resource group id = %q, want %q", rg.ID, wantRGPrefix)
 	}
 
-	// az account subscription rename --subscription-name ...
+	// az account subscription rename
 	actionURL := func(action string) string {
 		return fmt.Sprintf("%s/subscriptions/%s/providers/Microsoft.Subscription/%s?api-version=2021-10-01", baseURL, newSubID, action)
 	}
@@ -166,10 +159,9 @@ func TestCLISubscriptionAliasLifecycle(t *testing.T) {
 		t.Fatalf("after enable subscription state = %q, want Enabled", sub.State)
 	}
 
-	// az account alias delete — removes the alias, never the subscription.
+	// az account alias delete removes the alias, never the subscription.
 	runCLI(t, azRest("DELETE", aliasURL, ""))
-	// `az rest` exits non-zero on 404 and runCLI requires success, so assert
-	// the alias is gone via the list.
+	// `az rest` exits non-zero on 404, so check the alias is gone via the list.
 	out = runCLI(t, azRest("GET", baseURL+"/providers/Microsoft.Subscription/aliases?api-version=2021-10-01", ""))
 	parseJSON(t, out, &aliasList)
 	for _, alias := range aliasList.Value {

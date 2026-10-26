@@ -13,9 +13,8 @@ import (
 
 var azureMonitorWorkspaces sim.Store[Workspace]
 
-// A workspace is stored under its ARM id while the query data plane addresses
-// it by the customer id it was issued, so the one reaches the other through an
-// index rather than a walk of every workspace.
+// The store keys workspaces by resource ID while the query data plane
+// addresses them by customer id.
 var azureWorkspacesByCustomerID sim.GenerationIndex[Workspace]
 
 func azureWorkspaceCustomerIDKeys(ws Workspace) []string {
@@ -25,7 +24,6 @@ func azureWorkspaceCustomerIDKeys(ws Workspace) []string {
 	return []string{strings.ToLower(ws.Properties.CustomerID)}
 }
 
-// Workspace represents an Azure Log Analytics Workspace.
 type Workspace struct {
 	ID         string              `json:"id"`
 	Name       string              `json:"name"`
@@ -35,7 +33,6 @@ type Workspace struct {
 	Properties WorkspaceProperties `json:"properties"`
 }
 
-// WorkspaceProperties holds the properties of a Log Analytics Workspace.
 type WorkspaceProperties struct {
 	CustomerID                      string             `json:"customerId"`
 	ProvisioningState               string             `json:"provisioningState"`
@@ -46,13 +43,11 @@ type WorkspaceProperties struct {
 	PublicNetworkAccessForQuery     string             `json:"publicNetworkAccessForQuery,omitempty"`
 }
 
-// WorkspaceSku holds the SKU of a Log Analytics Workspace.
 type WorkspaceSku struct {
 	Name string `json:"name"`
 }
 
-// WorkspaceFeatures holds workspace feature flags.
-// The azurerm provider (go-azure-sdk) dereferences this struct — it must not be nil.
+// go-azure-sdk dereferences Features, so it must not be nil.
 type WorkspaceFeatures struct {
 	EnableLogAccessUsingOnlyResourcePermissions *bool `json:"enableLogAccessUsingOnlyResourcePermissions,omitempty"`
 	DisableLocalAuth                            *bool `json:"disableLocalAuth,omitempty"`
@@ -60,7 +55,6 @@ type WorkspaceFeatures struct {
 	ImmediatePurgeDataOn30Days                  *bool `json:"immediatePurgeDataOn30Days,omitempty"`
 }
 
-// QueryRequest holds a KQL query request body.
 type QueryRequest struct {
 	Query    string `json:"query"`
 	Timespan string `json:"timespan,omitempty"`
@@ -70,33 +64,29 @@ type QueryResponse struct {
 	Tables []Table `json:"tables"`
 }
 
-// Table holds a single result table from a KQL query.
 type Table struct {
 	Name    string   `json:"name"`
 	Columns []Column `json:"columns"`
 	Rows    [][]any  `json:"rows"`
 }
 
-// Column holds a column definition in a query result table.
 type Column struct {
 	Name string `json:"name"`
 	Type string `json:"type"`
 }
 
-// monitorLogs keeps a table's rows under logRowsKey (a workspace's) or
-// appLogRowsKey (a classic Application Insights component's).
+// Keyed by logRowsKey for a workspace or appLogRowsKey for a classic
+// Application Insights component.
 var monitorLogs *logstore.Log[monitorLogRow]
 
-// webSiteDockerLogs holds each site's retained container output, the docker
-// log App Service keeps for the site whatever its monitoring settings.
+// The docker log App Service keeps for a site whatever its monitoring
+// settings.
 var webSiteDockerLogs *logstore.Log[monitorLogRow]
 
 func appendLogRow(storeKey string, row monitorLogRow) {
 	monitorAppendRow(monitorLogs, storeKey, row)
 }
 
-// appendSiteDockerLog keeps one line of a site's container output and
-// writes it to the day's docker log file in the site's LogFiles.
 func appendSiteDockerLog(siteID, at, message string) {
 	scope := strings.ToLower(siteID)
 	row := monitorLogRow{"TimeGenerated": at, "Message": message}
@@ -123,11 +113,9 @@ func registerAzureMonitor(srv *sim.Server) {
 	}
 	kvstore.StartSweeper(srv, "azure monitor logs retention sweep", monitorRetentionSweepInterval, func(now time.Time) { monitorSweepRetention(now) })
 
-	// Subscription-scoped list of soft-deleted workspaces. Real Azure
-	// keeps deleted workspaces recoverable for 14 days; terraform-
-	// provider-azurerm queries this pre-create to find a recoverable
-	// match. The sim hard-deletes workspaces (no soft-delete state
-	// tracked), so the truthful response is always an empty list.
+	// Azure keeps a deleted workspace recoverable for 14 days, and
+	// terraform-provider-azurerm looks for one before creating. The simulator
+	// hard-deletes workspaces, so this answers an empty list.
 	deletedWorkspacesHandler := func(w http.ResponseWriter, r *http.Request) {
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"value": []any{}})
 	}
@@ -140,7 +128,6 @@ func registerAzureMonitor(srv *sim.Server) {
 		deletedWorkspacesHandler,
 	)
 
-	// PUT - Create or update workspace
 	srv.HandleFunc("PUT "+armBase+"/workspaces/{workspaceName}", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
@@ -196,11 +183,11 @@ func registerAzureMonitor(srv *sim.Server) {
 
 		workspaces.Put(resourceID, ws)
 
-		// go-azure-sdk expects 200 for sync creates
+		// go-azure-sdk expects 200 for a synchronous create.
 		sim.WriteJSON(w, http.StatusOK, ws)
 	})
 
-	// PATCH - Update workspace (azurerm v3 provider sends PATCH after initial create)
+	// The azurerm v3 provider sends PATCH after the initial create.
 	srv.HandleFunc("PATCH "+armBase+"/workspaces/{workspaceName}", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
@@ -215,7 +202,6 @@ func registerAzureMonitor(srv *sim.Server) {
 			return
 		}
 
-		// Apply partial update from request body
 		var patch Workspace
 		if err := sim.ReadJSON(r, &patch); err != nil {
 			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
@@ -239,7 +225,6 @@ func registerAzureMonitor(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, ws)
 	})
 
-	// GET - Get workspace
 	srv.HandleFunc("GET "+armBase+"/workspaces/{workspaceName}", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
@@ -257,7 +242,8 @@ func registerAzureMonitor(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, ws)
 	})
 
-	// POST - Get shared keys (azurerm provider reads these when linking workspace to Container App Environment)
+	// The azurerm provider reads these when linking the workspace to a Container
+	// Apps environment.
 	srv.HandleFunc("POST "+armBase+"/workspaces/{workspaceName}/sharedKeys", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
@@ -271,9 +257,8 @@ func registerAzureMonitor(srv *sim.Server) {
 			return
 		}
 
-		// The keys are the workspace's own pair, minted on first use and
-		// replaced only by a regeneration — a constant here would make a
-		// regeneration unobservable and an agent's signature meaningless.
+		// The workspace's own pair, minted on first use and replaced only by a
+		// regeneration.
 		keys := monitorKeysFor(resourceID)
 		sim.WriteJSON(w, http.StatusOK, map[string]any{
 			"primarySharedKey":   keys.Primary,
@@ -281,7 +266,6 @@ func registerAzureMonitor(srv *sim.Server) {
 		})
 	})
 
-	// DELETE - Delete workspace
 	srv.HandleFunc("DELETE "+armBase+"/workspaces/{workspaceName}", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
@@ -299,11 +283,9 @@ func registerAzureMonitor(srv *sim.Server) {
 		}
 	})
 
-	// GET - Subscription-scoped workspace list. terraform-provider-azurerm
-	// resolves a Container App Environment's log_analytics_workspace_id by
-	// listing every workspace in the subscription and matching customerId
-	// (findWorkspaceResourceIDFromCustomerID); without this list the read
-	// can't recover the workspace id and plans to re-add it every refresh.
+	// terraform-provider-azurerm resolves a Container Apps environment's
+	// log_analytics_workspace_id by listing the subscription's workspaces and
+	// matching customerId.
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/providers/Microsoft.OperationalInsights/workspaces", func(w http.ResponseWriter, r *http.Request) {
 		prefix := armSubscriptionID(sim.PathParam(r, "subscriptionId")) + "/"
 		items := workspaces.Filter(func(ws Workspace) bool { return strings.HasPrefix(ws.ID, prefix) })
@@ -313,7 +295,6 @@ func registerAzureMonitor(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"value": items})
 	})
 
-	// GET - Resource-group-scoped workspace list (ListByResourceGroup).
 	srv.HandleFunc("GET "+armBase+"/workspaces", func(w http.ResponseWriter, r *http.Request) {
 		prefix := armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.OperationalInsights", "workspaces") + "/"
 		items := workspaces.Filter(func(ws Workspace) bool { return strings.HasPrefix(ws.ID, prefix) })
@@ -323,9 +304,7 @@ func registerAzureMonitor(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"value": items})
 	})
 
-	// Execute KQL query (Log Analytics data-plane, https://api.loganalytics.io/v1).
-	// POST carries the query in the body; GET carries it as the `query` query
-	// parameter. Both return the QueryResults tabular shape.
+	// POST carries the query in the body; GET in the `query` parameter.
 	postQueryHandler := func(w http.ResponseWriter, r *http.Request) {
 		scope, ok := queryLogScope(w, r)
 		if !ok {
@@ -357,12 +336,10 @@ func registerAzureMonitor(srv *sim.Server) {
 	srv.HandleFunc("POST /v1/workspaces/{workspaceId}/query", postQueryHandler)
 	srv.HandleFunc("GET /v1/workspaces/{workspaceId}/query", getQueryHandler)
 
-	// Query_ExecuteWithResourceId and Query_GetWithResourceId — the same query,
-	// addressed by the Azure resource whose logs are being read rather than by
-	// the workspace they land in. A resource id is a whole ARM path of no fixed
-	// depth, which Go's router cannot spell and which enumerating would turn
-	// into a handful of invented path shapes. So it is intercepted, exactly as
-	// Microsoft.Authorization's any-scope routes are.
+	// Query_ExecuteWithResourceId and Query_GetWithResourceId address the query by
+	// the resource whose logs are read. A resource ID is a path of no fixed depth,
+	// which Go's mux cannot spell, so intercept it, as Microsoft.Authorization's
+	// any-scope routes are.
 	srv.WrapHandler(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			resourceID, ok := logAnalyticsResourceQueryPath(r)
@@ -382,8 +359,7 @@ func registerAzureMonitor(srv *sim.Server) {
 		})
 	})
 
-	// Workspace schema metadata (tables and their columns) — the data-plane
-	// metadata API. GET and POST return the same MetadataResults shape.
+	// GET and POST return the same MetadataResults shape.
 	metadataHandler := func(w http.ResponseWriter, r *http.Request) {
 		ws, ok := logWorkspaceByCustomerID(sim.PathParam(r, "workspaceId"))
 		if !ok {
@@ -395,8 +371,7 @@ func registerAzureMonitor(srv *sim.Server) {
 	srv.HandleFunc("GET /v1/workspaces/{workspaceId}/metadata", metadataHandler)
 	srv.HandleFunc("POST /v1/workspaces/{workspaceId}/metadata", metadataHandler)
 
-	// Batch of queries — each request runs against its workspace; responses
-	// come back keyed by the request id, in request order.
+	// Responses are keyed by request id, in request order.
 	srv.HandleFunc("POST /v1/$batch", func(w http.ResponseWriter, r *http.Request) {
 		var batch struct {
 			Requests []struct {
@@ -433,9 +408,6 @@ func registerAzureMonitor(srv *sim.Server) {
 	})
 }
 
-// logAnalyticsMetadata builds the MetadataResults schema document for a
-// workspace from the tables it holds — the data-plane metadata API's
-// tables/columns view.
 func logAnalyticsMetadata(ws Workspace) map[string]any {
 	held := logAnalyticsWorkspaceTables(ws)
 	tables := make([]map[string]any, 0, len(held))
@@ -463,8 +435,7 @@ func logAnalyticsMetadata(ws Workspace) map[string]any {
 	}
 }
 
-// queryLogScope resolves what a query request addresses: a workspace by its
-// customer id, or a resource by its ARM id.
+// A workspace by its customer id, or a resource by its resource ID.
 func queryLogScope(w http.ResponseWriter, r *http.Request) (logScope, bool) {
 	if resourceID := r.PathValue("resourceId"); resourceID != "" {
 		return resourceLogScope(resourceID), true
@@ -483,18 +454,12 @@ func workspaceNotFoundBody() map[string]any {
 	}}
 }
 
-// writeWorkspaceNotFound answers a query addressed to a workspace id no
-// workspace was issued.
 func writeWorkspaceNotFound(w http.ResponseWriter) {
 	sim.WriteJSON(w, http.StatusNotFound, workspaceNotFoundBody())
 }
 
-// logAnalyticsResourceQueryPath reports whether a request addresses the
-// resource-centric query, and the resource it names.
-//
-// The two spellings that have their own routes — the workspace query and the
-// Application Insights app query — are left to them: a resource id is any ARM
-// path, so without excluding those this would swallow both.
+// The workspace query and the Application Insights app query have their own
+// routes; without excluding them this would swallow both.
 func logAnalyticsResourceQueryPath(r *http.Request) (string, bool) {
 	if r.Method != http.MethodGet && r.Method != http.MethodPost {
 		return "", false
@@ -507,8 +472,8 @@ func logAnalyticsResourceQueryPath(r *http.Request) (string, bool) {
 	if !ok || resourceID == "" {
 		return "", false
 	}
-	// A resource id is an ARM path, so it begins at a scope. Anything else
-	// under /v1 belongs to whichever data plane owns it.
+	// A resource ID begins at a scope; anything else under /v1 belongs to another
+	// data plane.
 	if !strings.HasPrefix(strings.ToLower(resourceID), "subscriptions/") {
 		return "", false
 	}

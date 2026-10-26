@@ -1,6 +1,6 @@
 package azure_cli_test
 
-// Microsoft.Subscription (2021-10-01) through the Azure CLI. Routes exercised:
+// Microsoft.Subscription (2021-10-01) through the Azure CLI.
 //
 //	PUT /providers/Microsoft.Subscription/aliases/{aliasName}
 //	GET /providers/Microsoft.Subscription/aliases/{aliasName}
@@ -27,8 +27,8 @@ func microsoftSubscriptionURL(path string) string {
 	return baseURL + path + "?api-version=" + subscriptionAPIVersion
 }
 
-// tenantPolicyBody is the bare PutTenantPolicyRequestProperties body the tenant
-// policy PUT takes — no resource envelope.
+// tenantPolicyBody is the bare PutTenantPolicyRequestProperties body the
+// tenant policy PUT takes, with no resource envelope.
 func tenantPolicyBody(blockLeaving, blockInto bool, exempted []string) string {
 	principals, err := json.Marshal(exempted)
 	if err != nil {
@@ -47,8 +47,8 @@ func resetCLITenantPolicy(t *testing.T) {
 		tenantPolicyBody(false, false, nil)))
 }
 
-// TestCLISubscriptionTenantPolicy round-trips the tenant policy singleton and
-// reads it back through both the get and the list operation.
+// TestCLISubscriptionTenantPolicy round-trips the tenant policy singleton
+// through both the get and the list operation.
 func TestCLISubscriptionTenantPolicy(t *testing.T) {
 	t.Cleanup(func() { resetCLITenantPolicy(t) })
 
@@ -103,9 +103,9 @@ func TestCLISubscriptionTenantPolicy(t *testing.T) {
 	}
 }
 
-// TestCLISubscriptionOwnershipAcceptance drives the ownership handover: a
-// directed alias leaves the subscription Pending, the acceptance is accepted,
-// and the ownership status settles Completed with the name the new owner gave.
+// TestCLISubscriptionOwnershipAcceptance: a directed alias leaves the
+// subscription Pending, and once accepted the ownership status settles
+// Completed with the name the new owner gave.
 func TestCLISubscriptionOwnershipAcceptance(t *testing.T) {
 	t.Parallel()
 	const aliasName = "cli-test-ownership-alias"
@@ -187,8 +187,8 @@ func readCLIOwnershipStatus(t *testing.T, statusPath string) cliOwnershipStatus 
 	return status
 }
 
-// TestCLISubscriptionOperationUnknown asserts the Microsoft.Subscription
-// operation registry answers for its own operations only.
+// TestCLISubscriptionOperationUnknown: the Microsoft.Subscription operation
+// registry answers for its own operations only.
 func TestCLISubscriptionOperationUnknown(t *testing.T) {
 	t.Parallel()
 	cmd := azRest("GET",
@@ -202,8 +202,8 @@ func TestCLISubscriptionOperationUnknown(t *testing.T) {
 	}
 }
 
-// TestCLISubscriptionBillingAccountPolicy reads a billing account's policy and
-// asserts it reports the tenants the account actually serves.
+// TestCLISubscriptionBillingAccountPolicy: a billing account's policy reports
+// the tenants the account serves.
 func TestCLISubscriptionBillingAccountPolicy(t *testing.T) {
 	t.Parallel()
 	const billingAccountID = "cli-billing-account-policy"
@@ -258,8 +258,8 @@ func TestCLISubscriptionBillingAccountPolicy(t *testing.T) {
 	}
 }
 
-// TestCLISubscriptionOperationsList reads the resource provider's operation
-// catalog — the actions a role assignment can name.
+// TestCLISubscriptionOperationsList reads the provider's operation catalog,
+// the actions a role assignment can name.
 func TestCLISubscriptionOperationsList(t *testing.T) {
 	t.Parallel()
 	out := runCLI(t, azRest("GET", microsoftSubscriptionURL("/providers/Microsoft.Subscription/operations"), ""))

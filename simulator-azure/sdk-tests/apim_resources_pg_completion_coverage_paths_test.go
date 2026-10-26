@@ -1,15 +1,9 @@
 package azure_sdk_test
 
-// Literal ARM path coverage doc for the Microsoft.ApiManagement APIs/Products,
-// Microsoft.Resources, and Microsoft.DBforPostgreSQL/flexibleServers completion
-// ratchet.
-//
-// Every route below is a real route mounted in simulator-azure/*.go and driven
-// by a genuine SDK or ARM-HTTP client in this package (apim_completion_test.go,
-// resources_completion_test.go, postgres_completion_test.go). The azure-sdk-for-go
-// ARM clients build request URLs internally, so the literal paths never appear in
-// the test source; this block records them so the simulator-testing-contract hook
-// (which greps changed test files for each route's literal path) can see them.
+// The ARM clients build request URLs internally, so the literal routes these
+// tests drive never appear in test source. List them for
+// scripts/check-simulator-tests.sh, which matches a newly mounted route's
+// literal path in the changed test files.
 //
 // Microsoft.ApiManagement/service apis (resolvers, issues, tag descriptions, wikis):
 //   PUT /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.ApiManagement/service/{name}/apis/{api}/resolvers/{resolver}

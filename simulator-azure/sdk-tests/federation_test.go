@@ -20,18 +20,17 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// federationTenantID is the tenant the simulator issues tokens for; azidentity
-// builds the token endpoint as {authority}/{tenant}/oauth2/v2.0/token.
+// azidentity builds the token endpoint as {authority}/{tenant}/oauth2/v2.0/token.
 const federationTenantID = "11111111-1111-1111-1111-111111111111"
 
-// federationAudience is the audience a workload-identity assertion carries when
-// it is exchanged at Microsoft Entra — the standard token-exchange audience.
+// federationAudience is the standard audience of a workload identity assertion
+// exchanged at Microsoft Entra.
 const federationAudience = "api://AzureADTokenExchange"
 
-// externalIssuer is a minimal but real OpenID Connect issuer: it serves the
-// discovery document and JSON Web Key Set Microsoft Entra fetches to verify a
-// federated client assertion, and signs tokens with the matching key. It stands
-// in for the external identity provider the console federates through.
+// externalIssuer is a minimal OpenID Connect issuer standing in for the
+// identity provider the console federates through: it serves the discovery
+// document and JSON Web Key Set Microsoft Entra fetches to verify an
+// assertion, and signs tokens with the matching key.
 type externalIssuer struct {
 	server            *httptest.Server
 	key               *rsa.PrivateKey
@@ -87,10 +86,9 @@ func (i *externalIssuer) mint(t *testing.T, subject, audience string, expiry tim
 	return raw
 }
 
-// registerFederatedIdentity creates a user-assigned identity and a federated
-// identity credential trusting the external issuer/subject/audience, and returns
-// the identity's client ID — the federation an administrator sets up so an
-// operator's identity-provider token can be exchanged for an Azure token.
+// registerFederatedIdentity creates a user-assigned identity with a federated
+// identity credential trusting the issuer, subject and audience, and returns
+// its client ID.
 func registerFederatedIdentity(t *testing.T, rg, issuerURL, subject string) string {
 	t.Helper()
 	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
@@ -118,13 +116,9 @@ func registerFederatedIdentity(t *testing.T, rg, issuerURL, subject string) stri
 	return clientID
 }
 
-// exchangeFederatedAssertion posts a workload-identity client assertion to the
-// simulator's Microsoft Entra token endpoint exactly as the console does — a
-// form POST with grant_type=client_credentials and a JWT-bearer client
-// assertion — and returns the HTTP status and decoded body. azidentity cannot
-// be pointed at the simulator's http authority (it requires https), and the
-// console does not use azidentity: it federates with this same raw POST, so
-// this exercises the real consumer's request shape.
+// exchangeFederatedAssertion sends the console's form POST: grant_type
+// client_credentials with a JWT-bearer client assertion. azidentity requires
+// an https authority, and the console does not use it.
 func exchangeFederatedAssertion(t *testing.T, clientID, assertion string) (int, map[string]any) {
 	t.Helper()
 	form := url.Values{
@@ -143,14 +137,13 @@ func exchangeFederatedAssertion(t *testing.T, clientID, assertion string) (int, 
 	return resp.StatusCode, body
 }
 
-// federatedClientAssertionType is the client_assertion_type Microsoft Entra
-// requires for a JWT-bearer client assertion (RFC 7523).
+// federatedClientAssertionType is the JWT-bearer client_assertion_type
+// (RFC 7523).
 const federatedClientAssertionType = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer"
 
-// TestFederation_ClientAssertion federates a signed OpenID Connect token into an
-// Azure Resource Manager token, the way the console reaches Azure: Microsoft
-// Entra verifies the client assertion against the identity's federated identity
-// credential and issues an access token, exactly as against real Azure.
+// TestFederation_ClientAssertion federates a signed OpenID Connect token into
+// an Azure Resource Manager token, as the console does: Microsoft Entra
+// verifies the assertion against the federated identity credential.
 func TestFederation_ClientAssertion(t *testing.T) {
 	t.Parallel()
 	issuer := newExternalIssuer(t)
@@ -169,14 +162,13 @@ func TestFederation_ClientAssertion(t *testing.T) {
 	assert.Equal(t, int64(1), issuer.jwksRequests.Load(), "the remote JSON Web Key Set must be reused while its keys remain current")
 }
 
-// TestFederation_RejectsUnregisteredIssuer proves an assertion from an issuer no
-// federated identity credential trusts is refused.
+// TestFederation_RejectsUnregisteredIssuer: an assertion from an issuer no
+// credential trusts is refused.
 func TestFederation_RejectsUnregisteredIssuer(t *testing.T) {
 	t.Parallel()
 	registered := newExternalIssuer(t)
 	clientID := registerFederatedIdentity(t, "console-fed-unreg-rg", registered.server.URL, "operator@example.test")
 
-	// A different issuer that no credential trusts mints the assertion.
 	stranger := newExternalIssuer(t)
 	assertion := stranger.mint(t, "operator@example.test", federationAudience, time.Now().Add(10*time.Minute))
 
@@ -184,8 +176,7 @@ func TestFederation_RejectsUnregisteredIssuer(t *testing.T) {
 	assert.GreaterOrEqual(t, status, http.StatusBadRequest, "an assertion from an untrusted issuer must be rejected: %v", body)
 }
 
-// TestFederation_RejectsExpiredAssertion proves an expired assertion is refused
-// rather than exchanged.
+// TestFederation_RejectsExpiredAssertion: an expired assertion is refused.
 func TestFederation_RejectsExpiredAssertion(t *testing.T) {
 	t.Parallel()
 	issuer := newExternalIssuer(t)

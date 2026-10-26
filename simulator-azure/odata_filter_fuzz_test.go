@@ -2,7 +2,6 @@ package main
 
 import "testing"
 
-// FuzzAzureParseODataFilter fuzzes the Azure ARM `$filter` (OData) parser+evaluator.
 func FuzzAzureParseODataFilter(f *testing.F) {
 	seeds := []string{
 		"",

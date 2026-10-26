@@ -18,7 +18,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// acrTasksRunLog reads a finished run's whole log blob.
 func acrTasksRunLog(t *testing.T, runs *armcontainerregistry.RunsClient, rg, registry, runID string) string {
 	t.Helper()
 	sas, err := runs.GetLogSasURL(ctx, rg, registry, runID, nil)
@@ -33,7 +32,6 @@ func acrTasksRunLog(t *testing.T, runs *armcontainerregistry.RunsClient, rg, reg
 	return string(content)
 }
 
-// acrTasksSchedule schedules a run and waits for it to end.
 func acrTasksSchedule(t *testing.T, rg, registry string, request armcontainerregistry.RunRequestClassification) armcontainerregistry.Run {
 	t.Helper()
 	registries, err := armcontainerregistry.NewRegistriesClient(subscriptionID, &fakeCredential{}, clientOpts())
@@ -48,12 +46,11 @@ func acrTasksSchedule(t *testing.T, rg, registry string, request armcontainerreg
 	return awaitACRRun(t, runs, rg, registry, *queued.Properties.RunID)
 }
 
-// TestACRTasks_FileTaskRunFromUploadedSource uploads a source directory the
-// way `az acr run` does — to the URL Registries_GetBuildSourceUploadUrl hands
-// out, with a block blob upload — and schedules a FileTaskRunRequest on the
-// relative path. The task file's cmd steps run in the source's /workspace and
-// share what they write, its build step builds the source, and its push step
-// pushes into the registry as the run, which reports the image it pushed.
+// TestACRTasks_FileTaskRunFromUploadedSource uploads a source directory as
+// `az acr run` does (a block blob at the Registries_GetBuildSourceUploadUrl
+// URL) and schedules a FileTaskRunRequest. The cmd steps share /workspace, the
+// build step builds the source, and the push step pushes as the run, which
+// reports the image it pushed.
 func TestACRTasks_FileTaskRunFromUploadedSource(t *testing.T) {
 	t.Parallel()
 	if runtime.GOOS != "linux" {
@@ -118,9 +115,8 @@ steps:
 		"the run leaves its build output in the registry, not on the build host")
 }
 
-// TestACRTasks_TaskRunRequestRunsTheTask creates a Task whose step is an
-// encoded task file, runs it through a TaskRunRequest with an overriding
-// value, and reads the run's task name and output.
+// TestACRTasks_TaskRunRequestRunsTheTask runs a Task with an encoded task-file
+// step through a TaskRunRequest with an overriding value.
 func TestACRTasks_TaskRunRequestRunsTheTask(t *testing.T) {
 	t.Parallel()
 	if _, err := exec.LookPath("docker"); err != nil {
@@ -165,9 +161,9 @@ func TestACRTasks_TaskRunRequestRunsTheTask(t *testing.T) {
 	assert.Contains(t, log, "greeting=override task="+taskName)
 }
 
-// TestACRTasks_AgentPoolQueuesRunsBeyondItsAgents schedules two runs on an
-// agent pool of one agent: the second waits Queued while the first runs, and
-// AgentPools_GetQueueStatus counts it, until a cancel frees the agent.
+// TestACRTasks_AgentPoolQueuesRunsBeyondItsAgents: on a one-agent pool the
+// second run waits Queued, counted by AgentPools_GetQueueStatus, until a
+// cancel frees the agent.
 func TestACRTasks_AgentPoolQueuesRunsBeyondItsAgents(t *testing.T) {
 	t.Parallel()
 	if _, err := exec.LookPath("docker"); err != nil {

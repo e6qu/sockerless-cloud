@@ -9,30 +9,20 @@ import (
 
 // Microsoft.Compute's operation catalog and its per-location usage.
 //
-// The catalog is the provider's own surface expressed as role-assignable
-// actions: one entry per distinct "{provider}/{resource}/{operation}" action
-// the operations in the vendored Swaggers require. Reads collapse onto one
-// action — VirtualMachines_Get and VirtualMachines_List both need
-// Microsoft.Compute/virtualMachines/read — which is why the catalog is shorter
-// than the operation list. TestComputeOperationCatalogCoversSpec holds it to
-// that derivation, so a re-vendor that adds an operation fails until the
-// catalog names the action it needs.
-//
-// The usage is counted, not declared: every figure is the number of resources
-// the simulator is actually holding in the location asked about, so creating a
-// virtual machine moves it.
+// The catalog holds one role-assignable "{provider}/{resource}/{operation}"
+// action per distinct action the vendored operations require; reads collapse
+// onto one action, so it is shorter than the operation list.
+// TestComputeOperationCatalogCoversSpec holds it to that derivation. The usage
+// counts the resources the simulator holds in the location.
 
-// computeProviderOperation is one action of the catalog.
 type computeProviderOperation struct {
 	Name      string
 	Resource  string
 	Operation string
 }
 
-// computeProviderName is the display spelling of the resource provider.
 const computeProviderName = "Microsoft Compute"
 
-// computeOperationCatalog is the Microsoft.Compute action catalog.
 var computeOperationCatalog = []computeProviderOperation{
 	{Name: "Microsoft.Compute/operations/read", Resource: "Operations", Operation: "List Compute Operations"},
 	{Name: "Microsoft.Compute/skus/read", Resource: "Compute SKUs", Operation: "List Compute SKUs"},
@@ -65,17 +55,14 @@ var computeOperationCatalog = []computeProviderOperation{
 	{Name: "Microsoft.Compute/virtualMachines/extensions/delete", Resource: "Virtual Machine Extension", Operation: "Delete Virtual Machine Extension"},
 }
 
-// registerComputeOperations mounts the catalog and the usage read.
 func registerComputeOperations(srv *sim.Server) {
-	// Operations_List.
 	srv.HandleFunc("GET /providers/Microsoft.Compute/operations", func(w http.ResponseWriter, _ *http.Request) {
 		value := make([]map[string]any, 0, len(computeOperationCatalog))
 		for _, op := range computeOperationCatalog {
 			value = append(value, map[string]any{
 				"name": op.Name,
-				// Every action of this provider is a control-plane action;
-				// Microsoft.Compute's data plane is the machine itself, which
-				// Azure Resource Manager does not gate.
+				// Azure Resource Manager does not gate Microsoft.Compute's data plane, the
+				// machine itself.
 				"origin": "user,system",
 				"display": map[string]any{
 					"provider":    computeProviderName,
@@ -88,14 +75,10 @@ func registerComputeOperations(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"value": value})
 	})
 
-	// Usage_List.
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/providers/Microsoft.Compute/locations/{location}/usages",
 		handleComputeUsagesByLocation)
 }
 
-// handleComputeUsagesByLocation counts what the subscription is holding in the
-// location, so a virtual machine created there moves the figure. The limits are
-// the subscription's own quotas, which is what a usage read compares against.
 func handleComputeUsagesByLocation(w http.ResponseWriter, r *http.Request) {
 	location := sim.PathParam(r, "location")
 
@@ -126,17 +109,14 @@ func handleComputeUsagesByLocation(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// The subscription's Compute quotas in a location. They are the simulator's
-// own, and a usage read is only meaningful against a limit, so they are named
-// here rather than left at zero.
+// The subscription's Compute quotas in a location: a usage read is meaningful
+// only against a limit.
 const (
 	computeQuotaVirtualMachines = 25000
 	computeQuotaCores           = 350
 )
 
-// computeVMCoreCount is how many cores a machine takes from the subscription's
-// regional quota: the core count of the size it was created with, read from the
-// same catalogue the vmSizes list serves, so the two can never disagree.
+// computeVMCoreCount reads the same catalogue the vmSizes list serves.
 func computeVMCoreCount(vm VirtualMachine) int {
 	size, _ := vm.Properties.HardwareProfile["vmSize"].(string)
 	for _, known := range azureVMSizeCatalogue() {
@@ -146,7 +126,6 @@ func computeVMCoreCount(vm VirtualMachine) int {
 			}
 		}
 	}
-	// A machine on a size the catalogue does not carry still occupies the
-	// subscription: counting it as nothing would under-report the quota.
+	// A machine on an uncatalogued size still occupies the subscription.
 	return 1
 }

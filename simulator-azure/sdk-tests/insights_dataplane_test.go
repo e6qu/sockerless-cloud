@@ -15,8 +15,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// SDK coverage for the Application Insights data plane and the two reads that
-// completed the Log Analytics and instance-metadata documents:
+// The Application Insights data plane and the resource-scoped Log Analytics
+// query.
 //
 //	POST /v1/apps/{appId}/query
 //	GET /v1/apps/{appId}/query
@@ -31,7 +31,6 @@ import (
 //	GET /v1/{resourceId}/query
 //	POST /v1/{resourceId}/query
 
-// insightsRead performs one data-plane read and decodes the JSON it answers.
 func insightsRead(t *testing.T, method, path string, body string) map[string]any {
 	t.Helper()
 	var reader *strings.Reader
@@ -53,9 +52,9 @@ func insightsRead(t *testing.T, method, path string, body string) map[string]any
 	return decoded
 }
 
-// An application's telemetry is what the application wrote, read back through
-// the query, the events and the metrics of the same data plane. All three move
-// when it writes, because all three read the one store.
+// An application's telemetry reads back through the query, the events and the
+// metrics of one data plane; all three move when it writes, because all three
+// read one store.
 func TestSDK_ApplicationInsights_DataPlaneReadsTheTelemetry(t *testing.T) {
 	t.Parallel()
 	rg, site := "insights-dataplane-rg", "insights-dataplane-site"
@@ -68,8 +67,8 @@ func TestSDK_ApplicationInsights_DataPlaneReadsTheTelemetry(t *testing.T) {
 	defer azureDeleteSite(rg, site)
 	azureInvokeFunction(t, site)
 	azureInvokeFunction(t, site)
-	// The engine's log stream delivers each access-log line after its
-	// response, and Application Insights offers no event for its arrival.
+	// The engine's log stream delivers each access-log line after its response,
+	// and Application Insights offers no event for its arrival.
 	require.Eventually(t, func() bool {
 		queried := insightsRead(t, http.MethodPost, "/v1/apps/"+app+"/query",
 			`{"query":"AppTraces | where AppRoleName == \"`+role+`\" and Message == \"POST /api/function\""}`)
@@ -79,8 +78,7 @@ func TestSDK_ApplicationInsights_DataPlaneReadsTheTelemetry(t *testing.T) {
 		return len(rows) == 2
 	}, 30*time.Second, 200*time.Millisecond, "both requests' traces reach the component")
 
-	// The query runs the KQL it is given rather than answering a fixed shape —
-	// which is what it used to do, ignoring the query entirely.
+	// The query runs the KQL it is given.
 	queried := insightsRead(t, http.MethodPost, "/v1/apps/"+app+"/query",
 		`{"query":"AppTraces | where AppRoleName == \"`+role+`\" and Message == \"POST /api/function\" | take 10"}`)
 	tables, _ := queried["tables"].([]any)
@@ -89,8 +87,8 @@ func TestSDK_ApplicationInsights_DataPlaneReadsTheTelemetry(t *testing.T) {
 	rows, _ := first["rows"].([]any)
 	assert.Len(t, rows, 2, "both traces the application wrote come back")
 
-	// A query for a table the application wrote nothing into comes back empty,
-	// which is the negative control that the rows above were really read.
+	// A table the application wrote nothing into comes back empty: the negative
+	// control that the rows above were read.
 	empty := insightsRead(t, http.MethodPost, "/v1/apps/"+app+"/query",
 		`{"query":"AppRequests | take 10"}`)
 	emptyTables, _ := empty["tables"].([]any)
@@ -99,20 +97,18 @@ func TestSDK_ApplicationInsights_DataPlaneReadsTheTelemetry(t *testing.T) {
 	emptyRows, _ := emptyFirst["rows"].([]any)
 	assert.Empty(t, emptyRows)
 
-	// The GET spelling takes the same query on the query string.
+	// The GET spelling takes the query on the query string.
 	got := insightsRead(t, http.MethodGet,
 		"/v1/apps/"+app+"/query?query="+url.QueryEscape(`AppTraces | where AppRoleName == "`+role+`" | take 10`), "")
 	gotTables, _ := got["tables"].([]any)
 	require.NotEmpty(t, gotTables)
 
-	// The metadata describes what can be queried.
 	for _, method := range []string{http.MethodGet, http.MethodPost} {
 		metadata := insightsRead(t, method, "/v1/apps/"+app+"/metadata", "{}")
 		assert.NotEmpty(t, metadata, "%s metadata describes the schema", method)
 	}
 
-	// The events of a type are that type's telemetry, and each carries the id
-	// the single-event read addresses it by.
+	// Each event carries the ID the single-event read addresses it by.
 	events := insightsRead(t, http.MethodGet, "/v1/apps/"+app+"/events/traces", "")
 	value, _ := events["value"].([]any)
 	require.GreaterOrEqual(t, len(value), 2, "the traces the application wrote are events")
@@ -126,7 +122,7 @@ func TestSDK_ApplicationInsights_DataPlaneReadsTheTelemetry(t *testing.T) {
 	singleValue, _ := single["value"].([]any)
 	require.Len(t, singleValue, 1, "the id addresses exactly the event it came from")
 
-	// An id nothing matches filters everything out rather than erroring.
+	// An ID nothing matches filters everything out rather than erroring.
 	none := insightsRead(t, http.MethodGet, "/v1/apps/"+app+"/events/traces/no-such-event", "")
 	noneValue, _ := none["value"].([]any)
 	assert.Empty(t, noneValue)
@@ -152,7 +148,7 @@ func TestSDK_ApplicationInsights_DataPlaneReadsTheTelemetry(t *testing.T) {
 	require.Equal(t, http.StatusOK, metaResp.StatusCode)
 	assert.Contains(t, metaResp.Header.Get("Content-Type"), "xml")
 
-	// A metric is the telemetry counted, so it moves with what was written.
+	// A metric counts the telemetry, so it moves with what was written.
 	metrics := insightsRead(t, http.MethodGet, "/v1/apps/"+app+"/metrics/traces/count", "")
 	metricValue, _ := metrics["value"].(map[string]any)
 	require.NotNil(t, metricValue)
@@ -162,12 +158,11 @@ func TestSDK_ApplicationInsights_DataPlaneReadsTheTelemetry(t *testing.T) {
 	assert.GreaterOrEqual(t, sum, float64(len(value)),
 		"the metric counts the events the same telemetry produced")
 
-	// The metrics metadata names the metrics an application has.
 	metricMeta := insightsRead(t, http.MethodGet, "/v1/apps/"+app+"/metrics/metadata", "")
 	declared, _ := metricMeta["metrics"].(map[string]any)
 	assert.Contains(t, declared, "traces/count")
 
-	// The batch answers per request id, so a caller can tell which is which.
+	// The batch answers per request ID.
 	batchReq, err := http.NewRequestWithContext(ctx, http.MethodPost,
 		baseURL+"/v1/apps/"+app+"/metrics",
 		strings.NewReader(`[{"id":"a","parameters":{"metricId":"traces/count"}},
@@ -186,9 +181,8 @@ func TestSDK_ApplicationInsights_DataPlaneReadsTheTelemetry(t *testing.T) {
 	assert.Equal(t, "b", batch[1]["id"])
 }
 
-// The same query, addressed by the Azure resource whose logs are being read
-// rather than by the workspace they land in: a workspace-based component's
-// traces carry its resource id.
+// The same query addressed by the Azure resource rather than the workspace: a
+// workspace-based component's traces carry its resource ID.
 func TestSDK_LogAnalytics_QueryByResourceID(t *testing.T) {
 	t.Parallel()
 	rg, site := "query-by-resource-rg", "query-by-resource-site"
@@ -203,8 +197,8 @@ func TestSDK_LogAnalytics_QueryByResourceID(t *testing.T) {
 	client, err := azquery.NewLogsClient(&fakeCredential{}, logsClientOpts())
 	require.NoError(t, err)
 	query := azquery.Body{Query: to.Ptr(`AppTraces | where AppRoleName == "` + site + `" | take 10`)}
-	// The engine's log stream delivers the line after the response, and
-	// Log Analytics offers no event for its arrival.
+	// The engine's log stream delivers the line after the response, and Log
+	// Analytics offers no event for its arrival.
 	require.Eventually(t, func() bool {
 		resp, err := client.QueryResource(ctx, *component.ID, query, nil)
 		require.NoError(t, err)
@@ -220,7 +214,7 @@ func TestSDK_LogAnalytics_QueryByResourceID(t *testing.T) {
 }
 
 // A component's billing plan decides what it is entitled to, and its quota
-// status compares the telemetry it actually wrote against the cap it set.
+// status compares the telemetry it wrote against the cap it set.
 //
 //	GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Insights/components/{resourceName}/featurecapabilities
 //	GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Insights/components/{resourceName}/getavailablebillingfeatures
@@ -233,14 +227,13 @@ func TestSDK_ApplicationInsights_FeaturesAndPricing(t *testing.T) {
 	base := "/subscriptions/" + subscriptionID + "/resourceGroups/" + rg +
 		"/providers/Microsoft.Insights/components/" + component
 
-	// The Basic plan the component starts on does not carry continuous export.
+	// The Basic plan does not carry continuous export.
 	basic := insightsRead(t, http.MethodGet, base+"/featurecapabilities?api-version=2015-05-01", "")
 	assert.Equal(t, false, basic["SupportExportData"])
 	assert.Equal(t, "Standard", basic["BurstThrottlePolicy"])
 
-	// Moving the component to the Enterprise plan changes what it is entitled
-	// to, which is what makes the capabilities a read of the plan rather than a
-	// fixed answer.
+	// Moving to the Enterprise plan changes the capabilities, so they read the
+	// plan rather than a fixed answer.
 	put := insightsRead(t, http.MethodPut, base+"/currentbillingfeatures?api-version=2015-05-01",
 		`{"CurrentBillingFeatures":["Application Insights Enterprise"],
 		  "DataVolumeCap":{"Cap":0.5,"ResetTime":4,"WarningThreshold":90}}`)
@@ -252,8 +245,8 @@ func TestSDK_ApplicationInsights_FeaturesAndPricing(t *testing.T) {
 	assert.EqualValues(t, 0.5, enterprise["DailyCap"], "the cap the component set is the cap it reports")
 	assert.EqualValues(t, 4, enterprise["DailyCapResetTime"])
 
-	// The available features are the plans it could be on, with the one it is
-	// on marked — a choice, not a price list.
+	// The available features are the plans the component could be on, with its
+	// current one marked.
 	available := insightsRead(t, http.MethodGet,
 		base+"/getavailablebillingfeatures?api-version=2015-05-01", "")
 	plans, _ := available["Result"].([]any)
@@ -268,7 +261,6 @@ func TestSDK_ApplicationInsights_FeaturesAndPricing(t *testing.T) {
 	assert.Equal(t, "Application Insights Enterprise", main,
 		"the plan the component is on is the one marked")
 
-	// A component under its cap is not throttled.
 	status := insightsRead(t, http.MethodGet, base+"/quotastatus?api-version=2015-05-01", "")
 	created := insightsRead(t, http.MethodGet, base+"?api-version=2020-02-02", "")
 	props, _ := created["properties"].(map[string]any)

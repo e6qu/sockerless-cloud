@@ -17,20 +17,20 @@ The extractor reads the route out of a single string literal, so a registration 
 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
-| `GET /subscriptions/{subscriptionId}/locations` | ○ `simulator-azure/subscription.go:103::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /tenants` | ○ `simulator-azure/subscription.go:109::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /providers/Microsoft.Resources/checkResourceName` | ○ `simulator-azure/subscription.go:123::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /subscriptions/{subscriptionId}/providers/Microsoft.Resources/checkZonePeers/` | ○ `simulator-azure/subscription.go:145::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /subscriptions/{subscriptionId}` | ✓ `simulator-azure/subscription.go:57::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /subscriptions/{subscriptionId}/providers` | ✓ `simulator-azure/subscription.go:63::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /subscriptions` | ✓ `simulator-azure/subscription.go:83::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /subscriptions/{subscriptionId}/providers/Microsoft.Subscription/cancel` | ✓ `simulator-azure/subscription_alias.go:105::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /subscriptions/{subscriptionId}/providers/Microsoft.Subscription/enable` | ✓ `simulator-azure/subscription_alias.go:112::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /subscriptions/{subscriptionId}/providers/Microsoft.Subscription/rename` | ✓ `simulator-azure/subscription_alias.go:119::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `PUT /providers/Microsoft.Subscription/aliases/{aliasName}` | ✓ `simulator-azure/subscription_alias.go:68::handleSubscriptionAliasCreate` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /providers/Microsoft.Subscription/aliases/{aliasName}` | ✓ `simulator-azure/subscription_alias.go:71::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `DELETE /providers/Microsoft.Subscription/aliases/{aliasName}` | ✓ `simulator-azure/subscription_alias.go:83::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /providers/Microsoft.Subscription/aliases` | ✓ `simulator-azure/subscription_alias.go:93::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /tenants` | ○ `simulator-azure/subscription.go:103::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /providers/Microsoft.Resources/checkResourceName` | ○ `simulator-azure/subscription.go:117::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /subscriptions/{subscriptionId}/providers/Microsoft.Resources/checkZonePeers/` | ○ `simulator-azure/subscription.go:138::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /subscriptions/{subscriptionId}` | ✓ `simulator-azure/subscription.go:56::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /subscriptions/{subscriptionId}/providers` | ✓ `simulator-azure/subscription.go:62::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /subscriptions` | ✓ `simulator-azure/subscription.go:79::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /subscriptions/{subscriptionId}/locations` | ○ `simulator-azure/subscription.go:98::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /subscriptions/{subscriptionId}/providers/Microsoft.Subscription/enable` | ✓ `simulator-azure/subscription_alias.go:101::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /subscriptions/{subscriptionId}/providers/Microsoft.Subscription/rename` | ✓ `simulator-azure/subscription_alias.go:107::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `PUT /providers/Microsoft.Subscription/aliases/{aliasName}` | ✓ `simulator-azure/subscription_alias.go:60::handleSubscriptionAliasCreate` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /providers/Microsoft.Subscription/aliases/{aliasName}` | ✓ `simulator-azure/subscription_alias.go:63::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `DELETE /providers/Microsoft.Subscription/aliases/{aliasName}` | ✓ `simulator-azure/subscription_alias.go:74::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /providers/Microsoft.Subscription/aliases` | ✓ `simulator-azure/subscription_alias.go:83::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /subscriptions/{subscriptionId}/providers/Microsoft.Subscription/cancel` | ✓ `simulator-azure/subscription_alias.go:95::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 
 ## Coverage status
 

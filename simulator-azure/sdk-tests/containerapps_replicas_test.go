@@ -99,9 +99,9 @@ func TestSDK_ContainerAppsReplicas_AnExitedContainerRestartsInPlace(t *testing.T
 	first := listContainerAppReplicas(t, rg, name, revision)
 	require.Len(t, first, 1)
 
-	// Container Apps offers nothing to wait on for a restart; read the
-	// replica as the portal does, once a second, through the first restart's
-	// ten-second back-off.
+	// Container Apps offers nothing to wait on for a restart; read the replica as
+	// the portal does, once a second, through the first restart's ten-second
+	// back-off.
 	deadline := time.Now().Add(90 * time.Second)
 	for {
 		replicas := listContainerAppReplicas(t, rg, name, revision)
@@ -147,8 +147,8 @@ func keys(m map[string]bool) []string {
 	return out
 }
 
-// A persistent simulator that restarts takes over the replicas a revision
-// ran: the replica keeps its name and keeps answering through ingress.
+// A restarted persistent simulator takes over a revision's replicas: each
+// keeps its name and answers through ingress.
 func TestSDK_ContainerAppsReplicas_ReplicasSurviveASimulatorRestart(t *testing.T) {
 	t.Parallel()
 	stateDir := t.TempDir()

@@ -23,8 +23,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// SDK coverage for Log Analytics workspaces' tables, data collection
-// endpoints and rules, and the Logs Ingestion API that uploads through a rule:
+// Log Analytics workspace tables, data collection endpoints and rules, and the
+// Logs Ingestion API that uploads through a rule.
 //
 //	GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.OperationalInsights/workspaces/{workspaceName}/tables
 //	GET+PUT+PATCH+DELETE /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.OperationalInsights/workspaces/{workspaceName}/tables/{tableName}
@@ -38,8 +38,8 @@ import (
 //	GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Insights/dataCollectionRules/{dataCollectionRuleName}/associations (declared 501)
 //	GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Insights/dataCollectionEndpoints/{dataCollectionEndpointName}/associations (declared 501)
 
-// logWorkspace is a Log Analytics workspace: its ARM id and the customer id
-// the query API addresses it by.
+// logWorkspace is a Log Analytics workspace's ARM ID and the customer ID the
+// query API addresses it by.
 type logWorkspace struct {
 	rg, name, id, customerID string
 }
@@ -58,7 +58,6 @@ func createLogWorkspace(t *testing.T, rg, name string) logWorkspace {
 	return logWorkspace{rg: rg, name: name, id: *ws.ID, customerID: *ws.Properties.CustomerID}
 }
 
-// createCustomLogTable creates a custom log table in a workspace.
 func createCustomLogTable(t *testing.T, ws logWorkspace, table string, columns map[string]armoperationalinsights.ColumnTypeEnum) {
 	t.Helper()
 	client, err := armoperationalinsights.NewTablesClient(subscriptionID, &fakeCredential{}, clientOpts())
@@ -77,10 +76,8 @@ func createCustomLogTable(t *testing.T, ws logWorkspace, table string, columns m
 	require.NoError(t, err)
 }
 
-// ingestionClient is an azlogs client for a logs ingestion endpoint.
-// azlogs refuses a credential over plain HTTP, so the client is handed the
-// endpoint's HTTPS spelling and kvSchemeRewritingTransport carries it to the
-// simulator's listener, as logsClientOpts does for azquery.
+// azlogs refuses a credential over plain HTTP, so hand it the endpoint's HTTPS
+// spelling and let kvSchemeRewritingTransport carry it to the simulator.
 func ingestionClient(t *testing.T, endpoint string) *azlogs.Client {
 	t.Helper()
 	endpoint = "https://" + strings.TrimPrefix(strings.TrimPrefix(endpoint, "http://"), "https://")
@@ -96,8 +93,8 @@ func ingestionClient(t *testing.T, endpoint string) *azlogs.Client {
 	return client
 }
 
-// logsPipeline is a workspace whose custom table a data collection rule
-// writes one declared stream into unchanged.
+// logsPipeline is a workspace whose custom table a data collection rule writes
+// one declared stream into unchanged.
 type logsPipeline struct {
 	ws          logWorkspace
 	table       string
@@ -106,9 +103,9 @@ type logsPipeline struct {
 	client      *azlogs.Client
 }
 
-// newLogsPipeline creates a workspace, a custom log table with the given
-// string columns, and a Direct data collection rule whose stream carries
-// TimeGenerated and those columns into the table.
+// newLogsPipeline creates a workspace, a custom log table with the given string
+// columns, and a Direct data collection rule whose stream carries TimeGenerated
+// and those columns into the table.
 func newLogsPipeline(t *testing.T, rg, table string, columns ...string) logsPipeline {
 	t.Helper()
 	ws := createLogWorkspace(t, rg, rg+"-ws")
@@ -153,7 +150,6 @@ func (p logsPipeline) upload(t *testing.T, rows []map[string]any) {
 	require.NoError(t, err)
 }
 
-// queryWorkspace sends a KQL query and returns the parsed response.
 func queryWorkspace(t *testing.T, workspaceID, kql string) queryResponse {
 	t.Helper()
 	body, _ := json.Marshal(map[string]string{"query": kql})
@@ -201,8 +197,8 @@ func requireColumnIndex(t *testing.T, table struct {
 	return -1
 }
 
-// acaLogs is the Container Apps environment the suite's jobs run in, linked
-// to a workspace, so their logs land where the tests query them.
+// acaLogs is the Container Apps environment the suite's jobs run in, linked to
+// the workspace the tests query.
 var acaLogs struct {
 	sync.Mutex
 	envID string
@@ -244,14 +240,12 @@ func acaLogsEnvironment(t *testing.T) (envID, customerID string) {
 	return acaLogs.envID, ws.customerID
 }
 
-// acaLogsEnvironmentID is the environment the suite's jobs run in.
 func acaLogsEnvironmentID(t *testing.T) string {
 	t.Helper()
 	envID, _ := acaLogsEnvironment(t)
 	return envID
 }
 
-// acaLogsCustomerID is the workspace the suite's jobs log to.
 func acaLogsCustomerID(t *testing.T) string {
 	t.Helper()
 	_, customerID := acaLogsEnvironment(t)
@@ -293,9 +287,9 @@ func TestMonitor_KQLOverIngestedRows(t *testing.T) {
 	assert.Len(t, result.Tables[0].Rows, 2)
 }
 
-// A data collection rule decides where an upload lands: its stream's data
-// flow runs the transform over the rows and writes what comes out to the
-// output table of the destination workspace, and no other workspace sees it.
+// A data collection rule decides where an upload lands: its data flow runs the
+// transform and writes the result to the output table of the destination
+// workspace, and no other workspace sees it.
 func TestMonitor_LogsIngestionRoutesThroughTheRule(t *testing.T) {
 	t.Parallel()
 	rg := "monitor-dcr-rg"
@@ -347,8 +341,8 @@ func TestMonitor_LogsIngestionRoutesThroughTheRule(t *testing.T) {
 		}
 	}
 
-	// The service refuses a rule whose transform writes a column the output
-	// table lacks, or that writes to a table the workspace does not have.
+	// The service refuses a rule whose transform writes a column the output table
+	// lacks, or writes to a table the workspace does not have.
 	_, err = rules.Create(ctx, rg, "monitor-dcr-bad", rule(`source | extend TimeGenerated = todatetime(Time), Extra = 1`, "Custom-SimEvents_CL"), nil)
 	requireAzureErrorCode(t, err, "InvalidPayload", "a transform column the table lacks")
 	_, err = rules.Create(ctx, rg, "monitor-dcr-bad", rule(`source | extend TimeGenerated = todatetime(Time) | project TimeGenerated, Job`, "Custom-Missing_CL"), nil)
@@ -388,14 +382,13 @@ func TestMonitor_LogsIngestionRoutesThroughTheRule(t *testing.T) {
 	assert.Equal(t, []any{"first #1", "build", float64(2)}, []any(resp.Tables[0].Rows[0]))
 	assert.Equal(t, "test", resp.Tables[0].Rows[1][1])
 
-	// The other workspace holds no such table, and the rule wrote nothing
-	// to it.
+	// The other workspace holds no such table.
 	_, err = logs.QueryWorkspace(ctx, other.customerID, azquery.Body{Query: to.Ptr(`SimEvents_CL | take 1`)}, nil)
 	var respErr *azcore.ResponseError
 	require.True(t, errors.As(err, &respErr), "a workspace without the table refuses the query: %v", err)
 	assert.Equal(t, "BadArgumentError", respErr.ErrorCode)
 
-	// The upload names the rule by its immutable id and a stream it declares.
+	// The upload names the rule by its immutable ID and a stream it declares.
 	_, err = client.Upload(ctx, immutableID, "Custom-Undeclared", body, nil)
 	require.True(t, errors.As(err, &respErr), "%v", err)
 	assert.Equal(t, http.StatusBadRequest, respErr.StatusCode)
@@ -403,8 +396,8 @@ func TestMonitor_LogsIngestionRoutesThroughTheRule(t *testing.T) {
 	require.True(t, errors.As(err, &respErr), "%v", err)
 	assert.Equal(t, http.StatusNotFound, respErr.StatusCode)
 
-	// The simulator runs no Azure Monitor Agent, so it serves no rule
-	// associations and says so.
+	// The simulator runs no Azure Monitor Agent, so it serves no rule associations
+	// and says so.
 	associations, err := armmonitor.NewDataCollectionRuleAssociationsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = associations.NewListByRulePager(rg, "monitor-dcr", nil).NextPage(ctx)
@@ -412,7 +405,6 @@ func TestMonitor_LogsIngestionRoutesThroughTheRule(t *testing.T) {
 	_, err = associations.NewListByDataCollectionEndpointPager(rg, "monitor-dce", nil).NextPage(ctx)
 	requireAzureErrorCode(t, err, "NotImplemented", "an endpoint's associations")
 
-	// Read, list, tag and delete the rule and the endpoint.
 	got, err := rules.Get(ctx, rg, "monitor-dcr", nil)
 	require.NoError(t, err)
 	assert.Equal(t, immutableID, *got.Properties.ImmutableID)
@@ -462,8 +454,8 @@ func TestMonitor_LogsIngestionRoutesThroughTheRule(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// A workspace's tables: the Azure tables it holds from the start, and the
-// custom log tables a customer creates, changes and deletes.
+// A workspace holds its Azure tables from the start, and the custom log tables
+// a customer creates, changes and deletes.
 func TestMonitor_WorkspaceTables(t *testing.T) {
 	t.Parallel()
 	ws := createLogWorkspace(t, "monitor-tables-rg", "monitor-tables-ws")

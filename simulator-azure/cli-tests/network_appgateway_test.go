@@ -10,10 +10,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Azure Application Gateway driven through the Azure CLI. The gateway's own
-// resource needs the subnet its instances are deployed into, so the round trip
-// is gated on the real-execution network host; the subscription-scoped catalogs
-// describe the product rather than a deployment and are exercised everywhere.
+// The gateway's own resource needs the subnet its instances deploy into; the
+// subscription-scoped catalogs describe the product, not a deployment.
 
 const applicationGatewayAPIVersion = "2025-03-01"
 
@@ -99,8 +97,8 @@ func TestNetworkApplicationGatewayCatalogsCLI(t *testing.T) {
 	assert.Contains(t, failure, "ResourceNotFound")
 }
 
-// TestNetworkApplicationGatewayCLI covers the gateway resource itself: create,
-// show, retag, both lists, stop and start, backend health and delete.
+// TestNetworkApplicationGatewayCLI covers create, show, retag, both lists,
+// stop and start, backend health and delete.
 func TestNetworkApplicationGatewayCLI(t *testing.T) {
 	t.Parallel()
 
@@ -187,8 +185,7 @@ func TestNetworkApplicationGatewayCLI(t *testing.T) {
 	out = runCLI(t, azRest("GET", gatewayURL, ""))
 	assert.Contains(t, out, `"Running"`)
 
-	// The backend server the pool names is not listening, so once the gateway's
-	// probe reaches a verdict it reports the server Down rather than healthy.
+	// The pool's backend server is not listening, so the probe reports it Down.
 	var health struct {
 		BackendAddressPools []struct {
 			BackendAddressPool struct {
@@ -225,9 +222,9 @@ func TestNetworkApplicationGatewayCLI(t *testing.T) {
 	runCLI(t, azRest("DELETE", vnetURL, ""))
 }
 
-// TestNetworkApplicationGatewayWafRuleSetsCLI covers the subscription-scoped
-// web application firewall rule-set catalog: all nine managed rule sets with
-// their full rule-group and rule contents.
+// TestNetworkApplicationGatewayWafRuleSetsCLI covers the web application
+// firewall rule-set catalog: all nine managed rule sets with their rule groups
+// and rules.
 func TestNetworkApplicationGatewayWafRuleSetsCLI(t *testing.T) {
 	t.Parallel()
 	out := runCLI(t, azRest("GET", subscriptionURL("Microsoft.Network",

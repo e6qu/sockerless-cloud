@@ -9,11 +9,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestContainerApps_ListSecretsEmptyArrayNotNull asserts listSecrets on a
-// container app / job that has a configuration but no secrets returns the
-// REQUIRED SecretsCollection.value as [] (not null). The Go SDK collapses null
-// and [] to a len-0 slice, so the check is at the wire level — where the strict
-// clients that reported #313 break.
+// TestContainerApps_ListSecretsEmptyArrayNotNull: listSecrets on an app or job
+// with a configuration but no secrets returns the required
+// SecretsCollection.value as [], not null. The Go SDK reads both as an empty
+// slice, so the check is on the wire, where strict clients break.
 func TestContainerApps_ListSecretsEmptyArrayNotNull(t *testing.T) {
 	t.Parallel()
 	rg := "sdk-secrets-empty-rg"
@@ -22,8 +21,7 @@ func TestContainerApps_ListSecretsEmptyArrayNotNull(t *testing.T) {
 
 	appClient, err := armappcontainers.NewContainerAppsClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)
-	// App WITH a configuration (ingress) but NO secrets — the case that
-	// overwrote the initialised [] with a nil Secrets field.
+	// A configuration (ingress) but no secrets.
 	appPoller, err := appClient.BeginCreateOrUpdate(ctx, rg, "secretless-app", armappcontainers.ContainerApp{
 		Location: to.Ptr("eastus"),
 		Properties: &armappcontainers.ContainerAppProperties{

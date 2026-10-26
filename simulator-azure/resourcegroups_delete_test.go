@@ -13,8 +13,6 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// Deleting a resource group deletes what it holds through each resource's own
-// provider before the group goes, and a second delete finds no group.
 func TestResourceGroupDeleteDeletesItsResources(t *testing.T) {
 	srv := newMoveTestServer(t)
 	const group = "rg-delete-contents"
@@ -45,8 +43,7 @@ func TestResourceGroupDeleteDeletesItsResources(t *testing.T) {
 	}
 }
 
-// deleteResourceGroupAndWait deletes the group, waits for the operation its
-// Location names to settle, and returns that Location's path and query.
+// Returns the Location's path and query.
 func deleteResourceGroupAndWait(t *testing.T, srv *sim.Server, group string) string {
 	t.Helper()
 	groupPath := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s", moveTestSubscription, group)

@@ -11,16 +11,13 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// web_children.go serves four Microsoft.Web/sites child-resource families on
-// production sites and their deployment-slot twins: public certificates,
-// domain ownership identifiers, premier add-ons, and the config/pushsettings
-// section. Each family keeps one store keyed by the canonical ARM resource ID
-// (the /slots/{slot} segment included when a slot is addressed), so slot
-// resources are their own rows, never views of the production site's.
+// Four site child families at site and slot level: public certificates, domain
+// ownership identifiers, premier add-ons, and config/pushsettings. Each store
+// keys by canonical resource ID, /slots/{slot} included, so slot resources are
+// their own rows.
 
-// webChildType is the ARM resource type of a site child at the addressed
-// level: "Microsoft.Web/sites/<child>" on the production site,
-// "Microsoft.Web/sites/slots/<child>" on a deployment slot.
+// "Microsoft.Web/sites/<child>" on a site, "Microsoft.Web/sites/slots/<child>"
+// on a slot.
 func webChildType(r *http.Request, child string) string {
 	if sim.PathParam(r, "slot") != "" {
 		return "Microsoft.Web/sites/slots/" + child
@@ -28,7 +25,6 @@ func webChildType(r *http.Request, child string) string {
 	return "Microsoft.Web/sites/" + child
 }
 
-// WebPublicCertificate mirrors the swagger PublicCertificate resource.
 type WebPublicCertificate struct {
 	ID         string                         `json:"id,omitempty"`
 	Name       string                         `json:"name,omitempty"`
@@ -37,9 +33,7 @@ type WebPublicCertificate struct {
 	Properties WebPublicCertificateProperties `json:"properties"`
 }
 
-// WebPublicCertificateProperties mirrors PublicCertificateProperties: the DER
-// certificate bytes, the certificate store location, and the read-only
-// thumbprint the service derives from the blob.
+// The DER bytes, the store location, and the thumbprint derived from the blob.
 type WebPublicCertificateProperties struct {
 	Blob                      []byte `json:"blob,omitempty"`
 	PublicCertificateLocation string `json:"publicCertificateLocation,omitempty"`
@@ -48,8 +42,7 @@ type WebPublicCertificateProperties struct {
 
 var webPublicCertificates sim.Store[WebPublicCertificate]
 
-// WebDomainOwnershipIdentifier mirrors the swagger Identifier resource; the
-// identity string rides the wire as properties.id.
+// The identity string travels as properties.id.
 type WebDomainOwnershipIdentifier struct {
 	ID         string                                 `json:"id,omitempty"`
 	Name       string                                 `json:"name,omitempty"`
@@ -58,14 +51,12 @@ type WebDomainOwnershipIdentifier struct {
 	Properties WebDomainOwnershipIdentifierProperties `json:"properties"`
 }
 
-// WebDomainOwnershipIdentifierProperties mirrors IdentifierProperties.
 type WebDomainOwnershipIdentifierProperties struct {
 	Value string `json:"id,omitempty"`
 }
 
 var webDomainOwnershipIdentifiers sim.Store[WebDomainOwnershipIdentifier]
 
-// WebPremierAddOn mirrors the swagger PremierAddOn tracked resource.
 type WebPremierAddOn struct {
 	ID         string                    `json:"id,omitempty"`
 	Name       string                    `json:"name,omitempty"`
@@ -76,7 +67,6 @@ type WebPremierAddOn struct {
 	Properties WebPremierAddOnProperties `json:"properties"`
 }
 
-// WebPremierAddOnProperties mirrors PremierAddOnProperties.
 type WebPremierAddOnProperties struct {
 	Sku                  string `json:"sku,omitempty"`
 	Product              string `json:"product,omitempty"`
@@ -87,7 +77,6 @@ type WebPremierAddOnProperties struct {
 
 var webPremierAddOns sim.Store[WebPremierAddOn]
 
-// WebPushSettings mirrors the swagger PushSettings config sub-resource.
 type WebPushSettings struct {
 	ID         string                    `json:"id,omitempty"`
 	Name       string                    `json:"name,omitempty"`
@@ -96,7 +85,6 @@ type WebPushSettings struct {
 	Properties WebPushSettingsProperties `json:"properties"`
 }
 
-// WebPushSettingsProperties mirrors PushSettingsProperties.
 type WebPushSettingsProperties struct {
 	IsPushEnabled     bool   `json:"isPushEnabled"`
 	TagWhitelistJSON  string `json:"tagWhitelistJson,omitempty"`
@@ -164,9 +152,8 @@ func registerWebPublicCertificates(both func(string, string, http.HandlerFunc)) 
 			AzureError(w, "InvalidRequestContent", "The 'properties.blob' property is required.", http.StatusBadRequest)
 			return
 		}
-		// The blob is a DER certificate; real App Service rejects bytes that
-		// do not parse as one. The thumbprint is the SHA-1 of the DER bytes —
-		// the fingerprint every Azure certificate surface reports.
+		// App Service rejects a blob that is not a DER certificate. The thumbprint is
+		// the SHA-1 of the DER bytes, as every Azure certificate surface reports.
 		if _, err := x509.ParseCertificate(req.Properties.Blob); err != nil {
 			AzureError(w, "InvalidRequestContent", "The certificate blob is not a valid X.509 certificate: "+err.Error(), http.StatusBadRequest)
 			return
@@ -244,7 +231,7 @@ func registerWebDomainOwnershipIdentifiers(both func(string, string, http.Handle
 				"Domain ownership identifier %q not found.", sim.PathParam(r, "domainOwnershipIdentifierName"))
 			return
 		}
-		// ARM PATCH is a merge: only keys present in the body change.
+		// Azure Resource Manager PATCH merges: only keys present change.
 		var req struct {
 			Kind       *string `json:"kind"`
 			Properties *struct {
@@ -280,11 +267,8 @@ func registerWebPremierAddOns(both func(string, string, http.HandlerFunc)) {
 	addonID := func(r *http.Request) string {
 		return webResourceID(r) + "/premieraddons/" + sim.PathParam(r, "premierAddOnName")
 	}
-	// The swagger models the collection GET as a single PremierAddOn (the
-	// operation is WebApps_ListPremierAddOns but its declared 200 schema is
-	// the resource, not a collection), so the response is the app's premier
-	// add-on — the first by resource ID when several exist, an empty object
-	// when none does.
+	// WebApps_ListPremierAddOns declares a single PremierAddOn as its 200 schema,
+	// not a collection, so answer the first by resource ID, or an empty object.
 	both("GET", "/premieraddons", func(w http.ResponseWriter, r *http.Request) {
 		if webMissing(w, r) {
 			return
@@ -335,7 +319,7 @@ func registerWebPremierAddOns(both func(string, string, http.HandlerFunc)) {
 				"Premier add-on %q not found.", sim.PathParam(r, "premierAddOnName"))
 			return
 		}
-		// ARM PATCH is a merge: only keys present in the body change.
+		// Azure Resource Manager PATCH merges: only keys present change.
 		var req struct {
 			Kind       *string           `json:"kind"`
 			Tags       map[string]string `json:"tags"`
@@ -387,9 +371,8 @@ func registerWebPremierAddOns(both func(string, string, http.HandlerFunc)) {
 }
 
 func registerWebPushSettings(both func(string, string, http.HandlerFunc)) {
-	// The type spelling matches the other config sub-resources this slice
-	// serves (appsettings, metadata, ...): "Microsoft.Web/sites/config" at
-	// both the production and the slot level.
+	// "Microsoft.Web/sites/config" at site and slot level, like the other config
+	// sub-resources.
 	wirePush := func(r *http.Request, props WebPushSettingsProperties, kind string) WebPushSettings {
 		return WebPushSettings{
 			ID:         webResourceID(r) + "/config/pushsettings",

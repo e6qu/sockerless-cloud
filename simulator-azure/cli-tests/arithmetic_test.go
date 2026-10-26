@@ -36,7 +36,6 @@ func TestContainerApps_CLI_ArithmeticEval(t *testing.T) {
 	}`, envID, evalImageName)
 	runCLI(t, azRest("PUT", jobURL, jobBody))
 
-	// Start execution
 	rawStartURL := armURL("Microsoft.App", "jobs/"+jobName+"/start", acaAPIVersion)
 	out := runCLI(t, azRest("POST", rawStartURL, ""))
 
@@ -46,8 +45,6 @@ func TestContainerApps_CLI_ArithmeticEval(t *testing.T) {
 	parseJSON(t, out, &startResult)
 	require.NotEmpty(t, startResult.Name)
 
-	// Poll until the execution completes (async in the sim) — a fixed sleep
-	// races a loaded runner.
 	execURL := armURL("Microsoft.App", "jobs/"+jobName+"/executions/"+startResult.Name, acaAPIVersion)
 	var execResult struct {
 		Properties struct {
@@ -62,26 +59,19 @@ func TestContainerApps_CLI_ArithmeticEval(t *testing.T) {
 	}, 60*time.Second, 300*time.Millisecond)
 	assert.Equal(t, "Succeeded", execResult.Properties.Status)
 
-	// Poll Log Analytics until the output is ingested, then assert on the log
-	// lines themselves. A substring search for "14" over the whole response
-	// document is not an arithmetic assertion: the payload carries ISO-8601
-	// TimeGenerated stamps and identifiers, so any row landing at 14 minutes
-	// or 14 seconds past the hour satisfies it and the workload could have
-	// printed anything at all.
+	// Assert on the log lines themselves: the response document carries
+	// timestamps and identifiers, so a substring search for "14" over it proves
+	// nothing.
 	lines := waitForContainerAppLogLine(t, "ContainerGroupName_s", jobName, "14", 60*time.Second)
 	assert.Contains(t, lines, "14",
 		"the workload evaluates (3 + 4) * 2 and prints the result; its console lines were %q", lines)
 
-	// Cleanup
 	runCLI(t, azRest("DELETE", jobURL, ""))
 }
 
 // waitForContainerAppLogLine polls Log Analytics until the workload's own
-// output lands, and returns whatever lines it saw when it stopped waiting.
-// Waiting for the first line of any kind is a race the platform always wins:
-// a replica logs that it started before the workload inside it prints
-// anything, so the wait ends on a lifecycle line and the assertion that
-// follows reads an incomplete console.
+// output lands. A replica logs that it started before the workload prints, so
+// waiting for any line ends on a lifecycle line.
 func waitForContainerAppLogLine(t *testing.T, column, name, want string, budget time.Duration) []string {
 	t.Helper()
 	deadline := time.Now().Add(budget)
@@ -94,13 +84,9 @@ func waitForContainerAppLogLine(t *testing.T, column, name, want string, budget 
 	}
 }
 
-// containerAppLogLines reads the console lines Log Analytics holds for one
-// workload, selected by the column the workload kind is recorded under —
-// ContainerGroupName_s for a job, ContainerAppName_s for an app — and decoded
-// out of the query response's PrimaryResult table rather than matched as a
-// substring of the whole document. The column index is resolved from the
-// response's own column list, so a schema change surfaces as a failure here
-// rather than as a silently-empty result.
+// containerAppLogLines decodes the console lines of one workload from the query
+// response's PrimaryResult table, filtered by ContainerGroupName_s for a job or
+// ContainerAppName_s for an app.
 func containerAppLogLines(t *testing.T, filterColumn, name string) []string {
 	t.Helper()
 	_, customerID := cliLogsEnvironment(t)
@@ -164,7 +150,6 @@ func TestContainerApps_CLI_ArithmeticInvalid(t *testing.T) {
 	}`, envID, evalImageName)
 	runCLI(t, azRest("PUT", jobURL, jobBody))
 
-	// Start execution
 	rawStartURL := armURL("Microsoft.App", "jobs/"+jobName+"/start", acaAPIVersion)
 	out := runCLI(t, azRest("POST", rawStartURL, ""))
 
@@ -174,7 +159,6 @@ func TestContainerApps_CLI_ArithmeticInvalid(t *testing.T) {
 	parseJSON(t, out, &startResult)
 	require.NotEmpty(t, startResult.Name)
 
-	// Poll until the execution reaches a terminal status (async in the sim).
 	execURL := armURL("Microsoft.App", "jobs/"+jobName+"/executions/"+startResult.Name, acaAPIVersion)
 	var execResult struct {
 		Properties struct {
@@ -190,6 +174,5 @@ func TestContainerApps_CLI_ArithmeticInvalid(t *testing.T) {
 	assert.True(t, strings.Contains(execResult.Properties.Status, "Failed"),
 		"expected status to be Failed, got: %s", execResult.Properties.Status)
 
-	// Cleanup
 	runCLI(t, azRest("DELETE", jobURL, ""))
 }

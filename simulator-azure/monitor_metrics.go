@@ -13,12 +13,10 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// Azure Monitor platform metrics: the points a resource's data plane records
-// and the metrics and metricDefinitions reads of the resource's own
-// Microsoft.Insights provider, which list them per time grain and
-// aggregation.
+// Azure Monitor platform metrics: the points a resource's data plane records,
+// listed per time grain and aggregation by the metrics and metricDefinitions
+// reads.
 
-// AzureMetricPoint is one value of a resource's metric at a moment.
 type AzureMetricPoint struct {
 	ID         string            `json:"id"`
 	ResourceID string            `json:"resourceId"`
@@ -31,7 +29,6 @@ type AzureMetricPoint struct {
 
 var azureMetricPoints sim.Store[AzureMetricPoint]
 
-// azureMetricRetention is how long Azure Monitor keeps platform metrics.
 const azureMetricRetention = 93 * 24 * time.Hour
 
 func azureRecordMetric(resourceID, metric, unit string, value float64, dimensions map[string]string, at time.Time) {
@@ -44,7 +41,6 @@ func azureRecordMetric(resourceID, metric, unit string, value float64, dimension
 	})
 }
 
-// azureMetricDefinition is one metric a resource type reports.
 type azureMetricDefinition struct {
 	Name        string
 	Display     string
@@ -54,7 +50,6 @@ type azureMetricDefinition struct {
 	Dimensions  []string
 }
 
-// azureNATGatewayMetrics are the platform metrics of Microsoft.Network/natGateways.
 var azureNATGatewayMetrics = []azureMetricDefinition{
 	{Name: "ByteCount", Display: "Bytes", Description: "Total bytes transmitted within time period", Unit: "Bytes", Primary: "Total", Dimensions: []string{"Protocol", "Direction"}},
 	{Name: "PacketCount", Display: "Packets", Description: "Total packets transmitted within time period", Unit: "Count", Primary: "Total", Dimensions: []string{"Protocol", "Direction"}},
@@ -66,9 +61,8 @@ var azureNATGatewayMetrics = []azureMetricDefinition{
 
 var azureMetricAggregations = []string{"Total", "Average", "Count", "Minimum", "Maximum"}
 
-// azureMetricNamespace is a resource type whose platform metrics the
-// simulator records, with the resources of that type a subscription holds
-// in a region.
+// A resource type whose metrics the simulator records, and its resources in a
+// subscription's region.
 type azureMetricNamespace struct {
 	Namespace string
 	Metrics   []azureMetricDefinition
@@ -88,8 +82,7 @@ func azureMetricNamespaceNamed(name string) (azureMetricNamespace, bool) {
 	return azureMetricNamespace{}, false
 }
 
-// azureSameRegion compares a location as a resource stores it with one a
-// query names: "East US" and "eastus" are one region.
+// "East US" and "eastus" are one region.
 func azureSameRegion(a, b string) bool {
 	norm := func(s string) string { return strings.ToLower(strings.ReplaceAll(s, " ", "")) }
 	return norm(a) == norm(b)
@@ -218,8 +211,6 @@ func registerMonitorMetrics(srv *sim.Server) {
 	})
 }
 
-// azureMetricsBodyParameters maps SubscriptionScopeMetricsRequestBodyParameters
-// fields to the query parameters they stand for.
 var azureMetricsBodyParameters = map[string]string{
 	"timespan":            "timespan",
 	"interval":            "interval",
@@ -235,8 +226,7 @@ var azureMetricsBodyParameters = map[string]string{
 	"validateDimensions":  "ValidateDimensions",
 }
 
-// azureMetricResource is the resource the metrics read names, which has to
-// exist as Azure Monitor answers ResourceNotFound otherwise.
+// Azure Monitor answers ResourceNotFound for an absent resource.
 func azureMetricResource(w http.ResponseWriter, r *http.Request, collection string) (string, bool) {
 	resourceID := armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Network", collection, sim.PathParam(r, "name"))
 	if _, ok := azureNatGateways.Get(resourceID); !ok {
@@ -285,7 +275,7 @@ func azureWriteMetricDefinitions(w http.ResponseWriter, resourceID string, ns az
 
 var azureIntervalPattern = regexp.MustCompile(`^P(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?)?$`)
 
-// azureParseInterval reads an ISO 8601 duration of days, hours and minutes.
+// Days, hours and minutes only.
 func azureParseInterval(s string) (time.Duration, bool) {
 	m := azureIntervalPattern.FindStringSubmatch(strings.ToUpper(s))
 	if m == nil {
@@ -304,8 +294,6 @@ func azureParseInterval(s string) (time.Duration, bool) {
 	return d, d > 0
 }
 
-// azureMetricsQuery is a metrics read's window, grain, metric names and
-// aggregations.
 type azureMetricsQuery struct {
 	start, end    time.Time
 	interval      time.Duration
@@ -314,10 +302,9 @@ type azureMetricsQuery struct {
 	aggregations  []string
 }
 
-// azureMetricsQueryOf reads a metrics query: the timespan asked for, or the
-// last hour, in buckets of the interval asked for, or a minute, with the
-// aggregations asked for, or each metric's primary one. A dimension filter
-// is not applied: each series sums its dimensions' values.
+// The timespan, or the last hour; the interval, or a minute; the aggregations,
+// or each metric's primary one. A dimension filter is not applied: each series
+// sums its dimensions.
 func azureMetricsQueryOf(w http.ResponseWriter, q url.Values) (azureMetricsQuery, bool) {
 	query := azureMetricsQuery{end: time.Now().UTC(), interval: time.Minute, intervalLabel: "PT1M", wanted: map[string]bool{}}
 	query.start = query.end.Add(-time.Hour)
@@ -366,10 +353,8 @@ func azureMetricsQueryOf(w http.ResponseWriter, q url.Values) (azureMetricsQuery
 	return query, true
 }
 
-// azureWriteMetrics answers a metrics read over resources: one series per
-// metric, or with splitByResource one per resource of the metric, carrying
-// the resource's ID as its Microsoft.ResourceId metadata value, as a
-// subscription-scoped read does.
+// One series per metric or, with splitByResource, per resource, carrying its
+// ID as the Microsoft.ResourceId metadata value.
 func azureWriteMetrics(w http.ResponseWriter, query azureMetricsQuery, scope, region string, ns azureMetricNamespace, resources []string, splitByResource bool) {
 	// A read is when a point past the retention goes.
 	cutoff := time.Now().Add(-azureMetricRetention)

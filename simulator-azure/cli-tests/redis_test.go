@@ -73,8 +73,7 @@ func TestRedisCLI_ARMResources(t *testing.T) {
 	require.NotEmpty(t, keys.PrimaryKey)
 	require.NotEqual(t, keys.PrimaryKey, keys.SecondaryKey)
 
-	// The cache answers at its hostName's sslPort to its primary key. Azure
-	// presents a certificate a public root signs; the client checks
+	// Azure presents a certificate a public root signs; the client checks
 	// encryption, not the chain.
 	address := redisCLIResolve(t, cache.Properties.HostName)
 	client := goredis.NewClient(&goredis.Options{

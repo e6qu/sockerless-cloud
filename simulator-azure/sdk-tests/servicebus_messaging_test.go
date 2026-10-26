@@ -11,10 +11,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestServiceBusARM_SDKNamespaceLifecycleAndMessagingSurfaces exercises the
-// namespace list-by-subscription / PATCH / private endpoint connection, the
-// disaster recovery + migration configuration, and the authorization-rule
-// key surfaces through the official armservicebus SDK.
+// TestServiceBusARM_SDKNamespaceLifecycleAndMessagingSurfaces covers the
+// namespace list, PATCH and private endpoint connections, disaster recovery
+// and migration configurations, and authorization rule keys through
+// armservicebus.
 func TestServiceBusARM_SDKNamespaceLifecycleAndMessagingSurfaces(t *testing.T) {
 	t.Parallel()
 	rg := "sb-msg-rg"
@@ -43,7 +43,6 @@ func TestServiceBusARM_SDKNamespaceLifecycleAndMessagingSurfaces(t *testing.T) {
 		}
 	})
 
-	// List by subscription includes the namespace just created.
 	subPager := namespaces.NewListPager(nil)
 	foundInSub := false
 	for subPager.More() {
@@ -57,7 +56,6 @@ func TestServiceBusARM_SDKNamespaceLifecycleAndMessagingSurfaces(t *testing.T) {
 	}
 	assert.True(t, foundInSub, "namespace should appear in list-by-subscription")
 
-	// PATCH the namespace tags.
 	updated, err := namespaces.Update(ctx, rg, ns, armservicebus.SBNamespaceUpdateParameters{
 		Tags: map[string]*string{"env": to.Ptr("prod"), "team": to.Ptr("messaging")},
 	}, nil)
@@ -65,8 +63,7 @@ func TestServiceBusARM_SDKNamespaceLifecycleAndMessagingSurfaces(t *testing.T) {
 	require.NotNil(t, updated.Tags)
 	assert.Equal(t, "prod", *updated.Tags["env"])
 
-	// RootManageSharedAccessKey is auto-provisioned; listKeys + regenerateKeys
-	// return canonical AccessKeys shapes.
+	// The root rule is provisioned with the namespace.
 	keys, err := namespaces.ListKeys(ctx, rg, ns, "RootManageSharedAccessKey", nil)
 	require.NoError(t, err)
 	require.NotNil(t, keys.PrimaryKey)
@@ -80,7 +77,6 @@ func TestServiceBusARM_SDKNamespaceLifecycleAndMessagingSurfaces(t *testing.T) {
 	require.NotNil(t, regen.PrimaryKey)
 	require.NotNil(t, regen.SecondaryKey)
 
-	// Private endpoint connection round-trip.
 	pecClient := clientFactory.NewPrivateEndpointConnectionsClient()
 	pec, err := pecClient.CreateOrUpdate(ctx, rg, ns, "pec1", armservicebus.PrivateEndpointConnection{
 		Properties: &armservicebus.PrivateEndpointConnectionProperties{
@@ -110,7 +106,6 @@ func TestServiceBusARM_SDKNamespaceLifecycleAndMessagingSurfaces(t *testing.T) {
 	_, err = delPECPoller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 
-	// Disaster recovery configuration lifecycle.
 	drClient := clientFactory.NewDisasterRecoveryConfigsClient()
 	partner := "/subscriptions/" + subscriptionID + "/resourceGroups/" + rg + "/providers/Microsoft.ServiceBus/namespaces/" + uniquename.New("sdk-sb-msg-secondary")
 	dr, err := drClient.CreateOrUpdate(ctx, rg, ns, "sdkdr", armservicebus.ArmDisasterRecovery{
@@ -133,7 +128,8 @@ func TestServiceBusARM_SDKNamespaceLifecycleAndMessagingSurfaces(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, drPage.Value, 1)
 
-	// DR alias surfaces the primary namespace's authorization rules.
+	// The disaster recovery alias surfaces the primary namespace's authorization
+	// rules.
 	drRulePager := drClient.NewListAuthorizationRulesPager(rg, ns, "sdkdr", nil)
 	require.True(t, drRulePager.More())
 	drRulePage, err := drRulePager.NextPage(ctx)
@@ -156,7 +152,6 @@ func TestServiceBusARM_SDKNamespaceLifecycleAndMessagingSurfaces(t *testing.T) {
 	_, err = drClient.Delete(ctx, rg, ns, "sdkdr", nil)
 	require.NoError(t, err)
 
-	// Migration configuration lifecycle.
 	migClient := clientFactory.NewMigrationConfigsClient()
 	migPoller, err := migClient.BeginCreateAndStartMigration(ctx, rg, ns, armservicebus.MigrationConfigurationNameDefault, armservicebus.MigrationConfigProperties{
 		Properties: &armservicebus.MigrationConfigPropertiesProperties{

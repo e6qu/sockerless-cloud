@@ -8,14 +8,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// CLI coverage for Resources_List. `az resource list` reaches every scoping it
-// offers through one route — the subscription-wide
-// `GET /subscriptions/{subscriptionId}/resources` — by translating its options
-// into an OData `$filter`: `-g` becomes `resourceGroup eq '<name>'`,
-// `--resource-type` becomes `resourceType eq '<ns>/<type>'`, `--name` becomes
-// `name eq '<name>'`, and `--location` becomes `location eq '<region>'`. A
-// simulator that ignored the filter would answer every scoping with the whole
-// subscription, which reads as a result rather than as the wrong answer it is.
+// `az resource list` reaches every scoping through the subscription-wide
+// Resources_List, translating -g, --resource-type, --name and --location into
+// an OData $filter. A simulator that ignored the filter would answer every
+// scoping with the whole subscription.
 
 type azResourceListRow struct {
 	ID            string            `json:"id"`
@@ -34,8 +30,8 @@ func azResourceListTypes(rows []azResourceListRow) map[string]int {
 	return types
 }
 
-// TestResourceListCLI proves `az resource list -g <rg>` answers with that
-// group's resources only, and with every provider's resources in it.
+// TestResourceListCLI: `az resource list -g <rg>` answers with that group's
+// resources only, from every provider.
 func TestResourceListCLI(t *testing.T) {
 	t.Parallel()
 	env := startAzLoginSimulator(t)
@@ -76,22 +72,19 @@ func TestResourceListCLI(t *testing.T) {
 	assert.GreaterOrEqual(t, len(types), 2,
 		"the group's list carries every provider's resources, not one provider's")
 
-	// --resource-type composes with -g, as the CLI's filter builder composes
-	// the two clauses with `and`.
+	// The CLI composes --resource-type and -g with `and`.
 	var typed []azResourceListRow
 	parseJSON(t, runCLI(t, env.command("resource", "list", "-g", mine,
 		"--resource-type", "Microsoft.Network/virtualNetworks", "-o", "json")), &typed)
 	require.Len(t, typed, 1)
 	assert.Equal(t, "cli-reslist-vnet", typed[0].Name)
 
-	// --name selects one resource across the subscription.
 	var named []azResourceListRow
 	parseJSON(t, runCLI(t, env.command("resource", "list",
 		"--name", "clireslistother", "-o", "json")), &named)
 	require.Len(t, named, 1)
 	assert.Contains(t, strings.ToLower(named[0].ID), strings.ToLower("/resourcegroups/"+theirs+"/"))
 
-	// The unscoped subscription list holds both groups.
 	var all []azResourceListRow
 	parseJSON(t, runCLI(t, env.command("resource", "list", "-o", "json")), &all)
 	groups := map[string]bool{}
@@ -101,7 +94,7 @@ func TestResourceListCLI(t *testing.T) {
 	assert.True(t, groups[mine])
 	assert.True(t, groups[theirs])
 
-	// --location narrows by region; a region nothing sits in is empty.
+	// A region nothing sits in lists nothing.
 	var elsewhere []azResourceListRow
 	parseJSON(t, runCLI(t, env.command("resource", "list",
 		"--location", "antarctica-south", "-o", "json")), &elsewhere)

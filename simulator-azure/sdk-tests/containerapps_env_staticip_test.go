@@ -9,10 +9,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestContainerAppsEnv_StaticIPUniqueAndStable verifies the managed-environment
-// staticIp is unique per environment (real Azure allocates a distinct IP per
-// env) and stable across re-reads of the same environment. A single hardcoded
-// value made every environment collide.
+// TestContainerAppsEnv_StaticIPUniqueAndStable: Azure allocates each managed
+// environment its own staticIp, stable across reads.
 func TestContainerAppsEnv_StaticIPUniqueAndStable(t *testing.T) {
 	t.Parallel()
 	rg := "env-staticip-rg"

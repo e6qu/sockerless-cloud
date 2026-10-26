@@ -8,12 +8,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Regional VNet integration written through the site envelope's
-// virtualNetworkSubnetId — the spelling terraform's
-// azurerm_linux_function_app.virtual_network_subnet_id and
-// `az webapp vnet-integration add` use — must read back on the site, or a
-// client that wrote it plans a change on every refresh (the integration looks
-// absent) and the graph is never idempotent.
+// Regional virtual network integration written through the site's
+// virtualNetworkSubnetId, as azurerm_linux_function_app.virtual_network_subnet_id
+// and `az webapp vnet-integration add` write it, reads back on the site;
+// otherwise every refresh plans a change.
 func TestSDK_WebSite_SubnetInEnvelopeReadsBack(t *testing.T) {
 	t.Parallel()
 	rg := "site-subnet-envelope-rg"
@@ -44,7 +42,7 @@ func TestSDK_WebSite_SubnetInEnvelopeReadsBack(t *testing.T) {
 	require.Equal(t, subnetID, derefStr(got.Properties.VirtualNetworkSubnetID),
 		"a refresh must still report the integration, or every plan shows drift")
 
-	// A second identical write — what a re-apply performs — keeps it.
+	// A second identical write, as a re-apply performs, keeps it.
 	poller, err = client.BeginCreateOrUpdate(ctx, rg, "sse-app", armappservice.Site{
 		Location: to.Ptr("eastus"),
 		Properties: &armappservice.SiteProperties{

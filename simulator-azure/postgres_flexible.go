@@ -9,8 +9,8 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// Microsoft.DBforPostgreSQL/flexibleServers ARM control plane.
-// Surface scoped to server-instance lifecycle and its nested resources.
+// Microsoft.DBforPostgreSQL/flexibleServers: server lifecycle and nested
+// resources.
 
 type PGFlexibleServer struct {
 	ID         string            `json:"id"`
@@ -36,11 +36,8 @@ type PGFirewallRule struct {
 	Properties map[string]any `json:"properties,omitempty"`
 }
 
-// PGConfiguration is one row in the per-server configurations
-// list. Real Azure PG exposes server-wide settings (max_connections,
-// log_statement, shared_buffers, etc.) as a flat key/value list. The
-// shape mirrors armpostgresqlflexibleservers.Configuration:
-// id + name + properties{value, defaultValue, source, ...}.
+// Server-wide settings as a flat key/value list:
+// id, name, properties{value, defaultValue, source, ...}.
 type PGConfiguration struct {
 	ID         string         `json:"id"`
 	Name       string         `json:"name"`
@@ -86,11 +83,9 @@ func registerPGFlexibleServer(srv *sim.Server) {
 
 	registerPGFlexibleServerMore(srv)
 
-	// A persistent control-plane restart rebinds every credentialed server's
-	// listener, re-registers its DNS name, and re-adopts the engine
-	// containers the earlier process left running. The API-only tier holds
-	// no engines and rebinding modeled servers would invent listeners their
-	// records never promised.
+	// A persistent restart rebinds every credentialed server's listener,
+	// re-registers its DNS name and re-adopts its engine. The API-only tier holds
+	// no engines.
 	if sim.RequireContainerRuntime("the Azure Database for PostgreSQL data plane") == nil {
 		if err := azurePGRecoverDataPlanes(); err != nil {
 			log.Fatalf("recover Azure Database for PostgreSQL data planes: %v", err)
@@ -98,7 +93,6 @@ func registerPGFlexibleServer(srv *sim.Server) {
 	}
 }
 
-// pgConfigKey is the per-(server, configuration-name) store key.
 func pgConfigKey(sub, rg, server, cfg string) string {
 	return sub + "/" + rg + "/" + server + "/" + cfg
 }
@@ -171,9 +165,8 @@ func handlePGCreateServer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := pgServerID(sub, rg, name)
-	// administratorLoginPassword is write-only on the ARM wire (x-ms-secret):
-	// it seals into the credential store and never lands in the stored
-	// properties a GET echoes back.
+	// administratorLoginPassword is x-ms-secret: it seals into the credential
+	// store and never lands in the stored properties.
 	var adminPassword string
 	if req.Properties != nil {
 		adminPassword, _ = req.Properties["administratorLoginPassword"].(string)
@@ -207,23 +200,19 @@ func handlePGCreateServer(w http.ResponseWriter, r *http.Request) {
 		s.Properties["state"] = "Starting"
 	}
 
-	// createMode selects how the new server comes to be. The source-based
-	// modes (PointInTimeRestore, GeoRestore, Replica) build the new server
-	// from another server's data rather than from a password: the new server
-	// keeps the source's administrator login and credential, and the clone
-	// runs through the create's own long-running operation.
+	// The source-based modes (PointInTimeRestore, GeoRestore, Replica) build the
+	// server from another's data: it keeps the source's administrator login and
+	// credential, and the clone runs through the create's own operation.
 	createMode, _ := s.Properties["createMode"].(string)
 	var restore *azurePGRestoreSource
 	var cloneFailCode string
 	var settleClone func()
 	switch {
 	case createMode == "" || strings.EqualFold(createMode, "Default") || strings.EqualFold(createMode, "Create"):
-		// Plain create. Default on an existing name means update, which the
-		// PUT's overwrite of the stored record already is.
+		// On an existing name Default is an update, which overwriting the stored record
+		// already is.
 	case strings.EqualFold(createMode, "Update"):
-		// Update addresses an existing server; on a name that does not exist
-		// there is nothing to update, and Azure Resource Manager refuses the
-		// request rather than creating a server the caller said it had.
+		// Azure Resource Manager refuses an Update of a server that does not exist.
 		if _, exists := pgServers.Get(id); !exists {
 			AzureErrorf(w, "InvalidParameterValue", http.StatusBadRequest,
 				"createMode \"Update\" requires an existing server, and server %q does not exist", name)
@@ -245,10 +234,8 @@ func handlePGCreateServer(w http.ResponseWriter, r *http.Request) {
 		restore = &picked
 		cloneFailCode = "RestoreFailed"
 	case strings.EqualFold(createMode, "GeoRestore"):
-		// Geo-restore restores the latest geo-replicated backup, not a chosen
-		// point in time: the pick is the source's newest settled backup —
-		// bounding it at now excludes nothing, since no completedTime lies in
-		// the future — or its live volume when none has settled yet.
+		// Geo-restore takes the source's newest settled backup, or its live volume
+		// when none has settled.
 		sourceSub, sourceRG, sourceName, ok := pgCreateSourceServer(w, s.Properties, rg, name)
 		if !ok {
 			return
@@ -257,10 +244,9 @@ func handlePGCreateServer(w http.ResponseWriter, r *http.Request) {
 		restore = &picked
 		cloneFailCode = "GeoRestoreFailed"
 	case strings.EqualFold(createMode, "Replica"):
-		// A replica is seeded from the primary's live volume and serves that
-		// data under the source's credential. It reports Provisioning while
-		// the clone runs and settles to Active when the data plane holds the
-		// cloned data; the source becomes the replication set's primary.
+		// A replica clones the primary's live volume and serves it under the source's
+		// credential: Provisioning while the clone runs, then Active; the source
+		// becomes the primary.
 		sourceSub, sourceRG, sourceName, ok := pgCreateSourceServer(w, s.Properties, rg, name)
 		if !ok {
 			return
@@ -291,9 +277,8 @@ func handlePGCreateServer(w http.ResponseWriter, r *http.Request) {
 			})
 		}
 	case strings.EqualFold(createMode, "ReviveDropped"):
-		// Deleting a server removes its volume and its backups' volumes with
-		// it, so there is no dropped server's data left to revive; refusing
-		// is the truth, where a plain create would serve an empty impostor.
+		// Deleting a server removes its volumes and backups, so nothing is left to
+		// revive; a plain create would serve an empty impostor.
 		AzureErrorf(w, "InvalidParameterValue", http.StatusBadRequest,
 			"createMode \"ReviveDropped\" cannot be served: the simulator retains no dropped server to revive; deleted servers' volumes are removed on delete")
 		return
@@ -317,9 +302,8 @@ func handlePGCreateServer(w http.ResponseWriter, r *http.Request) {
 
 	var opID string
 	if restore != nil {
-		// The clone runs through the create's own long-running operation, so
-		// the poll completes when the cloned data is in place and the data
-		// plane installs on the cloned volume.
+		// The create's operation completes once the clone is in place and the data
+		// plane installs on it.
 		source := *restore
 		failCode := cloneFailCode
 		settle := settleClone
@@ -350,18 +334,14 @@ func handlePGCreateServer(w http.ResponseWriter, r *http.Request) {
 			})
 		})
 	}
-	// Servers_Create declares 202-only (no success body): the caller
-	// polls Azure-AsyncOperation until Succeeded, then GETs the
-	// resource URL (Location) for the created server.
+	// Servers_Create declares 202 only: the caller polls Azure-AsyncOperation, then
+	// GETs the Location.
 	pgWriteAsyncAccepted(w, r, sub, s.Location, opID)
 }
 
-// pgCreateSourceServer resolves the sourceServerResourceId a source-based
-// create names and carries the source's administrator login and sealed
-// credential onto the new server — a restored server or replica accepts the
-// source's administrator password, not one of its own. It writes the ARM
-// error and reports ok=false when the ID does not parse or the source does
-// not exist.
+// A restored server or replica takes the source's administrator login and
+// sealed credential. It writes the error and reports ok=false for an
+// unparseable ID or a missing source.
 func pgCreateSourceServer(w http.ResponseWriter, props map[string]any, rg, name string) (sourceSub, sourceRG, sourceName string, ok bool) {
 	sourceID, _ := props["sourceServerResourceId"].(string)
 	sourceSub, sourceRG, sourceName, parsed := pgParseServerResourceID(sourceID)
@@ -385,19 +365,15 @@ func pgCreateSourceServer(w http.ResponseWriter, props map[string]any, rg, name 
 	return sourceSub, sourceRG, sourceName, true
 }
 
-// pgWriteAsyncAccepted answers a PostgreSQL flexible-server mutation
-// with the LRO contract the 2025-08-01 spec declares for PUT and
-// DELETE: 202 Accepted, no body, Azure-AsyncOperation pointing at the
-// operation-status poll URL and Location at the resource URL.
+// The 2025-08-01 PUT and DELETE contract: 202, no body, Azure-AsyncOperation at
+// the status poll and Location at the resource.
 func pgWriteAsyncAccepted(w http.ResponseWriter, r *http.Request, sub, location, opID string) {
 	opURL := azureAsyncOperationHeader(r, sub, "Microsoft.DBforPostgreSQL", location, "operationStatuses", opID, r.URL.Query().Get("api-version"))
 	writeAzureAsyncCreateHeaders(w, opID, opURL, azureCurrentRequestURL(r))
 	w.WriteHeader(http.StatusAccepted)
 }
 
-// pgServerLocation resolves the owning server's location for the
-// sub-resource LRO poll URL; the spec's operationStatuses path is
-// location-scoped.
+// The operationStatuses path is location-scoped.
 func pgServerLocation(serverID string) string {
 	if s, ok := pgServers.Get(serverID); ok && s.Location != "" {
 		return s.Location
@@ -426,17 +402,15 @@ func handlePGDeleteServer(w http.ResponseWriter, r *http.Request) {
 		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "server not found: %s", id)
 		return
 	}
-	// Tear down the data plane: stop the engine, close the listener, remove
-	// the data volume, drop the sealed credential, and unregister the DNS
-	// name the endpoint advertised.
+	// Stop the engine, close the listener, remove the volume, drop the credential
+	// and unregister the DNS name.
 	azurePGStopDataPlane(rg, name, true)
 	pgServerCredentials.Delete(azurePGServerKey(rg, name))
 	if fqdn, isString := s.Properties["fullyQualifiedDomainName"].(string); isString && fqdn != "" {
 		UnregisterAzureDNSName(fqdn)
 	}
-	// Cascade-delete owned databases, firewall rules, and backups — both
-	// on-demand and long-term-retention — a deleted server's backups go with
-	// it, volumes included.
+	// Cascade-delete databases, firewall rules and backups, on-demand and
+	// long-term, volumes included.
 	prefix := id + "/"
 	for _, d := range pgDatabases.List() {
 		if strings.HasPrefix(d.ID, prefix) {
@@ -510,8 +484,7 @@ func handlePGCreateDatabase(w http.ResponseWriter, r *http.Request) {
 	sub := sim.PathParam(r, "subscriptionId")
 	rg := sim.PathParam(r, "resourceGroupName")
 	serverName := sim.PathParam(r, "name")
-	// A running engine gets the declared database immediately; a cold one
-	// receives it when readiness reconciles the declared state.
+	// A running engine gets the database now; a cold one at readiness.
 	opID := startAzureAsyncOperationOutcome(func() *AsyncOperationError {
 		if err := azurePGEnsureDatabaseIfRunning(sub, rg, serverName, dbName); err != nil {
 			return &AsyncOperationError{Code: "DatabaseCreateFailed", Message: err.Error()}
@@ -543,9 +516,8 @@ func handlePGDeleteDatabase(w http.ResponseWriter, r *http.Request) {
 		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "database not found")
 		return
 	}
-	// A running engine drops the database now; a cold data directory keeps
-	// the bytes, but readiness reconciles only databases the control plane
-	// still declares.
+	// A running engine drops the database now; a cold one keeps the bytes, but
+	// readiness reconciles only declared databases.
 	opID := startAzureAsyncOperationOutcome(func() *AsyncOperationError {
 		if err := azurePGDropDatabaseIfRunning(sub, rg, serverName, dbName); err != nil {
 			return &AsyncOperationError{Code: "DatabaseDeleteFailed", Message: err.Error()}

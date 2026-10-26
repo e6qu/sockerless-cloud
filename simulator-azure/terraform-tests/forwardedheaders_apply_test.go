@@ -14,12 +14,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestTerraformFrontEndForwardedHeaders provisions a Linux web app and a
-// container app whose containers echo their request headers, and sends each a
-// request carrying an X-Forwarded-For of its own. The App Service front end
-// appends the client's address and port and names the client's protocol in
-// X-Forwarded-Proto and X-AppService-Proto; Container Apps ingress appends the
-// client's IP and overwrites X-Forwarded-Proto.
+// TestTerraformFrontEndForwardedHeaders sends each echoing workload a request
+// carrying its own X-Forwarded-For. The App Service front end appends the
+// client's address and port and names the protocol in X-Forwarded-Proto and
+// X-AppService-Proto; Container Apps ingress appends the client's IP and
+// overwrites X-Forwarded-Proto.
 func TestTerraformFrontEndForwardedHeaders(t *testing.T) {
 	dir := tfWorkspaceFrom(t, mustAbs("forwardedheaders"))
 	out, err := runTimed(t, "terraform init", terraformCmd(dir, "init"))
@@ -52,16 +51,16 @@ func TestTerraformFrontEndForwardedHeaders(t *testing.T) {
 	assert.True(t, client.IsLoopback(), "X-Forwarded-For %q", app.Get("X-Forwarded-For"))
 	assert.Equal(t, "http", app.Get("X-Forwarded-Proto"))
 
-	// The client certificate settings read back as written, and a request
-	// over plain HTTP carries no certificate for either front end to forward.
+	// The client certificate settings read back as written, and a plain-HTTP
+	// request carries no certificate to forward.
 	assert.Equal(t, "Optional", outputs.must(t, "app_client_certificate_mode"))
 	assert.Equal(t, "accept", outputs.must(t, "container_app_client_certificate_mode"))
 	assert.Empty(t, site.Get("X-ARR-ClientCert"))
 	assert.Empty(t, app.Get("X-Forwarded-Client-Cert"))
 }
 
-// frontEndEchoedHeaders sends a request carrying host straight to the
-// simulator's front end and parses the header lines the workload echoed.
+// frontEndEchoedHeaders sends a request carrying host to the simulator's front
+// end and parses the header lines the workload echoed.
 func frontEndEchoedHeaders(t *testing.T, host string) http.Header {
 	t.Helper()
 	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://127.0.0.1:%d/", simPort), nil)

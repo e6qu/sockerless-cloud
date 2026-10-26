@@ -10,33 +10,22 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// An Azure Cosmos DB account name is a hostname, so it is global.
-//
-// The control plane advertises `<name>.documents.azure.com` as an account's
-// documentEndpoint, and a client reaches an account by resolving that name;
-// there is no other way to address one. That is why the service publishes an
-// operation whose only purpose is to report whether a name is taken —
-// `DatabaseAccounts_CheckNameExists` — and why two accounts cannot share one.
-//
-// The simulator used to allow it: the same name in two resource groups, which
-// made a data-plane request ambiguous. It resolved the ambiguity by picking the
-// lowest-identified account, and by honouring a `x-ms-cosmos-account` header
-// that Azure does not have. Both are gone. The name is refused at creation, and
-// a data-plane request names its account the way every real client does — in
-// the host it dialled.
+// An Azure Cosmos DB account name is a hostname, so it is global: the control
+// plane advertises `<name>.documents.azure.com` as documentEndpoint, and a
+// client reaches an account only by resolving that name. Hence
+// DatabaseAccounts_CheckNameExists, and a name taken in one resource group is
+// refused in another.
 func TestCosmos_AccountNameIsGlobal(t *testing.T) {
 	t.Parallel()
 	const account = "globalnamecosmos"
 	subscription := subscriptionID
 
-	// The account exists in one resource group, and CheckNameExists says so.
 	cosmosAccountKeys(t, account)
 	status, body := cosmosARM(t, baseURL, http.MethodHead,
 		"/providers/Microsoft.DocumentDB/databaseAccountNames/"+account+"?api-version=2024-08-15", "")
 	require.Equal(t, http.StatusOK, status, "CheckNameExists on a name in use: %s", body)
 
-	// A second account claiming it in another resource group is refused. A
-	// simulator that served this would contradict the operation above.
+	// A second account claiming the name in another resource group is refused.
 	status, body = cosmosARM(t, baseURL, http.MethodPut,
 		"/subscriptions/"+subscription+"/resourceGroups/other-cosmos-rg", `{"location":"eastus"}`)
 	require.Contains(t, []int{http.StatusOK, http.StatusCreated}, status, "create resource group: %s", body)
@@ -46,8 +35,8 @@ func TestCosmos_AccountNameIsGlobal(t *testing.T) {
 	require.Equal(t, http.StatusConflict, status, "second account under a name in use: %s", body)
 	assert.Contains(t, string(body), account)
 
-	// The original account is untouched, and a PUT to its own identifier is
-	// still the update the operation is defined to be.
+	// The original account is untouched, and a PUT to its own identifier is still
+	// an update.
 	status, body = cosmosARM(t, baseURL, http.MethodPut, cosmosAccountPath(account),
 		`{"location":"eastus","kind":"GlobalDocumentDB","tags":{"owner":"platform"},"properties":{"databaseAccountOfferType":"Standard"}}`)
 	require.Equal(t, http.StatusOK, status, "update the account that holds the name: %s", body)
@@ -58,18 +47,13 @@ func TestCosmos_AccountNameIsGlobal(t *testing.T) {
 	assert.Equal(t, "platform", updated.Tags["owner"])
 }
 
-// TestCosmos_DataPlaneNeedsTheAccountHost is the other half: the host is what
-// names the account, so a request that carries no account host reaches no
-// account. The simulator used to fall back to the lexicographically-first
-// account, which made a misaddressed request succeed against somebody else's
-// data.
+// TestCosmos_DataPlaneNeedsTheAccountHost: the host names the account, so a
+// request carrying no account host reaches no account.
 func TestCosmos_DataPlaneNeedsTheAccountHost(t *testing.T) {
 	t.Parallel()
 	const account = "hostroutedcosmos"
 	key := cosmosAccountKey(t, account)
 
-	// Addressed at the account's own advertised endpoint host, the request is
-	// served.
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/dbs",
 		strings.NewReader(`{"id":"hostdb"}`))
 	require.NoError(t, err)
@@ -81,9 +65,8 @@ func TestCosmos_DataPlaneNeedsTheAccountHost(t *testing.T) {
 	resp.Body.Close()
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
 
-	// The identical request without that host reaches no account, so no
-	// account's keys could have signed it and the data plane refuses it. The
-	// retired `x-ms-cosmos-account` header does not bring it back.
+	// Without that host, no account's keys could have signed the request, so the
+	// data plane refuses it, `x-ms-cosmos-account` header or not.
 	request, err = http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/dbs",
 		strings.NewReader(`{"id":"hostdb2"}`))
 	require.NoError(t, err)

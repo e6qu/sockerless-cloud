@@ -7,11 +7,9 @@ terraform {
   }
 }
 
-# Resource group delete configuration, run by
-# TestTerraformResourceGroupDeleteTakesItsResources: the test removes the
-# identity from the state, so destroying the group has to delete the identity
-# the group still holds. The identity names its group literally, which lets
-# `terraform import` look for it once the group is gone.
+# Run by TestTerraformResourceGroupDeleteTakesItsResources. The identity names
+# its group literally, so `terraform import` can look for it once the group is
+# gone.
 
 variable "endpoint" {
   description = "Simulator endpoint URL"

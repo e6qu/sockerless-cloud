@@ -9,15 +9,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestSDK_Web_RuntimeStackCatalogsListTheStacksSitesRun covers all six
-// spellings of App Service's runtime-stack catalogs.
-//
-// The catalogs report the built-in runtime stacks the App Service runs: the
-// Linux Node and Python stacks whose platform images a web app on them
-// starts, and the Node stack a function app runs the Azure Functions host
-// on. A Windows selection lists none.
-//
-// Each subtest drives one spelling:
+// TestSDK_Web_RuntimeStackCatalogsListTheStacksSitesRun covers the six
+// runtime-stack catalog spellings. They list the stacks App Service runs: the
+// Linux Node and Python stacks whose images a web app starts, and the Node
+// stack a function app runs the Azure Functions host on. A Windows selection
+// lists none.
 //
 //	GetAvailableStacks               GET /providers/Microsoft.Web/availableStacks
 //	GetAvailableStacksOnPrem         GET /subscriptions/{subscriptionId}/providers/Microsoft.Web/availableStacks
@@ -118,7 +114,6 @@ func TestSDK_Web_RuntimeStackCatalogsListTheStacksSitesRun(t *testing.T) {
 	})
 
 	t.Run("GetFunctionAppStacks", func(t *testing.T) {
-		// GET /providers/Microsoft.Web/functionAppStacks?stackOsType=Linux
 		var got []*armappservice.FunctionAppStack
 		pager := provider.NewGetFunctionAppStacksPager(&armappservice.ProviderClientGetFunctionAppStacksOptions{
 			StackOsType: to.Ptr(armappservice.ProviderStackOsTypeLinux),
@@ -156,7 +151,6 @@ func TestSDK_Web_RuntimeStackCatalogsListTheStacksSitesRun(t *testing.T) {
 	})
 
 	t.Run("GetFunctionAppStacksForLocation", func(t *testing.T) {
-		// GET /providers/Microsoft.Web/locations/{location}/functionAppStacks
 		var got []*armappservice.FunctionAppStack
 		pager := provider.NewGetFunctionAppStacksForLocationPager("eastus", nil)
 		for pager.More() {

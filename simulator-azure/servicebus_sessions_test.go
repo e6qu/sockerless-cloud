@@ -61,9 +61,7 @@ func TestServiceBusScheduleAndCancelOnATopic(t *testing.T) {
 	}
 }
 
-// A session-enabled queue hands a session's messages only to the receiver
-// holding its lock; the next-session accept takes the earliest session whose
-// lock is free.
+// The next-session accept takes the earliest session whose lock is free.
 func TestServiceBusSessionsLockAndState(t *testing.T) {
 	newServiceBusQueueTestStores(t)
 	sbTestQueue("sq", map[string]any{"requiresSession": true, "lockDuration": "PT30S"})
@@ -151,8 +149,8 @@ func TestSBAMQPRefusesAReceiverOfTheWrongSessionKind(t *testing.T) {
 }
 
 // The REST plane cannot accept a session: it refuses to receive from a
-// session-enabled queue, and a session-enabled queue or a topic fanning out to
-// a session-enabled subscription refuses a message without a session id.
+// session-enabled queue, and such a queue, or a topic fanning out to one,
+// refuses a message without a session id.
 func TestServiceBusRESTRefusesSessionlessUseOfSessionEntities(t *testing.T) {
 	newServiceBusQueueTestStores(t)
 	sbTestQueue("sq", map[string]any{"requiresSession": true})
@@ -191,8 +189,6 @@ func TestServiceBusRESTRefusesSessionlessUseOfSessionEntities(t *testing.T) {
 	}
 }
 
-// schedule-message on a session-enabled queue refuses a message without a
-// session id and schedules one that carries it.
 func TestServiceBusScheduleRefusesSessionlessMessagesOnASessionQueue(t *testing.T) {
 	newServiceBusQueueTestStores(t)
 	sbTestQueue("sq", map[string]any{"requiresSession": true})

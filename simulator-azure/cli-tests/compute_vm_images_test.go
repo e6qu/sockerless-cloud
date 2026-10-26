@@ -7,10 +7,9 @@ import (
 	"testing"
 )
 
-// The marketplace catalog the Compute resource provider lists under
-// locations/{location}/publishers, read the way `az vm image list --all`
-// walks it: publishers, then an offer's SKUs, then a SKU's versions, then one
-// version.
+// The marketplace catalog under locations/{location}/publishers, walked as
+// `az vm image list --all` does: publishers, an offer's SKUs, a SKU's versions,
+// one version.
 func TestComputeVirtualMachineImagesCLI(t *testing.T) {
 	t.Parallel()
 	catalog := fmt.Sprintf("%s/subscriptions/%s/providers/Microsoft.Compute/locations/eastus/publishers", baseURL, subscriptionID)
@@ -31,8 +30,8 @@ func TestComputeVirtualMachineImagesCLI(t *testing.T) {
 	if len(versions) == 0 {
 		t.Fatal("the catalog lists no Debian 12 version")
 	}
-	// terraform-provider-azurerm spells the artifact segments artifactTypes
-	// and vmImage, which Azure Resource Manager answers like the lowercase.
+	// terraform-provider-azurerm spells the segments artifactTypes and vmImage;
+	// Azure Resource Manager answers them like the lowercase spelling.
 	if out := runCLI(t, azRest("GET", catalog+"/Debian/artifactTypes/vmImage/offers/debian-12/skus/12/versions"+apiVersion, "")); !strings.Contains(out, versions[0].Name) {
 		t.Fatalf("the camel-cased catalog path must list the same versions, got %s", out)
 	}

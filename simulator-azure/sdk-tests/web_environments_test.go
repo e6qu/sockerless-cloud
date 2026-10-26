@@ -16,9 +16,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// SDK coverage for App Service Environments
-// (Microsoft.Web/hostingEnvironments) and Kubernetes Environments
-// (Microsoft.Web/kubeEnvironments):
+// App Service Environments (Microsoft.Web/hostingEnvironments) and Kubernetes
+// Environments (Microsoft.Web/kubeEnvironments).
 //
 //	PUT|GET|PATCH|DELETE /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Web/hostingEnvironments/{name}
 //	GET  /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Web/hostingEnvironments
@@ -70,19 +69,12 @@ func environmentsClient(t *testing.T) *armappservice.EnvironmentsClient {
 	return client
 }
 
-// asePagedSiteNames drains the pager an App Service Environment lifecycle
-// operation answers with and returns the app names in it. Draining it is the
-// assertion that matters: the pager is what the generated client hands back
-// for these operations, and until the simulator answered the documented 202
-// the SDK handed back one whose handler was nil, so any read of it panicked.
-//
-// The first page is taken directly rather than through the More loop that
-// Microsoft's generated example uses. A long-running operation's pager is
-// created already holding its first page, and More consults that page's
-// nextLink — so for a single-page result More is false from the start and the
-// example's loop yields nothing at all. NextPage returns the page already in
-// hand on its first call, which is how the first page is reached; the loop
-// then collects any that follow.
+// asePagedSiteNames drains the pager an App Service Environment operation
+// returns and returns the app names. Take the first page directly rather than
+// through the More loop Microsoft's example uses: a long-running operation's
+// pager starts holding its first page, and More consults that page's nextLink,
+// so for a single page it is false from the start. NextPage returns the page
+// in hand on its first call.
 func asePagedSiteNames[T any](t *testing.T, pager *runtime.Pager[T]) []string {
 	t.Helper()
 	require.NotNil(t, pager)
@@ -103,9 +95,8 @@ func asePagedSiteNames[T any](t *testing.T, pager *runtime.Pager[T]) []string {
 	return names
 }
 
-// sitesOfPage reads the WebAppCollection out of whichever per-operation
-// response type the page carries. The three operations each generate their
-// own response struct wrapping the same collection.
+// sitesOfPage reads the WebAppCollection from whichever per-operation response
+// type the page carries.
 func sitesOfPage(page any) []*armappservice.Site {
 	switch typed := page.(type) {
 	case armappservice.EnvironmentsClientSuspendResponse:
@@ -118,22 +109,13 @@ func sitesOfPage(page any) []*armappservice.Site {
 	return nil
 }
 
-// aseActionApps invokes one of the three App Service Environment operations
-// that answer with the collection of apps they moved — suspend, resume and
-// changeVirtualNetwork — and returns that collection, decoded through the
-// SDK's own WebAppCollection model.
-//
-// All three are long-running with their final state via Location, so the
-// collection is read from the Location poll rather than from the response to
-// the POST. That is also what makes them readable through the generated
-// client: on a synchronous 200 azcore selects its NopPoller, whose result
-// field is a zero value of the poller's type parameter — here
-// *runtime.Pager[…] — so encoding/json allocates a fresh pager with a zero
-// PagingHandler and NopPoller.Result assigns it over the pager the client
-// built, leaving every read to call through a nil handler. The 202 + Location
-// branch unmarshals the terminal body into the client's own pager through
-// Pager.UnmarshalJSON, which sets the current page and leaves the handler
-// intact.
+// aseActionApps runs suspend, resume or changeVirtualNetwork and returns the
+// apps it moved through the SDK's WebAppCollection model. The operations are
+// long-running with their result at the Location: on a synchronous 200 azcore
+// picks its NopPoller, whose zero-valued *runtime.Pager result replaces the
+// client's pager and leaves a nil handler; the 202 + Location branch
+// unmarshals into the client's pager through Pager.UnmarshalJSON, keeping the
+// handler.
 func aseActionApps(t *testing.T, action, body string) []*armappservice.Site {
 	t.Helper()
 	url := fmt.Sprintf(
@@ -162,8 +144,7 @@ func aseActionApps(t *testing.T, action, body string) []*armappservice.Site {
 	return awaitARMOperation[armappservice.WebAppCollection](t, resp).Value
 }
 
-// aseAppStates reduces an app collection to name→state so an assertion names
-// both the apps the operation reported and the state it left them in.
+// aseAppStates maps each app to its state.
 func aseAppStates(apps []*armappservice.Site) map[string]string {
 	states := map[string]string{}
 	for _, app := range apps {
@@ -172,31 +153,26 @@ func aseAppStates(apps []*armappservice.Site) map[string]string {
 	return states
 }
 
-// TestSDK_AppServiceEnvironment_PlacementAndCapacity drives the whole
-// App Service Environment surface through the official SDK and proves the
-// environment is a real placement scope rather than a stored document: it is
-// refused a subnet that does not exist, derives its internal address from the
-// subnet it does occupy, counts its front-end instances from its own pool,
-// reports Linux workers only once a Linux plan is placed in it, and subtracts
-// the capacity those plans take from its stamp capacity.
+// TestSDK_AppServiceEnvironment_PlacementAndCapacity: the environment is a
+// placement scope, not a stored document. It refuses a missing subnet, derives
+// its internal address from its subnet, counts front-end instances from its
+// pool, reports Linux workers once a Linux plan is placed, and subtracts the
+// plans' capacity from its stamp capacity.
 func TestSDK_AppServiceEnvironment_PlacementAndCapacity(t *testing.T) {
 	t.Parallel()
-	// An App Service Environment is placed in a virtual network subnet, and
-	// creating a real subnet needs the Linux network capabilities the
-	// simulator's fabric is built on. A host that cannot provide them skips;
-	// Linux runs the test.
+	// An App Service Environment needs a subnet, which needs the Linux network
+	// capabilities the simulator's fabric uses.
 	requireResourceGroup(t, aseRG)
 	subnetID := requireSubnet(t, aseRG, "sdk-ase-vnet", "10.60.0.0/16", "ase-subnet", aseSubnet)
 	client := environmentsClient(t)
 
-	// Negative control 1: the environment does not exist yet.
+	// Negative control: the environment does not exist yet.
 	_, err := client.Get(ctx, aseRG, aseName, nil)
 	require.Error(t, err, "an App Service Environment that was never created must not be readable")
 	require.Contains(t, err.Error(), "ResourceNotFound")
 
-	// Negative control 2: an environment is placed in a subnet that exists.
-	// A reference to one that does not is refused, which is what proves the
-	// placement is resolved against the real Microsoft.Network store.
+	// Negative control: a subnet that does not exist is refused, so placement
+	// resolves against Microsoft.Network.
 	_, err = client.BeginCreateOrUpdate(ctx, aseRG, aseName, armappservice.EnvironmentResource{
 		Location: to.Ptr("eastus"),
 		Properties: &armappservice.Environment{
@@ -231,17 +207,15 @@ func TestSDK_AppServiceEnvironment_PlacementAndCapacity(t *testing.T) {
 	assert.False(t, *created.Properties.Suspended)
 	assert.Equal(t, armappservice.UpgradeAvailabilityNone, *created.Properties.UpgradeAvailability)
 	assert.Equal(t, "Microsoft.Web/hostingEnvironments", *created.Type)
-	// The read-only members of the virtual-network profile are resolved from
-	// the subnet resource itself.
+	// The virtual network profile's read-only members resolve from the subnet.
 	require.NotNil(t, created.Properties.VirtualNetwork)
 	assert.Equal(t, "ase-subnet", *created.Properties.VirtualNetwork.Name)
 	assert.Equal(t, "Microsoft.Network/virtualNetworks/subnets", *created.Properties.VirtualNetwork.Type)
 	// An internally load-balanced environment publishes Microsoft's internal
-	// domain suffix for its apps.
+	// domain suffix.
 	assert.Equal(t, aseName+".appserviceenvironment.net", *created.Properties.DNSSuffix)
-	// The address it answers on comes out of the subnet it occupies: Azure
-	// reserves the first four addresses of a subnet, so 10.60.1.4 is the first
-	// one it can take.
+	// Azure reserves a subnet's first four addresses, so 10.60.1.4 is the first
+	// the environment can take.
 	require.NotNil(t, created.Properties.NetworkingConfiguration)
 	netProps := created.Properties.NetworkingConfiguration.Properties
 	require.NotNil(t, netProps)
@@ -251,12 +225,10 @@ func TestSDK_AppServiceEnvironment_PlacementAndCapacity(t *testing.T) {
 	require.Len(t, netProps.WindowsOutboundIPAddresses, 1)
 	outbound := *netProps.WindowsOutboundIPAddresses[0]
 	assert.NotEqual(t, "10.60.1.4", outbound, "the outbound lease must not be the subnet address")
-	// Front-end count and Linux workers are computed, and both are still zero
-	// and false: no front-end instance and no plan has been created yet.
+	// No front-end instance or plan exists yet, so both read zero and false.
 	assert.Equal(t, int32(0), *created.Properties.MultiRoleCount)
 	assert.False(t, *created.Properties.HasLinuxWorkers)
 
-	// The virtual-IP view reports the same addresses.
 	vip, err := client.GetVipInfo(ctx, aseRG, aseName, nil)
 	require.NoError(t, err)
 	require.NotNil(t, vip.Properties)
@@ -265,8 +237,7 @@ func TestSDK_AppServiceEnvironment_PlacementAndCapacity(t *testing.T) {
 	require.Len(t, vip.Properties.OutboundIPAddresses, 1)
 	assert.Equal(t, outbound, *vip.Properties.OutboundIPAddresses[0])
 
-	// Inbound dependencies before FTP is enabled: the environment's own
-	// address on the web ports, and the subnet it occupies.
+	// Before FTP: the environment's address on the web ports, and its subnet.
 	inbound := listInboundDependencies(t, client)
 	require.Contains(t, inbound, "App Service Environment VIP")
 	assert.Equal(t, []string{"80", "443"}, inbound["App Service Environment VIP"].ports)
@@ -274,8 +245,7 @@ func TestSDK_AppServiceEnvironment_PlacementAndCapacity(t *testing.T) {
 	require.Contains(t, inbound, "App Service Environment subnet")
 	assert.Equal(t, []string{aseSubnet}, inbound["App Service Environment subnet"].endpoints)
 
-	// Turning FTP on adds its ports, and nothing else: the dependency list is
-	// computed from the environment's own configuration.
+	// Turning FTP on adds exactly its ports.
 	_, err = client.UpdateAseNetworkingConfiguration(ctx, aseRG, aseName, armappservice.AseV3NetworkingConfiguration{
 		Properties: &armappservice.AseV3NetworkingConfigurationProperties{FtpEnabled: to.Ptr(true)},
 	}, nil)
@@ -315,8 +285,7 @@ func TestSDK_AppServiceEnvironment_PlacementAndCapacity(t *testing.T) {
 	require.NoError(t, err)
 	assert.Nil(t, cleared.Properties.DNSSuffix)
 
-	// Front-end pool: scaling it is what moves the environment's front-end
-	// instance count, which is a read-only member computed from the pool.
+	// Scaling the front-end pool moves the read-only front-end instance count.
 	frontEnd, err := client.BeginCreateOrUpdateMultiRolePool(ctx, aseRG, aseName, armappservice.WorkerPoolResource{
 		Properties: &armappservice.WorkerPool{WorkerCount: to.Ptr[int32](2), WorkerSize: to.Ptr("Medium")},
 		SKU:        &armappservice.SKUDescription{Name: to.Ptr("I1v2")},
@@ -327,7 +296,7 @@ func TestSDK_AppServiceEnvironment_PlacementAndCapacity(t *testing.T) {
 	assert.Equal(t, int32(2), *pool.Properties.WorkerCount)
 	require.Len(t, pool.Properties.InstanceNames, 2)
 	assert.Equal(t, "default_0", *pool.Properties.InstanceNames[0])
-	// The SKU tier is derived from its name, exactly as an App Service plan's is.
+	// The SKU tier derives from its name, as an App Service plan's does.
 	assert.Equal(t, "IsolatedV2", *pool.SKU.Tier)
 	scaled, err := client.Get(ctx, aseRG, aseName, nil)
 	require.NoError(t, err)
@@ -352,7 +321,6 @@ func TestSDK_AppServiceEnvironment_PlacementAndCapacity(t *testing.T) {
 	require.Len(t, multiPools, 1)
 	assert.Equal(t, "default", *multiPools[0].Name)
 
-	// Worker pool.
 	workerPoller, err := client.BeginCreateOrUpdateWorkerPool(ctx, aseRG, aseName, "1", armappservice.WorkerPoolResource{
 		Properties: &armappservice.WorkerPool{
 			WorkerCount:  to.Ptr[int32](4),
@@ -374,8 +342,7 @@ func TestSDK_AppServiceEnvironment_PlacementAndCapacity(t *testing.T) {
 		})
 	require.Len(t, workerPools, 1)
 
-	// The SKU discovery answer is the SKU the pool runs, and it carries no
-	// invented scale envelope.
+	// The SKU discovery answer is the pool's SKU, with no invented scale envelope.
 	skus := pagerAll(t, client.NewListWorkerPoolSKUsPager(aseRG, aseName, "1", nil),
 		func(p armappservice.EnvironmentsClientListWorkerPoolSKUsResponse) []*armappservice.SKUInfo {
 			return p.Value
@@ -405,12 +372,12 @@ func TestSDK_AppServiceEnvironment_PlacementAndCapacity(t *testing.T) {
 			return p.Value
 		}))
 
-	// Nothing is running on the environment, so it reports no operations.
+	// Nothing runs on the environment, so it reports no operations.
 	operations, err := client.ListOperations(ctx, aseRG, aseName, nil)
 	require.NoError(t, err)
 	assert.Empty(t, operations.OperationArray)
 
-	// Stamp capacity before any plan: every worker is available.
+	// Before any plan, every worker is available.
 	capacities := listCapacities(t, client)
 	require.Contains(t, capacities, "default")
 	assert.Equal(t, int64(3), *capacities["default"].TotalCapacity)
@@ -421,9 +388,8 @@ func TestSDK_AppServiceEnvironment_PlacementAndCapacity(t *testing.T) {
 	assert.Equal(t, armappservice.WorkerSizeOptionsLarge, *capacities["1"].WorkerSize)
 	assert.False(t, *capacities["1"].IsLinux)
 
-	// Place a Linux plan on the worker pool. The environment's capacity drops
-	// by the plan's instance count and its Linux-worker flag flips — both are
-	// computed from the plan, not stored on the environment.
+	// A Linux plan on the worker pool lowers capacity by its instance count and
+	// flips the Linux-worker flag, both computed from the plan.
 	aseID := *created.ID
 	plans, err := armappservice.NewPlansClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
@@ -452,7 +418,7 @@ func TestSDK_AppServiceEnvironment_PlacementAndCapacity(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, *withLinux.Properties.HasLinuxWorkers)
 
-	// The environment's own inventory reads the plan and the app back.
+	// The environment's inventory lists the plan and the app.
 	listedPlans := pagerAll(t, client.NewListAppServicePlansPager(aseRG, aseName, nil),
 		func(p armappservice.EnvironmentsClientListAppServicePlansResponse) []*armappservice.Plan {
 			return p.Value
@@ -476,12 +442,9 @@ func TestSDK_AppServiceEnvironment_PlacementAndCapacity(t *testing.T) {
 	require.Len(t, listedSites, 1)
 	assert.Equal(t, "sdk-ase-app", *listedSites[0].Name)
 
-	// Suspending the environment stops the apps in it; resuming starts them.
-	// Each operation answers with the collection of apps it moved, so that
-	// collection is asserted on the wire (see aseActionApps for why the
-	// generated client cannot return it), the operation is then driven through
-	// the generated client as a real caller drives it, and its effect is read
-	// back through the environment and the apps.
+	// Suspending the environment stops its apps; resuming starts them. Assert the
+	// moved-apps collection on the wire (see aseActionApps), then drive the
+	// operation through the generated client and read its effect back.
 	assert.Equal(t, map[string]string{"sdk-ase-app": "Stopped"},
 		aseAppStates(aseActionApps(t, "suspend", "")),
 		"suspend answers with the apps it stopped, in the state it left them")
@@ -489,9 +452,8 @@ func TestSDK_AppServiceEnvironment_PlacementAndCapacity(t *testing.T) {
 	require.NoError(t, err)
 	suspendPager, err := suspendPoller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
-	// The result is a pager, and reading it is the whole point: an operation
-	// that answered synchronously would hand back a pager with a nil handler
-	// here and panic on the first read.
+	// A synchronous answer would hand back a pager with a nil handler that panics
+	// on the first read.
 	assert.Equal(t, []string{"sdk-ase-app"}, asePagedSiteNames(t, suspendPager),
 		"the suspend operation's own result names the apps it stopped")
 	afterSuspend, err := client.Get(ctx, aseRG, aseName, nil)
@@ -518,13 +480,11 @@ func TestSDK_AppServiceEnvironment_PlacementAndCapacity(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, *afterResume.Properties.Suspended)
 
-	// Reboot is accepted and completes as a long-running operation.
+	// Reboot completes as a long-running operation.
 	_, err = client.Reboot(ctx, aseRG, aseName, nil)
 	require.NoError(t, err)
 
-	// The upgrade pair. Nothing is available until the notification announces
-	// one, so the upgrade is refused first — the negative control for the
-	// state machine that follows.
+	// No upgrade is available until the notification announces one.
 	_, err = client.BeginUpgrade(ctx, aseRG, aseName, nil)
 	require.Error(t, err, "an upgrade must be refused while none is available")
 	assert.Contains(t, err.Error(), "No upgrade is available")
@@ -542,8 +502,8 @@ func TestSDK_AppServiceEnvironment_PlacementAndCapacity(t *testing.T) {
 	assert.Equal(t, armappservice.UpgradeAvailabilityNone, *upgraded.Properties.UpgradeAvailability,
 		"the upgrade consumed the availability it was started from")
 
-	// Private endpoint connections: none has been opened on the environment,
-	// and it publishes no named private-link group.
+	// No connection is open on the environment, and it publishes no private-link
+	// group.
 	conns := pagerAll(t, client.NewGetPrivateEndpointConnectionListPager(aseRG, aseName, nil),
 		func(p armappservice.EnvironmentsClientGetPrivateEndpointConnectionListResponse) []*armappservice.RemotePrivateEndpointConnectionARMResource {
 			return p.Value
@@ -556,9 +516,8 @@ func TestSDK_AppServiceEnvironment_PlacementAndCapacity(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, links.Value)
 
-	// A pool's metric definitions are the metric series Microsoft.Insights
-	// publishes about it, and this simulator publishes none. There being none
-	// is the answer the four operations give.
+	// The simulator publishes no Microsoft.Insights metric series for a pool, so
+	// the four operations answer empty.
 	for name, pager := range map[string]func() (int, error){
 		"multi-role metric definitions": func() (int, error) {
 			page, err := client.NewListMultiRoleMetricDefinitionsPager(aseRG, aseName, nil).NextPage(ctx)
@@ -582,15 +541,13 @@ func TestSDK_AppServiceEnvironment_PlacementAndCapacity(t *testing.T) {
 		assert.Zero(t, count, "%s: the simulator publishes no series for a pool", name)
 	}
 
-	// An environment that is not there is a 404 rather than an empty list: the
-	// answer is about a pool of a particular environment.
+	// A missing environment is 404, not an empty list.
 	_, err = client.NewListMultiRoleMetricDefinitionsPager(aseRG, "sdk-ase-absent", nil).NextPage(ctx)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "ResourceNotFound")
 
-	// Moving the environment to another subnet re-derives its address. The
-	// apps it hosts come with it, which is the collection the move answers
-	// with.
+	// Moving to another subnet re-derives the address; the moved-apps collection
+	// names the apps that came along.
 	otherSubnet := requireSubnet(t, aseRG, "sdk-ase-vnet2", "10.61.0.0/16", "ase-subnet-2", "10.61.5.0/24")
 	assert.Equal(t, map[string]string{"sdk-ase-app": "Running"},
 		aseAppStates(aseActionApps(t, "changeVirtualNetwork", fmt.Sprintf(`{"id":%q}`, otherSubnet))),
@@ -605,7 +562,7 @@ func TestSDK_AppServiceEnvironment_PlacementAndCapacity(t *testing.T) {
 	assert.Equal(t, "10.61.5.4",
 		*afterMove.Properties.NetworkingConfiguration.Properties.InternalInboundIPAddresses[0])
 
-	// PATCH merges: it changes the scale factor and leaves the placement alone.
+	// PATCH changes the scale factor and leaves placement alone.
 	updated, err := client.Update(ctx, aseRG, aseName, armappservice.EnvironmentPatchResource{
 		Properties: &armappservice.Environment{FrontEndScaleFactor: to.Ptr[int32](20)},
 	}, nil)
@@ -613,7 +570,6 @@ func TestSDK_AppServiceEnvironment_PlacementAndCapacity(t *testing.T) {
 	assert.Equal(t, int32(20), *updated.Properties.FrontEndScaleFactor)
 	assert.Equal(t, otherSubnet, *updated.Properties.VirtualNetwork.ID)
 
-	// Both list spellings report the environment.
 	byGroup := pagerAll(t, client.NewListByResourceGroupPager(aseRG, nil),
 		func(p armappservice.EnvironmentsClientListByResourceGroupResponse) []*armappservice.EnvironmentResource {
 			return p.Value
@@ -626,16 +582,13 @@ func TestSDK_AppServiceEnvironment_PlacementAndCapacity(t *testing.T) {
 		})
 	require.NotEmpty(t, bySubscription)
 
-	// Deleting an environment that still hosts plans is refused.
+	// An environment still hosting plans cannot be deleted.
 	_, err = client.BeginDelete(ctx, aseRG, aseName, nil)
 	require.Error(t, err, "an environment that still hosts App Service plans must not be deleted")
 	assert.Contains(t, err.Error(), "still deployed in it")
 
-	// The environment's outbound network dependencies are measured, not listed:
-	// the dependency is the cloud its sites call, and what comes back is the
-	// address that resolved, whether the connection was made and how long it
-	// took. This asserts they are measurements — a resolved address and a
-	// latency that was actually spent — rather than a catalogue's constants.
+	// Outbound dependencies are measured, not listed: a resolved address and a
+	// latency actually spent, not a catalogue's constants.
 	outboundPager := client.NewGetOutboundNetworkDependenciesEndpointsPager(aseRG, aseName, nil)
 	outboundPage, err := outboundPager.NextPage(ctx)
 	require.NoError(t, err)
@@ -712,7 +665,6 @@ func listCapacities(t *testing.T, client *armappservice.EnvironmentsClient) map[
 	return out
 }
 
-// pagerAll drains an azcore pager into one slice.
 func pagerAll[P any, T any](t *testing.T, pager *runtime.Pager[P], value func(P) []*T) []*T {
 	t.Helper()
 	var out []*T
@@ -724,11 +676,9 @@ func pagerAll[P any, T any](t *testing.T, pager *runtime.Pager[P], value func(P)
 	return out
 }
 
-// TestSDK_KubeEnvironment_Lifecycle drives Microsoft.Web/kubeEnvironments
-// through the official SDK: create, read, list at both scopes, merge-update,
-// and delete. The environment's address and default domain are the simulator's
-// own, and the Arc cluster's kubeConfig is a declared secret that a read never
-// hands back.
+// TestSDK_KubeEnvironment_Lifecycle: create, read, list at both scopes,
+// merge-update and delete. The address and default domain are the simulator's
+// own, and a read never returns the Arc cluster's secret kubeConfig.
 func TestSDK_KubeEnvironment_Lifecycle(t *testing.T) {
 	t.Parallel()
 	rg := "sdk-kube-rg"

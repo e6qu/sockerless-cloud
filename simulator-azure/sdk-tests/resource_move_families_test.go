@@ -20,9 +20,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// moveResourceToGroup runs Resources_ValidateMoveResources followed by
-// Resources_MoveResources for one resource, the sequence a client performs
-// before re-homing a resource across resource groups.
+// moveResourceToGroup runs Resources_ValidateMoveResources then
+// Resources_MoveResources for one resource.
 func moveResourceToGroup(t *testing.T, srcRG, dstRG, resourceID string) {
 	t.Helper()
 	client, err := armresources.NewClient(subscriptionID, &fakeCredential{}, clientOpts())
@@ -41,12 +40,10 @@ func moveResourceToGroup(t *testing.T, srcRG, dstRG, resourceID string) {
 	require.NoError(t, err)
 }
 
-// TestAzureResources_MoveEventHubNamespace drives the Microsoft.EventHub move
-// hook end to end. An Event Hubs namespace's Shared Access Signature keys are
-// derived from each authorization rule's resource ID, which embeds the
+// TestAzureResources_MoveEventHubNamespace: Event Hubs Shared Access Signature
+// keys derive from the authorization rule's resource ID, which embeds the
 // resource group, so the move pins them: the connection string captured before
-// the move still sends and receives over AMQP afterwards, which is what a
-// hook that only re-homed the ARM records would break.
+// the move still sends and receives over AMQP afterwards.
 func TestAzureResources_MoveEventHubNamespace(t *testing.T) {
 	t.Parallel()
 	srcRG, dstRG := uniquename.New("eh-move-src-rg"), uniquename.New("eh-move-dst-rg")
@@ -82,7 +79,7 @@ func TestAzureResources_MoveEventHubNamespace(t *testing.T) {
 	_, err = groups.CreateOrUpdate(ctx, srcRG, namespace, hub, group, armeventhub.ConsumerGroup{}, nil)
 	require.NoError(t, err)
 
-	// The credential an operator holds, captured before the move.
+	// Capture the operator's credential before the move.
 	keysBefore, err := namespaces.ListKeys(ctx, srcRG, namespace, "RootManageSharedAccessKey", nil)
 	require.NoError(t, err)
 	require.NotNil(t, keysBefore.PrimaryKey)
@@ -121,9 +118,8 @@ func TestAzureResources_MoveEventHubNamespace(t *testing.T) {
 	assert.Equal(t, *keysBefore.PrimaryConnectionString, *keysAfter.PrimaryConnectionString,
 		"the connection string an operator holds must survive the move verbatim")
 
-	// The proof that matters: the pre-move credential still authenticates
-	// against the data plane, reading the event published before the move and
-	// completing a fresh round trip after it.
+	// The pre-move credential reads the event published before the move and
+	// completes a fresh round trip after it.
 	consumer, err := azeventhubs.NewConsumerClientFromConnectionString(connBefore, "", group,
 		&azeventhubs.ConsumerClientOptions{
 			CustomEndpoint: sbAMQPEndpoint,
@@ -167,11 +163,8 @@ func eventHubMoveProducer(t *testing.T, connectionString string) *azeventhubs.Pr
 	return producer
 }
 
-// TestAzureResources_MoveRedisCache drives the Microsoft.Cache move hook.
-// Azure Cache for Redis exposes no data plane in this simulator, so the
-// credential proof reaches as far as the surface that serves it: the access
-// keys — the password a Redis client authenticates with — read back identical
-// after the move, and the cache's children re-home with it.
+// TestAzureResources_MoveRedisCache: the access keys read back identical after
+// the move, and the cache's children re-home with it.
 func TestAzureResources_MoveRedisCache(t *testing.T) {
 	t.Parallel()
 	srcRG, dstRG := uniquename.New("redis-move-src-rg"), uniquename.New("redis-move-dst-rg")
@@ -221,7 +214,7 @@ func TestAzureResources_MoveRedisCache(t *testing.T) {
 	assert.Equal(t, *before.SecondaryKey, *after.SecondaryKey,
 		"a cross-group move must not rotate the cache's secondary access key")
 
-	// The rotation contract is unchanged by the move.
+	// The move leaves the rotation contract intact.
 	rotated, err := client.RegenerateKey(ctx, dstRG, cache, armredis.RegenerateKeyParameters{
 		KeyType: to.Ptr(armredis.RedisKeyTypePrimary),
 	}, nil)
@@ -230,10 +223,8 @@ func TestAzureResources_MoveRedisCache(t *testing.T) {
 	assert.NotEqual(t, *before.PrimaryKey, *rotated.PrimaryKey)
 }
 
-// TestAzureResources_MoveContainerRegistry drives the
-// Microsoft.ContainerRegistry move hook. The registry's admin passwords are
-// derived from its resource ID, so the move pins them: listCredentials serves
-// the same username and passwords afterwards, and the child subtree re-homes.
+// TestAzureResources_MoveContainerRegistry: the admin passwords derive from the
+// resource ID, so the move pins them, and the child subtree re-homes.
 func TestAzureResources_MoveContainerRegistry(t *testing.T) {
 	t.Parallel()
 	srcRG, dstRG := uniquename.New("acr-move-src-rg"), uniquename.New("acr-move-dst-rg")
@@ -298,12 +289,10 @@ func TestAzureResources_MoveContainerRegistry(t *testing.T) {
 	}
 }
 
-// TestAzureResources_MoveEventGridTopic drives the Microsoft.EventGrid move
-// hook. A topic's access keys are derived from its resource ID and its event
-// subscriptions record that ID in their own `topic` property, so the move both
-// pins the keys and rewrites the inbound reference: the key captured before
-// the move still publishes afterwards, and the subscription answers under the
-// destination scope.
+// TestAzureResources_MoveEventGridTopic: a topic's keys derive from its
+// resource ID, and its event subscriptions record that ID in `topic`, so the
+// move pins the keys and rewrites the reference: the pre-move key still
+// publishes, and the subscription answers under the destination scope.
 func TestAzureResources_MoveEventGridTopic(t *testing.T) {
 	t.Parallel()
 	srcRG, dstRG := uniquename.New("eg-move-src-rg"), uniquename.New("eg-move-dst-rg")
@@ -365,7 +354,6 @@ func TestAzureResources_MoveEventGridTopic(t *testing.T) {
 	_, err = topics.Get(ctx, srcRG, topicName, nil)
 	require.Error(t, err, "the moved topic must no longer resolve under the source group")
 
-	// The inbound reference the subscription holds moved with it.
 	movedSub, err := subs.Get(ctx, *moved.ID, "eg-move-sub", nil)
 	require.NoError(t, err)
 	require.NotNil(t, movedSub.Properties)
@@ -380,13 +368,12 @@ func TestAzureResources_MoveEventGridTopic(t *testing.T) {
 		"a cross-group move must not rotate the topic's access key")
 	assert.Equal(t, *keysBefore.Key2, *keysAfter.Key2)
 
-	// The proof that matters: the key captured before the move still
-	// authenticates a publish to the same endpoint afterwards.
+	// The key captured before the move still authorizes a publish.
 	_, err = publisher.PublishEvents(ctx, []azeventgrid.Event{eventGridTestEvent("eg-move-after")}, nil)
 	require.NoError(t, err, "the pre-move publishing credential must still authorize after the move")
 
-	// The endpoint is derived from the topic's globally unique name, so it is
-	// unchanged by the move.
+	// The endpoint derives from the topic's globally unique name, so the move
+	// leaves it unchanged.
 	assert.Equal(t, advertised, *moved.Properties.Endpoint)
 
 	t.Cleanup(func() {

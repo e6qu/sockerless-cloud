@@ -12,7 +12,6 @@ import (
 
 func TestNetwork_CreateVirtualNetwork(t *testing.T) {
 	t.Parallel()
-	// Create resource group first
 	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = rgClient.CreateOrUpdate(ctx, "net-rg", armresources.ResourceGroup{
@@ -97,10 +96,8 @@ func TestNetwork_CreateNSG(t *testing.T) {
 	assert.Equal(t, "test-nsg", *resp.Name)
 }
 
-// TestNetwork_NSGSecurityRulesCRUD covers the `securityRules` sub-
-// resource endpoints. Creates an NSG, then creates/gets/lists/deletes
-// a security rule via the per-rule client, and confirms the rule is
-// reflected in the parent NSG's properties.
+// TestNetwork_NSGSecurityRulesCRUD manages a rule through the securityRules
+// client and checks the parent NSG reflects it.
 func TestNetwork_NSGSecurityRulesCRUD(t *testing.T) {
 	t.Parallel()
 	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
@@ -122,7 +119,6 @@ func TestNetwork_NSGSecurityRulesCRUD(t *testing.T) {
 	rulesClient, err := armnetwork.NewSecurityRulesClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 
-	// Create rule
 	rulePoller, err := rulesClient.BeginCreateOrUpdate(ctx, "nsg-rules-rg", "rules-nsg", "allow-http",
 		armnetwork.SecurityRule{
 			Properties: &armnetwork.SecurityRulePropertiesFormat{
@@ -143,35 +139,30 @@ func TestNetwork_NSGSecurityRulesCRUD(t *testing.T) {
 	require.NotNil(t, ruleResp.Properties)
 	assert.Equal(t, int32(100), *ruleResp.Properties.Priority)
 
-	// Get rule
 	getResp, err := rulesClient.Get(ctx, "nsg-rules-rg", "rules-nsg", "allow-http", nil)
 	require.NoError(t, err)
 	assert.Equal(t, "allow-http", *getResp.Name)
 
-	// Parent NSG Get should now include the rule in its Properties.
+	// The parent NSG now carries the rule.
 	nsgResp, err := nsgClient.Get(ctx, "nsg-rules-rg", "rules-nsg", nil)
 	require.NoError(t, err)
 	require.NotNil(t, nsgResp.Properties)
 	require.Len(t, nsgResp.Properties.SecurityRules, 1)
 	assert.Equal(t, "allow-http", *nsgResp.Properties.SecurityRules[0].Name)
 
-	// Delete rule
 	delPoller, err := rulesClient.BeginDelete(ctx, "nsg-rules-rg", "rules-nsg", "allow-http", nil)
 	require.NoError(t, err)
 	_, err = delPoller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 
-	// Parent NSG should no longer have the rule.
 	nsgResp, err = nsgClient.Get(ctx, "nsg-rules-rg", "rules-nsg", nil)
 	require.NoError(t, err)
 	assert.Empty(t, nsgResp.Properties.SecurityRules)
 }
 
-// TestNetwork_NSGRule_RejectsDuplicatePriority pins the priority+
-// direction uniqueness constraint that real Azure enforces. Two rules
-// in the same NSG can share a priority only when they differ in
-// Direction; otherwise the second create returns
-// SecurityRuleParameterPriorityAlreadyTaken (HTTP 400).
+// TestNetwork_NSGRule_RejectsDuplicatePriority: two rules of one NSG share a
+// priority only in different directions; otherwise the second create answers
+// SecurityRuleParameterPriorityAlreadyTaken (400).
 func TestNetwork_NSGRule_RejectsDuplicatePriority(t *testing.T) {
 	t.Parallel()
 	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
@@ -206,21 +197,19 @@ func TestNetwork_NSGRule_RejectsDuplicatePriority(t *testing.T) {
 		}
 	}
 
-	// First rule: priority 200, INGRESS — should succeed.
 	p1, err := rulesClient.BeginCreateOrUpdate(ctx, "nsg-prio-rg", "prio-nsg", "first",
 		makeRule(200, armnetwork.SecurityRuleDirectionInbound), nil)
 	require.NoError(t, err)
 	_, err = p1.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 
-	// Second rule: same priority + direction — must fail.
+	// Same priority and direction.
 	_, err = rulesClient.BeginCreateOrUpdate(ctx, "nsg-prio-rg", "prio-nsg", "duplicate",
 		makeRule(200, armnetwork.SecurityRuleDirectionInbound), nil)
 	requireAzureErrorCode(t, err, "SecurityRuleParameterPriorityAlreadyTaken",
 		"a second rule with the same priority and direction")
 
-	// Third rule: same priority but EGRESS — should succeed (priority
-	// space is per-direction, not global).
+	// Same priority, outbound: priority space is per direction.
 	p3, err := rulesClient.BeginCreateOrUpdate(ctx, "nsg-prio-rg", "prio-nsg", "egress-same-prio",
 		makeRule(200, armnetwork.SecurityRuleDirectionOutbound), nil)
 	require.NoError(t, err)
@@ -395,10 +384,8 @@ func TestNetwork_PublicIPPrefixNatGatewaySubnetAssociation(t *testing.T) {
 	require.NotEmpty(t, page.Value)
 }
 
-// TestNetwork_VirtualNetworkPeering exercises the virtualNetworkPeerings
-// sub-resource: it peers two virtual networks and confirms the peering's
-// remoteVirtualNetwork cross-reference reads back as the remote VNet's ARM
-// ID, then lists and deletes the peering.
+// TestNetwork_VirtualNetworkPeering: the peering's remoteVirtualNetwork reads
+// back as the remote network's ARM ID.
 func TestNetwork_VirtualNetworkPeering(t *testing.T) {
 	t.Parallel()
 	rg := "peering-rg"
@@ -458,10 +445,8 @@ func TestNetwork_VirtualNetworkPeering(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestNetwork_RouteTableAndRoutes covers the route table UpdateTags (PATCH)
-// path and the routes sub-resource CRUD, confirming a route's next-hop
-// configuration reads back through both the per-route client and the parent
-// route table.
+// TestNetwork_RouteTableAndRoutes covers route table UpdateTags and route CRUD;
+// a route's next hop reads back through both the route and the parent table.
 func TestNetwork_RouteTableAndRoutes(t *testing.T) {
 	t.Parallel()
 	rg := "rt-rg"
@@ -509,7 +494,6 @@ func TestNetwork_RouteTableAndRoutes(t *testing.T) {
 	assert.Equal(t, "10.40.0.0/16", *gotRoute.Properties.AddressPrefix)
 	assert.Equal(t, "10.0.0.4", *gotRoute.Properties.NextHopIPAddress)
 
-	// Parent route table now reflects the route.
 	gotRT, err := rtClient.Get(ctx, rg, "sdk-rt", nil)
 	require.NoError(t, err)
 	require.NotNil(t, gotRT.Properties)
@@ -532,9 +516,8 @@ func TestNetwork_RouteTableAndRoutes(t *testing.T) {
 	assert.Empty(t, gotRT.Properties.Routes)
 }
 
-// TestNetwork_NatGatewayUpdateTags covers the NAT gateway UpdateTags (PATCH)
-// path on a gateway with no attached subnets or public IPs (so it needs no
-// real-network host).
+// TestNetwork_NatGatewayUpdateTags uses a gateway with no subnets or public
+// IPs, so it needs no network host.
 func TestNetwork_NatGatewayUpdateTags(t *testing.T) {
 	t.Parallel()
 	rg := "nat-tags-rg"
@@ -564,9 +547,6 @@ func TestNetwork_NatGatewayUpdateTags(t *testing.T) {
 	assert.Equal(t, "net", *tagsResp.Tags["team"])
 }
 
-// TestNetwork_LoadBalancerBackendPoolClient exercises the standalone
-// backendAddressPools client (CreateOrUpdate / Get / List) against an
-// existing load balancer.
 func TestNetwork_LoadBalancerBackendPoolClient(t *testing.T) {
 	t.Parallel()
 	rg := "lb-pool-rg"

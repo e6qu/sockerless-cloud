@@ -2,14 +2,12 @@ package main
 
 import "testing"
 
-// TestCanonicalServerFarmIDSurvivesInvalidUTF8 pins the rewrite against the
-// slice-bounds class: the marker's index is computed case-insensitively and
-// then used to slice the caller's id, so it has to be an index into that id
-// and not into a Unicode-folded copy, whose invalid bytes each grow to a
-// 3-byte U+FFFD and push every later index past the original's end.
+// The marker's index is computed case-insensitively and slices the caller's
+// id, so it must index that id, not a folded copy whose invalid bytes each grow
+// to a 3-byte U+FFFD.
 func TestCanonicalServerFarmIDSurvivesInvalidUTF8(t *testing.T) {
-	// Two invalid bytes ahead of the marker and a one-character plan name: a
-	// folded index lands 4 bytes beyond the id's end.
+	// Two invalid bytes ahead of the marker: a folded index lands 4 bytes past the
+	// id's end.
 	id := "/subscriptions/\xff\xfe/providers/microsoft.web/serverfarms/p"
 
 	got := canonicalServerFarmID(id)
@@ -20,8 +18,6 @@ func TestCanonicalServerFarmIDSurvivesInvalidUTF8(t *testing.T) {
 	}
 }
 
-// TestCanonicalServerFarmIDLeavesUnmarkedIDsAlone keeps the no-match answer
-// honest: an id without the segment comes back unchanged.
 func TestCanonicalServerFarmIDLeavesUnmarkedIDsAlone(t *testing.T) {
 	const id = "/subscriptions/s/resourceGroups/rg"
 	if got := canonicalServerFarmID(id); got != id {

@@ -8,12 +8,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Azure CLI coverage for App Service Environments
-// (Microsoft.Web/hostingEnvironments) and Kubernetes Environments
-// (Microsoft.Web/kubeEnvironments). The environment is driven the way
-// Microsoft's own App Service Environment maintenance documentation drives
-// it — `az rest` against the resource's own ARM paths, which is also how every
-// other control-plane test in this suite talks to the simulator.
+// App Service Environments (Microsoft.Web/hostingEnvironments) and Kubernetes
+// Environments (Microsoft.Web/kubeEnvironments), driven with `az rest` as
+// Microsoft's App Service Environment maintenance documentation does.
 //
 //	PUT|GET|DELETE .../hostingEnvironments/{name}
 //	GET  .../hostingEnvironments/{name}/capacities/virtualip
@@ -35,11 +32,9 @@ func aseCLIURL(path string) string {
 	return armURL("Microsoft.Web", path, aseCLIAPIVersion)
 }
 
-// aseCLIOperationResult drives one of the App Service Environment operations
-// whose final state comes via Location and returns the body the Location poll
-// answered with. The operation answers 202 with no body, so a client that read
-// only the response to the POST would see nothing and could conclude the
-// environment moved no apps at all; the collection lives at the Location.
+// aseCLIOperationResult drives an App Service Environment operation that
+// answers 202 with no body and returns what its Location poll answers; the
+// moved-apps collection lives only there.
 func aseCLIOperationResult(t *testing.T, resource, body string) string {
 	t.Helper()
 	location := azRestResponseHeader(t, azRest("POST", aseCLIURL(resource), body, "--debug"), "Location")
@@ -48,9 +43,8 @@ func aseCLIOperationResult(t *testing.T, resource, body string) string {
 	return azLocationResult(t, location)
 }
 
-// TestAppServiceEnvironmentCLI drives one App Service Environment through the
-// Azure CLI: it is placed in a subnet the simulator holds, reports the address
-// it derived from that subnet, scales a worker pool, is suspended, resumed and
+// TestAppServiceEnvironmentCLI: an environment placed in a subnet reports the
+// address it derived from it, scales a worker pool, is suspended, resumed and
 // moved into another subnet, refuses an upgrade until one is announced, and
 // names the two families it does not implement instead of answering them.
 func TestAppServiceEnvironmentCLI(t *testing.T) {
@@ -69,8 +63,8 @@ func TestAppServiceEnvironmentCLI(t *testing.T) {
 		subnetID)))
 	assert.Contains(t, out, "appserviceenvironment.net",
 		"an internally load-balanced environment publishes the internal domain suffix")
-	// The address comes out of the subnet: Azure reserves a subnet's first four
-	// addresses, so 10.80.2.4 is the first the environment can take.
+	// Azure reserves a subnet's first four addresses, so 10.80.2.4 is the first
+	// the environment can take.
 	assert.Contains(t, out, "10.80.2.4")
 
 	vip := runCLI(t, azRest("GET", aseCLIURL("hostingEnvironments/cli-ase/capacities/virtualip"), ""))
@@ -87,12 +81,10 @@ func TestAppServiceEnvironmentCLI(t *testing.T) {
 	assert.Contains(t, inbound, "App Service Environment VIP")
 	assert.Contains(t, inbound, "10.80.2.0/24", "the environment's own subnet is an inbound dependency")
 
-	// Suspend, resume and move. All three are long-running with their final
-	// state via Location, so each answers 202 and the collection of apps it
-	// moved is read from the Location poll — this environment hosts none, so
-	// the empty collection Microsoft's own examples for these three operations
-	// show. Each also leaves its mark: the suspended flag, and an internal
-	// address re-derived from the subnet the environment was moved into.
+	// Suspend, resume and move answer 202 and carry their moved-apps collection in
+	// the Location poll: empty here, as in Microsoft's examples. Each leaves its
+	// mark: the suspended flag, and an internal address re-derived from the new
+	// subnet.
 	assert.Contains(t, aseCLIOperationResult(t, "hostingEnvironments/cli-ase/suspend", ""),
 		`"value": []`)
 	afterSuspend := runCLI(t, azRest("GET", aseURL, ""))
@@ -111,7 +103,7 @@ func TestAppServiceEnvironmentCLI(t *testing.T) {
 	assert.Contains(t, afterMove, `"suspended": false`, "resuming cleared the suspended flag")
 	assert.Contains(t, afterMove, "10.80.6.4", "the move re-derived the address from the new subnet")
 
-	// The upgrade pair: refused until the notification announces one.
+	// Upgrade is refused until the notification announces one.
 	refusal := runStorageCLIExpectFailure(t, azRest("POST", aseCLIURL("hostingEnvironments/cli-ase/upgrade"), ""))
 	assert.Contains(t, refusal, "No upgrade is available")
 	runCLI(t, azRest("POST", aseCLIURL("hostingEnvironments/cli-ase/testUpgradeAvailableNotification"), ""))
@@ -119,16 +111,14 @@ func TestAppServiceEnvironmentCLI(t *testing.T) {
 	assert.Contains(t, announced, `"upgradeAvailability": "Ready"`)
 	runCLI(t, azRest("POST", aseCLIURL("hostingEnvironments/cli-ase/upgrade"), ""))
 
-	// A pool's metric definitions are the metric series Microsoft.Insights
-	// publishes about it, and this simulator publishes none — which is an
-	// answer, and the document spells it as an empty collection.
+	// The simulator publishes no Microsoft.Insights metric series for a pool, so
+	// the definitions collection is empty.
 	definitions := runCLI(t, azRest("GET",
 		aseCLIURL("hostingEnvironments/cli-ase/multiRolePools/default/metricdefinitions"), ""))
 	assert.Contains(t, definitions, `"value": []`)
 
-	// The environment's outbound network dependencies are measured rather than
-	// listed: the dependency is the cloud its sites call, and what comes back
-	// is the address that resolved and whether the connection was made.
+	// Outbound dependencies are measured, not listed: the address that resolved
+	// and whether the connection was made.
 	outbound := runCLI(t, azRest("GET",
 		aseCLIURL("hostingEnvironments/cli-ase/outboundNetworkDependenciesEndpoints"), ""))
 	assert.Contains(t, outbound, `"ipAddress"`)
@@ -139,7 +129,6 @@ func TestAppServiceEnvironmentCLI(t *testing.T) {
 	assert.Contains(t, gone, "ResourceNotFound")
 }
 
-// TestKubeEnvironmentCLI drives a Kubernetes Environment through the CLI.
 func TestKubeEnvironmentCLI(t *testing.T) {
 	t.Parallel()
 	kubeURL := aseCLIURL("kubeEnvironments/cli-kube")
@@ -159,10 +148,9 @@ func TestKubeEnvironmentCLI(t *testing.T) {
 	assert.Contains(t, gone, "ResourceNotFound")
 }
 
-// TestSiteDiagnosticsCLI drives the site diagnostics family through the CLI:
-// the one category the simulator publishes, the detectors in it, a detector
-// run on a site with no workload container, and the declared gap a detector
-// the simulator cannot measure answers with.
+// TestSiteDiagnosticsCLI drives the one diagnostics category the simulator
+// publishes, its detectors, a detector run on a site with no workload
+// container, and the declared gap a detector it cannot measure answers with.
 func TestSiteDiagnosticsCLI(t *testing.T) {
 	t.Parallel()
 	siteURL := aseCLIURL("sites/cli-diag-app")
@@ -176,8 +164,8 @@ func TestSiteDiagnosticsCLI(t *testing.T) {
 	assert.Contains(t, detectors, `"name": "sitecrashes"`)
 	assert.Contains(t, detectors, `"displayName": "Site Crash Events"`)
 
-	// The site has no workload container, so the crash detector reports that
-	// it measured nothing rather than reporting a healthy container.
+	// With no workload container, the crash detector reports that it measured
+	// nothing rather than a healthy container.
 	executed := runCLI(t, azRest("POST",
 		aseCLIURL("sites/cli-diag-app/diagnostics/availability/detectors/sitecrashes/execute"), ""))
 	assert.Contains(t, executed, `"issueDetected": false`)

@@ -22,10 +22,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// SDK coverage for the App Service backup, restore and snapshot family. Every
-// case drives the official armappservice.WebAppsClient and reads the archive
-// back through the official azblob clients, so the backup blob is asserted on
-// the same surface a customer downloads it from:
+// The archive is read back through azblob, the surface a customer downloads it
+// from.
 //
 //	PUT+DELETE /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Web/sites/{siteName}/config/backup (+ slot)
 //	POST /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Web/sites/{siteName}/config/backup/list (+ slot)
@@ -45,9 +43,8 @@ import (
 //	GET /subscriptions/{subscriptionId}/providers/Microsoft.Web/deletedSites/{deletedSiteId}
 //	GET /subscriptions/{subscriptionId}/providers/Microsoft.Web/deletedSites/{deletedSiteId}/snapshots
 
-// backupStorage is a storage account, a container in it, and the container SAS
-// URL an App Service backup is configured with — the coordinate Microsoft
-// documents as required ("Custom backups for Azure App Service require an
+// backupStorage is a storage account, a container, and the container SAS URL a
+// backup is configured with ("Custom backups for Azure App Service require an
 // Azure Storage account that supports Shared Access Signature (SAS)–based
 // authorization").
 type backupStorage struct {
@@ -57,9 +54,8 @@ type backupStorage struct {
 	client    *container.Client
 }
 
-// newBackupStorage provisions the account through Microsoft.Storage, reads its
-// real access key, creates the container, and signs a container SAS with that
-// key — the same sequence an operator performs before configuring a backup.
+// newBackupStorage creates the account, reads its access key, creates the
+// container and signs a container SAS with that key, as an operator does.
 func newBackupStorage(t *testing.T, rg, account, containerName string) backupStorage {
 	t.Helper()
 	accounts := createStorageAccountForARM(t, rg, account)
@@ -84,7 +80,6 @@ func newBackupStorage(t *testing.T, rg, account, containerName string) backupSto
 	return backupStorage{account: account, container: containerName, sasURL: sasURL, client: client}
 }
 
-// download reads one blob back through the Blob data plane.
 func (s backupStorage) download(t *testing.T, name string) ([]byte, bool) {
 	t.Helper()
 	resp, err := s.client.NewBlobClient(name).DownloadStream(ctx, nil)
@@ -101,7 +96,6 @@ func (s backupStorage) download(t *testing.T, name string) ([]byte, bool) {
 	return body, true
 }
 
-// zipEntries unpacks an archive into path → contents.
 func zipEntries(t *testing.T, data []byte) map[string]string {
 	t.Helper()
 	zr, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
@@ -118,9 +112,8 @@ func zipEntries(t *testing.T, data []byte) map[string]string {
 	return out
 }
 
-// webJobNames lists the site's discovered webjobs, which is the observable
-// projection of its deployed file system: a job exists exactly while its
-// App_Data/jobs/... script does.
+// webJobNames lists the site's discovered webjobs, the visible projection of
+// its file system: a job exists while its App_Data/jobs/... script does.
 func webJobNames(t *testing.T, client *armappservice.WebAppsClient, rg, name string) []string {
 	t.Helper()
 	var out []string
@@ -130,7 +123,6 @@ func webJobNames(t *testing.T, client *armappservice.WebAppsClient, rg, name str
 		require.NoError(t, err)
 		for _, job := range page.Value {
 			require.NotNil(t, job.Name)
-			// A child resource's name is "<site>/<job>".
 			n := *job.Name
 			if idx := strings.LastIndex(n, "/"); idx >= 0 {
 				n = n[idx+1:]
@@ -142,8 +134,8 @@ func webJobNames(t *testing.T, client *armappservice.WebAppsClient, rg, name str
 	return out
 }
 
-// triggeredJob renders one triggered webjob's run script, so a deployed file
-// set is identifiable by the jobs it produces.
+// triggeredJob renders a triggered webjob's run script, so a deployed file set
+// is identifiable by its jobs.
 func triggeredJob(name, body string) map[string]string {
 	return map[string]string{"App_Data/jobs/triggered/" + name + "/run.sh": body}
 }
@@ -158,7 +150,6 @@ func mergeFiles(sets ...map[string]string) map[string]string {
 	return out
 }
 
-// slotWebJobNames is webJobNames at the deployment-slot scope.
 func slotWebJobNames(t *testing.T, client *armappservice.WebAppsClient, rg, name, slot string) []string {
 	t.Helper()
 	var out []string
@@ -178,8 +169,8 @@ func slotWebJobNames(t *testing.T, client *armappservice.WebAppsClient, rg, name
 	return out
 }
 
-// snapshotTimes lists the app's platform snapshots, from the primary region or
-// from the geo-redundant secondary.
+// snapshotTimes lists the app's platform snapshots from the primary region or
+// the geo-redundant secondary.
 func snapshotTimes(t *testing.T, client *armappservice.WebAppsClient, rg, name string, dr bool) []string {
 	t.Helper()
 	var out []string
@@ -208,7 +199,6 @@ func snapshotTimes(t *testing.T, client *armappservice.WebAppsClient, rg, name s
 	return out
 }
 
-// slotSnapshotTimes is snapshotTimes at the deployment-slot scope.
 func slotSnapshotTimes(t *testing.T, client *armappservice.WebAppsClient, rg, name, slot string, dr bool) []string {
 	t.Helper()
 	var out []string
@@ -235,7 +225,6 @@ func slotSnapshotTimes(t *testing.T, client *armappservice.WebAppsClient, rg, na
 	return out
 }
 
-// listDeletedSites enumerates the subscription's retained deleted apps.
 func listDeletedSites(t *testing.T) []*armappservice.DeletedSite {
 	t.Helper()
 	client, err := armappservice.NewDeletedWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
@@ -250,8 +239,8 @@ func listDeletedSites(t *testing.T) []*armappservice.DeletedSite {
 	return out
 }
 
-// requireAzureErrorCode asserts the service refused a request with a specific
-// Azure Resource Manager error code, which is what a caller branches on.
+// requireAzureErrorCode asserts the ARM error code, which is what a caller
+// branches on.
 func requireAzureErrorCode(t *testing.T, err error, code, what string) {
 	t.Helper()
 	require.Error(t, err, "%s: expected the service to refuse the request", what)
@@ -261,7 +250,7 @@ func requireAzureErrorCode(t *testing.T, err error, code, what string) {
 }
 
 // deployPackage publishes a package through the MSDeploy long-running
-// operation, which is how content reaches an App Service app.
+// operation.
 func deployPackage(t *testing.T, client *armappservice.WebAppsClient, rg, name string, files map[string]string) {
 	t.Helper()
 	poller, err := client.BeginCreateMSDeployOperation(ctx, rg, name, armappservice.MSDeploy{
@@ -272,16 +261,10 @@ func deployPackage(t *testing.T, client *armappservice.WebAppsClient, rg, name s
 	require.NoError(t, err)
 }
 
-// TestSDK_WebApps_BackupPrerequisites covers the two service behaviours an App
-// Service backup depends on and that a client cannot work around:
-//
-//   - An App Service plan's pricing tier is derived from its SKU name. A client
-//     that sends only the name — which is all terraform-provider-azurerm's
-//     azurerm_service_plan sends — reads the derived tier back, and consumers
-//     branch on it (backup is offered on Basic and above, never on Dynamic).
-//   - A blob container is one object with two management surfaces. A container
-//     created through Microsoft.Storage is the same container the account's
-//     blob endpoint serves, so a backup addressed at it can be written and read.
+// TestSDK_WebApps_BackupPrerequisites: a plan's tier derives from its SKU name
+// (terraform-provider-azurerm's azurerm_service_plan sends only the name, and
+// backup is offered on Basic and above); and a container created through
+// Microsoft.Storage is the one the blob endpoint serves.
 func TestSDK_WebApps_BackupPrerequisites(t *testing.T) {
 	t.Parallel()
 	rg := "sdk-backup-prereq-rg"
@@ -291,8 +274,7 @@ func TestSDK_WebApps_BackupPrerequisites(t *testing.T) {
 	require.NoError(t, err)
 	poller, err := plans.BeginCreateOrUpdate(ctx, rg, "sdk-backup-prereq-plan", armappservice.Plan{
 		Location: to.Ptr("eastus"),
-		// Only the SKU name, exactly as a client that lets the service decide
-		// the rest sends it.
+		// Only the SKU name.
 		SKU: &armappservice.SKUDescription{Name: to.Ptr("S1")},
 	}, nil)
 	require.NoError(t, err)
@@ -305,7 +287,6 @@ func TestSDK_WebApps_BackupPrerequisites(t *testing.T) {
 	require.NotNil(t, plan.SKU.Size)
 	assert.Equal(t, "S1", *plan.SKU.Size)
 
-	// A container created through the Azure Resource Manager plane.
 	account := "sdkbackupprereq"
 	createStorageAccountForARM(t, rg, account)
 	containers, err := armstorage.NewBlobContainersClient(subscriptionID, &fakeCredential{}, clientOpts())
@@ -316,7 +297,6 @@ func TestSDK_WebApps_BackupPrerequisites(t *testing.T) {
 	}, nil)
 	require.NoError(t, err)
 
-	// The same container, on the account's blob endpoint.
 	blobs := newBlobTestClient(t, account)
 	_, err = blobs.UploadBuffer(ctx, containerName, "hello.txt", []byte("one container, two surfaces"), nil)
 	require.NoError(t, err, "a container created through Microsoft.Storage must be usable on the Blob data plane")
@@ -328,12 +308,10 @@ func TestSDK_WebApps_BackupPrerequisites(t *testing.T) {
 	assert.Equal(t, "one container, two surfaces", string(body))
 }
 
-// TestSDK_WebApps_BackupRestoreBlobRoundTrip is the end-to-end proof: an app
-// whose content is identifiable is backed up into a real storage container,
-// the archive is read back through the Blob API and asserted to hold that
-// content, the app's content is genuinely changed, the restore puts it back,
-// and deleting the archive blob makes the restore fail — which is what proves
-// the blob IS the backup rather than a copy the service kept.
+// TestSDK_WebApps_BackupRestoreBlobRoundTrip: the archive read through the
+// Blob API holds the app's content, the restore puts changed content back,
+// and deleting the archive blob makes the restore fail, so the blob is the
+// backup, not a copy the service kept.
 func TestSDK_WebApps_BackupRestoreBlobRoundTrip(t *testing.T) {
 	t.Parallel()
 	rg, name := "sdk-backup-rg", "sdk-backup-app"
@@ -352,8 +330,8 @@ func TestSDK_WebApps_BackupRestoreBlobRoundTrip(t *testing.T) {
 	require.Equal(t, []string{"keepme", "report"}, webJobNames(t, client, rg, name),
 		"the deployed content must be observable as its webjobs")
 
-	// A custom domain, which Microsoft documents the manifest listing and the
-	// restore reconciling.
+	// Microsoft documents the manifest listing a custom domain and the restore
+	// reconciling it.
 	const customDomain = "backup.sockerless.test"
 	_, err = client.CreateOrUpdateHostNameBinding(ctx, rg, name, customDomain,
 		armappservice.HostNameBinding{Properties: &armappservice.HostNameBindingProperties{
@@ -429,8 +407,7 @@ func TestSDK_WebApps_BackupRestoreBlobRoundTrip(t *testing.T) {
 	assert.Equal(t, []string{customDomain}, manifest.HostNames,
 		"the manifest lists the app's custom domains, not its platform hostnames")
 
-	// Remove the custom domain: the restore must put it back, because the
-	// manifest lists it and nothing else binds it.
+	// The restore puts the custom domain back: the manifest lists it.
 	_, err = client.DeleteHostNameBinding(ctx, rg, name, customDomain, nil)
 	require.NoError(t, err)
 	_, err = client.GetHostNameBinding(ctx, rg, name, customDomain, nil)
@@ -459,7 +436,7 @@ func TestSDK_WebApps_BackupRestoreBlobRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, blobName, *status.Properties.BlobName)
 
-	// ListBackupStatusSecrets is the only read that carries the SAS.
+	// ListBackupStatusSecrets is the only read carrying the SAS.
 	secrets, err := client.ListBackupStatusSecrets(ctx, rg, name, itoa(int(backupID)),
 		armappservice.BackupRequest{Properties: &armappservice.BackupRequestProperties{}}, nil)
 	require.NoError(t, err)
@@ -477,9 +454,8 @@ func TestSDK_WebApps_BackupRestoreBlobRoundTrip(t *testing.T) {
 	require.NotNil(t, discovered.Properties)
 	assert.Equal(t, name, *discovered.Properties.SiteName)
 
-	// A Web Deploy package creates and overwrites, and leaves files it does not
-	// carry alone (the DoNotDeleteRule default the "remove additional files at
-	// destination" switch exists to turn off), so this MERGES.
+	// A Web Deploy package creates and overwrites but leaves files it does not
+	// carry (DoNotDeleteRule), so this merges.
 	deployPackage(t, client, rg, name, mergeFiles(
 		triggeredJob("report", "#!/bin/sh\necho replaced report\n"),
 		triggeredJob("extra", "#!/bin/sh\necho extra\n"),
@@ -487,8 +463,8 @@ func TestSDK_WebApps_BackupRestoreBlobRoundTrip(t *testing.T) {
 	require.Equal(t, []string{"extra", "keepme", "report"}, webJobNames(t, client, rg, name),
 		"a deployment must merge: keepme survives a package that does not carry it")
 
-	// Microsoft: "Without _backup.filter, restoring a backup deletes all
-	// existing files in the app and replaces them with the files in the backup."
+	// Microsoft: "Without _backup.filter, restoring a backup deletes all existing
+	// files in the app and replaces them with the files in the backup."
 	restorePoller, err := client.BeginRestore(ctx, rg, name, itoa(int(backupID)), armappservice.RestoreRequest{
 		Properties: &armappservice.RestoreRequestProperties{
 			StorageAccountURL: to.Ptr(store.sasURL),
@@ -512,9 +488,7 @@ func TestSDK_WebApps_BackupRestoreBlobRoundTrip(t *testing.T) {
 	require.NotNil(t, afterRestore.Properties.LastRestoreTimeStamp,
 		"a restore stamps the backup item it used")
 
-	// Delete the archive through the Blob API and the very same restore must
-	// fail. A restore that still succeeded would prove the service kept its own
-	// copy and the blob round trip was decorative.
+	// With the archive blob deleted, the same restore fails.
 	_, err = store.client.NewBlobClient(blobName).Delete(ctx, nil)
 	require.NoError(t, err)
 	gone, exists := store.download(t, blobName)
@@ -531,9 +505,8 @@ func TestSDK_WebApps_BackupRestoreBlobRoundTrip(t *testing.T) {
 		"restoring from a deleted archive blob must fail")
 }
 
-// TestSDK_WebApps_BackupRestoreIntoAnotherApp proves the archive is portable:
-// a second app restores the first app's backup out of the same container, and
-// the second app's own content is replaced by it.
+// TestSDK_WebApps_BackupRestoreIntoAnotherApp: a second app restores the first
+// app's backup from the same container, replacing its own content.
 func TestSDK_WebApps_BackupRestoreIntoAnotherApp(t *testing.T) {
 	t.Parallel()
 	rg := "sdk-backup-xfer-rg"
@@ -574,9 +547,9 @@ func TestSDK_WebApps_BackupRestoreIntoAnotherApp(t *testing.T) {
 		"restoring the source app's archive must replace the destination's content")
 }
 
-// TestSDK_WebApps_BackupRefusals covers the three documented refusals: a
-// storageAccountUrl without the mandatory SAS parameters, a URL whose host
-// names no Blob endpoint, and a container that does not exist.
+// TestSDK_WebApps_BackupRefusals covers the documented refusals: a
+// storageAccountUrl without the mandatory SAS parameters, a host that is no
+// Blob endpoint, and a missing container.
 func TestSDK_WebApps_BackupRefusals(t *testing.T) {
 	t.Parallel()
 	rg, name := "sdk-backup-refuse-rg", "sdk-backup-refuse-app"
@@ -594,22 +567,19 @@ func TestSDK_WebApps_BackupRefusals(t *testing.T) {
 		return err
 	}
 
-	// A container URL with no SAS at all.
 	plain := strings.Split(store.sasURL, "?")[0]
 	requireAzureErrorCode(t, backupTo(plain), "InvalidRequestContent",
 		"a storageAccountUrl without a SAS must be refused")
 
-	// A well-formed SAS against a container that was never created.
 	missing := strings.Replace(store.sasURL, "/"+store.container+"?", "/nosuchcontainer?", 1)
 	requireAzureErrorCode(t, backupTo(missing), "StorageAccessFailed",
 		"a SAS naming a container that does not exist must be refused")
 
-	// A SAS whose host is not a Blob service endpoint.
 	notBlob := strings.Replace(store.sasURL, ".blob.", ".queue.", 1)
 	requireAzureErrorCode(t, backupTo(notBlob), "CannotResolveStorageAccount",
 		"a storageAccountUrl that does not address the Blob service must be refused")
 
-	// No backup was recorded by any of the three refusals.
+	// None of the refusals recorded a backup.
 	pager := client.NewListBackupsPager(rg, name, nil)
 	for pager.More() {
 		page, err := pager.NextPage(ctx)
@@ -618,8 +588,8 @@ func TestSDK_WebApps_BackupRefusals(t *testing.T) {
 	}
 }
 
-// TestSDK_WebApps_BackupDeleteRemovesTheBlobs proves DeleteBackup removes the
-// archive and its manifest from the storage account, not just the ARM record.
+// TestSDK_WebApps_BackupDeleteRemovesTheBlobs: DeleteBackup removes the
+// archive and manifest from the storage account, not just the ARM record.
 func TestSDK_WebApps_BackupDeleteRemovesTheBlobs(t *testing.T) {
 	t.Parallel()
 	rg, name := "sdk-backup-del-rg", "sdk-backup-del-app"
@@ -653,10 +623,9 @@ func TestSDK_WebApps_BackupDeleteRemovesTheBlobs(t *testing.T) {
 	requireAzureErrorCode(t, err, "ResourceNotFound", "a deleted backup must be gone from ARM too")
 }
 
-// TestSDK_WebApps_SnapshotsAndDeletedAppRestore covers the platform-snapshot
-// half: the snapshots an app's real state changes produce, the geo-redundant
-// secondary they replicate to, a snapshot restore, and the deleted-app
-// retention that WebApps_RestoreFromDeletedApp replays.
+// TestSDK_WebApps_SnapshotsAndDeletedAppRestore: the snapshots an app's state
+// changes produce, the geo-redundant secondary, a snapshot restore, and the
+// deleted-app retention WebApps_RestoreFromDeletedApp replays.
 func TestSDK_WebApps_SnapshotsAndDeletedAppRestore(t *testing.T) {
 	t.Parallel()
 	rg, name := "sdk-snapshot-rg", "sdk-snapshot-app"
@@ -675,11 +644,9 @@ func TestSDK_WebApps_SnapshotsAndDeletedAppRestore(t *testing.T) {
 		"each real state change adds a snapshot")
 	assert.Equal(t, []string{"first", "second"}, webJobNames(t, client, rg, name))
 
-	// The geo-redundant secondary holds the same replicated set.
 	assert.Equal(t, laterSnapshots, snapshotTimes(t, client, rg, name, true),
 		"the DR secondary must hold the replicated snapshots")
 
-	// Restoring the first snapshot removes the second deployment's job.
 	snapPoller, err := client.BeginRestoreSnapshot(ctx, rg, name, armappservice.SnapshotRestoreRequest{
 		Properties: &armappservice.SnapshotRestoreRequestProperties{
 			SnapshotTime: to.Ptr(firstSnapshots[len(firstSnapshots)-1]),
@@ -692,7 +659,7 @@ func TestSDK_WebApps_SnapshotsAndDeletedAppRestore(t *testing.T) {
 	assert.Equal(t, []string{"first"}, webJobNames(t, client, rg, name),
 		"a snapshot restore reinstates exactly the state that snapshot captured")
 
-	// A snapshot the app never had is refused rather than silently substituted.
+	// A snapshot the app never had is refused, not substituted.
 	_, err = client.BeginRestoreSnapshot(ctx, rg, name, armappservice.SnapshotRestoreRequest{
 		Properties: &armappservice.SnapshotRestoreRequestProperties{
 			SnapshotTime: to.Ptr("2001-01-01T00:00:00.0000000Z"),
@@ -749,8 +716,7 @@ func TestSDK_WebApps_SnapshotsAndDeletedAppRestore(t *testing.T) {
 	requireAzureErrorCode(t, err, "ResourceNotFound", "an unknown deletedSiteId must be refused")
 }
 
-// TestSDK_WebApps_BackupRestoreOnASlot runs the same contract at the
-// deployment-slot scope, where every operation has its own spelling.
+// TestSDK_WebApps_BackupRestoreOnASlot runs the same contract at slot scope.
 func TestSDK_WebApps_BackupRestoreOnASlot(t *testing.T) {
 	t.Parallel()
 	rg, name, slot := "sdk-backup-slot-rg", "sdk-backup-slot-app", "staging"
@@ -787,8 +753,8 @@ func TestSDK_WebApps_BackupRestoreOnASlot(t *testing.T) {
 	_, err = slotDeploy.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 
-	// A backup that names no storage takes the slot's configured storage, which
-	// is how a scheduled backup runs.
+	// A backup naming no storage takes the slot's configured storage, as a
+	// scheduled backup does.
 	item, err := client.BackupSlot(ctx, rg, name, slot, armappservice.BackupRequest{
 		Properties: &armappservice.BackupRequestProperties{},
 	}, nil)
@@ -836,7 +802,6 @@ func TestSDK_WebApps_BackupRestoreOnASlot(t *testing.T) {
 	}, nil)
 	require.NoError(t, err)
 
-	// Merge in another job, then restore the slot's backup and see it go.
 	slotDeploy2, err := client.BeginCreateMSDeployOperationSlot(ctx, rg, name, slot, armappservice.MSDeploy{
 		Properties: &armappservice.MSDeployCore{PackageURI: to.Ptr(
 			servePackage(t, makeJobsZip(t, triggeredJob("slotextra", "#!/bin/sh\nexit 0\n"))))},
@@ -857,7 +822,6 @@ func TestSDK_WebApps_BackupRestoreOnASlot(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []string{"slotjob"}, slotWebJobNames(t, client, rg, name, slot))
 
-	// Slot snapshots and the slot's DR secondary.
 	assert.NotEmpty(t, slotSnapshotTimes(t, client, rg, name, slot, false))
 	assert.Equal(t, slotSnapshotTimes(t, client, rg, name, slot, false),
 		slotSnapshotTimes(t, client, rg, name, slot, true))
@@ -869,7 +833,6 @@ func TestSDK_WebApps_BackupRestoreOnASlot(t *testing.T) {
 	_, err = slotSnap.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 
-	// The slot spellings of the two blob-sourced restores.
 	blobSlot, err := client.BeginRestoreFromBackupBlobSlot(ctx, rg, name, slot, armappservice.RestoreRequest{
 		Properties: &armappservice.RestoreRequestProperties{
 			StorageAccountURL: to.Ptr(store.sasURL), BlobName: item.Properties.BlobName,

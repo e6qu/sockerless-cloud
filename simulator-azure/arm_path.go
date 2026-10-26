@@ -5,24 +5,21 @@ import (
 	"strings"
 )
 
-// Azure Resource Manager matches URL paths case-insensitively, and its clients
-// disagree: the azurerm Terraform provider sends `microsoft.cache/redis` where
-// SDK clients send `Microsoft.Cache/Redis`. Both reach real Azure, so both must
-// reach the simulator. Canonicalize to the casing the routes register; the
-// server runs this on every request before routing (sim.Config.RewriteRequest).
+// Azure Resource Manager matches paths case-insensitively, and its clients
+// disagree: the azurerm provider sends `microsoft.cache/redis` where SDKs send
+// `Microsoft.Cache/Redis`. Canonicalize to the casing the routes register
+// (sim.Config.RewriteRequest runs this before routing).
 func azureNormalizeRequestPath(r *http.Request) {
-	// Only Azure Resource Manager matches paths case-insensitively. A blob
-	// name, a console route or a Graph path keeps the casing its client sent.
+	// Only Azure Resource Manager is case-insensitive; a blob name, a console route
+	// or a Graph path keeps its casing.
 	if lower := strings.ToLower(r.URL.Path); !strings.HasPrefix(lower, "/subscriptions/") && !strings.HasPrefix(lower, "/providers/") {
 		return
 	}
-	// Resource-type and provider segments map to canonical mixed case.
-	// Action and sub-resource verbs map to lowercase, because clients vary
-	// (`appSettings` from terraform-provider-azurerm, `appsettings` from
-	// azurestack) and the handlers register one casing.
+	// Resource-type and provider segments map to canonical mixed case; action and
+	// sub-resource verbs to lowercase, because clients vary (`appSettings` from
+	// terraform-provider-azurerm, `appsettings` from azurestack).
 	replacements := map[string]string{
-		// No trailing slash: the segment also ends the SDK's
-		// list-resource-groups URL.
+		// No trailing slash: the segment also ends the SDK's list-resource-groups URL.
 		"/resourcegroups":            "/resourceGroups",
 		"/microsoft.cache/redis":     "/Microsoft.Cache/Redis",
 		"/microsoft.cache":           "/Microsoft.Cache",
@@ -47,9 +44,8 @@ func azureNormalizeRequestPath(r *http.Request) {
 		"/azurestorageaccounts":               "/azurestorageaccounts",
 		"/basicpublishingcredentialspolicies": "/basicpublishingcredentialspolicies",
 		"/sourcecontrols":                     "/sourcecontrols",
-		// terraform-provider-azurerm spells the image catalog's artifact
-		// segments artifactTypes/vmImage; the handlers register the REST
-		// specification's lowercase.
+		// terraform-provider-azurerm spells these artifactTypes/vmImage; the handlers
+		// register the REST specification's lowercase.
 		"/artifacttypes/vmimage": "/artifacttypes/vmimage",
 		"/deletedvaults":         "/deletedVaults",
 		"/deletedworkspaces":     "/deletedWorkspaces",
@@ -63,9 +59,9 @@ func azureNormalizeRequestPath(r *http.Request) {
 			lower = strings.ToLower(path)
 		}
 	}
-	// A site's host and function key listings register lowercase, as the
-	// Azure CLI sends them; terraform-provider-azurerm sends `listKeys`. The
-	// other `listKeys` actions register mixed case, so only a site's fold.
+	// A site's host and function key listings register lowercase, as the Azure CLI
+	// sends them; terraform-provider-azurerm sends `listKeys`. Other `listKeys`
+	// actions register mixed case, so only a site's fold.
 	if strings.Contains(lower, "/providers/microsoft.web/sites/") && strings.HasSuffix(lower, "/listkeys") {
 		path = path[:len(path)-len("/listkeys")] + "/listkeys"
 	}

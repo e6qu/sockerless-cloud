@@ -10,14 +10,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// SDK coverage for whether an app can be cloned:
+// Whether an app can be cloned is computed, not stored: the plan decides
+// whether a clone is possible, and the deployment slots a clone leaves behind
+// decide whether it is partial.
 //
 //	POST .../sites/{name}/iscloneable
 //	POST .../sites/{name}/slots/{slot}/iscloneable
-//
-// The answer is computed from the site, not stored on it: the App Service plan
-// the site is placed on decides whether a clone is possible at all, and the
-// deployment slots a clone would leave behind decide whether it is partial.
 func TestSDK_WebApps_IsCloneable(t *testing.T) {
 	t.Parallel()
 	sdkCloneablePremiumName := uniquename.New("sdk-cloneable-premium")
@@ -52,8 +50,7 @@ func TestSDK_WebApps_IsCloneable(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	// A site on a Basic plan cannot be cloned, and the refusal names the tier
-	// that blocks it.
+	// A site on a Basic plan cannot be cloned, and the refusal names the tier.
 	basic := newPlan("sdk-cloneable-basic-plan", "B1", "Basic")
 	newSite(sdkCloneableBasicName, basic)
 
@@ -64,9 +61,8 @@ func TestSDK_WebApps_IsCloneable(t *testing.T) {
 	require.Len(t, blocked.BlockingCharacteristics, 1)
 	assert.Contains(t, *blocked.BlockingCharacteristics[0].Description, "Basic")
 
-	// The same site on a Premium plan can be. The plan is read at the time of
-	// the question, so scaling the plan up changes the answer without the site
-	// being touched.
+	// The same site on a Premium plan can be; the answer reads the plan at
+	// question time.
 	premium := newPlan("sdk-cloneable-premium-plan", "P1v3", "PremiumV3")
 	newSite(sdkCloneablePremiumName, premium)
 
@@ -77,8 +73,8 @@ func TestSDK_WebApps_IsCloneable(t *testing.T) {
 	assert.Empty(t, ok.BlockingCharacteristics)
 	assert.Empty(t, ok.UnsupportedFeatures)
 
-	// A deployment slot is not copied to the clone, so a site that has one can
-	// be cloned only in part, and the slot is named.
+	// A clone does not copy deployment slots, so a site with one is cloneable in
+	// part, naming the slot.
 	slotPoller, err := sites.BeginCreateOrUpdateSlot(ctx, rg, sdkCloneablePremiumName, "staging",
 		armappservice.Site{Location: to.Ptr("eastus")}, nil)
 	require.NoError(t, err)
@@ -92,22 +88,20 @@ func TestSDK_WebApps_IsCloneable(t *testing.T) {
 	require.Len(t, partial.UnsupportedFeatures, 1)
 	assert.Contains(t, *partial.UnsupportedFeatures[0].Description, "staging")
 
-	// The slot itself is inside a slot already, so it has none of its own and
-	// is fully cloneable.
+	// The slot has no slots of its own, so it is fully cloneable.
 	slot, err := sites.IsCloneableSlot(ctx, rg, sdkCloneablePremiumName, "staging", nil)
 	require.NoError(t, err)
 	require.NotNil(t, slot.Result)
 	assert.Equal(t, armappservice.CloneAbilityResultCloneable, *slot.Result)
 
-	// A site that was never created is refused rather than answered.
+	// A site that does not exist is refused.
 	_, err = sites.IsCloneable(ctx, rg, "sdk-cloneable-absent", nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "ResourceNotFound")
 }
 
-// The platform reads App Service offers that this simulator has no primitive
-// behind each declare what is missing, rather than missing the router and
-// answering a bare 404 that reads as "no such API".
+// The App Service platform reads the simulator has no primitive for declare
+// what is missing, not a bare 404 that reads as "no such API".
 func TestSDK_WebApps_PlatformReadsDeclareWhatIsMissing(t *testing.T) {
 	t.Parallel()
 	rg, name := "sdk-webgap-rg", "sdk-webgap-app"
@@ -120,10 +114,8 @@ func TestSDK_WebApps_PlatformReadsDeclareWhatIsMissing(t *testing.T) {
 	}, nil)
 	require.NoError(t, err)
 
-	// PHP error logging and the process dump are read from the site's running
-	// workload, so a site that was never started has no instance to read them
-	// from and both report that. Neither declines any more: the flag is read
-	// out of the site's own PHP, and the dump out of its own process.
+	// PHP error logging and the process dump read the site's running workload, so
+	// a never-started site has nothing to read for either.
 	_, err = client.GetSitePhpErrorLogFlag(ctx, rg, name, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "ResourceNotFound",
@@ -136,7 +128,6 @@ func TestSDK_WebApps_PlatformReadsDeclareWhatIsMissing(t *testing.T) {
 		"a site with no running instance has no process to dump")
 	assert.NotContains(t, err.Error(), "NotImplemented")
 
-	// The six runtime-stack catalog spellings are covered by
-	// TestSDK_Web_RuntimeStackCatalogsAreEmptyBecauseThisPlatformSuppliesNoStacks:
-	// they answer what this App Service offers, which is no built-in stack.
+	// TestSDK_Web_RuntimeStackCatalogsListTheStacksSitesRun
+	// covers the six runtime-stack catalog spellings.
 }

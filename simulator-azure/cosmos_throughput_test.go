@@ -8,9 +8,8 @@ import (
 	"time"
 )
 
-// A Cosmos DB resource created without dedicated throughput has no offer: the
-// resource provider answers its throughputSettings/default read, and each
-// migration of it, with 404 NotFound, and never invents one.
+// A resource without dedicated throughput has no offer: its read and each
+// migration answer 404, and none is invented.
 func TestCosmosThroughputOfAResourceWithoutAnOfferIsNotFound(t *testing.T) {
 	srv := newMoveTestServer(t)
 	account := "nooffercosmos"
@@ -81,8 +80,6 @@ func TestCosmosThroughputOfAResourceWithoutAnOfferIsNotFound(t *testing.T) {
 	}
 	notFound(http.MethodGet, "/tables/plain/throughputSettings/default")
 
-	// Updating the throughput of a resource that shares its database's is
-	// refused as the service refuses it: there is no offer to update.
 	status, out = moveARM(t, srv, http.MethodPut, base+"/sqlDatabases/shared/containers/c/throughputSettings/default"+ver,
 		`{"properties":{"resource":{"throughput":800}}}`)
 	if status != http.StatusNotFound {
@@ -91,9 +88,8 @@ func TestCosmosThroughputOfAResourceWithoutAnOfferIsNotFound(t *testing.T) {
 	notFound(http.MethodGet, "/sqlDatabases/shared/containers/c/throughputSettings/default")
 }
 
-// One record holds a NoSQL resource's dedicated throughput: Azure Resource
-// Manager's throughputSettings and the data plane's offer read and write the
-// same one, whichever surface created it.
+// Azure Resource Manager's throughputSettings and the data plane's offer read
+// and write the same record, whichever surface created it.
 func TestCosmosThroughputOneRecordServesBothSurfaces(t *testing.T) {
 	c := newCosmosItemsClient(t, "onethroughput")
 	base := cosmosTestAccountPath(c.account)
@@ -147,7 +143,7 @@ func TestCosmosThroughputOneRecordServesBothSurfaces(t *testing.T) {
 	}
 
 	id, _ := offer["id"].(string)
-	// azcosmos addresses an offer by its rid, and signs the lower-cased rid.
+	// azcosmos addresses an offer by its rid and signs the lowercased rid.
 	replaceOffer := func(body, ifMatch string) int {
 		t.Helper()
 		request := cosmosDataPlaneHTTPRequest(t, http.MethodPut, "/offers/"+id+"/", c.account, body)

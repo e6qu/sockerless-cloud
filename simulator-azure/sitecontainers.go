@@ -14,13 +14,10 @@ import (
 	dockerclient "github.com/moby/moby/client"
 )
 
-// SiteContainer is the ARM resource
-// Microsoft.Web/sites/{name}/sitecontainers/{containerName}. App Service
-// multi-container ("sidecar containers") sites declare one main container
-// (IsMain=true) plus N sidecars; all members of a site share one network
-// namespace, so a sidecar that binds a port is reachable from the main on
-// localhost:<port> — the faithful Azure analog of an ACA App / Cloud Run
-// multi-container revision.
+// SiteContainer is Microsoft.Web/sites/{name}/sitecontainers/{containerName}.
+// A multi-container site declares one main container (IsMain) and sidecars,
+// all in one network namespace, so a sidecar binding a port is reachable from
+// the main on localhost.
 type SiteContainer struct {
 	ID         string                  `json:"id,omitempty"`
 	Name       string                  `json:"name,omitempty"`
@@ -29,8 +26,7 @@ type SiteContainer struct {
 	Properties SiteContainerProperties `json:"properties"`
 }
 
-// SiteContainerProperties mirrors armappservice.SiteContainerProperties.
-// image + isMain are REQUIRED per the ARM schema.
+// image and isMain are required.
 type SiteContainerProperties struct {
 	Image                                  string                  `json:"image"`
 	TargetPort                             string                  `json:"targetPort,omitempty"`
@@ -47,13 +43,11 @@ type SiteContainerProperties struct {
 	LastModifiedTime                       string                  `json:"lastModifiedTime,omitempty"`
 }
 
-// SiteContainerEnvVar mirrors armappservice.EnvironmentVariable.
 type SiteContainerEnvVar struct {
 	Name  string `json:"name"`
 	Value string `json:"value,omitempty"`
 }
 
-// SiteContainerVolMount mirrors armappservice.VolumeMount.
 type SiteContainerVolMount struct {
 	ContainerMountPath string `json:"containerMountPath,omitempty"`
 	VolumeSubPath      string `json:"volumeSubPath,omitempty"`
@@ -61,17 +55,13 @@ type SiteContainerVolMount struct {
 	ReadOnly           bool   `json:"readOnly,omitempty"`
 }
 
-// Package-level store: sitecontainers keyed by their full ARM resource ID
-// (<siteID>/sitecontainers/<name>).
+// Keyed by <siteID>/sitecontainers/<name>.
 var azfSiteContainers sim.Store[SiteContainer]
 
-// azfSiteContainersBySite indexes sitecontainers by the ARM id of their site.
-// The App Service front end asks for a site's containers on every request to
-// a site's hostname.
+// The front end asks for a site's containers on every request to its
+// hostname.
 var azfSiteContainersBySite sim.GenerationIndex[SiteContainer]
 
-// siteContainersFor returns every sitecontainer belonging to a site, in the
-// order the store lists them.
 func siteContainersFor(siteID string) []SiteContainer {
 	return azfSiteContainersBySite.LookupAll(azfSiteContainers, siteID, func(c SiteContainer) []string {
 		i := strings.LastIndex(c.ID, "/sitecontainers/")
@@ -82,8 +72,7 @@ func siteContainersFor(siteID string) []SiteContainer {
 	})
 }
 
-// mainSiteContainer returns the IsMain member of a site's sitecontainers,
-// or nil if the site has no sitecontainers.
+// Nil when the site has no sitecontainers.
 func mainSiteContainer(siteID string) *SiteContainer {
 	containers := siteContainersFor(siteID)
 	if len(containers) == 0 {
@@ -94,12 +83,11 @@ func mainSiteContainer(siteID string) *SiteContainer {
 			return &containers[i]
 		}
 	}
-	// No member flagged main: fall back to the first (deterministic by name).
+	// No member flagged main: fall back to the first, deterministic by name.
 	main := containers[0]
 	return &main
 }
 
-// sidecarSiteContainers returns the non-main members of a site.
 func sidecarSiteContainers(siteID string) []SiteContainer {
 	var out []SiteContainer
 	for _, c := range siteContainersFor(siteID) {
@@ -110,11 +98,9 @@ func sidecarSiteContainers(siteID string) []SiteContainer {
 	return out
 }
 
-// splitStartUpCommand turns a sitecontainer startUpCommand string into argv,
-// honoring single/double quotes so an embedded shell script (e.g.
-// `sh -c 'while ...; done'`) survives as one argument. Real Azure runs the
-// startUpCommand as the container's command; the simulator supplies it as the
-// container's command (args), preserving the image entrypoint. Empty → nil.
+// Quotes are honoured so an embedded script (`sh -c 'while ...; done'`) stays
+// one argument. Azure runs startUpCommand as the container's command; it is
+// passed as args, keeping the image entrypoint. Empty gives nil.
 func splitStartUpCommand(s string) []string {
 	s = strings.TrimSpace(s)
 	if s == "" {
@@ -153,11 +139,9 @@ func splitStartUpCommand(s string) []string {
 	return args
 }
 
-// siteContainerEnv is a sitecontainer's environmentVariables as its container
-// sees them. Each entry's value names an app setting, and the container gets
-// that setting's value, a Key Vault reference resolved, under the entry's
-// name: "If the AppSetting is not found, the value will be set to an empty
-// string in the container at runtime."
+// Each entry names an app setting, and the container gets its value, a Key
+// Vault reference resolved: "If the AppSetting is not found, the value will be
+// set to an empty string in the container at runtime."
 func siteContainerEnv(vars []SiteContainerEnvVar, appSettings map[string]string) map[string]string {
 	if len(vars) == 0 {
 		return nil
@@ -169,9 +153,8 @@ func siteContainerEnv(vars []SiteContainerEnvVar, appSettings map[string]string)
 	return m
 }
 
-// inheritedEnv is the app settings and connection-string environment a
-// sitecontainer gets: all of them unless its inheritAppSettingsAndConnectionStrings
-// is false.
+// All app settings and connection strings unless
+// inheritAppSettingsAndConnectionStrings is false.
 func (sc *SiteContainer) inheritedEnv(references webReferenceValues) map[string]string {
 	if inherit := sc.Properties.InheritAppSettingsAndConnectionStrings; inherit != nil && !*inherit {
 		return nil
@@ -179,11 +162,8 @@ func (sc *SiteContainer) inheritedEnv(references webReferenceValues) map[string]
 	return workloadhost.MergeEnv(references.appSettings, references.connectionStrings)
 }
 
-// siteContainerVolumeBinds realizes a sitecontainer's VolumeMounts as Docker
-// bind specs against a per-(site, volume) named volume. Pod members of the
-// same site that mount the same VolumeSubPath share one Docker volume — the
-// shared workspace, the sim's realization of the site-level Azure Files share
-// every sitecontainer references.
+// Members of one site mounting the same VolumeSubPath share one named volume,
+// standing in for the site-level Azure Files share.
 func siteContainerVolumeBinds(siteName string, mounts []SiteContainerVolMount) []string {
 	var binds []string
 	for _, vm := range mounts {
@@ -200,18 +180,11 @@ func siteContainerVolumeBinds(siteName string, mounts []SiteContainerVolMount) [
 	return binds
 }
 
-// startSidecarContainers launches every non-main sitecontainer of a site so
-// it shares the main container's network namespace (NetworkMode
-// container:<mainID>). A sidecar that binds localhost:<port> is then
-// reachable from the main on localhost:<port> — the App Service
-// multi-container loopback contract. Handles are returned so the caller can
-// tear them down with the main on invoke completion. A sidecar that does not
-// start fails the site's start, as on App Service, where a site whose
-// sitecontainer fails to start does not run; the sidecars already started are
-// stopped and the main stays the caller's to stop. references are the site's
-// app settings and connection strings with their Key Vault references
-// resolved, which each sidecar inherits or its environmentVariables name;
-// metadataHost is the sidecar of the main's network, which the sidecars share.
+// Each sidecar joins the main's network namespace, so localhost:<port>
+// reaches it. A sidecar that does not start fails the site's start, as on App
+// Service; the sidecars already started are stopped and the main is the
+// caller's to stop. references are the resolved app settings and connection
+// strings; metadataHost is the main network's sidecar, which they share.
 func startSidecarContainers(ctx context.Context, site *Site, mainContainerID string, references webReferenceValues, metadataHost string, sink sim.LogSink) ([]placement.Handle, error) {
 	sidecars := sidecarSiteContainers(site.ID)
 	if len(sidecars) == 0 {
@@ -259,10 +232,8 @@ func startSidecarContainers(ctx context.Context, site *Site, mainContainerID str
 	return handles, nil
 }
 
-// cleanupSiteContainers removes a deleted site's sitecontainers from the
-// store and best-effort removes the shared Docker volumes their VolumeMounts
-// realized (the pod workspace persists across stages, so it's torn down only
-// when the site is deleted).
+// The shared volumes persist across stages, so they go only when the site is
+// deleted.
 func cleanupSiteContainers(siteID, siteName string) {
 	if azfSiteContainers == nil {
 		return
@@ -286,11 +257,8 @@ func cleanupSiteContainers(siteID, siteName string) {
 func registerSiteContainerHandlers(srv *sim.Server, armBase string) {
 	azfSiteContainers = sim.MakeStore[SiteContainer](srv.DB(), "azf_sitecontainers")
 
-	// Every operation exists identically on a production site and on a
-	// deployment slot; the addressed level resolves through its own resource
-	// record (azfSites / webSlots) and its containers key under its own
-	// resource ID, so a slot's sitecontainers are never the production
-	// site's.
+	// A slot resolves through its own record and keys its containers under its
+	// own resource ID, so its sitecontainers are never the production site's.
 	both := func(method, suffix string, h http.HandlerFunc) {
 		srv.HandleFunc(method+" "+armBase+"/sites/{siteName}"+suffix, h)
 		srv.HandleFunc(method+" "+armBase+"/sites/{siteName}/slots/{slot}"+suffix, h)
@@ -299,8 +267,7 @@ func registerSiteContainerHandlers(srv *sim.Server, armBase string) {
 		return webResourceID(r) + "/sitecontainers/" + sim.PathParam(r, "containerName")
 	}
 
-	// PUT — create or update a sitecontainer. Real Azure returns 200 with
-	// the persisted resource.
+	// Azure answers 200 with the persisted resource.
 	both("PUT", "/sitecontainers/{containerName}", func(w http.ResponseWriter, r *http.Request) {
 		if webMissing(w, r) {
 			return
@@ -341,7 +308,6 @@ func registerSiteContainerHandlers(srv *sim.Server, armBase string) {
 		sim.WriteJSON(w, http.StatusOK, sc)
 	})
 
-	// GET — read a single sitecontainer.
 	both("GET", "/sitecontainers/{containerName}", func(w http.ResponseWriter, r *http.Request) {
 		sc, ok := azfSiteContainers.Get(containerID(r))
 		if !ok {
@@ -352,7 +318,6 @@ func registerSiteContainerHandlers(srv *sim.Server, armBase string) {
 		sim.WriteJSON(w, http.StatusOK, sc)
 	})
 
-	// GET (collection) — list all sitecontainers on a site or slot.
 	both("GET", "/sitecontainers", func(w http.ResponseWriter, r *http.Request) {
 		if webMissing(w, r) {
 			return
@@ -364,7 +329,6 @@ func registerSiteContainerHandlers(srv *sim.Server, armBase string) {
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"value": list})
 	})
 
-	// DELETE — remove a sitecontainer.
 	both("DELETE", "/sitecontainers/{containerName}", func(w http.ResponseWriter, r *http.Request) {
 		existed := azfSiteContainers.Delete(containerID(r))
 		if !existed {

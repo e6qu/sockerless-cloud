@@ -8,19 +8,11 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// Additional Microsoft.ApiManagement ARM control-plane operations layered on
-// top of the Service / Api / Product / Subscription / Backend / NamedValue
-// slice in apim.go: service-level actions (skus, checkNameAvailability,
-// backup/restore LROs, getSsoToken), the PATCH (Update) verbs, the
-// subscription / namedValue / backend POST actions, and the API and Product
-// child collections (schemas, policies, diagnostics, releases, revisions,
-// tags, operation policies/tags, product↔api and product↔group associations).
-
-// apimChild is a generic ARM child resource served as the standard
-// {id, name, type, properties} envelope. Leaf APIM sub-resources (schemas,
-// policies, diagnostics, releases, tag assignments, operation policies/tags)
-// are properties bags whose only contract is the property set the request
-// carries, so one store backs them all keyed by the (lowercased) resource ID.
+// apimChild is a generic child resource in the {id, name, type, properties}
+// envelope. Leaf sub-resources (schemas, policies, diagnostics, releases, tag
+// assignments, operation policies and tags) have no contract beyond the
+// properties the request carries, so one store, keyed by lowercased resource
+// ID, backs them all.
 type apimChild struct {
 	ID         string         `json:"id"`
 	Name       string         `json:"name"`
@@ -36,7 +28,6 @@ func registerAPIMMore(srv *sim.Server) {
 	const base = "/subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.ApiManagement/service"
 	const provider = "/subscriptions/{subscriptionId}/providers/Microsoft.ApiManagement"
 
-	// Service-level Update + actions.
 	srv.HandleFunc("PATCH "+base+"/{name}", handleAPIMUpdateService)
 	srv.HandleFunc("GET "+base+"/{name}/skus", handleAPIMListServiceSkus)
 	srv.HandleFunc("POST "+base+"/{name}/getssotoken", handleAPIMGetSsoToken)
@@ -45,17 +36,15 @@ func registerAPIMMore(srv *sim.Server) {
 	srv.HandleFunc("POST "+base+"/{name}/migrateToStv2", handleAPIMServiceLRO)
 	srv.HandleFunc("POST "+base+"/{name}/applynetworkconfigurationupdates", handleAPIMServiceLRO)
 
-	// Provider / subscription-scoped operations.
 	srv.HandleFunc("GET /providers/Microsoft.ApiManagement/operations", handleAPIMListRestOperations)
 	srv.HandleFunc("GET "+provider+"/service", handleAPIMListServicesBySub)
 	srv.HandleFunc("GET "+provider+"/deletedServices", handleAPIMListDeletedServices)
-	// AzurePathNormalizationMiddleware lowercases checkNameAvailability to
-	// checknameavailability; getDomainOwnershipIdentifier is not in that
-	// allowlist, so it must be registered at the SDK's casing.
+	// The middleware lowercases checkNameAvailability; getDomainOwnershipIdentifier
+	// is not in its allowlist, so it registers at the SDK's casing.
 	srv.HandleFunc("POST "+provider+"/checknameavailability", handleAPIMCheckNameAvailability)
 	srv.HandleFunc("POST "+provider+"/getDomainOwnershipIdentifier", handleAPIMGetDomainOwnershipIdentifier)
 
-	// GetEntityTag HEAD on the store-backed resources.
+	// GetEntityTag HEAD.
 	srv.HandleFunc("HEAD "+base+"/{name}/apis/{api}", apimHeadFromStore(apimApiExists))
 	srv.HandleFunc("HEAD "+base+"/{name}/apis/{api}/operations/{op}", apimHeadFromStore(apimOperationExists))
 	srv.HandleFunc("HEAD "+base+"/{name}/products/{product}", apimHeadFromStore(apimProductExists))
@@ -65,7 +54,6 @@ func registerAPIMMore(srv *sim.Server) {
 	srv.HandleFunc("HEAD "+base+"/{name}/products/{product}/apis/{api}", apimChildHead)
 	srv.HandleFunc("HEAD "+base+"/{name}/products/{product}/groups/{group}", apimChildHead)
 
-	// API Update + child collections.
 	srv.HandleFunc("PATCH "+base+"/{name}/apis/{api}", handleAPIMPatchChildStore(apimApisStore))
 	srv.HandleFunc("PATCH "+base+"/{name}/apis/{api}/operations/{op}", handleAPIMPatchChildStore(apimOperationsStore))
 
@@ -77,30 +65,23 @@ func registerAPIMMore(srv *sim.Server) {
 	apimRegisterChild(srv, base+"/{name}/apis/{api}/operations/{op}/policies", "{policy}", "Microsoft.ApiManagement/service/apis/operations/policies", false, "value")
 	apimRegisterChild(srv, base+"/{name}/apis/{api}/operations/{op}/tags", "{tag}", "Microsoft.ApiManagement/service/apis/operations/tags", false)
 
-	// API revisions (read-only) + products-by-api.
 	srv.HandleFunc("GET "+base+"/{name}/apis/{api}/revisions", handleAPIMListApiRevisions)
 	srv.HandleFunc("GET "+base+"/{name}/apis/{api}/products", handleAPIMListApiProducts)
 
-	// GraphQL API resolvers + resolver policies.
 	apimRegisterChild(srv, base+"/{name}/apis/{api}/resolvers", "{resolver}", "Microsoft.ApiManagement/service/apis/resolvers", true)
 	apimRegisterChild(srv, base+"/{name}/apis/{api}/resolvers/{resolver}/policies", "{policy}", "Microsoft.ApiManagement/service/apis/resolvers/policies", false, "value")
 
-	// API issues + issue comments + issue attachments.
 	apimRegisterChild(srv, base+"/{name}/apis/{api}/issues", "{issue}", "Microsoft.ApiManagement/service/apis/issues", true, "title", "description", "userId")
 	apimRegisterChild(srv, base+"/{name}/apis/{api}/issues/{issue}/comments", "{comment}", "Microsoft.ApiManagement/service/apis/issues/comments", false, "text", "userId")
 	apimRegisterChild(srv, base+"/{name}/apis/{api}/issues/{issue}/attachments", "{attachment}", "Microsoft.ApiManagement/service/apis/issues/attachments", false, "title", "contentFormat", "content")
 
-	// API tag descriptions + API wiki.
 	apimRegisterChild(srv, base+"/{name}/apis/{api}/tagDescriptions", "{tagDescription}", "Microsoft.ApiManagement/service/apis/tagDescriptions", false)
 	apimRegisterChild(srv, base+"/{name}/apis/{api}/wikis", "default", "Microsoft.ApiManagement/service/apis/wikis", true)
 
-	// Operations grouped by tag (read-only).
 	srv.HandleFunc("GET "+base+"/{name}/apis/{api}/operationsByTags", handleAPIMOperationsByTags)
 
-	// Product wiki.
 	apimRegisterChild(srv, base+"/{name}/products/{product}/wikis", "default", "Microsoft.ApiManagement/service/products/wikis", true)
 
-	// Product Update + child collections + associations.
 	srv.HandleFunc("PATCH "+base+"/{name}/products/{product}", handleAPIMPatchChildStore(apimProductsStore))
 	apimRegisterChild(srv, base+"/{name}/products/{product}/policies", "{policy}", "Microsoft.ApiManagement/service/products/policies", false, "value")
 	apimRegisterChild(srv, base+"/{name}/products/{product}/tags", "{tag}", "Microsoft.ApiManagement/service/products/tags", false)
@@ -113,17 +94,14 @@ func registerAPIMMore(srv *sim.Server) {
 	srv.HandleFunc("DELETE "+base+"/{name}/products/{product}/groups/{group}", handleAPIMRemoveProductGroup)
 	srv.HandleFunc("GET "+base+"/{name}/products/{product}/subscriptions", handleAPIMListProductSubscriptions)
 
-	// Subscription Update + key regeneration.
 	srv.HandleFunc("PATCH "+base+"/{name}/subscriptions/{sub}", handleAPIMPatchSubscription)
 	srv.HandleFunc("POST "+base+"/{name}/subscriptions/{sub}/regeneratePrimaryKey", handleAPIMRegenerateSubKey)
 	srv.HandleFunc("POST "+base+"/{name}/subscriptions/{sub}/regenerateSecondaryKey", handleAPIMRegenerateSubKey)
 
-	// NamedValue Update + secret surfaces.
 	srv.HandleFunc("PATCH "+base+"/{name}/namedValues/{nv}", handleAPIMPatchNamedValue)
 	srv.HandleFunc("POST "+base+"/{name}/namedValues/{nv}/listValue", handleAPIMListNamedValueValue)
 	srv.HandleFunc("POST "+base+"/{name}/namedValues/{nv}/refreshSecret", handleAPIMRefreshNamedValueSecret)
 
-	// Backend Update + reconnect.
 	srv.HandleFunc("PATCH "+base+"/{name}/backends/{backend}", handleAPIMPatchBackend)
 	srv.HandleFunc("POST "+base+"/{name}/backends/{backend}/reconnect", handleAPIMBackendReconnect)
 }
@@ -137,11 +115,9 @@ func apimLastSeg(p string) string {
 	return p
 }
 
-// apimRegisterChild mounts PUT/GET/DELETE/LIST (and PATCH when patch=true) for
-// apimRegisterChild mounts one leaf child collection. required names the
-// properties that child's contract declares required, taken from the vendored
-// definition — a create omitting one is a resource the service would never
-// hold, and the response describing it breaks the contract a client reads.
+// apimRegisterChild mounts one leaf child collection, with PATCH when patch is
+// set. required names the properties the vendored definition requires; a
+// create omitting one is refused.
 func apimRegisterChild(srv *sim.Server, parent, childVar, typeStr string, patch bool, required ...string) {
 	item := parent + "/" + childVar
 	srv.HandleFunc("PUT "+item, apimChildPut(typeStr, required))
@@ -154,14 +130,12 @@ func apimRegisterChild(srv *sim.Server, parent, childVar, typeStr string, patch 
 	}
 }
 
-// apimETag returns a deterministic ETag for a resource path. GetEntityTag (the
-// HEAD operations) returns it in the ETag header with an empty body.
+// apimETag is deterministic per resource path; GetEntityTag returns it in the
+// ETag header with an empty body.
 func apimETag(r *http.Request) string {
 	return `"` + simListKey32(apimReqPath(r), "apim-etag") + `"`
 }
 
-// apimChildHead serves the GetEntityTag HEAD on a leaf child: 200 + ETag when
-// the resource exists, 404 (empty body) otherwise.
 func apimChildHead(w http.ResponseWriter, r *http.Request) {
 	if _, ok := apimChildren.Get(strings.ToLower(apimReqPath(r))); !ok {
 		w.WriteHeader(http.StatusNotFound)
@@ -171,8 +145,6 @@ func apimChildHead(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-// apimHeadFromStore builds a GetEntityTag HEAD handler whose existence check is
-// the caller's store lookup.
 func apimHeadFromStore(exists func(r *http.Request) bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !exists(r) {
@@ -299,8 +271,6 @@ func apimNamedValueExists(r *http.Request) bool {
 	return ok
 }
 
-// apimStoreKind identifies which top-level store a PATCH targets so a single
-// merge handler serves apis / operations / products.
 type apimStoreKind int
 
 const (
@@ -418,10 +388,10 @@ func handleAPIMGetSsoToken(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"redirectUri": redirect})
 }
 
-// handleAPIMServiceLRO backs the long-running service actions (backup, restore,
-// migrateToStv2, applyNetworkConfigurationUpdates): a 202 with the standard
-// Azure-AsyncOperation + Location headers and an operation that completes
-// asynchronously, exactly as the real service does.
+// handleAPIMServiceLRO answers the long-running service actions (backup,
+// restore, migrateToStv2, applyNetworkConfigurationUpdates) with 202,
+// Azure-AsyncOperation and Location, and completes the operation
+// asynchronously.
 func handleAPIMServiceLRO(w http.ResponseWriter, r *http.Request) {
 	sub := sim.PathParam(r, "subscriptionId")
 	s, ok := apimServices.Get(apimServiceID(sub, sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name")))
@@ -558,10 +528,8 @@ func handleAPIMListApiProducts(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"value": out})
 }
 
-// handleAPIMOperationsByTags lists the API's operations grouped with the tags
-// assigned to them (Operation_ListByTags → TagResourceCollection). Each entry
-// pairs one operation with one tag assigned to it; the operation-tag links are
-// the per-operation tag children created via .../operations/{op}/tags/{tag}.
+// handleAPIMOperationsByTags (Operation_ListByTags) pairs each operation with
+// each tag assigned through .../operations/{op}/tags/{tag}.
 func handleAPIMOperationsByTags(w http.ResponseWriter, r *http.Request) {
 	apiID := apimServiceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name")) +
 		"/apis/" + sim.PathParam(r, "api")
@@ -758,11 +726,9 @@ func handleAPIMPatchSubscription(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, s)
 }
 
-// handleAPIMRegenerateSubKey serves both regeneratePrimaryKey and
-// regenerateSecondaryKey. The action verb in the path selects which key slot
-// rotates; a subsequent listSecrets returns the new material for that slot
-// while the other slot keeps its value. Real API Management answers both with
-// 204 No Content and returns the keys only through listSecrets.
+// handleAPIMRegenerateSubKey serves regeneratePrimaryKey and
+// regenerateSecondaryKey; the verb selects the slot. API Management answers
+// 204 and returns keys only through listSecrets.
 func handleAPIMRegenerateSubKey(w http.ResponseWriter, r *http.Request) {
 	id := apimServiceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name")) +
 		"/subscriptions/" + sim.PathParam(r, "sub")
@@ -797,9 +763,7 @@ func handleAPIMPatchNamedValue(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, apimRedactNamedValue(nv))
 }
 
-// handleAPIMListNamedValueValue surfaces the named value's secret (the only
-// operation that returns it; GET/LIST/PUT redact it). NamedValueSecretContract
-// is {value}.
+// handleAPIMListNamedValueValue is the only operation that returns the secret.
 func handleAPIMListNamedValueValue(w http.ResponseWriter, r *http.Request) {
 	key := apimNamedValueKey(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"), sim.PathParam(r, "nv"))
 	nv, ok := apimNamedValues.Get(key)

@@ -13,32 +13,24 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// App Service VNet integration. One integration state per site/slot, readable
-// and writable through every ARM spelling the service offers:
+// App Service VNet integration: one state per site or slot, read and written
+// through every spelling the service offers:
 //
-//   - the "swift" regional integration (.../networkConfig/virtualNetwork,
-//     SwiftVirtualNetwork) — a site joins a subnet delegated to
-//     Microsoft.Web/serverFarms;
-//   - the classic virtualNetworkConnections collection
-//     (.../virtualNetworkConnections/{vnetName}, VnetInfoResource) — the
-//     spelling `az webapp vnet-integration list` reads;
-//   - the Site envelope's own properties.virtualNetworkSubnetId — the
-//     spelling `az webapp vnet-integration add` writes and terraform's
-//     virtual_network_subnet_id manages (applySiteVirtualNetworkSubnetID).
+//   - swift regional integration (.../networkConfig/virtualNetwork) into a
+//     subnet delegated to Microsoft.Web/serverFarms;
+//   - the classic virtualNetworkConnections collection, which `az webapp
+//     vnet-integration list` reads;
+//   - the site's properties.virtualNetworkSubnetId, which `az webapp
+//     vnet-integration add` and terraform's virtual_network_subnet_id write.
 //
-// Every spelling drives the same real join: the connection's virtual network
-// is the engine network over its address space (dockerNetForVNet), created
-// when the first container attaches, and every container the site runs — the
-// persistent site container, a `services:` container, and each
-// per-invocation container — attaches to it, so sites on the same VNet reach
-// each other by name. A swift PUT surfaces in the classic list (named
-// `<vnet>_<subnet>`, isSwift, vnetResourceId = the subnet) and on the site's
-// virtualNetworkSubnetId; a classic PUT that references a delegated subnet
-// surfaces on the swift GET; deleting through any spelling really disconnects
-// the containers.
+// Every spelling drives the same join: every container the site runs attaches
+// to the virtual network's engine network (dockerNetForVNet), so sites on one
+// VNet reach each other by name. A swift PUT appears in the classic list (as
+// `<vnet>_<subnet>`, isSwift) and on virtualNetworkSubnetId; a classic PUT
+// naming a delegated subnet appears on the swift GET; a delete through any
+// spelling disconnects the containers.
 
-// SwiftVirtualNetwork mirrors armappservice.SwiftVirtualNetwork (the body of
-// PUT .../sites/{name}/networkConfig/virtualNetwork).
+// The body of PUT .../sites/{name}/networkConfig/virtualNetwork.
 type SwiftVirtualNetwork struct {
 	ID         string                        `json:"id,omitempty"`
 	Name       string                        `json:"name,omitempty"`
@@ -46,15 +38,13 @@ type SwiftVirtualNetwork struct {
 	Properties SwiftVirtualNetworkProperties `json:"properties"`
 }
 
-// SwiftVirtualNetworkProperties mirrors armappservice.SwiftVirtualNetworkProperties.
 type SwiftVirtualNetworkProperties struct {
 	SubnetResourceID string `json:"subnetResourceId,omitempty"`
 	SwiftSupported   bool   `json:"swiftSupported,omitempty"`
 }
 
-// WebVnetConnection mirrors the swagger VnetInfoResource — the classic
-// spelling of a site/slot VNet connection. Keyed by its own ARM id
-// (<site-or-slot id>/virtualNetworkConnections/<name>).
+// VnetInfoResource, the classic spelling, keyed by
+// <site-or-slot id>/virtualNetworkConnections/<name>.
 type WebVnetConnection struct {
 	ID         string      `json:"id,omitempty"`
 	Name       string      `json:"name,omitempty"`
@@ -62,10 +52,9 @@ type WebVnetConnection struct {
 	Properties WebVnetInfo `json:"properties"`
 }
 
-// WebVnetInfo mirrors the swagger VnetInfo contract. certThumbprint, routes
-// and resyncRequired are read-only on the wire; the simulator carries them as
-// state (the thumbprint is derived from the certBlob the client uploads, the
-// routes are the App Service plan's routes for the same connection).
+// certThumbprint, routes and resyncRequired are read-only: the thumbprint
+// derives from the uploaded certBlob, and the routes are the plan's for the
+// same connection.
 type WebVnetInfo struct {
 	VnetResourceID string         `json:"vnetResourceId,omitempty"`
 	CertThumbprint string         `json:"certThumbprint,omitempty"`
@@ -76,7 +65,6 @@ type WebVnetInfo struct {
 	IsSwift        bool           `json:"isSwift"`
 }
 
-// WebVnetRoute mirrors the swagger VnetRoute resource.
 type WebVnetRoute struct {
 	ID         string                 `json:"id,omitempty"`
 	Name       string                 `json:"name,omitempty"`
@@ -84,15 +72,13 @@ type WebVnetRoute struct {
 	Properties WebVnetRouteProperties `json:"properties"`
 }
 
-// WebVnetRouteProperties mirrors the swagger VnetRouteProperties.
 type WebVnetRouteProperties struct {
 	StartAddress string `json:"startAddress,omitempty"`
 	EndAddress   string `json:"endAddress,omitempty"`
 	RouteType    string `json:"routeType,omitempty"`
 }
 
-// WebVnetGateway mirrors the swagger VnetGateway resource — a pure ARM record
-// attached to a VNet connection (site, slot, or App Service plan level).
+// A pure ARM record on a site, slot or plan VNet connection.
 type WebVnetGateway struct {
 	ID         string                   `json:"id,omitempty"`
 	Name       string                   `json:"name,omitempty"`
@@ -100,7 +86,6 @@ type WebVnetGateway struct {
 	Properties WebVnetGatewayProperties `json:"properties"`
 }
 
-// WebVnetGatewayProperties mirrors the swagger VnetGatewayProperties.
 type WebVnetGatewayProperties struct {
 	VnetName      string `json:"vnetName,omitempty"`
 	VpnPackageURI string `json:"vpnPackageUri,omitempty"`
@@ -215,8 +200,7 @@ func registerSiteVNetIntegration(srv *sim.Server) {
 	both("PATCH", "/virtualNetworkConnections/{vnetName}/gateways/{gatewayName}", putGateway)
 }
 
-// writeVnetGateway parses, validates, stores and echoes a VnetGateway under
-// ownerConnID. vpnPackageUri is the contract's one required member.
+// vpnPackageUri is the contract's one required member.
 func writeVnetGateway(w http.ResponseWriter, r *http.Request, ownerConnID, gwType string) {
 	var req WebVnetGateway
 	if err := sim.ReadJSON(r, &req); err != nil {
@@ -241,9 +225,8 @@ func writeVnetGateway(w http.ResponseWriter, r *http.Request, ownerConnID, gwTyp
 	sim.WriteJSON(w, http.StatusOK, gw)
 }
 
-// handleSwiftVnetPut serves PUT and PATCH of the swift regional VNet
-// integration (WebApps_CreateOrUpdate/UpdateSwiftVirtualNetworkConnectionWithCheck
-// and their Slot twins).
+// WebApps_CreateOrUpdate/UpdateSwiftVirtualNetworkConnectionWithCheck and
+// their Slot twins.
 func handleSwiftVnetPut(w http.ResponseWriter, r *http.Request) {
 	if webMissing(w, r) {
 		return
@@ -286,8 +269,7 @@ func handleSwiftVnetPut(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleClassicVnetPut serves PUT and PATCH of a classic virtualNetworkConnections
-// entry (WebApps_CreateOrUpdate/UpdateVnetConnection and their Slot twins).
+// WebApps_CreateOrUpdate/UpdateVnetConnection and their Slot twins.
 func handleClassicVnetPut(w http.ResponseWriter, r *http.Request) {
 	if webMissing(w, r) {
 		return
@@ -301,15 +283,13 @@ func handleClassicVnetPut(w http.ResponseWriter, r *http.Request) {
 	connName := sim.PathParam(r, "vnetName")
 	connID := resID + "/virtualNetworkConnections/" + connName
 
-	// PATCH without a vnetResourceId updates the existing connection in place.
+	// PATCH without a vnetResourceId updates the connection in place.
 	vnetResourceID := req.Properties.VnetResourceID
 	existing, hasExisting := webVnetConnections.Get(connID)
 	if vnetResourceID == "" && hasExisting {
 		vnetResourceID = existing.Properties.VnetResourceID
 	}
-	// Resolve the referenced subnet against the real Microsoft.Network store:
-	// when the subnet exists, its canonical ARM id (the store key) is what the
-	// connection records.
+	// Record a stored subnet by its canonical ID.
 	if sn, ok := azureSubnets.Get(vnetResourceID); ok {
 		vnetResourceID = sn.ID
 	}
@@ -330,9 +310,7 @@ func handleClassicVnetPut(w http.ResponseWriter, r *http.Request) {
 			CertBlob:       req.Properties.CertBlob,
 			CertThumbprint: existing.Properties.CertThumbprint,
 			DNSServers:     req.Properties.DNSServers,
-			// VNET injection means a delegated-subnet (regional) integration;
-			// derived from what the connection references, not from a client
-			// claim.
+			// Derived from what the connection references, not a client claim.
 			IsSwift: strings.Contains(vnetResourceID, "/subnets/"),
 		},
 	}
@@ -352,9 +330,7 @@ func handleClassicVnetPut(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, withPlanRoutes(conn, site.Properties.ServerFarmID))
 }
 
-// vnetConnectionVNetID resolves the virtual network a connection names — a
-// subnet of it, or the network itself — to the stored network's id. A network
-// or subnet the store does not hold is the request's error.
+// A subnet or the network itself; one the store lacks is the request's error.
 func vnetConnectionVNetID(vnetResourceID string) (string, error) {
 	if strings.Contains(vnetResourceID, "/subnets/") {
 		subnet, ok := azureSubnetByID(vnetResourceID)
@@ -379,8 +355,8 @@ func vnetConnectionVNetID(vnetResourceID string) (string, error) {
 	}
 }
 
-// writeVnetIntegrationError answers a failed integration: the request's own
-// error when the network it names does not exist, the platform's otherwise.
+// The request's own error when the network does not exist, the platform's
+// otherwise.
 func writeVnetIntegrationError(w http.ResponseWriter, siteName string, err error) {
 	var fault *azureAddressFault
 	if errors.As(err, &fault) {
@@ -391,14 +367,11 @@ func writeVnetIntegrationError(w http.ResponseWriter, siteName string, err error
 		"failed to integrate site %q into VNet: %v", siteName, err)
 }
 
-// upsertVnetConnection records the connection and performs the real join: the
-// site's containers attach to the virtual network's engine network. An Always
-// On site's container runs whether or not a request arrives, so it is running
-// on the network when the integration returns; any other site's container
-// attaches when a request starts it, and a live one attaches now. Regional
-// (delegated-subnet) integration is single per site: a new subnet-backed
-// connection replaces a previous one under a different name, exactly as a
-// swift PUT re-points the integration.
+// Record the connection and attach the site's containers to the virtual
+// network's engine network: an Always On site's container is on it when this
+// returns; any other attaches when a request starts it. Regional integration
+// is single per site, so a new subnet connection replaces the old one, as a
+// swift PUT re-points it.
 func upsertVnetConnection(r *http.Request, site Site, conn WebVnetConnection) error {
 	vnetID, err := vnetConnectionVNetID(conn.Properties.VnetResourceID)
 	if err != nil {
@@ -418,9 +391,8 @@ func upsertVnetConnection(r *http.Request, site Site, conn WebVnetConnection) er
 	defer inst.mu.Unlock()
 	inst.addNetworkLocked(vnetID)
 	s := site
-	// A changed integration restarts the site's container on its new
-	// network, as App Service restarts the app: an Always On site at once,
-	// any other on its next request.
+	// A changed integration restarts the container on its new network, as App
+	// Service restarts the app: Always On at once, otherwise on the next request.
 	if inst.containerID != "" && !inst.siteNetworkCurrentLocked() {
 		inst.teardownLocked()
 	}
@@ -430,11 +402,8 @@ func upsertVnetConnection(r *http.Request, site Site, conn WebVnetConnection) er
 	return nil
 }
 
-// applySiteVirtualNetworkSubnetID realizes the Site.properties.virtualNetworkSubnetId
-// spelling of regional VNet integration — the write `az webapp vnet-integration
-// add` and terraform's virtual_network_subnet_id perform. A non-empty subnet id
-// joins exactly as a swift PUT does; an explicit empty value removes the
-// integration, really disconnecting the site's containers.
+// A non-empty subnet ID joins as a swift PUT does; an explicit empty value
+// removes the integration and disconnects the containers.
 func applySiteVirtualNetworkSubnetID(r *http.Request, site Site, subnetID string) error {
 	if subnetID == "" {
 		if conn, ok := swiftConnectionFor(webResourceID(r)); ok {
@@ -457,9 +426,8 @@ func applySiteVirtualNetworkSubnetID(r *http.Request, site Site, subnetID string
 	return upsertVnetConnection(r, site, conn)
 }
 
-// syncSiteVnetSubnetProperty reflects the current regional integration onto
-// the stored Site row's virtualNetworkSubnetId member, so every read of the
-// site (whichever spelling wrote the integration) reports it.
+// Reflect the regional integration onto the stored site, so every read reports
+// it whichever spelling wrote it.
 func syncSiteVnetSubnetProperty(r *http.Request) {
 	subnet := ""
 	if conn, ok := swiftConnectionFor(webResourceID(r)); ok {
@@ -470,9 +438,8 @@ func syncSiteVnetSubnetProperty(r *http.Request) {
 	})
 }
 
-// deleteVnetConnection removes the connection record, its gateways, and — when
-// no other connection of the same site still uses the VNet — restarts the
-// site's container off the network.
+// Restart the container off the network unless another connection still uses
+// the VNet.
 func deleteVnetConnection(r *http.Request, conn WebVnetConnection) {
 	webVnetConnections.Delete(conn.ID)
 	syncSiteVnetSubnetProperty(r)
@@ -502,7 +469,6 @@ func deleteVnetConnection(r *http.Request, conn WebVnetConnection) {
 	}
 }
 
-// siteVnetConnections lists the connections of one site/slot, sorted by id.
 func siteVnetConnections(resID string) []WebVnetConnection {
 	prefix := resID + "/virtualNetworkConnections/"
 	out := webVnetConnections.Filter(func(c WebVnetConnection) bool { return strings.HasPrefix(c.ID, prefix) })
@@ -510,8 +476,6 @@ func siteVnetConnections(resID string) []WebVnetConnection {
 	return out
 }
 
-// swiftConnectionFor finds the site's regional (delegated-subnet) integration —
-// the connection the swift spelling reads and deletes.
 func swiftConnectionFor(resID string) (WebVnetConnection, bool) {
 	for _, c := range siteVnetConnections(resID) {
 		if c.Properties.IsSwift && strings.Contains(c.Properties.VnetResourceID, "/subnets/") {
@@ -521,22 +485,18 @@ func swiftConnectionFor(resID string) (WebVnetConnection, bool) {
 	return WebVnetConnection{}, false
 }
 
-// swiftConnectionName is the classic-collection name of a swift integration:
-// `<vnet>_<subnet>`, the spelling real App Service lists it under.
+// `<vnet>_<subnet>`, the name App Service lists it under.
 func swiftConnectionName(subnetID string) string {
 	vnet := vnetNameFromSubnetID(subnetID)
 	subnet := subnetID[strings.LastIndex(subnetID, "/")+1:]
 	return vnet + "_" + subnet
 }
 
-// swiftConfigID is the swift connection's canonical ARM id: the operation path
-// is .../networkConfig/virtualNetwork, but the resource's id (and the value
-// clients like terraform-provider-azurerm parse from the response) is the
-// config sub-resource .../config/virtualNetwork.
+// The operation path is .../networkConfig/virtualNetwork, but the resource's ID,
+// which terraform-provider-azurerm parses, is .../config/virtualNetwork.
 func swiftConfigID(resID string) string { return armChildID(resID, "config", "virtualNetwork") }
 
-// withPlanRoutes renders a connection with the routes member assembled from
-// the App Service plan's route records for the same connection name.
+// The routes member comes from the plan's routes for the same connection name.
 func withPlanRoutes(conn WebVnetConnection, serverFarmID string) WebVnetConnection {
 	if serverFarmID != "" {
 		conn.Properties.Routes = planVnetRoutes(serverFarmID, conn.Name)
@@ -544,10 +504,9 @@ func withPlanRoutes(conn WebVnetConnection, serverFarmID string) WebVnetConnecti
 	return conn
 }
 
-// vnetCertThumbprint is the SHA-1 fingerprint of the connection's certificate
-// blob — the thumbprint every Azure certificate surface reports. The blob is
-// carried verbatim (base64 when the client sent base64, DER bytes otherwise);
-// the fingerprint is computed over the decoded certificate when it decodes.
+// The SHA-1 thumbprint every Azure certificate surface reports. The blob is
+// carried verbatim (base64 or DER); the fingerprint is over the decoded
+// certificate when it decodes.
 func vnetCertThumbprint(certBlob string) string {
 	raw := []byte(certBlob)
 	if decoded, err := base64.StdEncoding.DecodeString(certBlob); err == nil {

@@ -1,8 +1,9 @@
 package azure_sdk_test
 
-// Microsoft.Subscription ownership, policy and operation-catalog surface
-// (2021-10-01) through the official armsubscription SDK module. Routes
-// exercised:
+// Microsoft.Subscription ownership, policies and operation catalog (2021-10-01)
+// through armsubscription. subscriptionOperations has no client method: it is
+// the Location of the ownership-acceptance operation, reached through
+// BeginAcceptOwnership's poller.
 //
 //	POST /providers/Microsoft.Subscription/subscriptions/{subscriptionId}/acceptOwnership
 //	GET /providers/Microsoft.Subscription/subscriptions/{subscriptionId}/acceptOwnershipStatus
@@ -12,11 +13,6 @@ package azure_sdk_test
 //	GET /providers/Microsoft.Subscription/policies
 //	GET /providers/Microsoft.Subscription/operations
 //	GET /providers/Microsoft.Billing/billingAccounts/{billingAccountId}/providers/Microsoft.Subscription/policies/default
-//
-// The subscriptionOperations route has no client method of its own: it is the
-// Location target of the ownership-acceptance long-running operation, so the
-// SDK reaches it exactly the way a real client does — through the poller
-// BeginAcceptOwnership returns.
 
 import (
 	"testing"
@@ -28,9 +24,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// resetTenantPolicy restores the permissive tenant policy. Every test that
-// tightens the policy registers this so the tenant it shares with the rest of
-// the suite goes back to blocking nothing.
+// resetTenantPolicy restores the permissive tenant policy the rest of the
+// suite shares.
 func resetTenantPolicy(t *testing.T, client *armsubscription.PolicyClient) {
 	t.Helper()
 	_, err := client.AddUpdatePolicyForTenant(ctx, armsubscription.PutTenantPolicyRequestProperties{
@@ -42,7 +37,7 @@ func resetTenantPolicy(t *testing.T, client *armsubscription.PolicyClient) {
 }
 
 // createDirectedAlias creates a subscription directed at a tenant and an owner
-// and waits for the alias to finish provisioning, returning the settled alias.
+// and waits for the alias to settle.
 func createDirectedAlias(t *testing.T, client *armsubscription.AliasClient, aliasName, displayName, tenantID, billingScope string) armsubscription.AliasResponse {
 	t.Helper()
 	poller, err := client.BeginCreate(ctx, aliasName, armsubscription.PutAliasRequest{
@@ -67,12 +62,10 @@ func createDirectedAlias(t *testing.T, client *armsubscription.AliasClient, alia
 	return created.AliasResponse
 }
 
-// TestSubscriptionOwnershipAcceptance drives the whole ownership handover the
-// way a client does: a directed alias leaves the new subscription's ownership
-// Pending with the URL to accept it at, BeginAcceptOwnership starts the
-// long-running operation and its poller follows the Location the simulator
-// returned, and the settled state is visible both on the ownership status and
-// on the alias the provider reads.
+// TestSubscriptionOwnershipAcceptance: a directed alias leaves ownership
+// Pending with the URL to accept it at; BeginAcceptOwnership's poller follows
+// the Location to completion, and both the ownership status and the alias
+// show the settled state.
 func TestSubscriptionOwnershipAcceptance(t *testing.T) {
 	t.Parallel()
 	aliasClient, err := armsubscription.NewAliasClient(&fakeCredential{}, clientOpts())
@@ -114,8 +107,6 @@ func TestSubscriptionOwnershipAcceptance(t *testing.T) {
 		},
 	}, nil)
 	require.NoError(t, err)
-	// PollUntilDone follows the Location the 202 carried — the
-	// Microsoft.Subscription operation — until it reports the acceptance done.
 	_, err = poller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 
@@ -139,7 +130,7 @@ func TestSubscriptionOwnershipAcceptance(t *testing.T) {
 	assert.Nil(t, settled.Properties.AcceptOwnershipURL,
 		"an accepted subscription no longer advertises an acceptOwnershipUrl")
 
-	// Accepting an ownership request that has already settled is a conflict.
+	// Accepting a settled ownership request is a conflict.
 	_, err = subClient.BeginAcceptOwnership(ctx, newSubID, armsubscription.AcceptOwnershipRequest{
 		Properties: &armsubscription.AcceptOwnershipRequestProperties{
 			DisplayName: to.Ptr("SDK Accepted Subscription"),
@@ -150,9 +141,8 @@ func TestSubscriptionOwnershipAcceptance(t *testing.T) {
 	assert.Equal(t, 409, respErr.StatusCode)
 }
 
-// TestSubscriptionAcceptOwnershipStatusUnknown asserts the ownership status of
-// a subscription that never had an ownership request: there is nothing to
-// report, and the service says so rather than inventing a state.
+// TestSubscriptionAcceptOwnershipStatusUnknown: a subscription that never had
+// an ownership request has no status to report.
 func TestSubscriptionAcceptOwnershipStatusUnknown(t *testing.T) {
 	t.Parallel()
 	subClient, err := armsubscription.NewClient(&fakeCredential{}, clientOpts())
@@ -163,9 +153,8 @@ func TestSubscriptionAcceptOwnershipStatusUnknown(t *testing.T) {
 	assert.Equal(t, 404, respErr.StatusCode)
 }
 
-// TestSubscriptionTenantPolicyLifecycle drives the tenant policy singleton
-// through its client: read the default, replace it, and read it back through
-// both the get and the list operation.
+// TestSubscriptionTenantPolicyLifecycle reads the default policy, replaces it,
+// and reads it back through get and list.
 func TestSubscriptionTenantPolicyLifecycle(t *testing.T) {
 	policyClient, err := armsubscription.NewPolicyClient(&fakeCredential{}, clientOpts())
 	require.NoError(t, err)
@@ -216,11 +205,9 @@ func TestSubscriptionTenantPolicyLifecycle(t *testing.T) {
 	assert.Equal(t, policyID, *listed[0].Properties.PolicyID)
 }
 
-// TestSubscriptionPolicyBlocksTenantTransfer proves the tenant policy
-// constrains behaviour rather than merely being stored: with
-// blockSubscriptionsLeavingTenant set, an alias that hands a subscription to
-// another tenant is refused, and the same request from a principal the policy
-// exempts succeeds.
+// TestSubscriptionPolicyBlocksTenantTransfer: with
+// blockSubscriptionsLeavingTenant set, an alias handing a subscription to
+// another tenant is refused, unless the policy exempts the principal.
 func TestSubscriptionPolicyBlocksTenantTransfer(t *testing.T) {
 	policyClient, err := armsubscription.NewPolicyClient(&fakeCredential{}, clientOpts())
 	require.NoError(t, err)
@@ -274,9 +261,8 @@ func TestSubscriptionPolicyBlocksTenantTransfer(t *testing.T) {
 	assert.Equal(t, armsubscription.AcceptOwnershipPending, *created.Properties.AcceptOwnershipState)
 }
 
-// TestSubscriptionBillingAccountPolicy reads a billing account's policy and
-// asserts it reports the tenants the account actually serves — the tenants
-// holding the subscriptions created under it.
+// TestSubscriptionBillingAccountPolicy: a billing account's policy reports the
+// tenants holding the subscriptions created under it.
 func TestSubscriptionBillingAccountPolicy(t *testing.T) {
 	t.Parallel()
 	billingClient, err := armsubscription.NewBillingAccountClient(&fakeCredential{}, clientOpts())
@@ -309,8 +295,8 @@ func TestSubscriptionBillingAccountPolicy(t *testing.T) {
 	assert.NotEmpty(t, *served.Properties.ServiceTenants[0].TenantName)
 }
 
-// TestSubscriptionOperationsList reads the resource provider's operation
-// catalog — the actions a role assignment can name.
+// TestSubscriptionOperationsList reads the provider's operation catalog, the
+// actions a role assignment can name.
 func TestSubscriptionOperationsList(t *testing.T) {
 	t.Parallel()
 	operationsClient, err := armsubscription.NewOperationsClient(&fakeCredential{}, clientOpts())
@@ -330,8 +316,7 @@ func TestSubscriptionOperationsList(t *testing.T) {
 		require.NotNil(t, op.Name)
 		names[*op.Name] = op
 	}
-	// Every operation this simulator serves must be nameable in a role
-	// assignment, so the catalog carries its action.
+	// A role assignment can name every operation the simulator serves.
 	for _, action := range []string{
 		"Microsoft.Subscription/aliases/read",
 		"Microsoft.Subscription/aliases/write",

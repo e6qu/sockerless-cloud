@@ -9,37 +9,21 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// web_workflows.go serves the App-Service-hosted Logic Apps workflow surface
-// of Microsoft.Web: the /sites/{name}/hostruntime/runtime/webhooks/workflow/
-// api/management bridge (workflow runs, triggers, trigger histories, run
-// actions, versions, access keys), the WorkflowEnvelope read surface at
-// /sites/{name}/workflows (production + slot), deployWorkflowArtifacts and
-// listWorkflowsConnections. A workflow deployed to a site is a Logic Apps
-// workflow: its entity, runs, triggers, trigger histories, run actions and
-// versions live in the SAME stores as the standalone Microsoft.Logic slice
-// (logicWorkflows, logicRuns, logicTriggers, logicTriggerHistories,
-// logicRunActions, logicWorkflowVersions), keyed by the site-scoped
-// hostruntime resource ID — the hostruntime paths are a second ARM coordinate
-// onto the same Logic Apps engine, not a parallel implementation. Only the
-// deployed artifact files themselves (wwwroot content: workflow.json per
-// workflow, connections.json, host.json, ...) have their own store, because
-// they are deployment state of the site, not Logic Apps entities.
+// A workflow deployed to a site lives in the same stores as the standalone
+// Microsoft.Logic slice, keyed by the site-scoped hostruntime resource ID:
+// the hostruntime paths are a second coordinate onto the same Logic Apps
+// engine. Only the deployed artifact files have their own store, because
+// they are the site's deployment state, not Logic Apps entities.
 
-// webWorkflowArtifactFiles is the deployed workflow-artifact file set of one
-// site or slot (the wwwroot content deployWorkflowArtifacts writes), keyed by
-// the site/slot resource ID.
+// Keyed by the site or slot resource ID.
 type webWorkflowArtifactFiles struct {
 	Files map[string]any `json:"files"`
 }
 
 var webWorkflowFiles sim.Store[webWorkflowArtifactFiles]
 
-// webHostruntimeWorkflows is the hostruntime bridge path under a site through
-// which ARM reaches the site's Logic Apps workflow runtime.
 const webHostruntimeWorkflows = "/hostruntime/runtime/webhooks/workflow/api/management/workflows"
 
-// webWorkflowID is the canonical resource ID of a site-hosted workflow: the
-// hostruntime management spelling under the addressed site or slot.
 func webWorkflowID(r *http.Request, workflow string) string {
 	return webResourceID(r) + webHostruntimeWorkflows + "/" + workflow
 }
@@ -52,14 +36,12 @@ func registerWebWorkflows(srv *sim.Server) {
 		srv.HandleFunc(method+" "+webProvider+"/sites/{siteName}/slots/{slot}"+suffix, h)
 	}
 
-	// WorkflowEnvelope read surface + artifact deployment (production + slot).
 	both("GET", "/workflows", webWorkflowsList)
 	both("GET", "/workflows/{workflowName}", webWorkflowsGet)
 	both("POST", "/deployWorkflowArtifacts", webDeployWorkflowArtifacts)
 	both("POST", "/listWorkflowsConnections", webListWorkflowsConnections)
 
-	// The hostruntime workflow management bridge exists only on the
-	// production site (the swagger declares no slot spelling).
+	// The swagger declares no slot spelling for the hostruntime bridge.
 	wf := func(method, suffix string, h http.HandlerFunc) {
 		srv.HandleFunc(method+" "+webProvider+"/sites/{siteName}"+webHostruntimeWorkflows+"/{workflowName}"+suffix, h)
 	}
@@ -75,9 +57,8 @@ func registerWebWorkflows(srv *sim.Server) {
 	wf("GET", "/runs/{runName}/actions/{actionName}", webWorkflowRunActionsGet)
 	wf("POST", "/runs/{runName}/actions/{actionName}/listExpressionTraces", handleLogicExpressionTraces)
 
-	// Repetition-scoped sub-collections mirror the standalone Microsoft.Logic
-	// slice: recorded runs carry no repetition state, so the collections are
-	// empty and a named member is absent.
+	// Recorded runs carry no repetition state, as in the standalone
+	// Microsoft.Logic slice.
 	wf("GET", "/runs/{runName}/actions/{actionName}/repetitions", handleLogicEmptyList)
 	wf("GET", "/runs/{runName}/actions/{actionName}/repetitions/{repetitionName}", handleLogicNestedNotFound("repetition"))
 	wf("POST", "/runs/{runName}/actions/{actionName}/repetitions/{repetitionName}/listExpressionTraces", handleLogicExpressionTraces)
@@ -100,12 +81,9 @@ func registerWebWorkflows(srv *sim.Server) {
 	wf("GET", "/versions/{versionId}", webWorkflowVersionsGet)
 }
 
-// webDeployWorkflowArtifacts realizes WebApps_DeployWorkflowArtifacts[Slot]:
-// the request's files merge into the site's deployed artifact set (and
-// filesToDelete removes members), every "<workflow>/workflow.json" file
-// materializes or updates the named Logic Apps workflow, and appSettings merge
-// into the site's application settings — the deployment surface Logic Apps
-// Standard tooling (az logicapp, VS Code) drives.
+// Files merge into the site's artifact set, filesToDelete removes members,
+// each "<workflow>/workflow.json" creates or updates that workflow, and
+// appSettings merge into the site's application settings.
 func webDeployWorkflowArtifacts(w http.ResponseWriter, r *http.Request) {
 	if webMissing(w, r) {
 		return
@@ -128,8 +106,8 @@ func webDeployWorkflowArtifacts(w http.ResponseWriter, r *http.Request) {
 	for name, content := range req.Files {
 		rec.Files[name] = content
 	}
-	// filesToDelete wins over files: a name carried by both is deleted, so
-	// the artifact set and the workflow entities stay consistent.
+	// A name carried by both files and filesToDelete is deleted, so the artifact
+	// set and the workflow entities agree.
 	deleted := map[string]bool{}
 	for _, name := range req.FilesToDelete {
 		deleted[name] = true
@@ -162,9 +140,6 @@ func webDeployWorkflowArtifacts(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-// webWorkflowFileName reports the workflow a deployed file belongs to: a
-// workflow definition lives at "<workflow>/workflow.json" inside the artifact
-// set, one directory per workflow.
 func webWorkflowFileName(file string) (string, bool) {
 	wfName, ok := strings.CutSuffix(file, "/workflow.json")
 	if !ok || wfName == "" || strings.Contains(wfName, "/") {
@@ -173,12 +148,8 @@ func webWorkflowFileName(file string) (string, bool) {
 	return wfName, true
 }
 
-// webUpsertSiteWorkflow creates or updates the Logic Apps workflow a deployed
-// workflow.json declares, in the same stores the standalone Microsoft.Logic
-// slice uses, keyed by the site-scoped hostruntime resource ID. The entity's
-// type is the runtime-relative "workflows" spelling the site's workflow
-// runtime reports, so derived children carry "workflows/runs",
-// "workflows/triggers", ... exactly as the hostruntime bridge proxies them.
+// The entity's type is the runtime-relative "workflows", so derived children
+// carry "workflows/runs" and so on, as the hostruntime bridge proxies them.
 func webUpsertSiteWorkflow(resID, name string, fileContent any) {
 	id := resID + webHostruntimeWorkflows + "/" + name
 	content, _ := fileContent.(map[string]any)
@@ -205,10 +176,8 @@ func webUpsertSiteWorkflow(resID, name string, fileContent any) {
 		props["kind"] = kind
 	}
 	logicNormalizeWorkflowProperties(props)
-	// A workflow hosted on a site is in the site's region. WorkflowVersion
-	// declares that location required and the snapshot inherits it from here,
-	// so a workflow stored without one produced versions describing a resource
-	// in no region.
+	// WorkflowVersion requires a location, and the snapshot inherits the site's
+	// region from here.
 	location := ""
 	if site, ok := webSiteStoreFor(resID).Get(resID); ok {
 		location = site.Location
@@ -219,9 +188,6 @@ func webUpsertSiteWorkflow(resID, name string, fileContent any) {
 	logicSyncTriggers(wf)
 }
 
-// webDeleteSiteWorkflow removes a site-hosted workflow and every child entity
-// recorded under it (runs, run actions, triggers, trigger histories,
-// versions), plus its access-key rotation state.
 func webDeleteSiteWorkflow(wfID string) {
 	if !logicWorkflows.Delete(wfID) {
 		return
@@ -237,7 +203,6 @@ func webDeleteSiteWorkflow(wfID string) {
 	}
 }
 
-// webSiteWorkflows returns the site's (or slot's) workflows, sorted by name.
 func webSiteWorkflows(resID string) []LogicWorkflow {
 	prefix := resID + webHostruntimeWorkflows + "/"
 	out := logicWorkflows.Filter(func(wf LogicWorkflow) bool {
@@ -248,9 +213,6 @@ func webSiteWorkflows(resID string) []LogicWorkflow {
 	return out
 }
 
-// webWorkflowEnvelope projects a site-hosted workflow onto the
-// WorkflowEnvelope wire shape: the deployed workflow.json under files, the
-// workflow state as flowState, and the workflow health.
 func webWorkflowEnvelope(r *http.Request, wf LogicWorkflow) map[string]any {
 	resID := webResourceID(r)
 	files := map[string]any{}
@@ -302,9 +264,6 @@ func webWorkflowsGet(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, webWorkflowEnvelope(r, wf))
 }
 
-// webListWorkflowsConnections returns the site's shared connections manifest
-// (the deployed connections.json) as a WorkflowEnvelope, the shape the real
-// listWorkflowsConnections action emits.
 func webListWorkflowsConnections(w http.ResponseWriter, r *http.Request) {
 	if webMissing(w, r) {
 		return
@@ -324,8 +283,6 @@ func webListWorkflowsConnections(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// webHostWorkflow resolves the addressed site-hosted workflow; on a missing
-// site or workflow it writes the ARM 404 and reports false.
 func webHostWorkflow(w http.ResponseWriter, r *http.Request) (LogicWorkflow, bool) {
 	if webMissing(w, r) {
 		return LogicWorkflow{}, false
@@ -438,8 +395,6 @@ func webWorkflowRunActionsGet(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, action)
 }
 
-// webResolveHostWorkflowTriggers resolves the workflow and materializes its
-// declared triggers, exactly as the standalone trigger surface does.
 func webResolveHostWorkflowTriggers(w http.ResponseWriter, r *http.Request) (LogicWorkflow, bool) {
 	wf, ok := webHostWorkflow(w, r)
 	if !ok {
@@ -492,10 +447,8 @@ func webWorkflowTriggerListCallbackURL(w http.ResponseWriter, r *http.Request) {
 	logicWriteTriggerCallbackURL(w, r, wf.ID)
 }
 
-// webWorkflowTriggerRun fires the trigger and records the run. The run
-// completes synchronously, so the response is the operation's declared 200
-// terminal status — ARM's long-running-operation contract forbids a bare 202
-// with no polling URL.
+// The run completes synchronously, so answer the declared 200: a bare 202
+// with no polling URL breaks the long-running-operation contract.
 func webWorkflowTriggerRun(w http.ResponseWriter, r *http.Request) {
 	wf, ok := webResolveHostWorkflowTriggers(w, r)
 	if !ok {
@@ -538,9 +491,8 @@ func webWorkflowTriggerHistoriesGet(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, hist)
 }
 
-// webWorkflowTriggerHistoryResubmit re-fires the trigger behind a recorded
-// history entry. The operation is declared 202-only, so the response carries
-// an Azure-AsyncOperation URL the SDK poller drives to completion.
+// The operation is declared 202-only, so the response carries an
+// Azure-AsyncOperation URL the SDK poller drives to completion.
 func webWorkflowTriggerHistoryResubmit(w http.ResponseWriter, r *http.Request) {
 	wf, ok := webResolveHostWorkflowTriggers(w, r)
 	if !ok {

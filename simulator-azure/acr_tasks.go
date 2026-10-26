@@ -21,15 +21,11 @@ import (
 	"github.com/rs/zerolog"
 )
 
-// The Azure Container Registry Tasks run slice. Registries_ScheduleRun queues
-// a run of any of the four run requests — a docker build, a task file in the
-// uploaded source, an inline task file, or a run of a Task resource — and
-// answers with it Queued; the run then executes in the background on the host
-// container engine, the simulator's build infrastructure, pushing what it
-// builds into the registry as the run itself. A client follows it through
-// Runs_Get or the log blob listLogSasUrl links to.
-//
-// Real API: https://learn.microsoft.com/en-us/rest/api/containerregistry/registries/schedule-run
+// Registries_ScheduleRun queues any of the four run requests — a docker build,
+// a task file in the uploaded source, an inline task file, or a run of a Task —
+// and answers Queued; the run executes in the background on the host container
+// engine and pushes what it builds into the registry. A client follows it
+// through Runs_Get or the log blob listLogSasUrl links to.
 
 type acrRun struct {
 	ID         string           `json:"id,omitempty"`
@@ -72,8 +68,7 @@ type acrArgument struct {
 	IsSecret bool   `json:"isSecret"`
 }
 
-// The run request `timeout` bounds, in seconds, from the registry tasks
-// specification.
+// The bounds of a run request's `timeout`, in seconds, from the specification.
 const (
 	acrRunDefaultTimeoutSeconds = 3600
 	acrRunMinTimeoutSeconds     = 300
@@ -85,16 +80,12 @@ var (
 	errACRRunTimedOut = errors.New("the run exceeded its timeout")
 )
 
-// acrActiveRun is a run this process is executing: what stops it, what closes
-// once its terminal status is recorded, and the log it is writing.
 type acrActiveRun struct {
 	cancel context.CancelCauseFunc
 	done   chan struct{}
 	log    *acrRunLog
 }
 
-// acrRunLog is the log of a running run, which the log link serves while the
-// run is still writing it.
 type acrRunLog struct {
 	mu  sync.Mutex
 	buf bytes.Buffer
@@ -132,9 +123,9 @@ func acrRunFinished(status string) bool {
 	return false
 }
 
-// acrRunLogCompletion is the `Complete` metadata a run's log blob gains when
-// the run ends. The az CLI streams the log until the metadata appears and
-// reads the run's outcome from its value.
+// acrRunLogCompletion is the `Complete` metadata the log blob gains when the
+// run ends; the az CLI streams the log until it appears and reads the outcome
+// from it.
 func acrRunLogCompletion(status string) string {
 	switch status {
 	case "Timeout":
@@ -155,24 +146,20 @@ func registerACRTasks(srv *sim.Server) {
 	acrActiveRunsMu.Unlock()
 	acrFailInterruptedRuns()
 
-	// The run-log blob listLogSasUrl advertises. ACR serves a run's log as a
-	// blob at a SAS URL that grows while the run writes it and gains
-	// `Complete` metadata when the run ends; `az acr build` and `az acr task
-	// logs` stream it with the Blob service's get-properties and ranged reads.
-	// The GET pattern serves HEAD as well.
+	// Azure Container Registry serves a run's log as a blob at a SAS URL that
+	// grows while the run writes and gains `Complete` metadata at the end;
+	// `az acr build` and `az acr task logs` stream it with get-properties and
+	// ranged reads. The GET pattern serves HEAD as well.
 	srv.HandleFunc("GET /acr/v1/logs/{runId}", handleACRRunLog)
 	srv.HandleFunc("PUT "+acrBuildSourcePathPrefix+"{container}/{blob...}", handleACRBuildSource)
 	const armBase = "/subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.ContainerRegistry"
-	// scheduleRun / runs / the task-children action verbs are not in the
-	// path-normalization allowlist, so they are registered with the exact
-	// casing the SDK emits.
+	// These action verbs are not in the path-normalization allowlist, so register
+	// them in the exact casing the SDK sends.
 	srv.HandleFunc("POST "+armBase+"/registries/{registryName}/scheduleRun", handleACRScheduleRun)
 	srv.HandleFunc("GET "+armBase+"/registries/{registryName}/runs/{runId}", handleACRGetRun)
 
-	// Registry-tasks children (Microsoft.ContainerRegistry/registries/<x>):
-	// tasks and agentPools are tracked resources (Resource base — location +
-	// tags); taskRuns is a proxy resource that additionally carries location +
-	// identity. They share the generic CRUD shape with the registry children.
+	// tasks and agentPools are tracked resources; taskRuns is a proxy resource
+	// that also carries location and identity.
 	const t = "Microsoft.ContainerRegistry/registries/"
 	acrTasks = sim.MakeStore[acrSubResource](srv.DB(), "acr_tasks")
 	tasks := acrTasks
@@ -197,9 +184,7 @@ func registerACRTasks(srv *sim.Server) {
 		},
 	})
 
-	// POST .../tasks/{name}/listDetails — returns the Task including its
-	// credentials. The sim stores no secret credentials, so this returns the
-	// stored task resource as-is.
+	// The simulator stores no task secrets, so the details are the stored task.
 	srv.HandleFunc("POST "+armBase+"/registries/{registryName}/tasks/{taskName}/listDetails", func(w http.ResponseWriter, r *http.Request) {
 		res, ok := tasks.Get(acrChildResourceID(r, "tasks", "taskName"))
 		if !ok {
@@ -209,7 +194,6 @@ func registerACRTasks(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, res)
 	})
 
-	// POST .../taskRuns/{name}/listDetails — returns the TaskRun with results.
 	srv.HandleFunc("POST "+armBase+"/registries/{registryName}/taskRuns/{taskRunName}/listDetails", func(w http.ResponseWriter, r *http.Request) {
 		res, ok := taskRuns.Get(acrChildResourceID(r, "taskRuns", "taskRunName"))
 		if !ok {
@@ -221,7 +205,6 @@ func registerACRTasks(srv *sim.Server) {
 
 	srv.HandleFunc("POST "+armBase+"/registries/{registryName}/agentPools/{agentPoolName}/listQueueStatus", handleACRAgentPoolQueueStatus)
 
-	// GET .../runs — list runs scheduled against the registry.
 	srv.HandleFunc("GET "+armBase+"/registries/{registryName}/runs", func(w http.ResponseWriter, r *http.Request) {
 		regID, ok := acrRegistryID(r)
 		if !ok {
@@ -236,7 +219,7 @@ func registerACRTasks(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"value": matched})
 	})
 
-	// PATCH .../runs/{runId} — update mutable run properties (isArchiveEnabled).
+	// Only isArchiveEnabled is mutable.
 	srv.HandleFunc("PATCH "+armBase+"/registries/{registryName}/runs/{runId}", func(w http.ResponseWriter, r *http.Request) {
 		runID := sim.PathParam(r, "runId")
 		run, ok := acrRuns.Get(runID)
@@ -263,16 +246,10 @@ func registerACRTasks(srv *sim.Server) {
 
 	srv.HandleFunc("POST "+armBase+"/registries/{registryName}/runs/{runId}/cancel", handleACRCancelRun)
 
-	// POST .../runs/{runId}/listLogSasUrl — link to the run's build logs.
 	srv.HandleFunc("POST "+armBase+"/registries/{registryName}/runs/{runId}/listLogSasUrl", func(w http.ResponseWriter, r *http.Request) {
 		runID := sim.PathParam(r, "runId")
-		// A link to the logs of a run that never happened leads nowhere: the
-		// endpoint it points at answers 404, so handing the link out reports a
-		// log that is not there. Only the run is checked, because scheduling
-		// one does not require the registry resource to exist either — the
-		// build runs against the registry's login server, and holding the log
-		// link to a stricter rule than the run itself would refuse a link to a
-		// log that is there.
+		// A link to a run that never happened would lead to a 404. Check only the run:
+		// scheduling does not require the registry resource to exist either.
 		if _, ok := acrRuns.Get(runID); !ok {
 			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The run %q was not found.", runID)
@@ -290,8 +267,6 @@ func registerACRTasks(srv *sim.Server) {
 	srv.HandleFunc("POST "+armBase+"/registries/{registryName}/listBuildSourceUploadUrl", handleACRListBuildSourceUploadURL)
 }
 
-// acrChildResourceID builds the ARM resource ID for a registry child given its
-// path segment and name route param.
 func acrChildResourceID(r *http.Request, seg, nameParam string) string {
 	regID, _ := acrRegistryID(r)
 	return fmt.Sprintf("%s/%s/%s", regID, seg, sim.PathParam(r, nameParam))
@@ -299,11 +274,9 @@ func acrChildResourceID(r *http.Request, seg, nameParam string) string {
 
 func acrNow() string { return time.Now().UTC().Format(time.RFC3339) }
 
-// handleACRScheduleRun records the Run Queued and answers with it at once, as
-// the service does: the build runs in the background, and a client follows it
-// through Runs_Get or the run's log. The Registries_ScheduleRun the Azure CLI's
-// SDK calls accepts only a 200, and the Go SDK's poller completes on a 200
-// that names no operation to poll.
+// handleACRScheduleRun answers with the Run Queued at once, as the service
+// does. The Azure CLI's SDK accepts only a 200 here, and the Go SDK's poller
+// completes on a 200 that names no operation.
 func handleACRScheduleRun(w http.ResponseWriter, r *http.Request) {
 	sub := sim.PathParam(r, "subscriptionId")
 	rg := sim.PathParam(r, "resourceGroupName")
@@ -359,7 +332,7 @@ func handleACRScheduleRun(w http.ResponseWriter, r *http.Request) {
 }
 
 // acrStartRun registers the run as active before its worker starts, so a
-// cancel that arrives the moment the schedule call returns finds it.
+// cancel arriving the moment the schedule call returns finds it.
 func acrStartRun(runID string, spec acrRunSpec, reg Registry) {
 	stop, cancel := context.WithCancelCause(context.Background())
 	active := &acrActiveRun{cancel: cancel, done: make(chan struct{})}
@@ -371,10 +344,9 @@ func acrStartRun(runID string, spec acrRunSpec, reg Registry) {
 	})
 }
 
-// acrExecuteRun holds a run Queued until an agent of its pool is free, moves
-// it to Running, executes it, and records the terminal status: Succeeded,
-// Failed, Canceled when Runs_Cancel stopped it, Timeout when it outlived its
-// timeout, and Error when the simulator shut down under it.
+// acrExecuteRun holds a run Queued until an agent of its pool is free, then
+// records Succeeded, Failed, Canceled (Runs_Cancel), Timeout, or Error when the
+// simulator shut down under it.
 func acrExecuteRun(serverCtx, stop context.Context, active *acrActiveRun, runID string, spec acrRunSpec, reg Registry) {
 	defer func() {
 		active.cancel(nil)
@@ -439,16 +411,11 @@ func acrExecuteRun(serverCtx, stop context.Context, active *acrActiveRun, runID 
 	acrFinishRun(runID, outcome)
 }
 
-// acrExecuteSpec executes a run with the registry credential the run holds,
-// and returns the images it pushed.
 func acrExecuteSpec(ctx context.Context, spec acrRunSpec, reg Registry, runID string, runLog io.Writer) ([]string, error) {
-	// The run pushes to — and pulls images from — its registry as the run
-	// itself: with an identity token of the run, which the engine exchanges
-	// through the registry's refresh-token grant, the way an ACR Tasks run
-	// holds its registry's push and pull scopes. Cmd and push steps present
-	// it through the engine API; docker builds through a Docker
-	// configuration whose credential helper answers the registry's login
-	// server with it.
+	// The run pushes and pulls as itself, with an identity token the engine
+	// exchanges through the registry's refresh-token grant, as an ACR Tasks run
+	// holds its registry's scopes. Cmd and push steps present it through the
+	// engine API; docker builds through a credential helper.
 	refreshToken, err := acrMintRefreshToken(reg, "acr-task-run:"+runID)
 	if err != nil {
 		return nil, err
@@ -547,7 +514,6 @@ func acrExecuteSpec(ctx context.Context, spec acrRunSpec, reg Registry, runID st
 	return x.pushed, err
 }
 
-// acrReadSourceFile reads a file the request names relative to the source.
 func acrReadSourceFile(workDir, name string) ([]byte, error) {
 	root, err := os.OpenRoot(workDir)
 	if err != nil {
@@ -578,8 +544,7 @@ type acrOutcome struct {
 	outputImages []acrImageDescriptor
 }
 
-// acrRunOutcome names the terminal status of a run whose work ended with err,
-// cause being why its context ended, if it did.
+// acrRunOutcome: cause is why the run's context ended, if it did.
 func acrRunOutcome(serverCtx context.Context, cause, err error) acrOutcome {
 	switch {
 	case errors.Is(cause, errACRRunCanceled):
@@ -606,7 +571,7 @@ func acrFinishRun(runID string, outcome acrOutcome) {
 }
 
 // acrFailInterruptedRuns ends every run a previous process left Queued or
-// Running: its execution died with that process and cannot resume.
+// Running; its execution died with that process.
 func acrFailInterruptedRuns() {
 	for _, run := range acrRuns.Filter(func(run acrRun) bool { return !acrRunFinished(run.Properties.Status) }) {
 		acrRuns.Update(run.Properties.RunID, func(run *acrRun) {
@@ -622,8 +587,8 @@ func acrFailInterruptedRuns() {
 	}
 }
 
-// handleACRCancelRun stops a Queued or Running run and answers once the run
-// has stopped and reads Canceled. A run that already ended keeps its status.
+// handleACRCancelRun answers once the run has stopped and reads Canceled. A run
+// that already ended keeps its status.
 func handleACRCancelRun(w http.ResponseWriter, r *http.Request) {
 	runID := sim.PathParam(r, "runId")
 	if _, ok := acrRuns.Get(runID); !ok {
@@ -650,9 +615,9 @@ func acrIsRunLogPath(path string) bool {
 	return strings.HasPrefix(path, acrRunLogPathPrefix) && !strings.Contains(path[len(acrRunLogPathPrefix):], "/")
 }
 
-// handleACRRunLog serves a run's log the way the Blob service serves the log
-// blob: absent until the run starts writing it, growing while it runs, with
-// ranged reads, and carrying `Complete` metadata once the run has ended.
+// handleACRRunLog serves the log as the Blob service serves the log blob: absent
+// until the run writes, growing, ranged, and carrying `Complete` metadata once
+// the run ends.
 func handleACRRunLog(w http.ResponseWriter, r *http.Request) {
 	runID := sim.PathParam(r, "runId")
 	acrActiveRunsMu.Lock()
@@ -701,11 +666,9 @@ func handleACRGetRun(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, run)
 }
 
-// executeACRBuild runs a docker build run: the source tar streams to `docker
-// build -` on the host engine, and — as ACR Tasks does when isPushEnabled is
-// not false — each image is pushed to its registry and the local copy
-// removed, so the registry and not the build host holds the result. It
-// returns the images it pushed.
+// executeACRBuild streams the source tar to `docker build -` on the host
+// engine and, unless isPushEnabled is false, pushes each image and removes the
+// local copy, as ACR Tasks does.
 func executeACRBuild(ctx context.Context, req acrDockerBuildSpec, source io.Reader, vars acrRunVariables, platform *acrPlatform, dockerEnv []string, runLog io.Writer) ([]string, error) {
 	logf := func(format string, args ...any) {
 		_, _ = fmt.Fprintf(runLog, format+"\n", args...)
@@ -763,9 +726,7 @@ func executeACRBuild(ctx context.Context, req acrDockerBuildSpec, source io.Read
 	return images, nil
 }
 
-// acrDockerBuild runs a docker build on the host engine with the run's Docker
-// configuration in env: in dir, or reading its context from stdin when the
-// arguments name `-` as the context.
+// acrDockerBuild reads the context from stdin when the arguments name `-`.
 func acrDockerBuild(ctx context.Context, env, args []string, dir string, stdin io.Reader, runLog io.Writer) error {
 	cmd := workload.DockerCommand(ctx, env, args...)
 	cmd.Dir = dir
@@ -775,9 +736,8 @@ func acrDockerBuild(ctx context.Context, env, args []string, dir string, stdin i
 	return cmd.Run()
 }
 
-// acrRunImageNames renders a docker build's image names with the run's
-// variables, as `{{.Run.ID}}` in `az acr build --image app:{{.Run.ID}}`, and
-// places a name with no registry in the run's own registry.
+// acrRunImageNames renders run variables (`az acr build --image
+// app:{{.Run.ID}}`) and places a name with no registry in the run's registry.
 func acrRunImageNames(names []string, vars acrRunVariables) ([]string, error) {
 	out := make([]string, 0, len(names))
 	for _, name := range names {
@@ -794,11 +754,8 @@ func acrRunImageNames(names []string, vars acrRunVariables) ([]string, error) {
 	return out, nil
 }
 
-// parseACRBlobURL splits an Azure blob URL
-// (https://<account>.blob.core.windows.net/<container>/<blob>) into its
-// account / container / blob-name parts. The account is the host's first
-// subdomain label; the first path segment is the container and the rest is
-// the blob name (which may itself contain slashes).
+// parseACRBlobURL splits https://<account>.blob.core.windows.net/<container>/<blob>;
+// the blob name may contain slashes.
 func parseACRBlobURL(raw string) (account, container, blob string, err error) {
 	u, err := url.Parse(raw)
 	if err != nil {
@@ -820,8 +777,6 @@ func parseACRBlobURL(raw string) (account, container, blob string, err error) {
 	return account, container, blob, nil
 }
 
-// parseACRImage splits <registry>/<repository>:<tag> into its parts for
-// the Run's outputImages list.
 func parseACRImage(img string) acrImageDescriptor {
 	d := acrImageDescriptor{}
 	rest := img
@@ -838,9 +793,8 @@ func parseACRImage(img string) acrImageDescriptor {
 	return d
 }
 
-// acrRunDockerConfig writes the Docker configuration an ACR Tasks run's
-// docker steps use: the registry's login server, with or without its port,
-// answered with an identity token of the run.
+// acrRunDockerConfig answers the registry's login server, with or without its
+// port, with an identity token of the run.
 func acrRunDockerConfig(reg Registry, refreshToken string) (string, error) {
 	return sim.WriteDockerConfig(sim.DockerConfigSpec{
 		HostPatterns: []string{acrBareHost(acrLoginServer(reg)) + ":*"},

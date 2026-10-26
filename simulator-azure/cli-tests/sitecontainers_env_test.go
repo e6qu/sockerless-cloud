@@ -13,11 +13,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestSiteContainers_CLI_EnvironmentVariablesNameAppSettings creates a
-// sitecontainer with `az webapp sitecontainers create --sitecontainers-spec-file`
-// whose environmentVariables name an app setting: the container gets the
-// setting's value under the variable's name, and an empty string once
-// `az webapp config appsettings delete` removes the setting.
+// TestSiteContainers_CLI_EnvironmentVariablesNameAppSettings: a sitecontainer
+// environment variable naming an app setting gets the setting's value, and an
+// empty string once `az webapp config appsettings delete` removes it.
 func TestSiteContainers_CLI_EnvironmentVariablesNameAppSettings(t *testing.T) {
 	t.Parallel()
 	az := kuduCLILogin(t)
@@ -69,9 +67,9 @@ func TestSiteContainers_CLI_EnvironmentVariablesNameAppSettings(t *testing.T) {
 	assert.Equal(t, "", get("/env/GREETING"), "a setting that does not exist is an empty string")
 }
 
-// TestSiteContainers_CLI_InheritAppSettingsAndConnectionStrings creates a main
-// and a sidecar with `az webapp sitecontainers create --sitecontainers-spec-file`,
-// which leaves inheritAppSettingsAndConnectionStrings unset, so both inherit
+// TestSiteContainers_CLI_InheritAppSettingsAndConnectionStrings:
+// `az webapp sitecontainers create --sitecontainers-spec-file` leaves
+// inheritAppSettingsAndConnectionStrings unset, so main and sidecar inherit
 // every app setting and connection string; a sidecar PUT with the flag false
 // gets neither. The main relays requests to each sidecar over the shared
 // loopback.

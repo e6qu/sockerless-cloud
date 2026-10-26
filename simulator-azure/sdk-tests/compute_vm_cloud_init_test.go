@@ -10,9 +10,9 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// A machine's cloud-init runs the #cloud-config its customData carries,
-// creating the osProfile's adminUsername as the default user with the
-// linuxConfiguration's public keys and running each module in its stage.
+// cloud-init runs the #cloud-config in customData, creating adminUsername as
+// the default user with linuxConfiguration's public keys and running each
+// module in its stage.
 func TestCompute_VirtualMachineRunsItsCloudConfig(t *testing.T) {
 	t.Parallel()
 	const rg = "vm-cloud-init-rg"

@@ -1,16 +1,12 @@
 package main
 
-// Microsoft.Subscription (2021-10-01) — the ARM surface that creates
-// subscriptions programmatically. An "alias" is the tenant-scoped creation
-// request: PUT /providers/Microsoft.Subscription/aliases/{aliasName} either
-// creates a new subscription under a billing scope or adopts an existing
-// subscription id, and the long-running operation completes through
-// provisioning-state polling of the alias resource itself: a 201 body whose
-// properties.provisioningState is still "Accepted" sends the client to GET
-// the same URL until it reports "Succeeded". Rename, cancel, and enable are
-// the subscription-scoped POST actions the azurerm provider drives on
-// update and destroy. Wire shapes mirror the vendored Swagger
-// (specs/cloud-api/azure/subscription-arm-subscriptions-2021-10-01).
+// Microsoft.Subscription 2021-10-01 aliases create subscriptions
+// programmatically: PUT /providers/Microsoft.Subscription/aliases/{aliasName}
+// creates one under a billing scope or adopts an existing ID, completing
+// through the alias's own provisioningState (a 201 still "Accepted" sends the
+// client to GET it until "Succeeded"). Rename, cancel and enable are the
+// subscription-scoped actions the azurerm provider drives on update and
+// destroy.
 
 import (
 	"encoding/json"
@@ -23,8 +19,7 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// SubscriptionAliasRecord mirrors SubscriptionAliasResponse in the
-// Microsoft.Subscription 2021-10-01 Swagger (spec field spelling kept).
+// SubscriptionAliasResponse, spec field spelling kept.
 type SubscriptionAliasRecord struct {
 	Name                 string
 	SubscriptionID       string
@@ -41,11 +36,9 @@ type SubscriptionAliasRecord struct {
 	Tags                 map[string]string
 }
 
-// AzureSubscriptionRecord backs GET /subscriptions[/{id}] for subscriptions
-// created through the alias API or mutated through the Microsoft.Subscription
-// rename/cancel/enable actions. Subscriptions without a record keep the
-// simulator's implicit identity (display name "Simulator Subscription",
-// state Enabled, the simulator's own tenant).
+// For subscriptions the alias API created or the rename, cancel and enable
+// actions changed. Others keep the implicit identity ("Simulator
+// Subscription", Enabled, the simulator's tenant).
 type AzureSubscriptionRecord struct {
 	SubscriptionID string
 	DisplayName    string
@@ -62,12 +55,11 @@ func registerSubscriptionAlias(srv *sim.Server) {
 	azureSubscriptionAliases = sim.MakeStore[SubscriptionAliasRecord](srv.DB(), "azure_subscription_aliases")
 	azureSubscriptionRecords = sim.MakeStore[AzureSubscriptionRecord](srv.DB(), "azure_subscription_records")
 
-	// PUT - Alias_Create: create a subscription under a billing scope, or
-	// adopt an existing subscription id under a new alias. Long-running,
-	// terminal via the alias's own provisioningState.
+	// Creates under a billing scope or adopts an existing ID; completes through
+	// the alias's own provisioningState.
 	srv.HandleFunc("PUT /providers/Microsoft.Subscription/aliases/{aliasName}", handleSubscriptionAliasCreate)
 
-	// GET - Alias_Get (also the LRO poll target).
+	// Also the operation's poll target.
 	srv.HandleFunc("GET /providers/Microsoft.Subscription/aliases/{aliasName}", func(w http.ResponseWriter, r *http.Request) {
 		name := sim.PathParam(r, "aliasName")
 		alias, ok := azureSubscriptionAliases.Get(name)
@@ -78,8 +70,7 @@ func registerSubscriptionAlias(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, subscriptionAliasResponse(alias))
 	})
 
-	// DELETE - Alias_Delete: removes the alias only; the subscription it
-	// references keeps existing (cancellation is a separate action).
+	// Removes the alias only; the subscription stays (cancellation is separate).
 	srv.HandleFunc("DELETE /providers/Microsoft.Subscription/aliases/{aliasName}", func(w http.ResponseWriter, r *http.Request) {
 		name := sim.PathParam(r, "aliasName")
 		if !azureSubscriptionAliases.Delete(name) {
@@ -89,7 +80,6 @@ func registerSubscriptionAlias(srv *sim.Server) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	// GET - Alias_List.
 	srv.HandleFunc("GET /providers/Microsoft.Subscription/aliases", func(w http.ResponseWriter, _ *http.Request) {
 		aliases := azureSubscriptionAliases.List()
 		sort.Slice(aliases, func(i, j int) bool { return aliases[i].Name < aliases[j].Name })
@@ -100,22 +90,20 @@ func registerSubscriptionAlias(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"value": out})
 	})
 
-	// POST - Subscription_Cancel: a cancelled subscription is Disabled, not
-	// deleted — it stays enumerable and can be re-enabled.
+	// A cancelled subscription is Disabled, not deleted: it stays listed and can
+	// be re-enabled.
 	srv.HandleFunc("POST /subscriptions/{subscriptionId}/providers/Microsoft.Subscription/cancel", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
 		setAzureSubscriptionState(sub, "Disabled")
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"subscriptionId": sub})
 	})
 
-	// POST - Subscription_Enable.
 	srv.HandleFunc("POST /subscriptions/{subscriptionId}/providers/Microsoft.Subscription/enable", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
 		setAzureSubscriptionState(sub, "Enabled")
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"subscriptionId": sub})
 	})
 
-	// POST - Subscription_Rename.
 	srv.HandleFunc("POST /subscriptions/{subscriptionId}/providers/Microsoft.Subscription/rename", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
 		var req struct {
@@ -165,8 +153,8 @@ func handleSubscriptionAliasCreate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if existing, ok := azureSubscriptionAliases.Get(name); ok {
-		// PUT on an existing alias is idempotent; retargeting an alias at a
-		// different subscription is a conflict.
+		// PUT on an existing alias is idempotent; retargeting it at a different
+		// subscription is a conflict.
 		if req.Properties != nil && req.Properties.SubscriptionID != "" && req.Properties.SubscriptionID != existing.SubscriptionID {
 			subscriptionRPError(w, "Conflict",
 				"The alias '"+name+"' already references subscription '"+existing.SubscriptionID+"'.", http.StatusConflict)
@@ -198,15 +186,13 @@ func handleSubscriptionAliasCreate(w http.ResponseWriter, r *http.Request) {
 	displayName := req.Properties.DisplayName
 	currentTenant := callerTenant
 	if adopting {
-		// Adoption attaches an alias to a subscription that already exists;
-		// its display name is the subscription's, not the request's (rename
-		// is the API that changes it).
+		// An adopted subscription keeps its display name; rename changes it.
 		displayName, _, currentTenant = azureSubscriptionView(subscriptionID)
 	}
 
-	// additionalProperties directs the subscription at a tenant and an owner.
-	// A directed creation does not hand the subscription over by itself: it
-	// leaves an ownership request the destination owner accepts.
+	// additionalProperties directs the subscription at a tenant and an owner. That
+	// leaves an ownership request the destination owner accepts; it does not hand
+	// the subscription over.
 	var managementGroupID, ownerID, destinationTenant string
 	var tags map[string]string
 	if extra := req.Properties.AdditionalProperties; extra != nil {
@@ -220,8 +206,7 @@ func handleSubscriptionAliasCreate(w http.ResponseWriter, r *http.Request) {
 		destinationTenant = currentTenant
 	}
 
-	// A subscription directed at a tenant other than the one that holds it
-	// today is leaving that tenant, which is what
+	// A subscription directed away from its current tenant is leaving it, which
 	// blockSubscriptionsLeavingTenant governs.
 	if !strings.EqualFold(destinationTenant, currentTenant) &&
 		azureSubscriptionPolicyDenies(currentTenant, callerObjectID, policyBlockSubscriptionsLeavingTenant) {
@@ -235,9 +220,8 @@ func handleSubscriptionAliasCreate(w http.ResponseWriter, r *http.Request) {
 		subscriptionID = sim.NewUUID()
 	}
 
-	// Provisioning the alias materializes the subscription record, work the
-	// simulator finishes in-process, so the create answers with the alias
-	// already Succeeded and the SDK's body poller needs no further read.
+	// The work finishes in-process, so the create answers with the alias already
+	// Succeeded and the SDK's body poller reads no further.
 	if adopting {
 		ensureAzureSubscriptionRecord(subscriptionID)
 	} else {
@@ -252,9 +236,8 @@ func handleSubscriptionAliasCreate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Ownership of a directed subscription stays Pending until
-	// Subscription_AcceptOwnership completes the handover; a subscription
-	// created for the caller's own use needs none and settles Completed.
+	// A directed subscription stays Pending until Subscription_AcceptOwnership; one
+	// for the caller's own use settles Completed.
 	ownershipState := "Completed"
 	if directed {
 		ownershipState = "Pending"
@@ -292,10 +275,8 @@ func handleSubscriptionAliasCreate(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusCreated, subscriptionAliasResponse(alias))
 }
 
-// azureBillingOwnerUPN reports the user principal name of the principal that
-// raised an ownership request. Only a directory user has one: an application
-// principal authenticates without a user principal name, and the ownership
-// status then carries none.
+// Only a directory user has a user principal name; an application principal
+// raises a request whose status carries none.
 func azureBillingOwnerUPN(objectID string) string {
 	user, err := azureGrantUser(objectID)
 	if err != nil {
@@ -329,9 +310,8 @@ func subscriptionAliasResponse(alias SubscriptionAliasRecord) map[string]any {
 		props["tags"] = alias.Tags
 	}
 	if alias.AcceptOwnershipState == "Pending" && alias.SubscriptionID != "" {
-		// The URL an owner accepts the subscription at is
-		// Subscription_AcceptOwnership's own route, relative to the Azure
-		// Resource Manager endpoint the alias was read from.
+		// Subscription_AcceptOwnership's own route, relative to the Azure Resource
+		// Manager endpoint the alias was read from.
 		props["acceptOwnershipUrl"] = "/providers/Microsoft.Subscription/subscriptions/" + alias.SubscriptionID + "/acceptOwnership"
 	}
 	return map[string]any{
@@ -342,8 +322,7 @@ func subscriptionAliasResponse(alias SubscriptionAliasRecord) map[string]any {
 	}
 }
 
-// ensureAzureSubscriptionRecord materializes the stored row for a subscription
-// the simulator has so far served implicitly, preserving its current identity.
+// Preserves the identity the subscription has been served with implicitly.
 func ensureAzureSubscriptionRecord(sub string) {
 	if _, ok := azureSubscriptionRecords.Get(sub); ok {
 		return
@@ -364,9 +343,8 @@ func setAzureSubscriptionState(sub, state string) {
 	})
 }
 
-// subscriptionRPError writes the Microsoft.Subscription resource provider's
-// error envelope: the standard nested ARM error plus the top-level code and
-// message its Swagger's ErrorResponseBody declares.
+// The nested ARM error plus the top-level code and message ErrorResponseBody
+// declares.
 func subscriptionRPError(w http.ResponseWriter, code, message string, statusCode int) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(statusCode)

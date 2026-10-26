@@ -13,15 +13,12 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
-// web_configrefs.go resolves an App Service app's Key Vault references — app
-// settings and connection strings whose value is @Microsoft.KeyVault(...) —
-// against the simulator's Key Vault slice through the identity the app's
-// keyVaultReferenceIdentity names, with that identity's access to the vault,
-// and serves /config/configreferences: the status of each reference. The
-// workload's environment carries the secret's value where a reference
+// Resolves an app's @Microsoft.KeyVault(...) app settings and connection
+// strings through the identity keyVaultReferenceIdentity names, with that
+// identity's vault access, and serves /config/configreferences, each
+// reference's status. The workload gets the secret's value where a reference
 // resolves and the reference text where it does not.
 
-// webKVRef is one parsed @Microsoft.KeyVault(...) reference.
 type webKVRef struct {
 	VaultName     string
 	SecretName    string
@@ -29,10 +26,8 @@ type webKVRef struct {
 	Valid         bool // syntactically complete (vault + secret identified)
 }
 
-// webParseKeyVaultRef parses an app-setting value. The second result reports
-// whether the value is a Key Vault reference at all (the @Microsoft.KeyVault(
-// prefix); a non-reference value is not part of the configreferences surface.
-// Both documented spellings are handled: SecretUri=..., and
+// The second result reports whether the value is a reference at all. Both
+// documented spellings parse: SecretUri=..., and
 // VaultName=...;SecretName=...[;SecretVersion=...].
 func webParseKeyVaultRef(value string) (webKVRef, bool) {
 	const prefix = "@Microsoft.KeyVault("
@@ -81,14 +76,10 @@ const (
 	webKVRefDetailDenied        = "Key Vault reference was not able to be resolved because site was denied access to Key Vault reference's vault."
 )
 
-// webResolveKVRef resolves one reference value for a site: the ApiKVReference
-// properties that report it, and the secret's value when it resolved. The
-// site reaches the vault as the identity its keyVaultReferenceIdentity names,
-// which must be attached to it; the vault must exist and grant that identity
-// the secret get permission (an access policy, or an Azure RBAC role
-// assignment with the getSecret data action when the vault uses Azure RBAC);
-// and the secret, and the version a reference pins, must exist and be
-// enabled and current.
+// The site reaches the vault as the attached identity keyVaultReferenceIdentity
+// names; the vault must grant it secret get (an access policy, or an Azure RBAC
+// assignment with the getSecret data action), and the secret and pinned version
+// must exist, be enabled and be current.
 func webResolveKVRef(site *Site, raw string) (map[string]any, string, bool) {
 	props := map[string]any{
 		"reference": raw,
@@ -123,9 +114,8 @@ func webResolveKVRef(site *Site, raw string) (map[string]any, string, bool) {
 		props["details"] = webKVRefDetailDenied
 		return props, "", false
 	}
-	// The data plane keys secrets by the vault's host label, which is the
-	// vault name as created; resolve through the stored vault's own name so
-	// a reference written in a different casing still finds it.
+	// The data plane keys secrets by the vault's name as created, so resolve
+	// through the stored vault to tolerate other casings.
 	stored, found := keyVaultData.Get(keyVaultSecretKey(vault.Name, ref.SecretName))
 	if !found || stored.isDeleted() || len(stored.Versions) == 0 {
 		props["status"] = "SecretNotFound"
@@ -150,10 +140,8 @@ func webResolveKVRef(site *Site, raw string) (map[string]any, string, bool) {
 	return props, version.Value, true
 }
 
-// webKVRefPrincipal is the principal a site reaches Key Vault as, and the
-// ManagedServiceIdentity a reference status reports: the site's
-// system-assigned identity, or the user-assigned identity its
-// keyVaultReferenceIdentity names, which must be attached to the site.
+// The system-assigned identity, or the attached user-assigned identity
+// keyVaultReferenceIdentity names.
 func webKVRefPrincipal(site *Site) (string, map[string]any, bool) {
 	want := webKeyVaultReferenceIdentity(site)
 	if strings.EqualFold(want, "SystemAssigned") {
@@ -182,9 +170,8 @@ func webKVRefPrincipal(site *Site) (string, map[string]any, bool) {
 	return "", identityType, false
 }
 
-// webResolvedAppSettings is the site's app settings as its workload sees
-// them: each Key Vault reference that resolves replaced by the secret's
-// value, one that does not left as the reference.
+// A resolving reference is replaced by the secret's value; one that does not
+// stays as written.
 func webResolvedAppSettings(site *Site) map[string]string {
 	settings := siteAppSettings(site)
 	for k, v := range settings {
@@ -197,9 +184,7 @@ func webResolvedAppSettings(site *Site) map[string]string {
 	return settings
 }
 
-// webReferenceValues are a site's app settings and connection-string
-// environment with their Key Vault references resolved: what its containers
-// start with.
+// What the site's containers start with.
 type webReferenceValues struct {
 	appSettings       map[string]string
 	connectionStrings map[string]string
@@ -213,13 +198,11 @@ func (v webReferenceValues) equal(other webReferenceValues) bool {
 	return maps.Equal(v.appSettings, other.appSettings) && maps.Equal(v.connectionStrings, other.connectionStrings)
 }
 
-// webKeyVaultReferenceRefresh is how long App Service caches the secrets a
-// running app's Key Vault references resolved to: "App Service caches the
-// values of the key vault references and refetches it every 24 hours."
+// "App Service caches the values of the key vault references and refetches it
+// every 24 hours."
 const webKeyVaultReferenceRefresh = 24 * time.Hour
 
-// cacheReferencesLocked records the reference values the containers started
-// as containerID run with, and schedules their re-fetch. Caller holds inst.mu.
+// Caller holds inst.mu.
 func (inst *azureFunctionInstance) cacheReferencesLocked(siteID, containerID string, references webReferenceValues) {
 	inst.references = references
 	inst.referenceRefresh = bg.AfterFunc(webKeyVaultReferenceRefresh, func() {
@@ -227,12 +210,9 @@ func (inst *azureFunctionInstance) cacheReferencesLocked(siteID, containerID str
 	})
 }
 
-// refreshReferences re-fetches the Key Vault references of the site whose
-// containers started as containerID. A reference that names no version
-// resolves to the secret's latest version, so a rotated secret changes its
-// value; the app then restarts on the new values, at once when Always On and
-// on its next request otherwise, as after any configuration change. Unchanged
-// values stay cached for another period.
+// A versionless reference resolves to the latest version, so a rotated secret
+// changes its value; the app then restarts, at once when Always On and on its
+// next request otherwise. Unchanged values stay cached another period.
 func (inst *azureFunctionInstance) refreshReferences(siteID, containerID string) {
 	site, ok := webJobSite(siteID)
 	if !ok || !inst.reloadReferences(&site, siteID, containerID) {
@@ -241,9 +221,7 @@ func (inst *azureFunctionInstance) refreshReferences(siteID, containerID string)
 	startAlwaysOnSite(site)
 }
 
-// reloadReferences stops the containers started as containerID when the
-// site's reference values changed since, and reports whether it did;
-// unchanged values stay cached for another period.
+// Reports whether it stopped the containers.
 func (inst *azureFunctionInstance) reloadReferences(site *Site, siteID, containerID string) bool {
 	inst.mu.Lock()
 	defer inst.mu.Unlock()
@@ -259,8 +237,6 @@ func (inst *azureFunctionInstance) reloadReferences(site *Site, siteID, containe
 	return true
 }
 
-// webKVRefResource wraps one reference's properties in the ApiKVReference
-// ARM envelope.
 func webKVRefResource(resID, section, key string, props map[string]any) map[string]any {
 	return map[string]any{
 		"id":         resID + "/config/configreferences/" + section + "/" + key,
@@ -276,10 +252,8 @@ func registerWebConfigReferences(srv *sim.Server) {
 		srv.HandleFunc(method+" "+webProvider+"/sites/{siteName}/slots/{slot}"+suffix, h)
 	}
 
-	// App-setting references: the collection carries every app setting whose
-	// value is a Key Vault reference; a single key that exists but is not a
-	// reference is not part of this surface and reports 404, as does an
-	// absent key.
+	// Only app settings whose value is a reference belong here; a non-reference
+	// key and an absent key both answer 404.
 	both("GET", "/config/configreferences/appsettings", func(w http.ResponseWriter, r *http.Request) {
 		if webMissing(w, r) {
 			return
@@ -322,7 +296,6 @@ func registerWebConfigReferences(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, webKVRefResource(webResourceID(r), "appsettings", key, props))
 	})
 
-	// Connection-string references, over the stored connection-string values.
 	both("GET", "/config/configreferences/connectionstrings", func(w http.ResponseWriter, r *http.Request) {
 		if webMissing(w, r) {
 			return

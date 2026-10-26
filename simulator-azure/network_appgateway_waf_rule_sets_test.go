@@ -6,11 +6,9 @@ import (
 	"testing"
 )
 
-// The vendored catalog mirrors the documentation exactly; these counts were
-// taken per rule group from Microsoft's rule enumeration
-// (application-gateway-crs-rulegroups-rules) cross-checked against recorded
-// responses of the real service, so a truncated or partially updated vendor
-// fails loudly here.
+// Per-group counts from Microsoft's rule enumeration
+// (application-gateway-crs-rulegroups-rules), cross-checked against recorded
+// responses, so a truncated or partial vendor fails here.
 
 type wafRuleGroupCount struct {
 	group string
@@ -139,8 +137,7 @@ var wantWafRuleSets = []wafRuleSetCount{
 	}},
 }
 
-// wafVendoredCatalog is the decoded shape of the vendored file, using the
-// wire field names of ApplicationGatewayAvailableWafRuleSetsResult.
+// Field names are ApplicationGatewayAvailableWafRuleSetsResult's wire names.
 type wafVendoredCatalog struct {
 	Value []struct {
 		Name       string `json:"name"`
@@ -235,8 +232,7 @@ func TestApplicationGatewayWafRuleSetsVendoredCatalog(t *testing.T) {
 		t.Fatalf("catalog carries %d rules, want 1194", totalRules)
 	}
 
-	// Documented canary rules, description verbatim from Microsoft's
-	// enumeration and the recorded wire responses.
+	// Descriptions verbatim from Microsoft's enumeration and recorded responses.
 	canaries := []struct {
 		set, group    string
 		ruleID        int

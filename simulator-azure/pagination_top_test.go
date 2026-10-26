@@ -26,7 +26,6 @@ func armPageAt(t *testing.T, query string, items []int) ([]int, string) {
 	return page, next
 }
 
-// TestArmPage_TopAndSkipToken pins the $top / $skiptoken pagination contract.
 func TestArmPage_TopAndSkipToken(t *testing.T) {
 	items := []int{5, 3, 1, 4, 2}
 
@@ -61,8 +60,7 @@ func TestArmSeqPageKeepsBuildOrder(t *testing.T) {
 	}
 }
 
-// A $skiptoken the list never issued is a client error, not the first page.
-// An offset, which an older spelling of the token carried, is one too.
+// An offset, which an older token spelling carried, is refused too.
 func TestAzurePageRejectsForeignSkipToken(t *testing.T) {
 	for _, c := range []struct {
 		page func(http.ResponseWriter, *http.Request, []int, func(int) string) ([]int, string, bool)
@@ -89,8 +87,6 @@ func TestAzurePageRejectsForeignSkipToken(t *testing.T) {
 	}
 }
 
-// An item created or deleted before the cursor between two page requests
-// neither repeats nor skips an item after it, on either paginator.
 func TestAzurePageCursorSurvivesChangesBeforeIt(t *testing.T) {
 	for _, c := range []struct {
 		name string
@@ -139,8 +135,6 @@ func TestAzurePageCursorSurvivesChangesBeforeIt(t *testing.T) {
 	}
 }
 
-// Key Vault declares maxresults from 1 to 25 on every data-plane list, and
-// refuses a page size outside that range instead of serving it.
 func TestKvPageRefusesMaxResultsOutsideOneToTwentyFive(t *testing.T) {
 	items := make([]int, 40)
 	for i := range items {

@@ -15,13 +15,10 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
-// These drive the virtual-machine long-running operations in-process. The
-// guest moves are held open on channels through the azureBootVM, azureHaltVM
-// and azureDestroyVM hooks, which is what lets a test read the machine and its
-// operation while the move is still under way, on a host without nested KVM.
+// The guest moves are held open on channels through the azureBootVM,
+// azureHaltVM and azureDestroyVM hooks, so a test reads the machine and its
+// operation mid-move on a host without nested KVM.
 
-// vmGuestHooks replaces the guest moves with ones that announce themselves and
-// wait for the test to decide their outcome.
 type vmGuestHooks struct {
 	booting    chan string
 	boot       chan error
@@ -102,8 +99,7 @@ func vmLROSimulator(t *testing.T) (*sim.Server, *vmGuestHooks) {
 	return vmOpsSimulator(t), hooks
 }
 
-// vmLRORequest sends one ARM request to the simulator. rawURL is a path, or an
-// absolute poll URL the simulator advertised.
+// rawURL is a path, or an absolute poll URL the simulator advertised.
 func vmLRORequest(t *testing.T, srv *sim.Server, method, rawURL, body string) *httptest.ResponseRecorder {
 	t.Helper()
 	parsed, err := url.Parse(rawURL)
@@ -161,9 +157,8 @@ func vmLROInstanceView(t *testing.T, srv *sim.Server, name string) (provisioning
 	return provisioning, power
 }
 
-// requireVMLROPowerState reads the power state the operation settled on from
-// the store: the instance view reconciles a running record against a live
-// guest, and the hooked boot starts none.
+// Read the settled power state from the store: the instance view reconciles a
+// running record against a live guest, and the hooked boot starts none.
 func requireVMLROPowerState(t *testing.T, id, want string) {
 	t.Helper()
 	if got, _ := azureVMStates.Get(id); got != want {
@@ -184,8 +179,7 @@ func vmLROProvisioningState(t *testing.T, srv *sim.Server, name string) string {
 	return vm.Properties.ProvisioningState
 }
 
-// putVMLRONetworkInterface stores the network interface a create names, so the
-// create passes request validation.
+// The create needs an interface to pass request validation.
 func putVMLRONetworkInterface(t *testing.T, name string) string {
 	t.Helper()
 	id := "/subscriptions/" + vmOpsSubscription + "/resourceGroups/" + vmOpsResourceGroup +
@@ -276,8 +270,6 @@ func TestVirtualMachineCreateAnswersBeforeTheBoot(t *testing.T) {
 	}
 }
 
-// A boot that fails fails the operation with the error ARM reports, and the
-// machine reads Failed with that error in its instance view.
 func TestVirtualMachineCreateFailsWhenTheBootFails(t *testing.T) {
 	srv, hooks := vmLROSimulator(t)
 	id := vmOpsID("lro-fail-vm")
@@ -362,7 +354,6 @@ func TestVirtualMachineStartRunsBehindAnOperation(t *testing.T) {
 	}
 }
 
-// Deallocate reads deallocating until the guest has stopped, then deallocated.
 func TestVirtualMachineDeallocateRunsBehindAnOperation(t *testing.T) {
 	srv, hooks := vmLROSimulator(t)
 	vm := putVMOpsMachine(t, "lro-deallocate-vm", "eastus", nil)
@@ -383,8 +374,6 @@ func TestVirtualMachineDeallocateRunsBehindAnOperation(t *testing.T) {
 	}
 }
 
-// Redeploy moves a running machine to a fresh guest: stopping, then starting,
-// then running, with the operation InProgress throughout.
 func TestVirtualMachineRedeployReportsEachStage(t *testing.T) {
 	srv, hooks := vmLROSimulator(t)
 	vm := putVMOpsMachine(t, "lro-redeploy-vm", "eastus", nil)
@@ -417,7 +406,6 @@ func TestVirtualMachineRedeployReportsEachStage(t *testing.T) {
 	requireVMLROPowerState(t, vm.ID, "PowerState/running")
 }
 
-// Maintenance on a stopped machine restores it stopped, without a boot.
 func TestVirtualMachineMaintenanceLeavesAStoppedMachineStopped(t *testing.T) {
 	srv, hooks := vmLROSimulator(t)
 	vm := putVMOpsMachine(t, "lro-maint-stopped-vm", "eastus", nil)
@@ -438,8 +426,7 @@ func TestVirtualMachineMaintenanceLeavesAStoppedMachineStopped(t *testing.T) {
 	}
 }
 
-// Maintenance whose boot fails fails the operation and leaves the machine
-// stopped, since its old guest is already gone.
+// The old guest is already gone, so the machine stays stopped.
 func TestVirtualMachineMaintenanceBootFailureFailsTheOperation(t *testing.T) {
 	srv, hooks := vmLROSimulator(t)
 	vm := putVMOpsMachine(t, "lro-maint-fail-vm", "eastus", nil)
@@ -464,7 +451,6 @@ func TestVirtualMachineMaintenanceBootFailureFailsTheOperation(t *testing.T) {
 		t.Fatalf("instance view after a failed maintenance = %q / %q", provisioning.Code, power.Code)
 	}
 
-	// A failed machine takes the next operation.
 	retry := vmLRORequest(t, srv, http.MethodPost, vmOpsPath("lro-maint-fail-vm", "start"), "")
 	if retry.Code != http.StatusAccepted {
 		t.Fatalf("start after a failed operation: status %d, want 202: %s", retry.Code, retry.Body.String())
@@ -477,8 +463,6 @@ func TestVirtualMachineMaintenanceBootFailureFailsTheOperation(t *testing.T) {
 	}
 }
 
-// A machine whose operation was cut off by a restart fails rather than staying
-// Updating, which would refuse every later operation on it.
 func TestVirtualMachineOperationInterruptedByRestartFails(t *testing.T) {
 	srv, _ := vmLROSimulator(t)
 	vm := putVMOpsMachine(t, "lro-restart-vm", "eastus", func(vm *VirtualMachine) {
@@ -499,8 +483,6 @@ func TestVirtualMachineOperationInterruptedByRestartFails(t *testing.T) {
 	}
 }
 
-// A create without a location is ARM's request-validation error, answered
-// before any operation starts.
 func TestVirtualMachineCreateRequiresALocation(t *testing.T) {
 	srv, _ := vmLROSimulator(t)
 	nicID := putVMLRONetworkInterface(t, "lro-noloc-nic")
@@ -514,9 +496,6 @@ func TestVirtualMachineCreateRequiresALocation(t *testing.T) {
 	}
 }
 
-// requireComputeOperationURL holds an operation URL to the Compute resource
-// provider's shape: .../providers/Microsoft.Compute/locations/{location}/operations/{id},
-// with monitor=true on the Location.
 func requireComputeOperationURL(t *testing.T, raw string, monitor bool) {
 	t.Helper()
 	parsed, err := url.Parse(raw)
@@ -535,9 +514,7 @@ func requireComputeOperationURL(t *testing.T, raw string, monitor bool) {
 	}
 }
 
-// A create names the machine on each network interface it attaches, and the
-// delete that removes the machine takes that reference with it: the interface
-// outlives the machine and reads unattached.
+// The interface outlives the machine and reads unattached.
 func TestVirtualMachineDeleteDetachesItsNetworkInterfaces(t *testing.T) {
 	srv, hooks := vmLROSimulator(t)
 	id := vmOpsID("lro-detach-vm")
@@ -627,8 +604,6 @@ func TestVirtualMachineDeleteRunsBehindAnOperation(t *testing.T) {
 	}
 }
 
-// A delete whose guest cannot be torn down fails the operation and leaves the
-// machine Failed, with the error in its instance view.
 func TestVirtualMachineDeleteFailureFailsTheOperation(t *testing.T) {
 	srv, hooks := vmLROSimulator(t)
 	vm := putVMOpsMachine(t, "lro-delete-fail-vm", "eastus", nil)
@@ -650,8 +625,6 @@ func TestVirtualMachineDeleteFailureFailsTheOperation(t *testing.T) {
 	}
 }
 
-// SimulateEviction answers 204 at once; a Deallocate policy reads deallocating
-// until the guest has stopped, then deallocated.
 func TestVirtualMachineSimulateEvictionDeallocatesAfterAnswering(t *testing.T) {
 	srv, hooks := vmLROSimulator(t)
 	vm := putVMOpsMachine(t, "lro-evict-vm", "eastus", func(vm *VirtualMachine) {
@@ -682,8 +655,6 @@ func TestVirtualMachineSimulateEvictionDeallocatesAfterAnswering(t *testing.T) {
 	}
 }
 
-// Under a Delete policy the evicted machine reads Deleting until its guest is
-// gone, then is gone.
 func TestVirtualMachineSimulateEvictionDeletesAfterAnswering(t *testing.T) {
 	srv, hooks := vmLROSimulator(t)
 	vm := putVMOpsMachine(t, "lro-evict-delete-vm", "eastus", func(vm *VirtualMachine) {

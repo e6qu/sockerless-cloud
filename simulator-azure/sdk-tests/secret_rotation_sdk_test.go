@@ -13,11 +13,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestAPIMSubscription_RegenerateKeyRotation drives the API Management
-// subscription key rotation contract through the official armapimanagement
-// client: regeneratePrimaryKey / regenerateSecondaryKey each rotate only their
-// own slot, listSecrets observes the rotation, and delete → recreate under the
-// same name resets both keys.
+// TestAPIMSubscription_RegenerateKeyRotation: regeneratePrimaryKey and
+// regenerateSecondaryKey each rotate their own slot, listSecrets observes it,
+// and a subscription recreated under the name starts with fresh keys.
 func TestAPIMSubscription_RegenerateKeyRotation(t *testing.T) {
 	t.Parallel()
 	rg := "apim-rotation-rg"
@@ -25,8 +23,6 @@ func TestAPIMSubscription_RegenerateKeyRotation(t *testing.T) {
 	sid := "apim-rotation-sub"
 	ensureRG(t, rg)
 
-	// The service itself is provisioned through the ARM wire path the sim
-	// serves for Microsoft.ApiManagement/service.
 	svcPath := "/subscriptions/" + subscriptionID + "/resourceGroups/" + rg +
 		"/providers/Microsoft.ApiManagement/service/" + service
 	resp := armReq(t, "PUT", svcPath,
@@ -64,7 +60,6 @@ func TestAPIMSubscription_RegenerateKeyRotation(t *testing.T) {
 	assert.NotEqual(t, primaryBefore, *afterPrimary.PrimaryKey, "listSecrets must return the rotated primary key")
 	assert.Equal(t, secondaryBefore, *afterPrimary.SecondaryKey, "regenerating the primary key must not change the secondary key")
 
-	// regenerateSecondaryKey rotates only the secondary slot.
 	_, err = client.RegenerateSecondaryKey(ctx, rg, service, sid, nil)
 	require.NoError(t, err)
 
@@ -73,7 +68,7 @@ func TestAPIMSubscription_RegenerateKeyRotation(t *testing.T) {
 	assert.Equal(t, *afterPrimary.PrimaryKey, *afterSecondary.PrimaryKey, "regenerating the secondary key must not change the primary key")
 	assert.NotEqual(t, secondaryBefore, *afterSecondary.SecondaryKey, "listSecrets must return the rotated secondary key")
 
-	// A second regenerate of the same slot yields yet another value.
+	// A second regenerate of the same slot yields another value.
 	_, err = client.RegeneratePrimaryKey(ctx, rg, service, sid, nil)
 	require.NoError(t, err)
 	again, err := client.ListSecrets(ctx, rg, service, sid, nil)
@@ -81,7 +76,7 @@ func TestAPIMSubscription_RegenerateKeyRotation(t *testing.T) {
 	assert.NotEqual(t, *afterSecondary.PrimaryKey, *again.PrimaryKey,
 		"a second regenerate of the primary key must yield yet another value")
 
-	// Delete + recreate under the same name starts from fresh key material.
+	// A subscription recreated under the name starts with fresh keys.
 	_, err = client.Delete(ctx, rg, service, sid, "*", nil)
 	require.NoError(t, err)
 	createSubscription()
@@ -91,11 +86,9 @@ func TestAPIMSubscription_RegenerateKeyRotation(t *testing.T) {
 	assert.Equal(t, secondaryBefore, *fresh.SecondaryKey, "a recreated subscription must start from the unrotated secondary key")
 }
 
-// TestACR_RegenerateCredentialRotation drives the Azure Container Registry
-// admin-credential rotation contract through the official
-// armcontainerregistry client: regenerateCredential rotates only the named
-// password slot, listCredentials observes the rotation, and delete → recreate
-// resets both passwords.
+// TestACR_RegenerateCredentialRotation: regenerateCredential rotates only the
+// named password, listCredentials observes it, and a recreated registry
+// starts with fresh passwords.
 func TestACR_RegenerateCredentialRotation(t *testing.T) {
 	t.Parallel()
 	rg := "acr-rotation-rg"
@@ -154,7 +147,6 @@ func TestACR_RegenerateCredentialRotation(t *testing.T) {
 	assert.Equal(t, passwordRotated, passwordListed, "listCredentials must return the rotated password")
 	assert.Equal(t, password2Before, password2Listed, "listCredentials must keep the untouched password2")
 
-	// Rotating the other slot leaves the first alone.
 	regen2, err := client.RegenerateCredential(ctx, rg, registry, armcontainerregistry.RegenerateCredentialParameters{
 		Name: to.Ptr(armcontainerregistry.PasswordNamePassword2),
 	}, nil)
@@ -163,7 +155,6 @@ func TestACR_RegenerateCredentialRotation(t *testing.T) {
 	assert.Equal(t, passwordRotated, password2ndPass, "regenerating 'password2' must not change 'password'")
 	assert.NotEqual(t, password2Before, password2Rotated2, "regenerating 'password2' must change that slot")
 
-	// Delete + recreate under the same name starts from fresh passwords.
 	delPoller, err := client.BeginDelete(ctx, rg, registry, nil)
 	require.NoError(t, err)
 	_, err = delPoller.PollUntilDone(ctx, nil)
@@ -176,8 +167,8 @@ func TestACR_RegenerateCredentialRotation(t *testing.T) {
 	assert.Equal(t, password2Before, password2Fresh, "a recreated registry must start from the unrotated password2")
 }
 
-// logicCallbackSig extracts the `sig` query value from a Logic Apps callback
-// URL — the part real Logic Apps derives from the workflow's access key.
+// logicCallbackSig extracts the callback URL's `sig`, which Logic Apps derives
+// from the workflow's access key.
 func logicCallbackSig(t *testing.T, callbackURL string) string {
 	t.Helper()
 	parsed, err := url.Parse(callbackURL)
@@ -187,12 +178,10 @@ func logicCallbackSig(t *testing.T, callbackURL string) string {
 	return sig
 }
 
-// TestLogicApps_RegenerateAccessKeyRotation drives the Logic Apps access-key
-// rotation contract through the official armlogic client. Callback URLs are
-// signed with the workflow's access key, so regenerateAccessKey changes the
-// signature listCallbackUrl returns — the observable effect of real Logic
-// Apps invalidating outstanding callback URLs. The integration account
-// behaves the same way, and delete → recreate resets the signature.
+// TestLogicApps_RegenerateAccessKeyRotation: callback URLs are signed with the
+// workflow's access key, so regenerateAccessKey changes the signature
+// listCallbackUrl returns, invalidating outstanding URLs; a recreated workflow
+// starts with a fresh signature.
 func TestLogicApps_RegenerateAccessKeyRotation(t *testing.T) {
 	t.Parallel()
 	rg := "logic-rotation-rg"
@@ -229,7 +218,7 @@ func TestLogicApps_RegenerateAccessKeyRotation(t *testing.T) {
 	require.NotNil(t, initial.Value)
 	sigBefore := logicCallbackSig(t, *initial.Value)
 
-	// A repeated read is stable — only a rotation changes the signature.
+	// Only a rotation changes the signature.
 	stable, err := workflows.ListCallbackURL(ctx, rg, wfName, armlogic.GetCallbackURLParameters{}, nil)
 	require.NoError(t, err)
 	assert.Equal(t, sigBefore, logicCallbackSig(t, *stable.Value),
@@ -246,7 +235,6 @@ func TestLogicApps_RegenerateAccessKeyRotation(t *testing.T) {
 	assert.NotEqual(t, sigBefore, sigRotated,
 		"regenerating the access key must change the callback URL signature")
 
-	// A second rotation changes it again.
 	_, err = workflows.RegenerateAccessKey(ctx, rg, wfName, armlogic.RegenerateActionParameter{
 		KeyType: to.Ptr(armlogic.KeyTypePrimary),
 	}, nil)
@@ -256,8 +244,7 @@ func TestLogicApps_RegenerateAccessKeyRotation(t *testing.T) {
 	assert.NotEqual(t, sigRotated, logicCallbackSig(t, *rotatedAgain.Value),
 		"a second regenerate must change the callback URL signature again")
 
-	// The trigger-scoped callback is signed with the same workflow access key,
-	// so it rotates with the workflow.
+	// The trigger callback is signed with the same key, so it rotates too.
 	triggers, err := armlogic.NewWorkflowTriggersClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	triggerCb, err := triggers.ListCallbackURL(ctx, rg, wfName, "manual", nil)
@@ -272,7 +259,6 @@ func TestLogicApps_RegenerateAccessKeyRotation(t *testing.T) {
 	assert.NotEqual(t, triggerSig, logicCallbackSig(t, *triggerCbAfter.Value),
 		"the trigger callback signature must follow the workflow's access key")
 
-	// Delete + recreate under the same name starts from fresh key material.
 	_, err = workflows.Delete(ctx, rg, wfName, nil)
 	require.NoError(t, err)
 	createWorkflow()
@@ -282,8 +268,8 @@ func TestLogicApps_RegenerateAccessKeyRotation(t *testing.T) {
 		"a recreated workflow must sign callbacks with unrotated key material")
 }
 
-// TestLogicIntegrationAccount_RegenerateAccessKeyRotation covers the
-// integration-account half of the same contract.
+// TestLogicIntegrationAccount_RegenerateAccessKeyRotation: the integration
+// account rotates the same way.
 func TestLogicIntegrationAccount_RegenerateAccessKeyRotation(t *testing.T) {
 	t.Parallel()
 	rg := "logic-ia-rotation-rg"
@@ -317,7 +303,6 @@ func TestLogicIntegrationAccount_RegenerateAccessKeyRotation(t *testing.T) {
 	assert.NotEqual(t, sigBefore, logicCallbackSig(t, *rotated.Value),
 		"regenerating the integration account access key must change the callback signature")
 
-	// Delete + recreate under the same name starts from fresh key material.
 	_, err = accounts.Delete(ctx, rg, acctName, nil)
 	require.NoError(t, err)
 	createAccount()

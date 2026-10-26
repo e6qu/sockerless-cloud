@@ -9,11 +9,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Azure Network Watcher through the Azure CLI: the watcher resource, its flow
-// log and connection monitor children, and the diagnostics it answers about the
-// network the test builds. The diagnostics that read an interface need the
-// real-execution network host, because that is what allocates the interface an
-// address in its subnet.
+// Azure Network Watcher: the watcher, its flow log and connection monitor
+// children, and the diagnostics it answers about the network the test builds.
 
 const networkWatcherAPIVersion = "2025-03-01"
 
@@ -70,7 +67,7 @@ func TestNetworkWatcherConfigurationCLI(t *testing.T) {
 	out = runCLI(t, azRest("POST", statusURL, fmt.Sprintf(`{"targetResourceId":%q}`, nsgID)))
 	assert.Contains(t, out, storageID)
 
-	// And the target-addressed write lands on the same record.
+	// The target-addressed write lands on the same record.
 	configureURL := strings.Replace(watcherURL, "?api-version=", "/configureFlowLog?api-version=", 1)
 	runCLI(t, azRest("POST", configureURL, fmt.Sprintf(
 		`{"targetResourceId":%q,"properties":{"storageId":%q,"enabled":false}}`, nsgID, storageID)))
@@ -111,9 +108,8 @@ func TestNetworkWatcherConfigurationCLI(t *testing.T) {
 	out = runCLI(t, azRest("GET", armURL("Microsoft.Network", "networkWatchers/cli-watcher/connectionMonitors", networkWatcherAPIVersion), ""))
 	assert.Contains(t, out, "cli-monitor")
 
-	// The measurements Azure collects with its own internet-measurement fleet
-	// are not this deployment's to report, and it says so rather than naming
-	// providers it knows nothing about.
+	// Azure's internet-measurement fleet data is not this deployment's to report,
+	// so the watcher names no providers.
 	providersURL := strings.Replace(watcherURL, "?api-version=", "/availableProvidersList?api-version=", 1)
 	out = runCLI(t, azRest("POST", providersURL, `{"country":"United States"}`))
 	var providers struct {
@@ -133,8 +129,8 @@ func TestNetworkWatcherConfigurationCLI(t *testing.T) {
 	assert.Equal(t, "State", report.AggregationLevel)
 	assert.Empty(t, report.ReachabilityReport)
 
-	// Troubleshooting names a virtual network gateway, a resource type this
-	// deployment holds none of, so the watcher reports the target absent.
+	// Troubleshooting names a virtual network gateway, which this deployment holds
+	// none of, so the watcher reports the target absent.
 	troubleshootURL := strings.Replace(watcherURL, "?api-version=", "/troubleshoot?api-version=", 1)
 	failure := runNetworkCLIExpectFailure(t, azRest("POST", troubleshootURL, fmt.Sprintf(
 		`{"targetResourceId":"/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/virtualNetworkGateways/vpn","properties":{"storageId":%q,"storagePath":"https://cliflowlogs.blob.core.windows.net/logs"}}`,
@@ -149,9 +145,9 @@ func TestNetworkWatcherConfigurationCLI(t *testing.T) {
 	runCLI(t, azRest("DELETE", nsgURL, ""))
 }
 
-// TestNetworkWatcherDiagnosticsCLI drives the diagnostics that read a real
-// interface: IP flow verify against the rules on its subnet, and next hop
-// against the route table attached to it.
+// TestNetworkWatcherDiagnosticsCLI drives the diagnostics that read an
+// interface: IP flow verify against its subnet's rules, and next hop against
+// its route table.
 func TestNetworkWatcherDiagnosticsCLI(t *testing.T) {
 	t.Parallel()
 
@@ -228,8 +224,7 @@ func TestNetworkWatcherDiagnosticsCLI(t *testing.T) {
 	assert.Equal(t, "10.90.1.9", hop.NextHopIPAddress)
 	assert.Equal(t, routeTableID, hop.RouteTableID)
 
-	// A system route carries no route table id, so this answer is decoded into
-	// its own value rather than over the previous one.
+	// A system route carries no route table ID, so decode into a fresh value.
 	out = runCLI(t, azRest("POST", nextHopURL, fmt.Sprintf(
 		`{"targetResourceId":%q,"sourceIPAddress":%q,"destinationIPAddress":"10.90.2.4"}`, nicID, nicAddress)))
 	var systemHop struct {

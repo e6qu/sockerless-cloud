@@ -52,9 +52,9 @@ func acrTestRunVariables() acrRunVariables {
 	}
 }
 
-// The source a client uploads to the URL listBuildSourceUploadUrl hands out is
-// the source a run request names by the relative path: the URL takes the Blob
-// service's Put Blob under its signature, and refuses a tampered one.
+// The source uploaded to the listBuildSourceUploadUrl URL is the source a run
+// request names by the relative path; the URL takes Put Blob under its
+// signature and refuses a tampered one.
 func TestACRBuildSourceUploadIsTheRunSource(t *testing.T) {
 	srv := newACRTasksTestServer(t)
 	reg := acrTasksRegistry(t, srv, "tasksourcereg")
@@ -201,8 +201,6 @@ func TestACRTaskRunRequestAppliesOverrides(t *testing.T) {
 	}
 }
 
-// A run scheduled on an agent pool waits Queued while every agent of the pool
-// is busy, and listQueueStatus counts it until it leaves the queue.
 func TestACRAgentPoolQueueStatusCountsQueuedRuns(t *testing.T) {
 	srv := newACRTasksTestServer(t)
 	reg := acrTasksRegistry(t, srv, "taskpoolreg")

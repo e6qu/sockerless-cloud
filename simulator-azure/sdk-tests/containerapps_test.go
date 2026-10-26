@@ -14,13 +14,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Container Apps Jobs use the Microsoft.App provider.
-// The armappcontainers SDK requires specific API versions that may differ.
-// Using direct HTTP calls for more reliable testing against the simulator.
-
 func TestContainerApps_CreateJob(t *testing.T) {
 	t.Parallel()
-	// Ensure resource group exists
 	rgBody := `{"location":"eastus"}`
 	rgReq, _ := http.NewRequestWithContext(ctx, "PUT",
 		baseURL+"/subscriptions/"+subscriptionID+"/resourceGroups/aca-rg?api-version=2023-07-01",
@@ -69,7 +64,6 @@ func TestContainerApps_CreateJob(t *testing.T) {
 
 func TestContainerApps_StartJobInjectsLogs(t *testing.T) {
 	t.Parallel()
-	// Ensure resource group exists
 	rgBody := `{"location":"eastus"}`
 	rgReq, _ := http.NewRequestWithContext(ctx, "PUT",
 		baseURL+"/subscriptions/"+subscriptionID+"/resourceGroups/aca-log-rg?api-version=2023-07-01",
@@ -80,7 +74,6 @@ func TestContainerApps_StartJobInjectsLogs(t *testing.T) {
 	require.NoError(t, err)
 	rgResp.Body.Close()
 
-	// Create job
 	job := map[string]any{
 		"location": "eastus",
 		"properties": map[string]any{
@@ -106,7 +99,6 @@ func TestContainerApps_StartJobInjectsLogs(t *testing.T) {
 	require.NoError(t, err)
 	createResp.Body.Close()
 
-	// Start execution
 	startReq, _ := http.NewRequestWithContext(ctx, "POST",
 		baseURL+"/subscriptions/"+subscriptionID+"/resourceGroups/aca-log-rg/providers/Microsoft.App/jobs/log-test-job/start?api-version=2024-03-01",
 		strings.NewReader("{}"))
@@ -117,8 +109,7 @@ func TestContainerApps_StartJobInjectsLogs(t *testing.T) {
 	startResp.Body.Close()
 	require.Equal(t, http.StatusAccepted, startResp.StatusCode)
 
-	// Poll until both the start + completion log entries are ingested (async
-	// in the sim) — a fixed sleep races a loaded runner.
+	// Ingestion is asynchronous.
 	kql := `ContainerAppSystemLogs_CL | where JobName_s == "log-test-job"`
 	var result queryResponse
 	require.Eventually(t, func() bool {
@@ -130,7 +121,6 @@ func TestContainerApps_StartJobInjectsLogs(t *testing.T) {
 	table := result.Tables[0]
 	require.GreaterOrEqual(t, len(table.Rows), 2, "should have at least start and completion entries")
 
-	// Find Log_s column index
 	logIdx := -1
 	for i, col := range table.Columns {
 		if col.Name == "Log_s" {
@@ -218,11 +208,9 @@ func TestContainerApps_MultiContainerJobSharesLocalhost(t *testing.T) {
 	}, 20*time.Second, 500*time.Millisecond)
 }
 
-// acaCreateJob creates a Container Apps Job and returns its resource ID.
 func acaCreateJob(t *testing.T, rg, jobName string) {
 	t.Helper()
 
-	// Ensure resource group exists
 	rgBody := `{"location":"eastus"}`
 	rgReq, _ := http.NewRequestWithContext(ctx, "PUT",
 		baseURL+"/subscriptions/"+subscriptionID+"/resourceGroups/"+rg+"?api-version=2023-07-01",
@@ -260,7 +248,7 @@ func acaCreateJob(t *testing.T, rg, jobName string) {
 	require.Contains(t, []int{200, 201}, resp.StatusCode)
 }
 
-// acaStartExecution starts a job execution and returns the execution name from the response.
+// acaStartExecution starts an execution and returns its name.
 func acaStartExecution(t *testing.T, rg, jobName string) string {
 	t.Helper()
 	req, _ := http.NewRequestWithContext(ctx, "POST",
@@ -279,10 +267,7 @@ func acaStartExecution(t *testing.T, rg, jobName string) string {
 	return result["name"].(string)
 }
 
-// acaGetExecution returns the execution status.
-// acaWaitExecution polls acaGetExecution until the execution reaches a
-// terminal state (endTime set). The sim runs the job asynchronously, so a
-// fixed sleep races a loaded CI runner.
+// acaWaitExecution polls the execution until it is terminal (endTime set).
 func acaWaitExecution(t *testing.T, rg, jobName, execName string) map[string]any {
 	t.Helper()
 	var exec map[string]any
@@ -315,23 +300,14 @@ func acaGetExecution(t *testing.T, rg, jobName, execName string) map[string]any 
 	return result
 }
 
-// TestContainerApps_ExecutionRunningState asserts that a job execution reports
-// Running while its replica is still running, and that the Running it reports
-// is a real observation of the workload rather than a value stamped at create
-// time.
-//
-// The workload is given something to do. Reading the status immediately after
-// starting a job whose container exits at once is a race the test can only win
-// by being faster than the simulator, which is not a property of the
-// simulator — on a loaded host the execution has already finished and the
-// assertion fails for no defect at all. Sleeping in the container makes
-// "Running" the deterministic answer, and requiring it to reach a terminal
-// state afterwards is what proves the status tracks the replica instead of
-// being frozen.
+// TestContainerApps_ExecutionRunningState: an execution reports Running while
+// its replica runs, and that observation tracks the workload. The container
+// sleeps so Running is deterministic; reaching a terminal state afterwards
+// proves the status is not frozen.
 func TestContainerApps_ExecutionRunningState(t *testing.T) {
 	t.Parallel()
-	// The replica answers the SIGTERM its replicaTimeout sends, so the
-	// execution ends at the timeout rather than after the termination grace.
+	// The replica answers the SIGTERM its replicaTimeout sends, so the execution
+	// ends at the timeout, not after the termination grace.
 	acaCreateJobWithCommand(t, "status-rg", "running-job", []string{"sh", "-c", "trap 'exit 143' TERM; sleep 30 & wait $!"})
 	execName := acaStartExecution(t, "status-rg", "running-job")
 
@@ -345,8 +321,8 @@ func TestContainerApps_ExecutionRunningState(t *testing.T) {
 	assert.NotEmpty(t, props["startTime"], "a running execution reports when its replica started")
 	assert.Empty(t, props["endTime"], "a running execution has not ended")
 
-	// A status that never leaves Running would satisfy the check above just as
-	// well as one that tracks the replica, so the execution has to terminate.
+	// A status frozen at Running would pass the check above, so the execution must
+	// terminate.
 	terminal := acaWaitExecution(t, "status-rg", "running-job", execName)
 	terminalProps := terminal["properties"].(map[string]any)
 	assert.NotEqual(t, "Running", terminalProps["status"],
@@ -386,16 +362,13 @@ func TestContainerApps_ExecutionStoppedState(t *testing.T) {
 	assert.NotEmpty(t, props["endTime"])
 }
 
-// acaCreateJobWithCommand creates a Container Apps Job with a command.
 func acaCreateJobWithCommand(t *testing.T, rg, jobName string, cmd []string) {
 	acaCreateJobWithImageAndCommand(t, rg, jobName, "mirror.gcr.io/library/alpine:latest", cmd)
 }
 
-// acaCreateJobWithImageAndCommand creates a Container Apps Job with a specific image and command.
 func acaCreateJobWithImageAndCommand(t *testing.T, rg, jobName, image string, cmd []string) {
 	t.Helper()
 
-	// Ensure resource group exists
 	rgBody := `{"location":"eastus"}`
 	rgReq, _ := http.NewRequestWithContext(ctx, "PUT",
 		baseURL+"/subscriptions/"+subscriptionID+"/resourceGroups/"+rg+"?api-version=2023-07-01",
@@ -465,8 +438,7 @@ func TestContainerApps_ExecutionLogsRealOutput(t *testing.T) {
 	exec := acaWaitExecution(t, "exec-rg-b3ff", "exec-log-job", execName)
 	require.Equal(t, "Succeeded", exec["properties"].(map[string]any)["status"], "the execution ran before its output is looked for")
 
-	// Poll until the process has run and its stdout is ingested (async in the
-	// sim) — a fixed sleep races a loaded runner.
+	// Ingestion is asynchronous.
 	kql := `ContainerAppConsoleLogs_CL | where ContainerGroupName_s == "exec-log-job"`
 	var result queryResponse
 	require.Eventually(t, func() bool {
@@ -487,7 +459,6 @@ func TestContainerApps_ExecutionLogsRealOutput(t *testing.T) {
 	require.Len(t, result.Tables, 1)
 	table := result.Tables[0]
 
-	// Find Log_s column index
 	logIdx := -1
 	for i, col := range table.Columns {
 		if col.Name == "Log_s" {
@@ -497,7 +468,7 @@ func TestContainerApps_ExecutionLogsRealOutput(t *testing.T) {
 	}
 	require.GreaterOrEqual(t, logIdx, 0)
 
-	// Should have at least "Container started" and "real aca output"
+	// At least "Container started" and "real aca output".
 	var logs []string
 	for _, row := range table.Rows {
 		logs = append(logs, row[logIdx].(string))
@@ -505,11 +476,8 @@ func TestContainerApps_ExecutionLogsRealOutput(t *testing.T) {
 	assert.Contains(t, logs, "real aca output", "process stdout should appear in Log Analytics")
 }
 
-// TestContainerApps_GetJob reads back a job it creates itself. Reading one that
-// only TestContainerApps_CreateJob puts there makes the test pass or fail on
-// the order the package happens to run in, and `go test -run
-// TestContainerApps_GetJob` fails outright — so the read proves nothing about
-// the read.
+// TestContainerApps_GetJob reads back a job it creates itself, so it does not
+// depend on test order.
 func TestContainerApps_GetJob(t *testing.T) {
 	t.Parallel()
 	acaCreateJob(t, "aca-get-rg", "get-job")
@@ -527,8 +495,6 @@ func TestContainerApps_GetJob(t *testing.T) {
 	var result map[string]any
 	data, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)
-	// The decode error was discarded here, which let a body that is not JSON at
-	// all reach the assertions below as an empty map.
 	require.NoError(t, json.Unmarshal(data, &result), "decode the job: %s", data)
 	assert.Equal(t, "get-job", result["name"])
 	assert.Equal(t, "eastus", result["location"])
@@ -537,7 +503,7 @@ func TestContainerApps_GetJob(t *testing.T) {
 		"/subscriptions/"+subscriptionID+"/resourceGroups/aca-get-rg/providers/Microsoft.App/jobs/get-job",
 		result["id"], "the job reports its own canonical Azure Resource Manager id")
 
-	// The configuration the create sent has to come back, not just the name.
+	// The configuration the create sent comes back, not just the name.
 	properties, ok := result["properties"].(map[string]any)
 	require.True(t, ok, "the job carries a properties object: %s", data)
 	configuration, ok := properties["configuration"].(map[string]any)
@@ -554,13 +520,11 @@ func TestContainerApps_GetJob(t *testing.T) {
 	assert.Equal(t, "mirror.gcr.io/library/alpine:latest", container["image"])
 }
 
-// ensureRG creates a resource group via raw HTTP (needed before SDK calls).
 func ensureRG(t *testing.T, rg string) {
 	t.Helper()
 	ensureRGIn(t, subscriptionID, rg)
 }
 
-// ensureRGIn creates a resource group in a subscription other than the suite's.
 func ensureRGIn(t *testing.T, subscription, rg string) {
 	t.Helper()
 	rgBody := `{"location":"eastus"}`
@@ -609,7 +573,6 @@ func TestSDK_ContainerApps_CreateAndGetJob(t *testing.T) {
 	assert.Equal(t, "Succeeded", string(*job.Properties.ProvisioningState))
 	assert.Equal(t, "eastus", *job.Location)
 
-	// GET the same job
 	getResp, err := client.Get(ctx, rg, "sdk-test-job", nil)
 	require.NoError(t, err)
 	assert.Equal(t, "sdk-test-job", *getResp.Name)
@@ -624,7 +587,6 @@ func TestSDK_ContainerApps_StartAndListExecutions(t *testing.T) {
 	jobsClient, err := armappcontainers.NewJobsClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)
 
-	// Create job with short timeout
 	poller, err := jobsClient.BeginCreateOrUpdate(ctx, rg, "sdk-exec-job", armappcontainers.Job{
 		Location: to.Ptr("eastus"),
 		Properties: &armappcontainers.JobProperties{
@@ -647,7 +609,6 @@ func TestSDK_ContainerApps_StartAndListExecutions(t *testing.T) {
 	_, err = poller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 
-	// Start execution
 	startPoller, err := jobsClient.BeginStart(ctx, rg, "sdk-exec-job", nil)
 	require.NoError(t, err)
 
@@ -657,9 +618,7 @@ func TestSDK_ContainerApps_StartAndListExecutions(t *testing.T) {
 	execName := *execResp.Name
 	assert.NotEmpty(t, execName)
 
-	// Poll the executions list until the execution appears in a terminal
-	// (Succeeded) state — completion is async in the sim, so a fixed sleep
-	// races a loaded runner.
+	// Completion is asynchronous.
 	execClient, err := armappcontainers.NewJobsExecutionsClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)
 
@@ -693,7 +652,6 @@ func TestSDK_ContainerApps_ListByResourceGroup(t *testing.T) {
 	client, err := armappcontainers.NewJobsClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)
 
-	// Create two jobs
 	for _, name := range []string{"sdk-list-job-a", "sdk-list-job-b"} {
 		p, err := client.BeginCreateOrUpdate(ctx, rg, name, armappcontainers.Job{
 			Location: to.Ptr("eastus"),
@@ -714,7 +672,6 @@ func TestSDK_ContainerApps_ListByResourceGroup(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	// List jobs
 	pager := client.NewListByResourceGroupPager(rg, nil)
 	var jobs []*armappcontainers.Job
 	for pager.More() {
@@ -740,7 +697,6 @@ func TestSDK_ContainerApps_DeleteJob(t *testing.T) {
 	client, err := armappcontainers.NewJobsClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)
 
-	// Create job
 	p, err := client.BeginCreateOrUpdate(ctx, rg, "sdk-del-job", armappcontainers.Job{
 		Location: to.Ptr("eastus"),
 		Properties: &armappcontainers.JobProperties{
@@ -759,13 +715,11 @@ func TestSDK_ContainerApps_DeleteJob(t *testing.T) {
 	_, err = p.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 
-	// Delete job
 	delPoller, err := client.BeginDelete(ctx, rg, "sdk-del-job", nil)
 	require.NoError(t, err)
 	_, err = delPoller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 
-	// GET should 404
 	_, err = client.Get(ctx, rg, "sdk-del-job", nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "ResourceNotFound")
@@ -804,7 +758,7 @@ func TestContainerApps_StopNonExistentExecution(t *testing.T) {
 	rg := "sdk-aca-err-rg"
 	ensureRG(t, rg)
 
-	// Create a job first so the stop fails on the execution, not the job
+	// Create the job so the stop fails on the execution, not the job.
 	acaCreateJob(t, rg, "stop-err-job")
 
 	req, _ := http.NewRequestWithContext(ctx, "POST",

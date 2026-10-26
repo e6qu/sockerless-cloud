@@ -13,22 +13,22 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/msgq"
 )
 
-// Azure Service Bus message store, shared by the REST and AMQP data planes.
-// Every queue, topic subscription and dead-letter sub-queue is one msgq.Queue
-// under `{namespace}/{path}`, where a subscription's path is `{topic}/{sub}`
-// and a dead-letter sub-queue's is `{entity}/$DeadLetterQueue`. The entity's
-// own settings — lockDuration, maxDeliveryCount, duplicate detection,
-// defaultMessageTimeToLive, deadLetteringOnMessageExpiration — drive it.
+// The Service Bus message store, shared by the REST and AMQP data planes. Each
+// queue, subscription and dead-letter sub-queue is one msgq.Queue under
+// `{namespace}/{path}` (`{topic}/{sub}` for a subscription,
+// `{entity}/$DeadLetterQueue` for dead letters), driven by the entity's
+// lockDuration, maxDeliveryCount, duplicate detection,
+// defaultMessageTimeToLive and deadLetteringOnMessageExpiration.
 
-// sbPayload is a stored message. AMQP carries the message exactly as an AMQP
-// sender sent it, so a receiver gets back every section the sender set.
+// AMQP carries the message exactly as the sender sent it, so a receiver gets
+// back every section the sender set.
 type sbPayload struct {
 	Body         []byte `json:"body,omitempty"`
 	ContentType  string `json:"contentType,omitempty"`
 	BrokerHeader string `json:"brokerHeader,omitempty"`
 	AMQP         []byte `json:"amqp,omitempty"`
-	// Deferred messages stay in the entity but are only received by
-	// sequence number.
+	// Deferred messages stay in the entity but are received only by sequence
+	// number.
 	Deferred                   bool           `json:"deferred,omitempty"`
 	DeadLetterReason           string         `json:"deadLetterReason,omitempty"`
 	DeadLetterErrorDescription string         `json:"deadLetterErrorDescription,omitempty"`
@@ -38,18 +38,15 @@ type sbPayload struct {
 
 type sbQueueRecord struct {
 	Queue msgq.Queue[sbPayload] `json:"queue"`
-	// ScheduleSeq and Scheduled belong to a topic's record: a topic holds no
-	// messages of its own, so the sequence numbers schedule-message returns for
-	// it name the message id it fanned out to its subscriptions.
-	ScheduleSeq uint64            `json:"scheduleSeq,omitempty"`
-	Scheduled   map[uint64]string `json:"scheduled,omitempty"`
-	// Sessions holds the state and lock of each session of a session-enabled
-	// queue or subscription.
-	Sessions map[string]sbSessionRecord `json:"sessions,omitempty"`
+	// A topic holds no messages of its own, so the sequence numbers
+	// schedule-message returns for it name the message it fanned out.
+	ScheduleSeq uint64                     `json:"scheduleSeq,omitempty"`
+	Scheduled   map[uint64]string          `json:"scheduled,omitempty"`
+	Sessions    map[string]sbSessionRecord `json:"sessions,omitempty"`
 }
 
-// sbSessionRecord is one message session: the state its receivers set and the
-// receiver link that holds its lock until LockedUntil.
+// The state its receivers set, and the receiver link holding its lock until
+// LockedUntil.
 type sbSessionRecord struct {
 	State       []byte `json:"state,omitempty"`
 	Owner       string `json:"owner,omitempty"`
@@ -81,9 +78,9 @@ func sbDeadLetterPath(path string) string {
 
 var sbDurationPattern = regexp.MustCompile(`^P(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?)?$`)
 
-// sbParseDuration reads the xs:duration day-time spelling Service Bus uses
-// (PT1M, P10675199DT2H48M5.4775807S). A duration past what time.Duration
-// holds — the service's "never" — is math.MaxInt64.
+// The xs:duration day-time spelling Service Bus uses (PT1M,
+// P10675199DT2H48M5.4775807S); a duration past time.Duration — the service's
+// "never" — is math.MaxInt64.
 func sbParseDuration(s string) (time.Duration, bool) {
 	m := sbDurationPattern.FindStringSubmatch(s)
 	if m == nil || s == "P" || s == "PT" {
@@ -112,8 +109,6 @@ func sbParseDuration(s string) (time.Duration, bool) {
 	return time.Duration(secs * float64(time.Second)), true
 }
 
-// sbEntitySettings are the settings of one queue, subscription or
-// dead-letter sub-queue that delivery honours.
 type sbEntitySettings struct {
 	requiresSession    bool
 	lock               time.Duration
@@ -159,8 +154,7 @@ func sbSettingsFrom(props map[string]any) sbEntitySettings {
 	return s
 }
 
-// sbSettings resolves the entity a data-plane path addresses. An entity the
-// namespace does not define delivers with the service defaults.
+// An entity the namespace does not define delivers with the service defaults.
 func sbSettings(namespace, path string) sbEntitySettings {
 	if sbIsDeadLetterPath(path) {
 		parent := sbSettings(namespace, path[:strings.LastIndex(path, "/")])
@@ -178,8 +172,7 @@ func sbSettings(namespace, path string) sbEntitySettings {
 	return sbSettingsFrom(nil)
 }
 
-// sbTopicDedup returns the duplicate-detection window of a topic, zero when
-// the path is not a topic that detects duplicates.
+// Zero when the path is not a topic that detects duplicates.
 func sbTopicDedup(namespace, path string) time.Duration {
 	t, ok := sbTopics.Get(sbAdminTopicID(namespace, path))
 	if !ok {
@@ -188,8 +181,8 @@ func sbTopicDedup(namespace, path string) time.Duration {
 	return sbSettingsFrom(t.Properties).dedup
 }
 
-// sbSendPaths resolves a send address to the stores it lands in: a topic fans
-// out to its subscriptions, and a topic without subscriptions keeps nothing.
+// A topic fans out to its subscriptions; one without subscriptions keeps
+// nothing.
 func sbSendPaths(namespace, path string) []string {
 	if strings.Contains(path, "/") {
 		return []string{path}
@@ -200,19 +193,17 @@ func sbSendPaths(namespace, path string) []string {
 	return []string{path}
 }
 
-// sbOutgoing is a message a sender hands the service.
 type sbOutgoing struct {
 	payload   sbPayload
 	messageID string
 	ttl       time.Duration
 	delay     time.Duration
-	// sessionID is the message's session, which a session-enabled entity
-	// delivers only to the receiver holding that session's lock.
+	// A session-enabled entity delivers the message only to the receiver holding
+	// that session's lock.
 	sessionID string
 }
 
-// sbSend enqueues a message at an address and returns the stores it reached;
-// a duplicate inside the detection window reaches none.
+// A duplicate inside the detection window reaches no store.
 func sbSend(namespace, address string, out sbOutgoing) []string {
 	if out.messageID == "" {
 		out.messageID = sim.NewUUID()
@@ -236,9 +227,8 @@ func sbSend(namespace, address string, out sbOutgoing) []string {
 	return reached
 }
 
-// sbEnqueue stores a message in one queue or subscription and returns its
-// sequence number there. A scheduled message becomes receivable at its
-// scheduled time, when the receivers waiting on the entity are handed it.
+// A scheduled message becomes receivable at its scheduled time, when waiting
+// receivers are handed it.
 func sbEnqueue(namespace, path string, out sbOutgoing, now time.Time) (uint64, bool) {
 	settings := sbSettings(namespace, path)
 	opts := msgq.EnqueueOpts{ID: out.messageID, Delay: out.delay, TTL: settings.ttl, Group: out.sessionID}
@@ -262,9 +252,8 @@ func sbEnqueue(namespace, path string, out sbOutgoing, now time.Time) (uint64, b
 	return stored.Seq, dup
 }
 
-// sbSchedule enqueues messages at their scheduled enqueue time and returns
-// the sequence numbers that cancel them. A topic's messages go to its
-// subscriptions, so its sequence numbers are the topic's own.
+// A topic's messages go to its subscriptions, so the sequence numbers are the
+// topic's own.
 func sbSchedule(namespace, entity string, outs []sbOutgoing) []int64 {
 	_, topic := sbTopics.Get(sbAdminTopicID(namespace, entity))
 	now := time.Now()
@@ -293,8 +282,6 @@ func sbSchedule(namespace, entity string, outs []sbOutgoing) []int64 {
 	return seqs
 }
 
-// sbCancelScheduled removes scheduled messages that have not yet been
-// enqueued.
 func sbCancelScheduled(namespace, entity string, seqs []int64) {
 	now := time.Now()
 	if _, topic := sbTopics.Get(sbAdminTopicID(namespace, entity)); topic {
@@ -323,9 +310,8 @@ func sbCancelScheduled(namespace, entity string, seqs []int64) {
 	})
 }
 
-// sbReceive takes up to max messages from an entity. peekLock locks them for
-// the entity's lockDuration; otherwise they are removed as they are handed
-// over. A session receiver names its session and takes only that session's
+// peekLock locks the messages for the entity's lockDuration; otherwise they
+// are removed as handed over. A session receiver takes only its session's
 // messages. Messages past maxDeliveryCount, and expired ones when the entity
 // dead-letters on expiration, move to the dead-letter sub-queue.
 func sbReceive(namespace, path, session string, max int, peekLock bool) ([]msgq.Message[sbPayload], time.Duration) {
@@ -359,8 +345,7 @@ func sbReceive(namespace, path, session string, max int, peekLock bool) ([]msgq.
 	return got.Leased, settings.lock
 }
 
-// sbDeadLetter moves messages into the entity's dead-letter sub-queue with
-// the reason Service Bus records on them.
+// With the reason Service Bus records on them.
 func sbDeadLetter(namespace, path string, msgs []msgq.Message[sbPayload], reason, description string) {
 	if len(msgs) == 0 || sbIsDeadLetterPath(path) {
 		return
@@ -379,25 +364,21 @@ func sbDeadLetter(namespace, path string, msgs []msgq.Message[sbPayload], reason
 	sbNotifyReceivers(namespace, sbDeadLetterPath(path))
 }
 
-// sbNotifyReceivers wakes the receivers waiting on path and hands its
-// available messages to the AMQP receivers holding credit for it.
 func sbNotifyReceivers(namespace, path string) {
 	sbSignalEnqueue(namespace, path)
 	sbHandToAMQPReceivers(namespace, path)
 }
 
-// sbHandToAMQPReceivers hands the messages available at path to the AMQP
-// receivers holding credit for it. It runs on a goroutine of its own because
-// a receive can make messages available while its connection's lock is held.
+// On a goroutine of its own, because a receive can make messages available
+// while its connection's lock is held.
 func sbHandToAMQPReceivers(namespace, path string) {
 	bg.Go(func() {
-		// A failed transfer means the receiver's connection is going away;
-		// its serve loop tears the connection down and the messages stay.
+		// A failed transfer means the receiver's connection is going away; its serve
+		// loop tears it down and the messages stay.
 		_ = sbAMQPDeliverAvailableMessages(namespace, []string{path})
 	})
 }
 
-// sbSettlement is a receiver's verdict on a locked message.
 type sbSettlement struct {
 	kind                       sbSettleKind
 	deadLetterReason           string
@@ -415,8 +396,7 @@ const (
 	sbDeadLetterIt
 )
 
-// sbSettle applies a settlement to the message a lock token names. It
-// returns errSBLockLost when the lock expired or never existed.
+// errSBLockLost when the lock expired or never existed.
 func sbSettle(namespace, path, lockToken string, s sbSettlement) error {
 	settings := sbSettings(namespace, path)
 	pol, now := settings.policy(), time.Now()
@@ -464,7 +444,6 @@ func sbSettle(namespace, path, lockToken string, s sbSettlement) error {
 	return nil
 }
 
-// sbRenewLock extends a lock by the entity's lockDuration from now.
 func sbRenewLock(namespace, path, lockToken string) (time.Time, error) {
 	settings := sbSettings(namespace, path)
 	now := time.Now()
@@ -479,15 +458,12 @@ func sbRenewLock(namespace, path, lockToken string) (time.Time, error) {
 	return now.Add(settings.lock), nil
 }
 
-// sbPeek returns up to n messages from fromSeq on, locked or not, without
-// locking them.
+// Locked or not, without locking them.
 func sbPeek(namespace, path string, fromSeq uint64, n int) []msgq.Message[sbPayload] {
 	rec, _ := sbQueueDurable.Get(sbQueueKey(namespace, path))
 	return rec.Queue.Peek(fromSeq, n, false, sbSettings(namespace, path).policy(), time.Now())
 }
 
-// sbReceiveDeferred locks the deferred messages with the given sequence
-// numbers.
 func sbReceiveDeferred(namespace, path string, seqs []uint64) []msgq.Message[sbPayload] {
 	settings := sbSettings(namespace, path)
 	want := map[uint64]bool{}
@@ -505,10 +481,8 @@ func sbReceiveDeferred(namespace, path string, seqs []uint64) []msgq.Message[sbP
 	return got.Leased
 }
 
-// sbQueueCounts reports the total and currently deliverable message counts
-// of an entity, and the count of its dead-letter sub-queue — the numbers the
-// admin plane's MessageCount, ActiveMessageCount and DeadLetterMessageCount
-// reflect on real Service Bus.
+// The numbers the admin plane's MessageCount, ActiveMessageCount and
+// DeadLetterMessageCount report.
 func sbQueueCounts(namespace, path string) (total int64, active, dead int32) {
 	rec, _ := sbQueueDurable.Get(sbQueueKey(namespace, path))
 	counts := rec.Queue.Count(sbSettings(namespace, path).policy(), time.Now())
@@ -516,8 +490,7 @@ func sbQueueCounts(namespace, path string) (total int64, active, dead int32) {
 	return int64(len(rec.Queue.Messages)), int32(counts.Available), int32(len(dl.Queue.Messages))
 }
 
-// sbQueueBytes is the size of the messages an entity and its dead-letter
-// sub-queue hold, the figure the admin plane's SizeInBytes reports.
+// The admin plane's SizeInBytes.
 func sbQueueBytes(namespace, path string) int64 {
 	var size int64
 	for _, p := range []string{path, sbDeadLetterPath(path)} {

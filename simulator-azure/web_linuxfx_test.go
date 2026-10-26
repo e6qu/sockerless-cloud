@@ -2,15 +2,9 @@ package main
 
 import "testing"
 
-// TestSiteContainerImageDistinguishesAStackFromAnImage pins the difference
-// linuxFxVersion's prefix makes.
-//
-// The field names two different things. "DOCKER|" and its siblings name a
-// container image; a built-in runtime stack names a version of a platform
-// image App Service supplies. Reading whatever follows the bar as an image
-// treated the second as the first, so a site configured the ordinary way —
-// "PHP|8.2" — became an attempt to pull an image called "8.2", and the failure
-// read as a missing image rather than as a stack this simulator does not run.
+// "DOCKER|" and its siblings name a container image; a built-in stack such as
+// "PHP|8.2" names a version of a platform image App Service supplies, never an
+// image called "8.2".
 func TestSiteContainerImageDistinguishesAStackFromAnImage(t *testing.T) {
 	site := func(fx string) *Site {
 		return &Site{Properties: SiteProperties{SiteConfig: &SiteConfig{LinuxFxVersion: fx}}}
@@ -38,17 +32,15 @@ func TestSiteContainerImageDistinguishesAStackFromAnImage(t *testing.T) {
 		}
 	}
 
-	// The specific regression: a stack's version is never mistaken for an
-	// image name.
+	// A stack's version is never mistaken for an image name.
 	if got := siteContainerImage(site("PHP|8.2")); got == "8.2" {
 		t.Fatal(`"PHP|8.2" resolved to the image "8.2"; a stack version is not an image`)
 	}
 }
 
-// TestSiteBuiltInStackRunsOnlyWebAppsOnCataloguedStacks pins which sites run a
-// web stack's platform image: a web app whose linuxFxVersion names a
-// catalogued stack, in any letter case. A function app runs on the Functions
-// host instead, and an uncatalogued stack has no image here.
+// A web app whose linuxFxVersion names a catalogued stack, in any case, runs
+// the stack's image; a function app runs the Functions host, and an
+// uncatalogued stack has no image.
 func TestSiteBuiltInStackRunsOnlyWebAppsOnCataloguedStacks(t *testing.T) {
 	site := func(kind, fx string) *Site {
 		return &Site{Kind: kind, Properties: SiteProperties{SiteConfig: &SiteConfig{LinuxFxVersion: fx}}}
@@ -73,9 +65,8 @@ func TestSiteBuiltInStackRunsOnlyWebAppsOnCataloguedStacks(t *testing.T) {
 	}
 }
 
-// TestSitePlatformImageRunsFunctionAppsOnTheFunctionsHost pins which image a
-// site on a built-in stack runs: a web app runs its stack's platform image,
-// and a function app runs the Azure Functions host image of its runtime.
+// A web app runs its stack's platform image; a function app runs its runtime's
+// Functions host image.
 func TestSitePlatformImageRunsFunctionAppsOnTheFunctionsHost(t *testing.T) {
 	site := func(kind, fx string) *Site {
 		return &Site{Kind: kind, Properties: SiteProperties{SiteConfig: &SiteConfig{LinuxFxVersion: fx}}}

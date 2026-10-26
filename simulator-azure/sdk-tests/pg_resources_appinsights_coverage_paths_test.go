@@ -1,15 +1,9 @@
 package azure_sdk_test
 
-// Literal ARM path coverage doc for the PostgreSQL flexible-server, Resources,
-// Subscriptions, and Application Insights ratchet.
-//
-// Every route below is a real route mounted in simulator-azure/*.go and driven
-// by a genuine SDK call in this package (postgres_more_test.go,
-// resourcesarm_test.go, subscriptionsarm_test.go, appinsights_more_test.go).
-// The azure-sdk-for-go ARM clients build request URLs internally, so the literal
-// paths never appear in the test source; this block records them so the
-// simulator-testing-contract hook (which greps changed test files for each
-// route's literal path) can see the coverage.
+// The ARM clients build request URLs internally, so the literal routes these
+// tests drive never appear in test source. List them for
+// scripts/check-simulator-tests.sh, which matches a newly mounted route's
+// literal path in the changed test files.
 //
 // Microsoft.DBforPostgreSQL/flexibleServers:
 //   GET /subscriptions/{subscriptionId}/providers/Microsoft.DBforPostgreSQL/flexibleServers

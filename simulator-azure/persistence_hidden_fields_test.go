@@ -9,11 +9,9 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// storeReopenRoundTrip persists one record into a fresh SQLite-backed store,
-// closes the database, reopens the same directory, and returns the record read
-// back — the exact lifecycle a SIM_PERSIST=true simulator restart puts every
-// stored resource through. Hidden (json:"-") fields ride the persistence
-// sidecar, so a plain JSON round-trip cannot stand in for this check.
+// storeReopenRoundTrip closes and reopens the SQLite store, as a SIM_PERSIST
+// restart does. Hidden (json:"-") fields ride the persistence sidecar, so a JSON
+// round-trip cannot stand in for this.
 func storeReopenRoundTrip[T any](t *testing.T, table string, item T) T {
 	t.Helper()
 	dir := t.TempDir()
@@ -46,11 +44,8 @@ func storeReopenRoundTrip[T any](t *testing.T, table string, item T) T {
 	return got
 }
 
-// TestCosmosDocumentPersistenceRoundTrip asserts a stored Cosmos document
-// keeps its Account/DB/Coll addressing across a store reopen. cosmosDocsFor
-// filters on those fields, so dropping them makes every persisted document
-// unreachable by QUERY (and list) after a restart while point reads still
-// work — the worst kind of silent data loss.
+// cosmosDocsFor filters on Account, DB and Coll, so losing them would hide
+// every persisted document from query and list while point reads still worked.
 func TestCosmosDocumentPersistenceRoundTrip(t *testing.T) {
 	got := storeReopenRoundTrip(t, "cosmos_documents_test", CosmosDocument{
 		ID:      "doc1",
@@ -81,9 +76,7 @@ func TestCosmosDocumentPersistenceRoundTrip(t *testing.T) {
 	}
 }
 
-// TestCosmosScriptPersistenceRoundTrip asserts stored procedures / UDFs /
-// triggers keep their container addressing and kind across a store reopen —
-// the script list and execute handlers filter on all four hidden fields.
+// The script list and execute handlers filter on all four hidden fields.
 func TestCosmosScriptPersistenceRoundTrip(t *testing.T) {
 	got := storeReopenRoundTrip(t, "cosmos_scripts_test", CosmosScript{
 		Account: "acct1",
@@ -102,9 +95,8 @@ func TestCosmosScriptPersistenceRoundTrip(t *testing.T) {
 	}
 }
 
-// TestSiteAzureStorageAccountsPersistenceRoundTrip asserts a site's Azure
-// Files mount dictionary survives a store reopen while staying off the
-// Microsoft.Web site wire shape (its own config sub-resource serves it).
+// The mounts stay off the site wire shape; their own config sub-resource
+// serves them.
 func TestSiteAzureStorageAccountsPersistenceRoundTrip(t *testing.T) {
 	got := storeReopenRoundTrip(t, "azf_sites_test", Site{
 		ID:       "/subscriptions/s/resourceGroups/rg/providers/Microsoft.Web/sites/app1",
@@ -142,8 +134,6 @@ func TestSiteAzureStorageAccountsPersistenceRoundTrip(t *testing.T) {
 	}
 }
 
-// TestFunctionEnvelopePersistenceRoundTrip asserts the internal short function
-// name survives a store reopen without appearing on the wire.
 func TestFunctionEnvelopePersistenceRoundTrip(t *testing.T) {
 	got := storeReopenRoundTrip(t, "azf_function_configs_test", FunctionEnvelope{
 		ID:           "/subscriptions/s/resourceGroups/rg/providers/Microsoft.Web/sites/app1/functions/fn1",
@@ -163,9 +153,7 @@ func TestFunctionEnvelopePersistenceRoundTrip(t *testing.T) {
 	}
 }
 
-// TestEHEventHubPersistenceRoundTrip asserts an Event Hub's CreatedAt survives
-// a store reopen — the hub's runtime metadata reports it and it is not part of
-// the ARM wire shape.
+// The hub's runtime metadata reports CreatedAt; the ARM wire shape does not.
 func TestEHEventHubPersistenceRoundTrip(t *testing.T) {
 	created := time.Date(2026, 7, 1, 12, 30, 0, 0, time.UTC)
 	got := storeReopenRoundTrip(t, "eh_eventhubs_test", EHEventHub{
@@ -186,10 +174,8 @@ func TestEHEventHubPersistenceRoundTrip(t *testing.T) {
 	}
 }
 
-// TestStaticSiteCustomDomainPersistenceRoundTrip asserts a custom domain
-// keeps its write-only validation method across a store reopen — the
-// re-validation on later reads checks the DNS record kind the caller asked
-// for — while the wire shape never carries it.
+// Re-validation checks the DNS record kind the caller asked for, which the wire
+// never carries.
 func TestStaticSiteCustomDomainPersistenceRoundTrip(t *testing.T) {
 	got := storeReopenRoundTrip(t, "web_static_site_custom_domains_test", StaticSiteCustomDomainOverviewARMResource{
 		ID:   "/subscriptions/s/resourceGroups/rg/providers/Microsoft.Web/staticSites/x/customDomains/www.example.com",
@@ -217,10 +203,7 @@ func TestStaticSiteCustomDomainPersistenceRoundTrip(t *testing.T) {
 	}
 }
 
-// TestStaticSiteBasicAuthPersistenceRoundTrip asserts the basic-auth password
-// survives a store reopen through the persistence sidecar — real Azure keeps
-// the configured password while only reporting secretState — and never
-// appears on the wire.
+// Azure keeps the password while reporting only secretState.
 func TestStaticSiteBasicAuthPersistenceRoundTrip(t *testing.T) {
 	got := storeReopenRoundTrip(t, "web_static_site_basic_auth_test", StaticSiteBasicAuthPropertiesARMResource{
 		ID:   "/subscriptions/s/resourceGroups/rg/providers/Microsoft.Web/staticSites/x/basicAuth/default",
@@ -247,10 +230,7 @@ func TestStaticSiteBasicAuthPersistenceRoundTrip(t *testing.T) {
 	}
 }
 
-// TestWebCertificatePersistenceRoundTrip asserts an App Service certificate's
-// uploaded PFX archive and password survive a store reopen through the
-// persistence sidecar — real App Service retains the uploaded material while
-// pfxBlob and password stay x-ms-secret — and never appear on the wire.
+// App Service retains the uploaded PFX and password, which are x-ms-secret.
 func TestWebCertificatePersistenceRoundTrip(t *testing.T) {
 	valid := true
 	got := storeReopenRoundTrip(t, "web_certificates_test", WebCertificate{

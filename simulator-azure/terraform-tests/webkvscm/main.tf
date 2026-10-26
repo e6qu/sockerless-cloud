@@ -7,13 +7,11 @@ terraform {
   }
 }
 
-# Standalone App Service configuration run by
-# TestTerraformWebAppKeyVaultReferenceAndSourceControl: a Linux custom-container
-# web app resolves a Key Vault reference in its app settings through the
-# user-assigned identity key_vault_reference_identity_id names, which the
-# vault's access policy grants, and azurerm_app_service_source_control deploys
-# the repository the test serves into the app's wwwroot. The container answers
-# with the resolved setting and the deployed page.
+# Run by TestTerraformWebAppKeyVaultReferenceAndSourceControl: a Linux
+# custom-container web app resolves a Key Vault reference in its app settings
+# through the user-assigned identity key_vault_reference_identity_id names,
+# and azurerm_app_service_source_control deploys the test's repository into
+# wwwroot.
 
 variable "endpoint" {
   description = "Simulator endpoint URL"
@@ -92,9 +90,9 @@ resource "azurerm_service_plan" "kvscm" {
   sku_name            = "S1"
 }
 
-# busybox nc answers each connection on WEBSITES_PORT after reading the
-# request's headers, with the resolved DB setting and the deployed page, then
-# the token the app's identity endpoint issues its user-assigned identity.
+# busybox nc answers on WEBSITES_PORT, after reading the request headers, with
+# the resolved DB setting, the deployed page, and the identity endpoint's token
+# for the user-assigned identity.
 resource "azurerm_linux_web_app" "kvscm" {
   name                            = "tf-azrm-kvscm-app"
   resource_group_name             = azurerm_resource_group.kvscm.name

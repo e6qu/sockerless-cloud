@@ -21,14 +21,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// CLI coverage for the App Service functions-keys, webjobs and
-// deployment-extras surfaces. Native az commands (az functionapp keys, az
-// functionapp function keys, az webapp webjob triggered/continuous, az webapp
-// deployment user, az webapp deployment list-publishing-credentials) run
-// against a TLS simulator through the CLI's own login flow; the operations no
-// az command wraps (MSDeploy/OneDeploy extension PUTs, deploymentStatus,
-// sourcecontrols, host sync actions, newpassword, the invoke path) go through
-// az rest. Routes exercised:
+// Native az commands (`az functionapp keys`, `az functionapp function keys`,
+// `az webapp webjob`, `az webapp deployment user`,
+// `az webapp deployment list-publishing-credentials`) run logged in to a TLS
+// simulator; the operations no az command wraps go through `az rest`.
 //
 //	POST /sites/{siteName}/host/default/listkeys (+ slot)
 //	PUT+DELETE /sites/{siteName}/host/default/{keyType}/{keyName}
@@ -65,8 +61,8 @@ import (
 
 const stage3CLIAlpine = "mirror.gcr.io/library/alpine:3.20"
 
-// stage3PullImage pulls the webjob workload image into the local daemon so
-// the simulator's if-not-present policy finds it warm.
+// stage3PullImage warms the local daemon so the simulator's if-not-present
+// pull policy finds the image.
 func stage3PullImage(t *testing.T, image string) {
 	t.Helper()
 	if err := baseimage.Ensure(image); err != nil {
@@ -74,8 +70,8 @@ func stage3PullImage(t *testing.T, image string) {
 	}
 }
 
-// stage3Zip builds an in-memory deployment package (shell scripts carry the
-// executable bit).
+// stage3Zip builds an in-memory deployment package; shell scripts carry the
+// executable bit.
 func stage3Zip(t *testing.T, files map[string]string) []byte {
 	t.Helper()
 	var buf bytes.Buffer
@@ -106,10 +102,8 @@ func stage3ServeZip(t *testing.T, pkg []byte) string {
 	return srv.URL + "/package.zip"
 }
 
-// TestWebAppStage3_NativeAzKeysAndWebJobs drives the keys and webjobs
-// surfaces through native az commands, logged in to a TLS simulator running
-// the full workload runtime, so a triggered run and a continuous start
-// execute real containers.
+// TestWebAppStage3_NativeAzKeysAndWebJobs runs the full workload runtime, so a
+// triggered run and a continuous start execute containers.
 func TestWebAppStage3_NativeAzKeysAndWebJobs(t *testing.T) {
 	t.Parallel()
 	stage3PullImage(t, stage3CLIAlpine)
@@ -144,9 +138,8 @@ func TestWebAppStage3_NativeAzKeysAndWebJobs(t *testing.T) {
 	require.NotEmpty(t, hostKeys.MasterKey)
 	require.NotEmpty(t, hostKeys.FunctionKeys["default"])
 
-	// az redacts the key value in the set output, so the write is verified
-	// through a fresh list read. (Each read parses into its own struct —
-	// json.Unmarshal merges into an existing map rather than replacing it.)
+	// az redacts the key value in the set output, so read it back through a fresh
+	// list into its own struct: json.Unmarshal merges into an existing map.
 	out := runCLI(t, env.command("functionapp", "keys", "set", "-g", rg, "-n", app,
 		"--key-type", "functionKeys", "--key-name", "deploy", "--key-value", "stage3-cli-secret", "-o", "json"))
 	assert.Contains(t, out, `"deploy"`)
@@ -179,7 +172,6 @@ func TestWebAppStage3_NativeAzKeysAndWebJobs(t *testing.T) {
 	runCLI(t, env.command("functionapp", "function", "keys", "delete", "-g", rg, "-n", app,
 		"--function-name", "hello", "--key-name", "ci"))
 
-	// --- Deploy a package carrying webjobs, through the MSDeploy extension ---
 	pkgURL := stage3ServeZip(t, stage3Zip(t, map[string]string{
 		"App_Data/jobs/triggered/report/run.sh":   "#!/bin/sh\necho stage3 report ran\nexit 0\n",
 		"App_Data/jobs/continuous/worker/run.sh":  "#!/bin/sh\nwhile true; do sleep 1; done\n",
@@ -236,11 +228,9 @@ func TestWebAppStage3_NativeAzKeysAndWebJobs(t *testing.T) {
 		strings.Replace(historyURL, "/history?", "/history/"+runID+"?", 1), "-o", "json"))
 	assert.Contains(t, runOut, `"Success"`)
 
-	// `az webapp log download` fetches Kudu's diagnostics dump at /dump on the
-	// SCM host, which resolves nowhere on this host, so `az rest` fetches the
-	// same URL addressed to the simulator with the SCM hostname as Host: a zip
-	// of the site's LogFiles, where the job's output landed in the day's
-	// docker log, and of its deployments.
+	// `az webapp log download` fetches Kudu's /dump on the SCM host, which resolves
+	// nowhere here, so `az rest` fetches it from the simulator with the SCM
+	// hostname as Host: a zip of the site's LogFiles and deployments.
 	logFile := filepath.Join(t.TempDir(), "logs.zip")
 	runCLI(t, env.command("rest", "--method", "GET", "--url", env.baseURL+"/dump",
 		"--headers", "Host="+app+".scm."+strings.TrimPrefix(env.baseURL, "https://"), "--output-file", logFile))
@@ -265,8 +255,8 @@ func TestWebAppStage3_NativeAzKeysAndWebJobs(t *testing.T) {
 	}
 	assert.True(t, found, "the dump carries the day's docker log; entries: %v", dumpNames)
 
-	// The continuous job auto-started with the deployment and runs a real
-	// container; stop and start are observable through its status.
+	// The continuous job auto-started with the deployment; stop and start show in
+	// its status.
 	stage3AwaitCLI(t, func() (string, bool) {
 		status := stage3ContinuousStatus(t, env, rg, app, "worker")
 		return status, status == "Running"
@@ -293,8 +283,8 @@ func TestWebAppStage3_NativeAzKeysAndWebJobs(t *testing.T) {
 	assert.Contains(t, userOut, "stage3clideployer")
 	assert.NotContains(t, userOut, "St4ge3-Passw0rd!", "the publishing password is write-only")
 
-	// The CLI prints the flattened Python SDK model, so publishingPassword is
-	// a top-level member of its output.
+	// The CLI prints the flattened Python SDK model, so publishingPassword is a
+	// top-level member.
 	var credsBefore, credsAfter struct {
 		PublishingPassword string `json:"publishingPassword"`
 	}
@@ -311,9 +301,8 @@ func TestWebAppStage3_NativeAzKeysAndWebJobs(t *testing.T) {
 		"POST /newpassword must rotate the publishing password")
 }
 
-// stage3ContinuousStatus reads a continuous webjob's status through the
-// native az command. The CLI prints the Python SDK model, which flattens the
-// ARM properties bag, so status sits at the top level of each entry.
+// stage3ContinuousStatus reads status from the top level of each entry: the
+// CLI flattens the ARM properties bag.
 func stage3ContinuousStatus(t *testing.T, env azLoginEnv, rg, app, job string) string {
 	t.Helper()
 	var jobs []struct {
@@ -329,8 +318,6 @@ func stage3ContinuousStatus(t *testing.T, env azLoginEnv, rg, app, job string) s
 	return "<absent>"
 }
 
-// stage3AwaitCLI polls until check reports done, failing with the last
-// observed state.
 func stage3AwaitCLI(t *testing.T, check func() (string, bool), what string) {
 	t.Helper()
 	deadline := time.Now().Add(120 * time.Second)
@@ -346,16 +333,14 @@ func stage3AwaitCLI(t *testing.T, check func() (string, bool), what string) {
 	}
 }
 
-// TestWebAppStage3_RestDeploymentExtrasAndInvokeAuth exercises the surfaces
-// no native az command wraps, through az rest against the suite simulator:
-// OneDeploy, deploymentStatus, sourcecontrols, host sync actions, the
-// functions admin token, and the authLevel contract on the real invoke path.
+// TestWebAppStage3_RestDeploymentExtrasAndInvokeAuth exercises what no native
+// az command wraps: OneDeploy, deploymentStatus, sourcecontrols, host sync
+// actions, the functions admin token, and authLevel on the invoke path.
 func TestWebAppStage3_RestDeploymentExtrasAndInvokeAuth(t *testing.T) {
 	t.Parallel()
 	app := "stage3-rest-app"
 	siteURL := funcURL("sites/" + app)
-	// The app runs a container that answers every request the authLevel
-	// check lets through.
+	// The app's container answers every request the authLevel check lets through.
 	runCLI(t, azRest("PUT", siteURL, fmt.Sprintf(
 		`{"location":"eastus","kind":"functionapp,linux,container","properties":{"siteConfig":{"linuxFxVersion":"DOCKER|%s","appCommandLine":"serve 80 invoked"}}}`,
 		commandImageName)))
@@ -364,7 +349,6 @@ func TestWebAppStage3_RestDeploymentExtrasAndInvokeAuth(t *testing.T) {
 	base := strings.TrimSuffix(siteURL, "?api-version="+functionsAPIVersion)
 	sub := func(path string) string { return base + "/" + path + "?api-version=2025-03-01" }
 
-	// OneDeploy: deploy a real package, observe the recorded status.
 	pkgURL := stage3ServeZip(t, stage3Zip(t, map[string]string{"index.html": "<h1>stage3 cli</h1>"}))
 	oneDeployOut := runCLI(t, azRest("PUT", sub("extensions/onedeploy"),
 		fmt.Sprintf(`{"properties":{"packageUri":"%s","type":"zip"}}`, pkgURL)))
@@ -372,8 +356,7 @@ func TestWebAppStage3_RestDeploymentExtrasAndInvokeAuth(t *testing.T) {
 	statusOut := runCLI(t, azRest("GET", sub("extensions/onedeploy"), ""))
 	assert.Contains(t, statusOut, `"status": 4`)
 
-	// The deployment produced a CsmDeploymentStatus record; its id feeds the
-	// single-status GET.
+	// The deployment's CsmDeploymentStatus ID feeds the single-status GET.
 	var statuses struct {
 		Value []struct {
 			Properties struct {
@@ -384,8 +367,8 @@ func TestWebAppStage3_RestDeploymentExtrasAndInvokeAuth(t *testing.T) {
 	}
 	parseJSON(t, runCLI(t, azRest("GET", sub("deploymentStatus"), "")), &statuses)
 	require.Len(t, statuses.Value, 1)
-	// The status follows the site's restart: RuntimeStarting until the
-	// app's container answers the platform's warmup request.
+	// The status reads RuntimeStarting until the app's container answers the
+	// platform's warmup request.
 	stage3AwaitCLI(t, func() (string, bool) {
 		var one struct {
 			Properties struct {
@@ -398,7 +381,6 @@ func TestWebAppStage3_RestDeploymentExtrasAndInvokeAuth(t *testing.T) {
 	oneStatus := runCLI(t, azRest("GET", sub("deploymentStatus/"+statuses.Value[0].Properties.DeploymentID), ""))
 	assert.Contains(t, oneStatus, "RuntimeSuccessful")
 
-	// Instance-scoped MSDeploy.
 	runCLI(t, azRest("PUT", sub("instances/0/extensions/MSDeploy"),
 		fmt.Sprintf(`{"properties":{"packageUri":"%s"}}`, pkgURL)))
 	stage3AwaitCLI(t, func() (string, bool) {
@@ -413,8 +395,7 @@ func TestWebAppStage3_RestDeploymentExtrasAndInvokeAuth(t *testing.T) {
 	instLog := runCLI(t, azRest("GET", sub("instances/0/extensions/MSDeploy/log"), ""))
 	assert.Contains(t, instLog, "Deployment succeeded")
 
-	// An app with no source control has no repository to sync; the host sync
-	// family runs.
+	// An app with no source control has no repository to sync.
 	assert.Contains(t, runStorageCLIExpectFailure(t, azRest("POST", sub("sync"), "")), "no repository to sync")
 	runCLI(t, azRest("POST", sub("host/default/sync"), ""))
 	runCLI(t, azRest("POST", sub("host/default/listsyncstatus"), ""))
@@ -422,11 +403,9 @@ func TestWebAppStage3_RestDeploymentExtrasAndInvokeAuth(t *testing.T) {
 	syncStatus := runCLI(t, azRest("POST", sub("listsyncfunctiontriggerstatus"), ""))
 	assert.Contains(t, syncStatus, "trigger_url")
 
-	// The functions admin token is a JWT string.
 	tokenOut := strings.TrimSpace(runCLI(t, azRest("GET", sub("functions/admin/token"), "")))
 	assert.True(t, strings.Count(tokenOut, ".") >= 2, "admin token must be a JWT: %s", tokenOut)
 
-	// Provider-global source controls.
 	scList := runCLI(t, azRest("GET", baseURL+"/providers/Microsoft.Web/sourcecontrols?api-version=2025-03-01", ""))
 	assert.Contains(t, scList, `"GitHub"`)
 	runCLI(t, azRest("PUT", baseURL+"/providers/Microsoft.Web/sourcecontrols/GitHub?api-version=2025-03-01",
@@ -434,8 +413,7 @@ func TestWebAppStage3_RestDeploymentExtrasAndInvokeAuth(t *testing.T) {
 	scGet := runCLI(t, azRest("GET", baseURL+"/providers/Microsoft.Web/sourcecontrols/GitHub?api-version=2025-03-01", ""))
 	assert.Contains(t, scGet, "gho_stage3cli")
 
-	// The authLevel contract on the real invoke path: a declared
-	// authLevel=function function demands a key; the listed function key and
+	// An authLevel=function function demands a key: the listed function key and
 	// the master key open it; no key answers 401.
 	runCLI(t, azRest("PUT", sub("functions/function"),
 		`{"properties":{"config":{"bindings":[{"type":"httpTrigger","direction":"in","name":"req","authLevel":"function"}]}}}`))

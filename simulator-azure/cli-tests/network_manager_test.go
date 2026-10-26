@@ -9,9 +9,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Azure Virtual Network Manager through the Azure CLI: the manager resource,
-// the commit that deploys to a set of regions, and the deployment status that
-// commit produces.
+// Azure Virtual Network Manager: the manager resource, the commit that deploys
+// to a set of regions, and the deployment status that commit produces.
 
 const networkManagerAPIVersion = "2025-03-01"
 

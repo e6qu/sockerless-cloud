@@ -14,12 +14,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// vmOperationsFixture provisions the network a machine needs and returns the
-// NIC id to attach it to, so each operation test starts from a machine that
-// really boots rather than a record of one.
+// vmOperationsFixture provisions a machine's network and returns the NIC ID.
 func vmOperationsFixture(t *testing.T, rg, prefix, addressSpace string) string {
 	t.Helper()
-	// The machine's subnet is the first /24 of the virtual network's /16.
+	// The subnet is the first /24 of the virtual network's /16.
 	space := netip.MustParsePrefix(addressSpace)
 	first := space.Addr().As4()
 	first[2] = 1
@@ -73,7 +71,6 @@ func vmOperationsFixture(t *testing.T, rg, prefix, addressSpace string) string {
 	return *nicResp.ID
 }
 
-// createOperationsVM boots a machine attached to nicID and returns its client.
 func createOperationsVM(t *testing.T, rg, vmName, nicID string, mutate func(*armcompute.VirtualMachine)) *armcompute.VirtualMachinesClient {
 	t.Helper()
 	vmClient, err := armcompute.NewVirtualMachinesClient(subscriptionID, &fakeCredential{}, clientOpts())
@@ -120,7 +117,6 @@ func createOperationsVM(t *testing.T, rg, vmName, nicID string, mutate func(*arm
 	return vmClient
 }
 
-// The reads that answer off the machine's own state.
 func TestCompute_VirtualMachineStateOperations(t *testing.T) {
 	t.Parallel()
 	const rg = "vm-ops-rg"
@@ -201,8 +197,7 @@ func TestCompute_VirtualMachineStateOperations(t *testing.T) {
 	})
 }
 
-// The operations that move the real guest. Each ends with the machine running
-// again, which is what the operation means on real hardware.
+// The operations that move the guest. Each ends with the machine running.
 func TestCompute_VirtualMachineGuestOperations(t *testing.T) {
 	t.Parallel()
 	const rg = "vm-guest-rg"
@@ -260,8 +255,7 @@ func TestCompute_VirtualMachineGuestOperations(t *testing.T) {
 	})
 }
 
-// A Spot machine is evicted, and its eviction policy decides what that leaves
-// behind.
+// A Spot machine's eviction policy decides what an eviction leaves behind.
 func TestCompute_VirtualMachineSimulateEvictionDeallocatesASpotMachine(t *testing.T) {
 	t.Parallel()
 	const rg = "vm-spot-rg"
@@ -275,10 +269,9 @@ func TestCompute_VirtualMachineSimulateEvictionDeallocatesASpotMachine(t *testin
 	_, err := vmClient.SimulateEviction(ctx, rg, vmName, nil)
 	require.NoError(t, err, "a Spot machine is evictable")
 
-	// SimulateEviction is no long-running operation: Azure answers 204 and
-	// evicts the machine afterwards, so the instance view's power state is the
-	// only thing to watch. Poll it on the one-second cadence ARM advertises in
-	// Retry-After for its quickest operations.
+	// SimulateEviction answers 204 and evicts afterwards, so watch the instance
+	// view's power state at the one-second cadence ARM advertises in Retry-After
+	// for its quickest operations.
 	deadline := time.Now().Add(5 * time.Minute)
 	for {
 		view, err := vmClient.InstanceView(ctx, rg, vmName, nil)
@@ -302,9 +295,8 @@ func TestCompute_VirtualMachineSimulateEvictionDeallocatesASpotMachine(t *testin
 	}
 }
 
-// RetrieveBootDiagnosticsData returns the console output the guest really
-// produced, stored in the account the machine names and readable back through
-// the Blob data plane.
+// RetrieveBootDiagnosticsData returns the guest's console output, stored in
+// the account the machine names and readable through Azure Blob Storage.
 func TestCompute_VirtualMachineBootDiagnostics(t *testing.T) {
 	t.Parallel()
 	const rg = "vm-bootdiag-rg"
@@ -335,13 +327,10 @@ func TestCompute_VirtualMachineBootDiagnostics(t *testing.T) {
 		"the log is stored in the account the machine names, got %s", uri)
 	assert.Contains(t, uri, "bootdiagnostics-")
 
-	// No console screenshot is claimed: the guest is a serial-console machine
-	// with no framebuffer, and a URI pointing at an image that does not exist
-	// would be worse than its absence.
+	// The serial-console guest has no framebuffer, so no screenshot URI.
 	assert.Nil(t, got.ConsoleScreenshotBlobURI)
 }
 
-// derefString reads an optional string the SDK models as a pointer.
 func derefString(v *string) string {
 	if v == nil {
 		return ""

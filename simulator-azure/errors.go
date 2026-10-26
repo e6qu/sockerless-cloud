@@ -6,9 +6,7 @@ import (
 	"net/http"
 )
 
-// AzureError writes an Azure ARM-style JSON error response.
-//
-// Azure error format:
+// AzureError writes the Azure Resource Manager error shape:
 //
 //	{"error": {"code": "ResourceNotFound", "message": "details"}}
 func AzureError(w http.ResponseWriter, code string, message string, statusCode int) {
@@ -22,7 +20,6 @@ func AzureError(w http.ResponseWriter, code string, message string, statusCode i
 	})
 }
 
-// AzureErrorf writes an Azure-style error with a formatted message.
 func AzureErrorf(w http.ResponseWriter, code string, statusCode int, format string, args ...any) {
 	AzureError(w, code, fmt.Sprintf(format, args...), statusCode)
 }

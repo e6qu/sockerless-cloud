@@ -5,9 +5,8 @@ import (
 	"testing"
 )
 
-// TestAzureTrackedResourceKeys pins the registry's key shape. Every key is the
-// lowercased "provider/type" spelling the move-hook table uses, so a
-// `resourceType eq` filter and a move hook name the same resource the same way.
+// Keys use the move-hook table's lowercased "provider/type", so a
+// `resourceType eq` filter and a move hook name a resource alike.
 func TestAzureTrackedResourceKeys(t *testing.T) {
 	if len(azureTrackedResources) == 0 {
 		t.Fatal("the resource registry is empty")
@@ -29,8 +28,6 @@ func TestAzureTrackedResourceKeys(t *testing.T) {
 			t.Errorf("registry key %q carries no tag accessors, so Microsoft.Resources/tags/default cannot reach it", key)
 		}
 	}
-	// The families the resource lists must cover, one per provider the
-	// simulator tracks resources for.
 	for _, key := range []string{
 		"microsoft.web/sites",
 		"microsoft.storage/storageaccounts",
@@ -54,9 +51,6 @@ func TestAzureTrackedResourceKeys(t *testing.T) {
 	}
 }
 
-// TestParseAzureResourceFilter covers the $filter grammar Resources_List
-// documents and real clients send, and the forms it must refuse rather than
-// silently match everything with.
 func TestParseAzureResourceFilter(t *testing.T) {
 	row := azureResourceRow{
 		ID: "/subscriptions/S/resourceGroups/rg-one/providers/" +
@@ -120,8 +114,7 @@ func TestParseAzureResourceFilter(t *testing.T) {
 		}
 	}
 
-	// An empty filter matches everything, which is how an unfiltered list
-	// reaches the same code path.
+	// An empty filter matches everything, the unfiltered path.
 	empty, err := parseAzureResourceFilter("")
 	if err != nil || empty != nil {
 		t.Fatalf("empty filter: got (%v, %v), want (nil, nil)", empty, err)
@@ -147,8 +140,6 @@ func TestParseAzureResourceFilter(t *testing.T) {
 	}
 }
 
-// TestAzureIDSegmentAfter pins the scope reading the list's scoping and its
-// resourceGroup filter both depend on.
 func TestAzureIDSegmentAfter(t *testing.T) {
 	const id = "/subscriptions/Sub-1/resourceGroups/Group-1/providers/" +
 		"Microsoft.Storage/storageAccounts/acct"
@@ -158,7 +149,6 @@ func TestAzureIDSegmentAfter(t *testing.T) {
 	if got := azureResourceGroupOfID(id); got != "Group-1" {
 		t.Errorf("resource group = %q, want %q", got, "Group-1")
 	}
-	// A subscription-scoped id carries no resource group.
 	if got := azureResourceGroupOfID("/subscriptions/Sub-1"); got != "" {
 		t.Errorf("resource group of a subscription scope = %q, want empty", got)
 	}

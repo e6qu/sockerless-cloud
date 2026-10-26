@@ -9,8 +9,6 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// vnetNameFromSubnetID extracts the VNet name from a subnet resource ID
-// (.../virtualNetworks/<vnet>/subnets/<subnet>).
 func vnetNameFromSubnetID(subnetID string) string {
 	const marker = "/virtualNetworks/"
 	i := strings.Index(subnetID, marker)
@@ -24,8 +22,6 @@ func vnetNameFromSubnetID(subnetID string) string {
 	return rest
 }
 
-// Virtual Network types
-
 type VirtualNetwork struct {
 	ID         string            `json:"id"`
 	Name       string            `json:"name"`
@@ -37,10 +33,8 @@ type VirtualNetwork struct {
 
 type VNetProperties struct {
 	AddressSpace AddressSpace `json:"addressSpace"`
-	// Subnets embeds the full child documents, which is the shape real Azure
-	// takes in and returns: `az network vnet create --subnet-name` sends the
-	// subnet inline here, and a reference-shaped member silently dropped its
-	// properties on the floor.
+	// Subnets embeds full child documents, as Azure takes and returns them:
+	// `az network vnet create --subnet-name` sends the subnet inline.
 	Subnets                     []Subnet `json:"subnets,omitempty"`
 	PrivateEndpointVNetPolicies string   `json:"privateEndpointVNetPolicies,omitempty"`
 	ProvisioningState           string   `json:"provisioningState"`
@@ -49,8 +43,6 @@ type VNetProperties struct {
 type AddressSpace struct {
 	AddressPrefixes []string `json:"addressPrefixes"`
 }
-
-// Subnet types
 
 type Subnet struct {
 	ID         string           `json:"id"`
@@ -64,17 +56,14 @@ type SubnetProperties struct {
 	AddressPrefixes      []string      `json:"addressPrefixes,omitempty"`
 	NetworkSecurityGroup *NSGReference `json:"networkSecurityGroup,omitempty"`
 	NatGateway           *SubResource  `json:"natGateway,omitempty"`
-	// RouteTable is the user-defined routing attached to the subnet. Its routes
-	// override the platform's system routes for the addresses they cover, which
-	// is what a next-hop query resolves against.
+	// Its routes override the system routes for the addresses they cover; a
+	// next-hop query resolves against them.
 	RouteTable                        *SubResource       `json:"routeTable,omitempty"`
 	Delegations                       []SubnetDelegation `json:"delegations,omitempty"`
 	ProvisioningState                 string             `json:"provisioningState"`
 	PrivateEndpointNetworkPolicies    string             `json:"privateEndpointNetworkPolicies,omitempty"`
 	PrivateLinkServiceNetworkPolicies string             `json:"privateLinkServiceNetworkPolicies,omitempty"`
-	// ServiceEndpointPolicies are the service endpoint policies enforced on
-	// traffic leaving this subnet; the policy resource reports the subnets that
-	// reference it from here.
+	// The policy resource reports the subnets that reference it from here.
 	ServiceEndpointPolicies []SubResource `json:"serviceEndpointPolicies,omitempty"`
 }
 
@@ -90,8 +79,6 @@ type SubnetDelegation struct {
 		Actions     []string `json:"actions,omitempty"`
 	} `json:"properties"`
 }
-
-// Network Security Group types
 
 type NetworkSecurityGroup struct {
 	ID         string            `json:"id"`
@@ -128,18 +115,12 @@ type SecurityRuleProperties struct {
 	Priority                   int      `json:"priority"`
 	Direction                  string   `json:"direction"`
 	ProvisioningState          string   `json:"provisioningState,omitempty"`
-	// Application security groups name the rule's endpoints by membership
-	// instead of by address. A source group contributes the addresses of its
-	// members to the rule's match; a destination group scopes the rule to the
-	// interfaces that belong to it, and the rule is not programmed on any other.
+	// A source application security group contributes its members' addresses to
+	// the match; a destination group scopes the rule to its member interfaces.
 	SourceApplicationSecurityGroups      []SubResource `json:"sourceApplicationSecurityGroups,omitempty"`
 	DestinationApplicationSecurityGroups []SubResource `json:"destinationApplicationSecurityGroups,omitempty"`
 }
 
-// NatGateway mirrors Microsoft.Network/natGateways. Sockerless flows
-// using ACA Apps with VNet integration provision a NAT gateway for
-// outbound connectivity. Field set covers what `azurerm_nat_gateway`
-// and `armnetwork.NewNatGatewaysClient` round-trip on Get/List.
 type NatGateway struct {
 	ID         string            `json:"id"`
 	Name       string            `json:"name"`
@@ -150,8 +131,6 @@ type NatGateway struct {
 	Properties NatGatewayProps   `json:"properties"`
 }
 
-// NatGatewayProps holds the per-instance configuration for a NAT
-// gateway: idle timeout, public IPs, attached subnets.
 type NatGatewayProps struct {
 	IdleTimeoutInMinutes int           `json:"idleTimeoutInMinutes,omitempty"`
 	PublicIPAddresses    []SubResource `json:"publicIpAddresses,omitempty"`
@@ -160,23 +139,19 @@ type NatGatewayProps struct {
 	ProvisioningState    string        `json:"provisioningState,omitempty"`
 }
 
-// SkuName is the standard Azure SKU envelope used by NAT gateways and
-// other resources that carry just a name.
+// SkuName is the name-only SKU envelope.
 type SkuName struct {
 	Name string `json:"name"`
-	// Tier (Regional/Global) is read back by terraform-provider-azurerm as
-	// sku_tier; it is a forces-replacement field on public IP / prefix / LB,
-	// so the create read-back must echo a non-empty default.
+	// terraform-provider-azurerm reads Tier as sku_tier, a forces-replacement field
+	// on public IPs, prefixes and load balancers, so the read-back needs a
+	// default.
 	Tier string `json:"tier,omitempty"`
 }
 
-// SubResource is the standard Azure ARM reference shape — `{"id": "..."}`.
 type SubResource struct {
 	ID string `json:"id"`
 }
 
-// RouteTable mirrors Microsoft.Network/routeTables. Custom routing
-// is provisioned by attaching a route table to a subnet.
 type RouteTable struct {
 	ID         string            `json:"id"`
 	Name       string            `json:"name"`
@@ -186,16 +161,14 @@ type RouteTable struct {
 	Properties RouteTableProps   `json:"properties"`
 }
 
-// RouteTableProps holds the per-table configuration.
 type RouteTableProps struct {
 	DisableBgpRoutePropagation bool         `json:"disableBgpRoutePropagation,omitempty"`
 	Routes                     []RouteEntry `json:"routes,omitempty"`
 	ProvisioningState          string       `json:"provisioningState,omitempty"`
 }
 
-// RouteEntry is one row in a route table — a Microsoft.Network/routeTables/routes
-// resource, addressable both inline (under routeTable.properties.routes) and as
-// a standalone sub-resource via the Routes client.
+// A route is addressable inline (routeTable.properties.routes) and as a
+// sub-resource through the Routes client.
 type RouteEntry struct {
 	ID         string          `json:"id,omitempty"`
 	Name       string          `json:"name,omitempty"`
@@ -203,8 +176,6 @@ type RouteEntry struct {
 	Properties RouteEntryProps `json:"properties"`
 }
 
-// RouteEntryProps holds the per-route configuration: address prefix +
-// next-hop type / IP.
 type RouteEntryProps struct {
 	AddressPrefix     string `json:"addressPrefix,omitempty"`
 	NextHopType       string `json:"nextHopType"`
@@ -212,7 +183,6 @@ type RouteEntryProps struct {
 	ProvisioningState string `json:"provisioningState,omitempty"`
 }
 
-// VirtualNetworkPeering mirrors Microsoft.Network/virtualNetworks/virtualNetworkPeerings.
 type VirtualNetworkPeering struct {
 	ID         string                     `json:"id,omitempty"`
 	Name       string                     `json:"name,omitempty"`
@@ -220,8 +190,6 @@ type VirtualNetworkPeering struct {
 	Properties VirtualNetworkPeeringProps `json:"properties"`
 }
 
-// VirtualNetworkPeeringProps holds the peering configuration the armnetwork
-// VirtualNetworkPeerings client round-trips on Get.
 type VirtualNetworkPeeringProps struct {
 	AllowVirtualNetworkAccess bool          `json:"allowVirtualNetworkAccess,omitempty"`
 	AllowForwardedTraffic     bool          `json:"allowForwardedTraffic,omitempty"`
@@ -234,9 +202,6 @@ type VirtualNetworkPeeringProps struct {
 	ProvisioningState         string        `json:"provisioningState,omitempty"`
 }
 
-// InterfaceTapConfiguration mirrors
-// Microsoft.Network/networkInterfaces/tapConfigurations — the virtual-network-
-// tap binding the armnetwork InterfaceTapConfigurations client CRUDs.
 type InterfaceTapConfiguration struct {
 	ID         string         `json:"id,omitempty"`
 	Name       string         `json:"name,omitempty"`
@@ -265,9 +230,9 @@ func registerNetwork(srv *sim.Server) {
 	azureVNetPeerings = sim.MakeStore[VirtualNetworkPeering](srv.DB(), "network_vnet_peerings")
 	azureLBInboundNatRules = sim.MakeStore[LoadBalancerChild](srv.DB(), "network_lb_inbound_nat_rules")
 	azureNICTapConfigs = sim.MakeStore[InterfaceTapConfiguration](srv.DB(), "network_nic_tap_configs")
-	// The Microsoft.Network move hooks read their stores through accessors at
-	// request time, so all of them register here even though the stores they
-	// read are assigned across several register functions.
+	// The move hooks read their stores through accessors at request time, so they
+	// all register here though the stores are assigned across several register
+	// functions.
 	registerNetworkResourceMoveHooks()
 
 	const armBase = "/subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Network"
@@ -276,10 +241,6 @@ func registerNetwork(srv *sim.Server) {
 	registerNetworkSecurityGroups(srv, armBase, nsgs)
 	registerNATGatewaysAndRouteTables(srv, armBase)
 
-	// Subscription-wide list-all, resource-group list, and UpdateTags
-	// (PATCH) for every top-level Microsoft.Network resource; the
-	// sub-resource collections under virtual networks, NSGs, load
-	// balancers, network interfaces and route tables.
 	registerNetworkListsAndTags(srv)
 	registerVirtualNetworkSubResources(srv)
 	registerNSGDefaultRules(srv)
@@ -288,8 +249,6 @@ func registerNetwork(srv *sim.Server) {
 	registerRouteTableRoutes(srv)
 	registerNetworkMoreOps(srv)
 
-	// Private Link (both halves), plus the Microsoft.Network resources that
-	// describe how workloads attach to a virtual network.
 	registerNetworkApplicationSecurityGroups(srv)
 	registerNetworkPrivateLinkServices(srv)
 	registerNetworkPrivateEndpoints(srv)
@@ -301,8 +260,7 @@ func registerNetwork(srv *sim.Server) {
 	registerNetworkWatchers(srv)
 }
 
-// azureTagsObject is the ARM TagsObject request body shared by every
-// Microsoft.Network UpdateTags (PATCH) operation: `{"tags": {...}}`.
+// The TagsObject body every Microsoft.Network UpdateTags takes.
 type azureTagsObject struct {
 	Tags map[string]string `json:"tags,omitempty"`
 }
@@ -315,8 +273,7 @@ func azureNetworkSubBase() string {
 	return "/subscriptions/{subscriptionId}/providers/Microsoft.Network"
 }
 
-// azureWriteList writes an ARM collection envelope (`{"value":[...]}`),
-// emitting an empty array rather than null when there are no items.
+// Emits [] rather than null.
 func azureWriteList[T any](w http.ResponseWriter, items []T) {
 	if items == nil {
 		items = []T{}
@@ -345,11 +302,8 @@ func normalizeRouteEntry(routeTableID, name string, route RouteEntry) RouteEntry
 	return route
 }
 
-// registerNetworkListsAndTags adds the subscription-wide ListAll, the
-// resource-group List (where the per-resource registrar didn't already
-// provide it), and the UpdateTags (PATCH) operation for each top-level
-// Microsoft.Network resource type. The element shapes are the same the
-// resource's own Get/Put round-trips, so the response stays spec-faithful.
+// registerNetworkListsAndTags adds ListAll, the resource-group List where the
+// per-resource registrar lacks it, and UpdateTags for each top-level type.
 func registerNetworkListsAndTags(srv *sim.Server) {
 	armBase := azureNetworkArmBase()
 	subBase := azureNetworkSubBase()
@@ -497,9 +451,8 @@ func registerNetworkListsAndTags(srv *sim.Server) {
 	})
 }
 
-// azureApplyTagsPatch reads a TagsObject body and applies it via update;
-// it returns false (after writing an error) when the body is malformed or
-// the target resource does not exist.
+// It writes the error and returns false for a malformed body or an absent
+// resource.
 func azureApplyTagsPatch(w http.ResponseWriter, r *http.Request, update func(map[string]string) bool) bool {
 	var req azureTagsObject
 	if err := sim.ReadJSON(r, &req); err != nil {
@@ -516,8 +469,7 @@ func azureApplyTagsPatch(w http.ResponseWriter, r *http.Request, update func(map
 	return true
 }
 
-// azureRefreshedVnets lists virtual networks whose ID has the given prefix,
-// each with its subnet references refreshed from the subnet store.
+// Each with its subnet references refreshed from the subnet store.
 func azureRefreshedVnets(prefix string) []VirtualNetwork {
 	vnets := azureVnets.Filter(func(v VirtualNetwork) bool { return strings.HasPrefix(v.ID, prefix) })
 	for i := range vnets {
@@ -526,27 +478,21 @@ func azureRefreshedVnets(prefix string) []VirtualNetwork {
 	return vnets
 }
 
-// registerVirtualNetworkSubResources adds the subnet list, the subnet
-// network-policy prepare/unprepare LROs, the virtual-network peering CRUD,
-// and the check-IP-availability / list-usage reads.
 func registerVirtualNetworkSubResources(srv *sim.Server) {
 	armBase := azureNetworkArmBase()
 
-	// Subnets list.
 	srv.HandleFunc("GET "+armBase+"/virtualNetworks/{vnetName}/subnets", func(w http.ResponseWriter, r *http.Request) {
 		vnetID := armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Network", "virtualNetworks", sim.PathParam(r, "vnetName"))
 		azureWriteList(w, azureSubnets.Filter(func(s Subnet) bool { return strings.HasPrefix(s.ID, vnetID+"/subnets/") }))
 	})
 
-	// Subnet network-policy prepare/unprepare — POST LROs with no resource
-	// body; real Azure returns a terminal 200 once the operation completes.
+	// POST operations with no resource body; Azure answers a terminal 200.
 	policyOp := func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}
 	srv.HandleFunc("POST "+armBase+"/virtualNetworks/{vnetName}/subnets/{subnetName}/PrepareNetworkPolicies", policyOp)
 	srv.HandleFunc("POST "+armBase+"/virtualNetworks/{vnetName}/subnets/{subnetName}/UnprepareNetworkPolicies", policyOp)
 
-	// Virtual-network peerings.
 	peeringID := func(r *http.Request) string {
 		return armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Network", "virtualNetworks", sim.PathParam(r, "vnetName"), "virtualNetworkPeerings", sim.PathParam(r, "peeringName"))
 	}
@@ -587,8 +533,8 @@ func registerVirtualNetworkSubResources(srv *sim.Server) {
 		azureWriteList(w, azureVNetPeerings.Filter(func(p VirtualNetworkPeering) bool { return strings.HasPrefix(p.ID, vnetID+"/virtualNetworkPeerings/") }))
 	})
 
-	// CheckIPAddressAvailability — reports whether a candidate private IP is
-	// free across the virtual network's stored NIC IP configurations.
+	// Checks the candidate against the virtual network's stored IP
+	// configurations.
 	srv.HandleFunc("GET "+armBase+"/virtualNetworks/{vnetName}/CheckIPAddressAvailability", func(w http.ResponseWriter, r *http.Request) {
 		ip := r.URL.Query().Get("ipAddress")
 		available := true
@@ -605,16 +551,14 @@ func registerVirtualNetworkSubResources(srv *sim.Server) {
 		})
 	})
 
-	// ListUsage — subnet IP utilization; the sim does not meter address
-	// consumption, so it reports an empty usage set.
+	// Answers an empty usage set.
 	srv.HandleFunc("GET "+armBase+"/virtualNetworks/{vnetName}/usages", func(w http.ResponseWriter, r *http.Request) {
 		azureWriteList(w, []any{})
 	})
 }
 
-// registerNSGDefaultRules exposes the read-only default security rules every
-// network security group carries. The rule set is the fixed platform default
-// Azure applies to every NSG.
+// The fixed platform default rules Azure applies to every network security
+// group.
 func registerNSGDefaultRules(srv *sim.Server) {
 	armBase := azureNetworkArmBase()
 	srv.HandleFunc("GET "+armBase+"/networkSecurityGroups/{nsgName}/defaultSecurityRules", func(w http.ResponseWriter, r *http.Request) {
@@ -638,8 +582,6 @@ func registerNSGDefaultRules(srv *sim.Server) {
 	})
 }
 
-// azureDefaultSecurityRules returns the six platform default security rules
-// Azure attaches to every network security group.
 func azureDefaultSecurityRules(nsgID string) []SecurityRule {
 	defs := []struct {
 		name     string
@@ -677,8 +619,6 @@ func azureDefaultSecurityRules(nsgID string) []SecurityRule {
 	return rules
 }
 
-// registerLoadBalancerSubResources adds the read-only child-collection lists
-// and frontend get, plus the inboundNatRules CRUD and outboundRules reads.
 func registerLoadBalancerSubResources(srv *sim.Server) {
 	armBase := azureNetworkArmBase()
 	lbID := func(r *http.Request) string {
@@ -699,7 +639,6 @@ func registerLoadBalancerSubResources(srv *sim.Server) {
 	childList("loadBalancingRules", func(lb LoadBalancer) []LoadBalancerChild { return lb.Properties.LoadBalancingRules })
 	childList("probes", func(lb LoadBalancer) []LoadBalancerChild { return lb.Properties.Probes })
 
-	// frontendIPConfigurations Get.
 	srv.HandleFunc("GET "+armBase+"/loadBalancers/{loadBalancerName}/frontendIPConfigurations/{frontendIPConfigurationName}", func(w http.ResponseWriter, r *http.Request) {
 		lb, ok := azureLBs.Get(lbID(r))
 		if !ok {
@@ -716,7 +655,6 @@ func registerLoadBalancerSubResources(srv *sim.Server) {
 		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Frontend IP configuration %q not found.", want)
 	})
 
-	// inboundNatRules CRUD + list/get, stored per-rule keyed by ARM ID.
 	inboundID := func(r *http.Request) string {
 		return lbID(r) + "/inboundNatRules/" + sim.PathParam(r, "inboundNatRuleName")
 	}
@@ -753,8 +691,8 @@ func registerLoadBalancerSubResources(srv *sim.Server) {
 		azureWriteList(w, azureLBInboundNatRules.Filter(func(c LoadBalancerChild) bool { return strings.HasPrefix(c.ID, prefix) }))
 	})
 
-	// outboundRules — read-only; only set via the parent load balancer PUT,
-	// which the sim does not currently capture, so the collection is empty.
+	// Answers an empty collection: the parent PUT's outboundRules are not
+	// captured.
 	srv.HandleFunc("GET "+armBase+"/loadBalancers/{loadBalancerName}/outboundRules", func(w http.ResponseWriter, r *http.Request) {
 		if _, ok := azureLBs.Get(lbID(r)); !ok {
 			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Load balancer %q not found.", sim.PathParam(r, "loadBalancerName"))
@@ -767,8 +705,6 @@ func registerLoadBalancerSubResources(srv *sim.Server) {
 	})
 }
 
-// registerNetworkInterfaceSubResources adds the IP-configuration reads, the
-// tap-configuration CRUD, and the effective route-table / NSG reads.
 func registerNetworkInterfaceSubResources(srv *sim.Server) {
 	armBase := azureNetworkArmBase()
 	nicID := func(r *http.Request) string {
@@ -799,7 +735,6 @@ func registerNetworkInterfaceSubResources(srv *sim.Server) {
 		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "IP configuration %q not found.", want)
 	})
 
-	// tapConfigurations CRUD.
 	tapID := func(r *http.Request) string {
 		return nicID(r) + "/tapConfigurations/" + sim.PathParam(r, "tapConfigurationName")
 	}
@@ -844,8 +779,7 @@ func registerNetworkInterfaceSubResources(srv *sim.Server) {
 		azureWriteList(w, azureNICTapConfigs.Filter(func(c InterfaceTapConfiguration) bool { return strings.HasPrefix(c.ID, prefix) }))
 	})
 
-	// Effective route table / NSG — POST LRO reads. The sim does not compute
-	// effective rules, so it returns empty result sets.
+	// Answer empty result sets: effective rules are not computed.
 	srv.HandleFunc("POST "+armBase+"/networkInterfaces/{networkInterfaceName}/effectiveRouteTable", func(w http.ResponseWriter, r *http.Request) {
 		azureWriteList(w, []any{})
 	})
@@ -854,8 +788,8 @@ func registerNetworkInterfaceSubResources(srv *sim.Server) {
 	})
 }
 
-// registerRouteTableRoutes adds the routes sub-resource CRUD; each route is
-// stored inline on its route table so the table's own Get stays consistent.
+// Each route is stored inline on its table, so the table's own Get stays
+// consistent.
 func registerRouteTableRoutes(srv *sim.Server) {
 	armBase := azureNetworkArmBase()
 	tableID := func(r *http.Request) string {
@@ -940,8 +874,6 @@ func azureSubnetsForNatGateway(natGatewayID string) []SubResource {
 	return refs
 }
 
-// azureBuildSubnet renders a stored subnet from a request body, applying the
-// defaults real Azure applies.
 func azureBuildSubnet(resourceID, subnetName string, req Subnet) Subnet {
 	privateEndpointPolicies := req.Properties.PrivateEndpointNetworkPolicies
 	if privateEndpointPolicies == "" {
@@ -970,11 +902,9 @@ func azureBuildSubnet(resourceID, subnetName string, req Subnet) Subnet {
 	}
 }
 
-// azureMaterializeSubnet validates and stores one subnet, the same way
-// whether the subnet arrived on its own PUT or inline on its virtual
-// network's — `az network vnet create --subnet-name` sends the latter. It
-// returns an empty code on success, and the ARM error triple to write
-// otherwise.
+// azureMaterializeSubnet validates and stores a subnet the same way from its
+// own PUT or inline on its virtual network's, and returns the error triple to
+// write, or an empty code.
 func azureMaterializeSubnet(sn Subnet) (string, string, int) {
 	if sn.Properties.AddressPrefix == "" && len(sn.Properties.AddressPrefixes) == 0 {
 		return "NoAddressPrefixOrPoolProvided",
@@ -986,8 +916,8 @@ func azureMaterializeSubnet(sn Subnet) (string, string, int) {
 				fmt.Sprintf("Address prefix %s of resource %s is not formatted correctly.", prefix, sn.ID), http.StatusBadRequest
 		}
 	}
-	// A subnet is carved from its virtual network's address space; the
-	// network's engine network spans that space and nothing outside it.
+	// The virtual network's engine network spans its address space and nothing
+	// outside it.
 	if vnet, ok := azureVnets.Get(azureVNetIDOfSubnet(sn.ID)); ok {
 		if outside, inside := azureSubnetInsideVNet(sn, vnet); !inside {
 			return "InvalidParameter",

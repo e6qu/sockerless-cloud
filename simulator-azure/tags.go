@@ -8,10 +8,8 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// TagsResource mirrors Microsoft.Resources/tags/default — the canonical
-// surface for managing tags on any ARM scope (subscription, resource
-// group, or individual resource) without having to PUT the full
-// resource.
+// Microsoft.Resources/tags/default manages tags on any scope without a full
+// PUT of the resource.
 type TagsResource struct {
 	ID         string   `json:"id"`
 	Name       string   `json:"name"`
@@ -19,25 +17,20 @@ type TagsResource struct {
 	Properties TagsBody `json:"properties"`
 }
 
-// TagsBody is the `properties` envelope returned by every operation
-// against /providers/Microsoft.Resources/tags/default.
 type TagsBody struct {
 	Tags map[string]string `json:"tags"`
 }
 
-// TagsPatchRequest is the body of a PATCH against
-// /providers/Microsoft.Resources/tags/default.
 type TagsPatchRequest struct {
 	Operation  string   `json:"operation"`
 	Properties TagsBody `json:"properties"`
 }
 
-// tagsStore holds the tags of the two scopes that own no resource row of their
-// own — a subscription and a management group. Every other scope's tags live
-// with the thing they tag: a resource group's on its own record, a resource's
-// on the resource, reached through the cross-slice registry. Azure Resource
-// Manager keeps exactly one set of tags per scope, so tags/default and the
-// scope's own API always report the same map. Keyed by the lowercased scope.
+// Only subscriptions and management groups, which have no record of their own,
+// keep tags here; a resource group's tags live on its record and a resource's
+// on the resource, through the registry. Azure Resource Manager keeps one set
+// per scope, so tags/default and the scope's API agree. Keyed by lowercased
+// scope.
 var tagsStore sim.Store[TagsResource]
 
 const tagsDefaultMarker = "/providers/microsoft.resources/tags/default"
@@ -45,10 +38,8 @@ const tagsDefaultMarker = "/providers/microsoft.resources/tags/default"
 func registerTags(srv *sim.Server) {
 	tagsStore = sim.MakeStore[TagsResource](srv.DB(), "azure_tags_default")
 
-	// The subscription- and resource-group-scope spellings of
-	// `Microsoft.Resources/tags/default` are fixed-depth, so they mount as
-	// ordinary mux routes (Tags_GetAtScope / CreateOrUpdateAtScope /
-	// UpdateAtScope / DeleteAtScope).
+	// Subscription and resource-group scopes are fixed-depth, so they mount as mux
+	// routes.
 	for _, scopeBase := range []string{
 		"/subscriptions/{subscriptionId}",
 		"/subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}",
@@ -60,18 +51,14 @@ func registerTags(srv *sim.Server) {
 		srv.HandleFunc("DELETE "+p, handleTagsDefaultRoute)
 	}
 
-	// Resource-scope and management-group-scope spellings sit at the end of a
-	// variable-depth ARM scope path. Go 1.22 ServeMux can't match a
-	// variable-depth scope prefix with a fixed suffix, so those are dispatched
-	// via WrapHandler (same shape as authorization.go's role-definitions
-	// dispatcher). Subscription / resource-group scopes — which carry no
-	// embedded `/providers/` — fall through to the mux routes above.
+	// Resource and management-group scopes end a variable-depth path, which Go's
+	// ServeMux cannot match with a fixed suffix, so a wrapper dispatches them, as
+	// authorization.go does role definitions.
 	srv.WrapHandler(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Match the marker case-insensitively against the ORIGINAL path's
-			// own bytes — slicing r.URL.Path by an offset derived from a
-			// strings.ToLower copy is unsafe, because case-folding can change
-			// byte length and push len(path)-len(marker) negative.
+			// Match the marker case-insensitively against the original bytes: slicing by
+			// an offset from a ToLower copy is unsafe, as case-folding can change byte
+			// length.
 			if len(r.URL.Path) < len(tagsDefaultMarker) ||
 				!strings.EqualFold(r.URL.Path[len(r.URL.Path)-len(tagsDefaultMarker):], tagsDefaultMarker) {
 				next.ServeHTTP(w, r)
@@ -79,7 +66,7 @@ func registerTags(srv *sim.Server) {
 			}
 			scope := strings.TrimSuffix(r.URL.Path[:len(r.URL.Path)-len(tagsDefaultMarker)], "/")
 			if strings.HasPrefix(strings.ToLower(scope), "/subscriptions/") && !strings.Contains(strings.ToLower(scope), "/providers/") {
-				// Subscription / resource-group scope: served by the mux routes.
+				// Subscription and resource-group scopes: the mux routes serve them.
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -88,8 +75,6 @@ func registerTags(srv *sim.Server) {
 	})
 }
 
-// handleTagsDefaultRoute serves the subscription- and resource-group-scope
-// tags/default routes, reconstructing the scope from the path parameters.
 func handleTagsDefaultRoute(w http.ResponseWriter, r *http.Request) {
 	scope := armSubscriptionID(sim.PathParam(r, "subscriptionId"))
 	if rg := sim.PathParam(r, "resourceGroupName"); rg != "" {
@@ -98,44 +83,33 @@ func handleTagsDefaultRoute(w http.ResponseWriter, r *http.Request) {
 	handleTagsDefault(w, r, scope)
 }
 
-// tagScope is the one set of tags an ARM scope holds, wherever it is stored.
-// Resolving a scope to a single holder is what makes tags/default and the
-// scope's own API two spellings of the same state rather than two planes.
+// One holder per scope makes tags/default and the scope's own API two
+// spellings of one state.
 type tagScope struct {
-	// id is the canonical Microsoft.Resources/tags/default resource ID, built
-	// from the scope's own stored spelling.
-	id string
-	// read returns the tags currently held at the scope.
+	// The canonical tags/default ID, from the scope's stored spelling.
+	id   string
 	read func() map[string]string
-	// write replaces them; an empty map clears the scope's tags.
+	// An empty map clears the scope's tags.
 	write func(map[string]string)
 }
 
-// tagScopeError is the ARM error a scope that holds no tags answers with.
 type tagScopeError struct {
 	code    string
 	message string
 	status  int
 }
 
-// resolveTagScope maps an ARM scope onto the single holder of its tags.
-//
-// A subscription and a management group have no resource row of their own, so
-// their tags live in tagsStore. A resource group's tags are the ones its own
-// record carries. Every other scope names a provider resource, resolved
-// through the cross-slice registry (resource_registry.go) to the slice that
-// stores it, so a tag written here is the tag the resource's own GET reports.
-//
-// A scope that names a resource type the registry does not track cannot be
-// told apart from one that names a type Azure has never heard of, so both get
-// the 404 real ARM answers for a scope that resolves to no resource.
+// Subscriptions and management groups keep tags in tagsStore, resource groups
+// on their record, and other scopes on the resource through the registry, so a
+// tag written here is the one the resource's GET reports. A type the registry
+// does not track is indistinguishable from an unknown one, so both answer the
+// 404 Azure gives a scope resolving to no resource.
 func resolveTagScope(scope string) (tagScope, *tagScopeError) {
 	lower := strings.ToLower(strings.TrimSuffix(scope, "/"))
 
 	typeKey, isResource := azureResourceTypeKeyOfID(scope)
-	// A management group is a resource of type Microsoft.Management/
-	// managementGroups, but the simulator keeps no record for one, so its tags
-	// have nowhere to live except the tags store.
+	// The simulator keeps no record for a management group, so its tags live in
+	// tagsStore.
 	isManagementGroup := typeKey == "microsoft.management/managementgroups" &&
 		strings.HasPrefix(lower, "/providers/")
 	switch {
@@ -143,8 +117,6 @@ func resolveTagScope(scope string) (tagScope, *tagScopeError) {
 		return resolveResourceGroupTagScope(scope)
 
 	case !isResource || isManagementGroup:
-		// A subscription or a management group: no record of its own, so
-		// tagsStore is the only home its tags have.
 		id := scope + "/providers/Microsoft.Resources/tags/default"
 		return tagScope{
 			id: id,
@@ -199,8 +171,7 @@ func resolveTagScope(scope string) (tagScope, *tagScopeError) {
 	}, nil
 }
 
-// resolveResourceGroupTagScope resolves a resource-group scope onto the group's
-// own record, so `az tag` and `az group show` report the same tags.
+// So `az tag` and `az group show` report the same tags.
 func resolveResourceGroupTagScope(scope string) (tagScope, *tagScopeError) {
 	group, _, ok := findResourceGroupByID(scope)
 	if !ok {
@@ -234,8 +205,7 @@ func resolveResourceGroupTagScope(scope string) (tagScope, *tagScopeError) {
 	}, nil
 }
 
-// findResourceGroupByID reads a resource group by its ARM ID, folding case the
-// way ARM does, and reports the key the store holds it under.
+// Folds case as Azure Resource Manager does, and reports the store key.
 func findResourceGroupByID(id string) (ResourceGroup, string, bool) {
 	if azureResourceGroups == nil {
 		return ResourceGroup{}, "", false
@@ -243,10 +213,8 @@ func findResourceGroupByID(id string) (ResourceGroup, string, bool) {
 	if group, ok := azureResourceGroups.Get(id); ok {
 		return group, id, true
 	}
-	// The case-insensitive fallback answers from an index keyed by the store's
-	// generation rather than by decoding every group per request — this runs
-	// inside a WrapHandler middleware, so every request into the simulator
-	// paid it.
+	// This runs in a WrapHandler ahead of every request, so the case-insensitive
+	// fallback reads an index.
 	if group, ok := azureResourceGroupsByLowerID.Lookup(azureResourceGroups, strings.ToLower(id),
 		func(g ResourceGroup) []string { return []string{strings.ToLower(g.ID)} }); ok {
 		return group, group.ID, true
@@ -254,8 +222,6 @@ func findResourceGroupByID(id string) (ResourceGroup, string, bool) {
 	return ResourceGroup{}, "", false
 }
 
-// azureResourceGroupsByLowerID answers the middleware's case-insensitive
-// resource-group lookup without a per-request scan.
 var azureResourceGroupsByLowerID sim.GenerationIndex[ResourceGroup]
 
 func handleTagsDefault(w http.ResponseWriter, r *http.Request, scope string) {

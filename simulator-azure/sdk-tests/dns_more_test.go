@@ -11,10 +11,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestPublicDNS_ZonesListUpdateAndResourceReference covers the public-DNS
-// operations beyond core CRUD: the subscription-wide zone list, the zone and
-// record-set PATCH (Update) operations, and the cross-resource
-// getDnsResourceReference lookup.
+// TestPublicDNS_ZonesListUpdateAndResourceReference covers the Azure DNS
+// operations beyond CRUD: the subscription-wide zone list, zone and record-set
+// PATCH, and getDnsResourceReference.
 func TestPublicDNS_ZonesListUpdateAndResourceReference(t *testing.T) {
 	t.Parallel()
 	rg := "dns-more-rg"
@@ -29,7 +28,6 @@ func TestPublicDNS_ZonesListUpdateAndResourceReference(t *testing.T) {
 	_, err = zonesClient.CreateOrUpdate(ctx, rg, zone, armdns.Zone{Location: ptrStr("global")}, nil)
 	require.NoError(t, err)
 
-	// Zones_Update — PATCH the zone tags.
 	updResp, err := zonesClient.Update(ctx, rg, zone, armdns.ZoneUpdate{
 		Tags: map[string]*string{"tier": ptrStr("public")},
 	}, nil)
@@ -37,7 +35,6 @@ func TestPublicDNS_ZonesListUpdateAndResourceReference(t *testing.T) {
 	require.NotNil(t, updResp.Tags["tier"])
 	assert.Equal(t, "public", *updResp.Tags["tier"])
 
-	// Zones_List — every zone in the subscription.
 	pager := zonesClient.NewListPager(nil)
 	require.True(t, pager.More())
 	page, err := pager.NextPage(ctx)
@@ -60,7 +57,7 @@ func TestPublicDNS_ZonesListUpdateAndResourceReference(t *testing.T) {
 	}, nil)
 	require.NoError(t, err)
 
-	// RecordSets_Update — PATCH merges the new TTL onto the record set.
+	// RecordSets_Update merges the new TTL onto the record set.
 	recUpd, err := recordSetsClient.Update(ctx, rg, zone, "www", armdns.RecordTypeA, armdns.RecordSet{
 		Properties: &armdns.RecordSetProperties{
 			TTL:      ptrInt64(60),
@@ -74,8 +71,7 @@ func TestPublicDNS_ZonesListUpdateAndResourceReference(t *testing.T) {
 	require.Len(t, recUpd.Properties.ARecords, 1)
 	assert.Equal(t, "203.0.113.20", *recUpd.Properties.ARecords[0].IPv4Address)
 
-	// DnsResourceReference_GetByTargetResources — no records reference the
-	// probe target, so it resolves to an empty dnsResources list.
+	// No record references the probe target, so dnsResources is empty.
 	refClient, err := armdns.NewResourceReferenceClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	target := "/subscriptions/" + subscriptionID + "/resourceGroups/" + rg + "/providers/Microsoft.Network/publicIPAddresses/none"
@@ -91,10 +87,9 @@ func TestPublicDNS_ZonesListUpdateAndResourceReference(t *testing.T) {
 	assert.Equal(t, target, *refResp.Properties.DNSResourceReferences[0].TargetResource.ID)
 }
 
-// TestPrivateDNS_ListUpdateAllAndLinkUpdate covers the private-DNS operations
-// beyond core CRUD: the subscription-wide zone list, the zone /
-// virtual-network-link PATCH (Update) operations, and the list-all-record-sets
-// read.
+// TestPrivateDNS_ListUpdateAllAndLinkUpdate covers the Azure Private DNS
+// operations beyond CRUD: the subscription-wide zone list, zone and
+// virtual-network-link PATCH, and the list-all-record-sets read.
 func TestPrivateDNS_ListUpdateAllAndLinkUpdate(t *testing.T) {
 	t.Parallel()
 	rg := "pdns-more-rg"
@@ -111,7 +106,6 @@ func TestPrivateDNS_ListUpdateAllAndLinkUpdate(t *testing.T) {
 	_, err = createPoller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 
-	// PrivateZones_Update — PATCH the zone tags.
 	updPoller, err := zonesClient.BeginUpdate(ctx, rg, zone, armprivatedns.PrivateZone{
 		Tags: map[string]*string{"team": ptrStr("net")},
 	}, nil)
@@ -121,14 +115,12 @@ func TestPrivateDNS_ListUpdateAllAndLinkUpdate(t *testing.T) {
 	require.NotNil(t, updResp.Tags["team"])
 	assert.Equal(t, "net", *updResp.Tags["team"])
 
-	// PrivateZones_List — every private zone in the subscription.
 	pager := zonesClient.NewListPager(nil)
 	require.True(t, pager.More())
 	page, err := pager.NextPage(ctx)
 	require.NoError(t, err)
 	require.NotEmpty(t, page.Value)
 
-	// A record + RecordSets_Update (PATCH) + RecordSets_List (ALL).
 	recordSetsClient, err := armprivatedns.NewRecordSetsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = recordSetsClient.CreateOrUpdate(ctx, rg, zone, armprivatedns.RecordTypeA, "db", armprivatedns.RecordSet{
@@ -154,10 +146,9 @@ func TestPrivateDNS_ListUpdateAllAndLinkUpdate(t *testing.T) {
 	require.True(t, allPager.More())
 	allPage, err := allPager.NextPage(ctx)
 	require.NoError(t, err)
-	// SOA (auto-created) + the A record.
+	// The automatic SOA plus the A record.
 	require.GreaterOrEqual(t, len(allPage.Value), 2)
 
-	// VirtualNetworkLinks_Update — PATCH the link's registration flag.
 	linksClient, err := armprivatedns.NewVirtualNetworkLinksClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	vnetID := "/subscriptions/" + subscriptionID + "/resourceGroups/" + rg + "/providers/Microsoft.Network/virtualNetworks/more-vnet"

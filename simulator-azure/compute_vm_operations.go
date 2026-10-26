@@ -11,20 +11,15 @@ import (
 )
 
 // The Microsoft.Compute virtual-machine operations beyond the lifecycle in
-// compute.go. ListAvailableSizes, ListByLocation, Generalize and
-// ConvertToManagedDisks answer off the machine's own state; Redeploy, Reimage,
-// Reapply, PerformMaintenance and SimulateEviction move the machine's workload
-// through the placement hooks; RetrieveBootDiagnosticsData returns the console
-// output the guest wrote, through azureGuestConsole.
+// compute.go. Redeploy, Reimage, Reapply, PerformMaintenance and
+// SimulateEviction move the workload through the placement hooks;
+// RetrieveBootDiagnosticsData returns the guest's console output.
 
-// azureVMResourceID renders the ARM id for the virtual machine a request
-// addresses.
 func azureVMResourceID(r *http.Request) string {
 	return armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Compute", "virtualMachines", sim.PathParam(r, "vmName"))
 }
 
-// azureLookupVM resolves the addressed machine, writing ARM's not-found error
-// when it does not exist.
+// azureLookupVM writes the not-found error when the machine is absent.
 func azureLookupVM(w http.ResponseWriter, r *http.Request) (VirtualMachine, string, bool) {
 	id := azureVMResourceID(r)
 	vm, ok := azureVMs.Get(id)
@@ -44,11 +39,7 @@ func registerVirtualMachineOperations(srv *sim.Server) {
 }
 
 func registerVirtualMachineStateOperations(srv *sim.Server, armBase string) {
-	// VirtualMachines_ListAvailableSizes — the sizes this machine can be
-	// resized to. Azure answers with the sizes its current hardware cluster
-	// offers, which is the location's catalogue minus nothing the simulator
-	// models differently, so it is the same catalogue the location-scoped
-	// vmSizes read returns.
+	// The sizes the machine can resize to: the location's catalogue.
 	srv.HandleFunc("GET "+armBase+"/virtualMachines/{vmName}/vmSizes", func(w http.ResponseWriter, r *http.Request) {
 		if _, _, ok := azureLookupVM(w, r); !ok {
 			return
@@ -56,8 +47,6 @@ func registerVirtualMachineStateOperations(srv *sim.Server, armBase string) {
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"value": azureVMSizeCatalogue()})
 	})
 
-	// VirtualMachines_ListByLocation — every machine in one location across
-	// the subscription's resource groups, paged the way ARM pages.
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/providers/Microsoft.Compute/locations/{location}/virtualMachines",
 		func(w http.ResponseWriter, r *http.Request) {
 			prefix := armSubscriptionID(sim.PathParam(r, "subscriptionId")) + "/"
@@ -76,10 +65,8 @@ func registerVirtualMachineStateOperations(srv *sim.Server, armBase string) {
 			sim.WriteJSON(w, http.StatusOK, out)
 		})
 
-	// VirtualMachines_Generalize — marks the machine's operating system
-	// generalized so an image can be captured from it. Azure requires the
-	// machine to be stopped first and refuses otherwise, because generalizing
-	// a running system would capture a machine mid-write.
+	// Azure requires the machine to be stopped: generalizing a running system
+	// would capture it mid-write.
 	srv.HandleFunc("POST "+armBase+"/virtualMachines/{vmName}/generalize", func(w http.ResponseWriter, r *http.Request) {
 		_, id, ok := azureLookupVM(w, r)
 		if !ok {
@@ -94,10 +81,8 @@ func registerVirtualMachineStateOperations(srv *sim.Server, armBase string) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	// VirtualMachines_ConvertToManagedDisks — moves a machine off unmanaged
-	// (page-blob) disks onto managed ones. Azure requires the machine to be
-	// deallocated, and the conversion is a no-op for a machine already on
-	// managed disks.
+	// Azure requires the machine deallocated; a machine already on managed disks
+	// is a no-op.
 	srv.HandleFunc("POST "+armBase+"/virtualMachines/{vmName}/convertToManagedDisks", func(w http.ResponseWriter, r *http.Request) {
 		vm, id, ok := azureLookupVM(w, r)
 		if !ok {
@@ -115,9 +100,8 @@ func registerVirtualMachineStateOperations(srv *sim.Server, armBase string) {
 	})
 }
 
-// azureVMSizeCatalogue is the machine sizes this simulator's Compute slice
-// offers. It is the single catalogue behind both the location-scoped read and
-// the per-machine resize read, so the two cannot disagree.
+// The single catalogue behind the location read and the per-machine resize
+// read.
 func azureVMSizeCatalogue() []map[string]any {
 	return []map[string]any{
 		{
@@ -139,11 +123,8 @@ func azureVMSizeCatalogue() []map[string]any {
 	}
 }
 
-// azureConvertVMDisksToManaged rewrites the machine's storage profile from
-// unmanaged disks to managed ones, which is what the conversion produces: the
-// vhd reference is replaced by a managedDisk reference carrying the account
-// type. It reports whether anything changed, so a machine already on managed
-// disks is left alone exactly as the real conversion leaves it.
+// azureConvertVMDisksToManaged replaces each vhd reference with a managedDisk
+// reference carrying the account type, and reports whether anything changed.
 func azureConvertVMDisksToManaged(vm *VirtualMachine) bool {
 	storage := vm.Properties.StorageProfile
 	if storage == nil {
@@ -179,12 +160,9 @@ func azureConvertVMDisksToManaged(vm *VirtualMachine) bool {
 func registerVirtualMachineGuestOperations(srv *sim.Server, armBase string) {
 	logger := srv.Logger()
 
-	// Each of these ends with the machine running again on a fresh workload,
-	// which is what the operation means on real hardware: Azure moves the
-	// machine to a new node (redeploy), resets its disk to the image (reimage),
-	// reapplies its model (reapply), or moves it off a node due for
-	// maintenance. The simulator halts and places the workload again rather
-	// than recording that it happened.
+	// Each ends with the machine on a fresh workload, as Azure moves it to a new
+	// node (redeploy), resets its disk to the image (reimage), reapplies its model
+	// (reapply), or moves it off a node due for maintenance.
 	for _, action := range []string{"redeploy", "reimage", "reapply", "performMaintenance"} {
 		action := action
 		srv.HandleFunc("POST "+armBase+"/virtualMachines/{vmName}/"+action, func(w http.ResponseWriter, r *http.Request) {
@@ -192,9 +170,8 @@ func registerVirtualMachineGuestOperations(srv *sim.Server, armBase string) {
 			if !ok {
 				return
 			}
-			// A machine that was never started, or was deliberately stopped,
-			// stays stopped: these operations restore a machine to the state it
-			// was in, they do not start a stopped one.
+			// These operations restore a machine's prior state; they do not start a
+			// stopped one.
 			priorState, known := azureVMStates.Get(id)
 			if !known {
 				priorState = "PowerState/running"
@@ -213,8 +190,7 @@ func registerVirtualMachineGuestOperations(srv *sim.Server, armBase string) {
 					azureVMStates.Put(id, priorState)
 					return azureVMHaltFailure(id, err)
 				}
-				// A reimage resets the disk to the image, so the kept disk goes
-				// and the boot places the machine afresh.
+				// A reimage resets the disk to the image, so the kept disk goes.
 				if action == "reimage" {
 					if err := azureDiscardVMDisk(ctx, id); err != nil {
 						azureVMStates.Put(id, priorState)
@@ -238,14 +214,10 @@ func registerVirtualMachineGuestOperations(srv *sim.Server, armBase string) {
 		})
 	}
 
-	// VirtualMachines_SimulateEviction — Azure evicts a Spot machine, which
-	// stops it. It applies only to Spot machines and is refused for any other,
-	// because a regular machine is never evicted. The specification declares
-	// the call no long-running operation and its only success 204 with no body:
-	// Azure accepts the eviction and carries it out afterwards, deleting an
-	// evicted machine whose eviction policy says Delete and deallocating one
-	// whose policy says Deallocate, so the machine's own state is where the
-	// eviction shows.
+	// VirtualMachines_SimulateEviction applies only to Spot machines. The
+	// specification declares 204 with no body and no long-running operation: Azure
+	// carries the eviction out afterwards, deleting or deallocating per the
+	// eviction policy.
 	srv.HandleFunc("POST "+armBase+"/virtualMachines/{vmName}/simulateEviction", func(w http.ResponseWriter, r *http.Request) {
 		vm, id, ok := azureLookupVM(w, r)
 		if !ok {
@@ -291,16 +263,10 @@ func registerVirtualMachineGuestOperations(srv *sim.Server, armBase string) {
 }
 
 func registerVirtualMachineBootDiagnostics(srv *sim.Server, armBase string) {
-	// VirtualMachines_RetrieveBootDiagnosticsData returns the URIs of the
-	// machine's boot artifacts. The serial console log is the output the guest
-	// wrote to its console, stored into the storage account the machine's
-	// diagnostics profile names and read back through the same Blob data plane
-	// a client downloads it from.
-	//
-	// No console screenshot is returned. The guest has no framebuffer, so there
-	// is no screenshot to take; the member is optional in the response, and a
-	// URI pointing at an image that does not exist would be worse than its
-	// absence.
+	// RetrieveBootDiagnosticsData: the serial console log is the guest's console
+	// output, stored in the account the diagnostics profile names and read through
+	// the Blob data plane. The guest has no framebuffer, so the optional screenshot
+	// member is absent.
 	srv.HandleFunc("POST "+armBase+"/virtualMachines/{vmName}/retrieveBootDiagnosticsData", func(w http.ResponseWriter, r *http.Request) {
 		vm, id, ok := azureLookupVM(w, r)
 		if !ok {
@@ -338,9 +304,7 @@ func registerVirtualMachineBootDiagnostics(srv *sim.Server, armBase string) {
 	})
 }
 
-// azureBootDiagnosticsAccount resolves the storage account the machine's boot
-// artifacts are written to. Azure refuses the read outright when boot
-// diagnostics is not enabled for the machine, which is the same refusal here.
+// Azure refuses the read when boot diagnostics is not enabled.
 func azureBootDiagnosticsAccount(vm VirtualMachine) (string, error) {
 	diagnostics, _ := vm.Properties.DiagnosticsProfile["bootDiagnostics"].(map[string]any)
 	if diagnostics == nil {
@@ -351,10 +315,8 @@ func azureBootDiagnosticsAccount(vm VirtualMachine) (string, error) {
 	}
 	storageURI, _ := diagnostics["storageUri"].(string)
 	if storageURI == "" {
-		// Managed boot diagnostics stores the artifacts in an account the
-		// platform owns rather than one the machine names. The simulator has no
-		// such account, and a URI pointing at storage that does not exist is
-		// worse than a refusal that says which coordinate is missing.
+		// Managed boot diagnostics writes to an account the platform owns, which the
+		// simulator does not have; refuse and name the missing coordinate.
 		return "", fmt.Errorf(
 			"virtual machine %q uses managed boot diagnostics; this simulator serves boot "+
 				"diagnostics from the storage account the machine names, so set "+
@@ -368,8 +330,7 @@ func azureBootDiagnosticsAccount(vm VirtualMachine) (string, error) {
 	return account, nil
 }
 
-// azureBootDiagnosticsPath is where in the account the artifacts land. Azure
-// uses a per-machine container named for the machine's identifier.
+// Azure uses a per-machine container named for the machine's identifier.
 func azureBootDiagnosticsPath(vm VirtualMachine) (container, blob string) {
 	name := strings.ToLower(vm.Name)
 	if name == "" {

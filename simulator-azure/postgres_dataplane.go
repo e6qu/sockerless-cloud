@@ -16,41 +16,31 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/workload"
 )
 
-// The Azure Database for PostgreSQL flexible server data plane.
+// The Azure Database for PostgreSQL flexible server data plane: a real
+// PostgreSQL engine per server. The ARM contract carries only
+// fullyQualifiedDomainName, so the simulator owns a loopback listener at port
+// 5432 per server and registers the name against it in its DNS front
+// (SIM_AZURE_DNS_LISTEN_ADDR). The first connection starts the engine, a
+// container whose data is the volume sockerless-azurepg-<rg>-<name>; the front
+// proxy terminates TLS and authenticates, then relays.
 //
-// A flexible server is a real database engine. The simulator owns a loopback
-// listener at PostgreSQL's port for each server — the ARM contract carries no
-// address, only the fullyQualifiedDomainName, so the slice registers that
-// name against the listener's address in the simulator's DNS front
-// (SIM_AZURE_DNS_LISTEN_ADDR), exactly the coordinate a client resolves on
-// Azure. The first client connection starts the engine — a real PostgreSQL
-// container whose data directory is the named volume
-// sockerless-azurepg-<rg>-<name> — and the front proxy owns TLS and
-// authentication, then relays bytes.
+// require_secure_transport defaults ON, as in Azure, so a plaintext client is
+// refused with SQLSTATE 28000 unless the configuration says OFF. The
+// administrator credential is sealed at rest under service-managed key
+// material, and administratorLoginPassword is never echoed.
 //
-// Azure's server-parameter defaults hold on the wire: require_secure_transport
-// is ON, so a client that opens without TLS is refused with SQLSTATE 28000
-// unless the server's configurations store holds require_secure_transport=OFF.
-// The administrator credential is sealed at rest under service-managed key
-// material — the simulator's analogue of Azure's default data encryption —
-// and the ARM surface never echoes administratorLoginPassword back.
-//
-// A host that cannot provide port 5432 on a per-server loopback address
-// (macOS refuses loopback aliases without root) leaves the server exactly as
-// modeled as the whole slice was before the data plane existed, and says so
-// on stderr. Linux provides it natively; CI exercises the real path.
+// A host without per-server loopback addresses on port 5432 (macOS refuses
+// loopback aliases without root) keeps servers API-only and says so on
+// stderr.
 
-// pgDataPlaneKeyRecord holds the service-managed key material that seals
-// flexible-server administrator credentials — the simulator's analogue of
-// Azure's default service-managed data encryption (a customer's Key Vault
-// key is a different, optional mode this slice does not model).
+// The simulator's analogue of Azure's default service-managed data
+// encryption; customer-managed Key Vault keys are not modeled.
 type pgDataPlaneKeyRecord struct {
 	Key []byte `json:"key"`
 }
 
-// pgServerCredential is a server's sealed administratorLoginPassword. The
-// field is write-only on the ARM wire, so it lives here rather than in the
-// stored server properties.
+// administratorLoginPassword is write-only on the wire, so it lives here
+// rather than in the stored properties.
 type pgServerCredential struct {
 	Sealed []byte `json:"sealed"`
 }
@@ -62,8 +52,6 @@ var (
 
 const pgDataPlaneKeyRow = "service-managed"
 
-// azurePGCredentialKey returns the service-managed sealing key, generating it
-// on first use.
 func azurePGCredentialKey() ([]byte, error) {
 	key, err := simkms.EnsureKey(pgDataPlaneKeys, pgDataPlaneKeyRow,
 		func(record pgDataPlaneKeyRecord) []byte { return record.Key },
@@ -74,8 +62,7 @@ func azurePGCredentialKey() ([]byte, error) {
 	return key, nil
 }
 
-// azurePGSealSecret encrypts a credential under the service-managed key; the
-// sealed blob is nonce || ciphertext.
+// The sealed blob is nonce || ciphertext.
 func azurePGSealSecret(plaintext string) ([]byte, error) {
 	key, err := azurePGCredentialKey()
 	if err != nil {
@@ -84,7 +71,6 @@ func azurePGSealSecret(plaintext string) ([]byte, error) {
 	return simkms.Seal(key, []byte(plaintext), nil)
 }
 
-// azurePGOpenSecret decrypts a credential sealed by azurePGSealSecret.
 func azurePGOpenSecret(sealed []byte) (string, error) {
 	key, err := azurePGCredentialKey()
 	if err != nil {
@@ -101,8 +87,8 @@ const azurePGEngineContainerLabel = "sockerless-azurepg-server"
 
 var azurePGServerCertificate = dbengine.SelfSignedCertificate("Azure Database for PostgreSQL simulator")
 
-// azurePGServerKey is the data-plane identity: resource group + server name,
-// lowercase — ARM resource-group and server names are case-insensitive.
+// Lowercase resource group and server name, which Azure treats
+// case-insensitively.
 func azurePGServerKey(rg, name string) string {
 	return strings.ToLower(rg) + "/" + strings.ToLower(name)
 }
@@ -111,8 +97,6 @@ func azurePGServerVolume(rg, name string) string {
 	return "sockerless-azurepg-" + strings.ToLower(rg) + "-" + strings.ToLower(name)
 }
 
-// pgParseServerResourceID splits a flexible-server ARM resource ID into its
-// subscription, resource group and server name.
 func pgParseServerResourceID(resourceID string) (sub, rg, name string, ok bool) {
 	parts := strings.Split(strings.Trim(resourceID, "/"), "/")
 	if len(parts) != 8 ||
@@ -126,7 +110,6 @@ func pgParseServerResourceID(resourceID string) (sub, rg, name string, ok bool) 
 	return parts[1], parts[3], parts[7], true
 }
 
-// azurePGDataPlane is a flexible server's endpoint and engine.
 type azurePGDataPlane struct {
 	*dbengine.Instance
 	sub  string
@@ -165,7 +148,7 @@ func azurePGNewDataPlane(sub, rg, name string) *azurePGDataPlane {
 			return "connections require SSL; set require_secure_transport to OFF to allow plaintext",
 				azurePGRequireSecureTransport(sub, rg, name)
 		},
-		// The administrator is the only ARM-managed login on this surface.
+		// The administrator is the only ARM-managed login.
 		Authenticate: func(user, password string, _ bool) bool {
 			login, stored, err := azurePGAdminCredential(sub, rg, name)
 			return err == nil && user == login && subtle.ConstantTimeCompare([]byte(password), []byte(stored)) == 1
@@ -174,20 +157,15 @@ func azurePGNewDataPlane(sub, rg, name string) *azurePGDataPlane {
 	return plane
 }
 
-// azurePGInstallDataPlane binds the server's loopback listener at
-// PostgreSQL's port, registers the server's fullyQualifiedDomainName against
-// the listener's address in the DNS front, and — on a control-plane restart —
-// re-adopts the engine an earlier process left before serving. It returns
-// false — with the reason — when this host cannot provide the listener; the
-// caller keeps the server modeled and says so.
+// On a control-plane restart it re-adopts the engine an earlier process left.
+// It returns false with the reason when the host cannot provide the listener.
 func azurePGInstallDataPlane(sub, rg, name string, adopt bool) (bool, error) {
 	if sim.RequireContainerRuntime("the Azure Database for PostgreSQL data plane") != nil {
 		return false, nil
 	}
 	key := azurePGServerKey(rg, name)
 	if _, exists := azurePGDataPlanes.Load(key); exists {
-		// A PUT on an existing server keeps its listener; ARM's PUT is
-		// create-or-update and the address is already served.
+		// A PUT on an existing server keeps its listener.
 		return true, nil
 	}
 	plane := azurePGNewDataPlane(sub, rg, name)
@@ -216,9 +194,7 @@ func azurePGInstallDataPlane(sub, rg, name string, adopt bool) (bool, error) {
 	return true, nil
 }
 
-// azurePGInstallOrExplain installs a server's data plane when its
-// administrator credential exists and the host is capable, and otherwise
-// says loudly on stderr that the server stays on the modeled tier.
+// Otherwise say on stderr that the server stays API-only.
 func azurePGInstallOrExplain(sub, rg, name string) {
 	key := azurePGServerKey(rg, name)
 	if credential, ok := pgServerCredentials.Get(key); !ok || len(credential.Sealed) == 0 {
@@ -238,9 +214,6 @@ func azurePGInstallOrExplain(sub, rg, name string) {
 	fmt.Fprintf(os.Stderr, "[sim-azurepg] server %s is modeled without a data plane: %s\n", key, reason)
 }
 
-// azurePGRecoverDataPlanes rebinds every credentialed server's listener after
-// a control-plane restart, re-registers its DNS name, and re-adopts engine
-// containers an earlier process left running.
 func azurePGRecoverDataPlanes() error {
 	for _, s := range pgServers.List() {
 		sub, rg, name, ok := pgParseServerResourceID(s.ID)
@@ -258,9 +231,6 @@ func azurePGRecoverDataPlanes() error {
 	return nil
 }
 
-// azurePGAdminCredential returns the server's administrator login and its
-// password — the administratorLoginPassword the ARM request carried, sealed
-// at rest.
 func azurePGAdminCredential(sub, rg, name string) (string, string, error) {
 	s, ok := pgServers.Get(pgServerID(sub, rg, name))
 	if !ok {
@@ -281,8 +251,7 @@ func azurePGAdminCredential(sub, rg, name string) (string, string, error) {
 	return login, password, nil
 }
 
-// azurePGRequireSecureTransport reads the server's require_secure_transport
-// parameter from the configurations store; Azure's default is ON.
+// Azure's default is ON.
 func azurePGRequireSecureTransport(sub, rg, name string) bool {
 	c, ok := pgConfigurations.Get(pgConfigKey(sub, rg, name, "require_secure_transport"))
 	if !ok || c.Properties == nil {
@@ -292,11 +261,9 @@ func azurePGRequireSecureTransport(sub, rg, name string) bool {
 	return !strings.EqualFold(value, "off")
 }
 
-// azurePGReconcileEngineState creates, inside the running engine, every
-// database the ARM control plane declares for the server. It runs at engine
-// readiness — first boot, control-plane restart, and a restored clone's
-// first boot — and after control-plane mutations while the engine is up, so
-// the API and the engine never disagree.
+// Runs at engine readiness — first boot, restart, a restored clone's first
+// boot — and after control-plane mutations while the engine is up, so the API
+// and the engine agree.
 func azurePGReconcileEngineState(plane *azurePGDataPlane) error {
 	login, _, err := azurePGAdminCredential(plane.sub, plane.rg, plane.name)
 	if err != nil {
@@ -314,8 +281,7 @@ func azurePGReconcileEngineState(plane *azurePGDataPlane) error {
 	return nil
 }
 
-// azurePGEngineEnsureDatabase makes the engine hold the declared database,
-// existence-checked so reconciliation is idempotent.
+// Existence-checked, so reconciliation is idempotent.
 func azurePGEngineEnsureDatabase(plane *azurePGDataPlane, login, name string) error {
 	check := "SELECT 1 FROM pg_database WHERE datname = " + dbengine.QuoteLiteral(name)
 	create := "CREATE DATABASE " + dbengine.QuoteIdentifier(name)
@@ -324,9 +290,7 @@ func azurePGEngineEnsureDatabase(plane *azurePGDataPlane, login, name string) er
 	return plane.Exec([]string{"/bin/sh", "-c", script})
 }
 
-// azurePGEnsureDatabaseIfRunning applies a databases PUT to a running engine
-// immediately. An engine that is not running needs nothing: readiness
-// reconciles the full declared state before serving any client.
+// A stopped engine needs nothing: readiness reconciles before serving.
 func azurePGEnsureDatabaseIfRunning(sub, rg, server, database string) error {
 	plane, running := azurePGRunningDataPlane(rg, server)
 	if !running {
@@ -339,8 +303,6 @@ func azurePGEnsureDatabaseIfRunning(sub, rg, server, database string) error {
 	return azurePGEngineEnsureDatabase(plane, login, database)
 }
 
-// azurePGDropDatabaseIfRunning removes a deleted database from a running
-// engine.
 func azurePGDropDatabaseIfRunning(sub, rg, server, database string) error {
 	plane, running := azurePGRunningDataPlane(rg, server)
 	if !running {
@@ -354,10 +316,8 @@ func azurePGDropDatabaseIfRunning(sub, rg, server, database string) error {
 	return plane.Exec([]string{"psql", "-v", "ON_ERROR_STOP=1", "-U", login, "-d", "postgres", "-c", statement})
 }
 
-// azurePGRotateAdminPasswordIfRunning applies a rotated
-// administratorLoginPassword to a running engine. An engine that is not
-// running needs nothing: it is initialised from the sealed credential at its
-// next start.
+// A stopped engine needs nothing: it initializes from the sealed credential at
+// its next start.
 func azurePGRotateAdminPasswordIfRunning(sub, rg, server, password string) error {
 	plane, running := azurePGRunningDataPlane(rg, server)
 	if !running {
@@ -387,8 +347,7 @@ func azurePGRunningDataPlane(rg, name string) (*azurePGDataPlane, bool) {
 	return plane, true
 }
 
-// azurePGStopDataPlane closes the server's listener, stops its engine, and —
-// when the server is being deleted — removes its data volume.
+// deleteVolume removes the data volume when the server is deleted.
 func azurePGStopDataPlane(rg, name string, deleteVolume bool) {
 	if value, ok := azurePGDataPlanes.LoadAndDelete(azurePGServerKey(rg, name)); ok {
 		if plane, isPlane := value.(*azurePGDataPlane); isPlane {

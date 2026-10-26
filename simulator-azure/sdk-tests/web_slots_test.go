@@ -11,8 +11,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// SDK coverage for App Service deployment slots running their own instances,
-// and for the swap that exchanges what two slots run:
+// Each slot answers on its own hostname with its own container; a swap moves
+// the content and swappable settings, leaves the sticky ones, and fails,
+// leaving both slots as they were, when the destination does not start.
 //
 //	PUT /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Web/sites/{siteName}/slots/{slot}
 //	PUT /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Web/sites/{siteName}/config/slotconfignames
@@ -20,12 +21,7 @@ import (
 //	POST /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Web/sites/{siteName}/slots/{slot}/slotsswap
 //	POST /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Web/sites/{siteName}/slotsswap
 //	GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Web/sites/{siteName}/slots/{slot}/deploymentStatus/{deploymentStatusId}
-//
-// Each slot answers on its own hostname with its own container; a swap moves
-// the content and the swappable settings, leaves the sticky ones, and fails —
-// leaving both slots as they were — when the destination does not start.
 
-// slotSettings builds an appSettings list.
 func slotSettings(kv map[string]string) []*armappservice.NameValuePair {
 	var out []*armappservice.NameValuePair
 	for k, v := range kv {
@@ -140,7 +136,7 @@ func TestSDK_WebApps_SlotRunsItsOwnInstanceAndSwaps(t *testing.T) {
 	assert.Equal(t, "production", *prod.Properties.SlotSwapStatus.DestinationSlotName)
 	assert.NotNil(t, prod.Properties.SlotSwapStatus.TimestampUTC)
 
-	// The slot's deployed content moved to production with the rest of it.
+	// The slot's deployed content moved to production.
 	prodCredsPoller, err := client.BeginListPublishingCredentials(ctx, rg, name, nil)
 	require.NoError(t, err)
 	prodCreds, err := prodCredsPoller.PollUntilDone(ctx, nil)
@@ -155,7 +151,7 @@ func TestSDK_WebApps_SlotRunsItsOwnInstanceAndSwaps(t *testing.T) {
 	resp, _ = kuduRequest(t, http.MethodGet, slotScm+"/api/vfs/site/wwwroot/marker.txt", nil, "", basic)
 	assert.Equal(t, http.StatusNotFound, resp.StatusCode, "the slot now holds production's former content")
 
-	// The app-level spelling swaps the named slot into production: back again.
+	// The app-level spelling swaps the slot back.
 	swapBack, err := client.BeginSwapSlotWithProduction(ctx, rg, name, armappservice.CsmSlotEntity{
 		TargetSlot: to.Ptr(slot), PreserveVnet: to.Ptr(true),
 	}, nil)
@@ -165,8 +161,8 @@ func TestSDK_WebApps_SlotRunsItsOwnInstanceAndSwaps(t *testing.T) {
 	assert.Equal(t, "production-content", slotServes(t, name))
 	assert.Equal(t, "staging-content", slotServes(t, name+"-"+slot))
 
-	// A slot whose container exits before it answers fails the swap, and
-	// production keeps serving what it served.
+	// A slot whose container exits before answering fails the swap, and production
+	// keeps serving.
 	_, err = client.UpdateConfigurationSlot(ctx, rg, name, slot, armappservice.SiteConfigResource{
 		Properties: &armappservice.SiteConfig{
 			LinuxFxVersion: to.Ptr("DOCKER|" + commandImageName),

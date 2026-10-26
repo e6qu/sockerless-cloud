@@ -11,8 +11,6 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// createTestResourceGroup creates a resource group the way a client must
-// before it creates anything in it.
 func createTestResourceGroup(t *testing.T, srv *sim.Server, subscription, group string) {
 	t.Helper()
 	now := time.Now()
@@ -78,8 +76,7 @@ func TestResourceGroupScopeRefusesWritesWhileTheGroupDeletes(t *testing.T) {
 		t.Fatalf("PUT identity: %d %s", status, resp)
 	}
 
-	// handleResourceGroupDelete marks the group Deleting for as long as its
-	// operation runs.
+	// handleResourceGroupDelete holds Deleting while its operation runs.
 	azureResourceGroups.Update(groupID, func(g *ResourceGroup) { g.Properties.ProvisioningState = "Deleting" })
 	other := groupID + "/providers/Microsoft.ManagedIdentity/userAssignedIdentities/scope-other?api-version=2023-01-31"
 	for _, method := range []string{http.MethodPut, http.MethodPatch} {

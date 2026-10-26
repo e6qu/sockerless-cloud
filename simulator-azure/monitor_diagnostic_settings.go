@@ -9,19 +9,14 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// Azure Monitor diagnostic settings (Microsoft.Insights/diagnosticSettings,
-// 2021-05-01-preview) route a resource's platform logs to a Log Analytics
-// workspace, category by category: a setting on an App Service site that
-// enables AppServiceConsoleLogs sends the site's console lines to the
-// AppServiceConsoleLogs table of the workspace it names, and a setting on a
-// Container Apps environment whose logs destination is azure-monitor sends
-// ContainerAppConsoleLogs and ContainerAppSystemLogs to the resource-specific
-// tables of its workspace. The categories a resource type offers
-// (diagnosticSettingsCategories, 2017-05-01-preview) come from the Azure
-// Monitor "supported resource logs" reference pages vendored under
-// specs/cloud-api/azure (monitor-supported-logs-*.md.gz), and the tables'
-// columns from the table reference pages (monitor-table-*.md.gz). Storage,
-// Event Hubs and Marketplace destinations are kept and receive nothing.
+// Azure Monitor diagnostic settings route a resource's platform logs to a Log
+// Analytics workspace, category by category: a site's AppServiceConsoleLogs,
+// and a Container Apps environment's ContainerAppConsoleLogs and
+// ContainerAppSystemLogs when its logs destination is azure-monitor. The
+// categories come from the vendored "supported resource logs" pages
+// (monitor-supported-logs-*.md.gz) and the table columns from
+// monitor-table-*.md.gz. Storage, Event Hubs and Marketplace destinations are
+// kept and receive nothing.
 
 type DiagnosticSettingsResource struct {
 	ID         string             `json:"id"`
@@ -71,29 +66,20 @@ type DiagnosticSettingsCategoryResource struct {
 	} `json:"properties"`
 }
 
-// diagnosticCategories are the log and metric categories a resource type
-// offers, in the order the reference page lists them.
+// In the order the reference page lists them.
 type diagnosticCategories struct {
 	logs, metrics []string
-	// exists reports whether the resource the diagnostic setting addresses
-	// is stored.
-	exists func(resourceID string) bool
+	exists        func(resourceID string) bool
 }
 
-// azureDiagnosticCategoryGroups are the category groups a setting's logs may
-// name instead of a category ("For categoryGroup, the available values are
-// audit and allLogs", app-containerapps-log-options.md.gz): allLogs stands for
-// every log category, audit for the audit ones.
+// "For categoryGroup, the available values are audit and allLogs"
+// (app-containerapps-log-options.md.gz).
 var azureDiagnosticCategoryGroups = []string{"allLogs", "audit"}
 
-// azureDiagnosticResourceTypes are the resource types whose categories the
-// simulator carries, keyed by lower-cased type, with the type's canonical
-// spelling. The sites' categories are the microsoft.web/sites rows of the
-// Azure Monitor supported-logs reference, the environments' the
-// microsoft.app/managedenvironments rows; a container app offers the
-// AllMetrics metric category and no log category ("Log options in Azure
-// Container Apps": at the container app level the --logs parameter is not
-// supported, and for --metrics the only available category is AllMetrics).
+// Keyed by lowercased type. The sites' categories are the microsoft.web/sites
+// rows of the supported-logs reference, the environments' the
+// microsoft.app/managedenvironments rows; a container app offers only the
+// AllMetrics metric category ("Log options in Azure Container Apps").
 var azureDiagnosticResourceTypes = map[string]string{
 	"microsoft.web/sites":               "Microsoft.Web/sites",
 	"microsoft.app/managedenvironments": "Microsoft.App/managedEnvironments",
@@ -131,8 +117,6 @@ var (
 
 const diagnosticSettingsMarker = "/providers/Microsoft.Insights/diagnosticSettings/"
 
-// azureDiagnosticSettingResource is the lower-cased resource a setting
-// addresses, which indexes the settings by resource.
 func azureDiagnosticSettingResource(d DiagnosticSettingsResource) []string {
 	lower := strings.ToLower(d.ID)
 	marker := strings.ToLower(diagnosticSettingsMarker)
@@ -142,7 +126,6 @@ func azureDiagnosticSettingResource(d DiagnosticSettingsResource) []string {
 	return nil
 }
 
-// azureDiagnosticSettingsFor lists the settings on a resource.
 func azureDiagnosticSettingsFor(resourceID string) []DiagnosticSettingsResource {
 	if azureDiagnosticSettings == nil {
 		return nil
@@ -152,8 +135,7 @@ func azureDiagnosticSettingsFor(resourceID string) []DiagnosticSettingsResource 
 	return settings
 }
 
-// enablesLog reports whether the setting sends the log category: a log entry
-// naming it, or the allLogs group, enabled.
+// A log entry naming the category, or the allLogs group, enabled.
 func (d DiagnosticSettings) enablesLog(category string) bool {
 	for _, l := range d.Logs {
 		if l.Enabled && (strings.EqualFold(l.Category, category) || strings.EqualFold(l.CategoryGroup, "allLogs")) {
@@ -163,8 +145,6 @@ func (d DiagnosticSettings) enablesLog(category string) bool {
 	return false
 }
 
-// azureDiagnosticLogWorkspaces are the workspaces the diagnostic settings on
-// the resource send the log category to.
 func azureDiagnosticLogWorkspaces(resourceID, category string) []Workspace {
 	var out []Workspace
 	for _, setting := range azureDiagnosticSettingsFor(resourceID) {
@@ -178,23 +158,17 @@ func azureDiagnosticLogWorkspaces(resourceID, category string) []Workspace {
 	return out
 }
 
-// diagnosticTarget resolves the resource a diagnostic settings request
-// addresses: its id, its type in canonical spelling, and the categories the
-// simulator carries for the type.
 type diagnosticTarget func(r *http.Request) (resourceID, resourceType string, categories diagnosticCategories, known bool)
 
 func registerDiagnosticSettings(srv *sim.Server) {
 	azureDiagnosticSettings = sim.MakeStore[DiagnosticSettingsResource](srv.DB(), "monitor_diagnostic_settings")
-	// A diagnostic setting addresses the resource it is nested under. The
-	// typed routes cover the resources of a resource group — the shape every
-	// resource the simulator routes logs for has — and the subscription and
-	// resource-group scopes a client can address, for which the simulator
-	// carries no categories.
+	// The typed routes cover resources in a resource group, the shape of every
+	// resource the simulator routes logs for, and the subscription and group
+	// scopes, for which it carries no categories.
 	const subscription = "/subscriptions/{subscriptionId}"
 	const resourceGroup = subscription + "/resourceGroups/{resourceGroupName}"
-	// The resource types whose categories the simulator carries have routes
-	// of their own, so a request to one of their resources resolves to a
-	// handler naming the type; every other type resolves to the wildcard.
+	// Types with carried categories have routes of their own; every other type
+	// resolves to the wildcard.
 	types := make([]string, 0, len(azureDiagnosticResourceTypes))
 	for _, canonical := range azureDiagnosticResourceTypes {
 		types = append(types, canonical)
@@ -379,8 +353,8 @@ func registerDiagnosticSettingRoutes(srv *sim.Server, scope string, target diagn
 		name := sim.PathParam(r, "name")
 		id := settingID(resourceID, name)
 		existing, replacing := azureDiagnosticSettings.Get(strings.ToLower(id))
-		// "You can create up to five diagnostic settings for your
-		// environment" (Log options in Azure Container Apps).
+		// "You can create up to five diagnostic settings for your environment" (Log
+		// options in Azure Container Apps).
 		if !replacing && len(azureDiagnosticSettingsFor(resourceID)) >= 5 {
 			AzureErrorf(w, "BadRequest", http.StatusBadRequest, "The resource '%s' already has five diagnostic settings, the most a resource takes.", resourceID)
 			return

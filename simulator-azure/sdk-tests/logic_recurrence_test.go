@@ -10,9 +10,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestLogicApps_RecurrenceTriggerRunsSDK proves a Recurrence trigger runs its
-// workflow on its schedule: every second, runs accumulate, each started by
-// the recurrence trigger, and a malformed recurrence is refused.
+// TestLogicApps_RecurrenceTriggerRunsSDK: a one-second Recurrence trigger
+// accumulates runs, each started by the trigger, and a malformed recurrence is
+// refused.
 func TestLogicApps_RecurrenceTriggerRunsSDK(t *testing.T) {
 	t.Parallel()
 	rg := "logic-recurrence-rg"

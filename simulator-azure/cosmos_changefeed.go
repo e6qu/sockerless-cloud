@@ -11,27 +11,19 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/kvstore"
 )
 
-// Azure Cosmos DB change feed and conflict feed.
+// Azure Cosmos DB change feed and conflict feed. A documents read carrying
+// `A-IM` is a change-feed read:
 //
-// A documents read carrying an `A-IM` header is a change-feed read, in one of
-// the two modes the service defines:
+//   - `Incremental feed` (latest version): each item changed since the
+//     continuation, once, as it is now; deletes are absent.
+//   - `Full-Fidelity Feed` (all versions and deletes): every create, replace
+//     and delete, time-to-live deletes included, each with its metadata. Only
+//     accounts with continuous backup serve it, for that tier's retention.
 //
-//   - `Incremental feed` — latest version: each item that changed since the
-//     continuation, once, as it is now. A deleted item is not in it, and an item
-//     changed twice appears once.
-//   - `Full-Fidelity Feed` — all versions and deletes: every create, replace
-//     and delete since the continuation, deletes by time to live included, each
-//     wrapped with its metadata. The service keeps these for the account's
-//     continuous-backup retention and serves the mode only on accounts with
-//     continuous backup, starting from now or from a continuation.
-//
-// The continuation rides in If-None-Match and advances in the response etag.
+// The continuation rides in If-None-Match and advances in the response ETag;
 // `*` starts from now. A latest-version read without one starts from the
-// beginning, or from If-Modified-Since when the client sets it. A read with
-// nothing new answers 304 Not Modified.
-//
-// The conflict feed (/conflicts) is always empty: the simulator's accounts are
-// single-region, single-writer, where conflicts cannot occur.
+// beginning, or from If-Modified-Since. Nothing new answers 304. The conflict
+// feed is always empty: the accounts are single-region, single-writer.
 
 func registerCosmosChangeFeed(srv *sim.Server) {
 	srv.HandleFunc("GET /dbs/{database}/colls/{container}/conflicts", handleCosmosListConflicts)
@@ -59,9 +51,8 @@ func cosmosIsChangeFeedRequest(r *http.Request) bool {
 	return cosmosChangeFeedMode(r) != cosmosFeedNone
 }
 
-// cosmosETagSeqOf extracts the sequence component a document ETag encodes
-// ("<hex-ts>-<hex-seq>"): a logical clock every write in the process advances,
-// which orders the change feed and serves as its continuation.
+// An ETag is "<hex-ts>-<hex-seq>"; the sequence is a process-wide logical
+// clock, which orders the change feed and is its continuation.
 func cosmosETagSeqOf(etag string) uint64 {
 	s := strings.Trim(etag, `"`)
 	i := strings.LastIndexByte(s, '-')
@@ -79,9 +70,8 @@ func cosmosContinuationETag(seq uint64) string {
 	return `"0-` + strconv.FormatUint(seq, 16) + `"`
 }
 
-// cosmosFeedStart reads where a change-feed read resumes: after the sequence
-// its continuation names, after the latest write for `*`, and — reported by
-// the second result — from the beginning when it carries neither.
+// cosmosFeedStart: after the continuation's sequence, after the latest write
+// for `*`, and from the beginning (second result) when it carries neither.
 func cosmosFeedStart(r *http.Request) (uint64, bool) {
 	cont := strings.TrimSpace(r.Header.Get("If-None-Match"))
 	switch cont {
@@ -151,9 +141,7 @@ func handleCosmosChangeFeed(w http.ResponseWriter, r *http.Request) {
 	cosmosWriteData(w, http.StatusOK, map[string]any{"Documents": out, "_count": len(out)})
 }
 
-// cosmosAccountChangeRetention is how long an account keeps the versions the
-// all-versions-and-deletes feed serves: its continuous-backup tier's retention.
-// An account without continuous backup cannot serve the mode at all.
+// An account without continuous backup cannot serve the all-versions mode.
 func cosmosAccountChangeRetention(account string) (time.Duration, bool) {
 	a, ok := cosmosAccountByName(account)
 	if !ok {
@@ -215,12 +203,10 @@ func cosmosAllVersionsFeed(w http.ResponseWriter, r *http.Request, account, db, 
 	cosmosWriteData(w, http.StatusOK, map[string]any{"Documents": out, "_count": len(out)})
 }
 
-// cosmosChangeFeedEntry renders one version the way the all-versions-and-deletes
-// feed wraps it: the item after the change in `current`, and a `metadata`
-// block with the change's log sequence number, conflict-resolution timestamp,
-// operation type, the sequence number of the version it replaced, and whether
-// time to live caused it. A delete carries no current item; its metadata names
-// the deleted item's id and partition key.
+// The item after the change goes in `current`, and `metadata` carries the log
+// sequence number, conflict-resolution timestamp, operation type, the replaced
+// version's sequence number and whether time to live caused it. A delete names
+// the deleted item's id and partition key in its metadata instead.
 func cosmosChangeFeedEntry(change kvstore.Change[CosmosDocument], pkPath string) map[string]any {
 	metadata := map[string]any{
 		"lsn":               change.Seq,
@@ -245,8 +231,6 @@ func cosmosChangeFeedEntry(change kvstore.Change[CosmosDocument], pkPath string)
 	return entry
 }
 
-// handleCosmosListConflicts serves the conflict feed, which a single-region,
-// single-writer account never fills.
 func handleCosmosListConflicts(w http.ResponseWriter, r *http.Request) {
 	cosmosWriteData(w, http.StatusOK, map[string]any{
 		"Conflicts": []map[string]any{},

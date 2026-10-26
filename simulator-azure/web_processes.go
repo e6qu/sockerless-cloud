@@ -17,53 +17,17 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/placement"
 )
 
-// App Service instances and processes, read from the site's live workload
-// container.
-//
-// A container-image App Service site runs as a real container in this
-// simulator, so the platform data these operations report already exists and
-// is read rather than synthesized:
-//
-//   - The running workload container is the site instance. Its identifier is
-//     the instance name, its state is the instance's runtime state, and the
-//     engine's resource-usage sample is the instance's `containers` statistics
-//     — the WebSiteInstanceStatus `containers` member is a dictionary of
-//     ContainerInfo whose members (currentCpuStats, previousCpuStats,
-//     memoryStats, eth0) are the container engine's own statistics document,
-//     member for member.
-//   - The engine's process table for that container is the site's process
-//     list. It is read through the engine's `GET /containers/{id}/top` API,
-//     which runs `ps` for the container's processes, so every process, its
-//     command line, owner, parent, resident and virtual memory, thread count,
-//     elapsed and CPU time is the real value for a real process.
-//
-// A site whose container is not running has no instances and no processes, and
-// answers with an empty collection — the same answer Azure gives for a stopped
-// site.
-//
-// Members of ProcessInfo, ProcessThreadInfo and WebSiteInstanceStatus that the
-// container engine's API does not report are omitted rather than filled with
-// invented values.
-//
-// The engine exposes exactly one process-inspection primitive over its HTTP
-// API — `GET /containers/{id}/top`, the `ps` output for the container's
-// processes. It reports no loaded shared objects, no open file handles, and no
-// per-process memory peaks, and there is no other engine API that does.
-// Reading them would need `/proc/<pid>/maps`, `/proc/<pid>/fd` and
-// `/proc/<pid>/status` from inside the container, which requires either a
-// shell in the workload image (a scratch image has none) or the engine host's
-// own `/proc` (unreachable when the engine runs in a virtual machine). The
-// module, dump and open-handle families of operations are therefore not served
-// at all rather than served with fabricated values, and the members they would
-// populate are absent from ProcessInfo. The same limit stops DeleteProcess:
-// the engine can signal a container's main process, not an arbitrary process
-// inside it.
+// A container-image App Service site runs as a real container, so the site
+// instance is the running workload container and its process list is the
+// engine's `GET /containers/{id}/top` table. The WebSiteInstanceStatus
+// `containers` member is the engine's own statistics document, member for
+// member. A stopped site has no instances and no processes, as on Azure.
+// ProcessInfo members the engine does not report are omitted rather than
+// invented.
 
-// webProcess is one row of the engine's process table for a site container,
-// merged from the two `ps` projections the engine is asked for: the default
-// projection, whose trailing command column carries the whole command line
-// with its spaces intact, and an all-numeric projection that carries the
-// memory, thread and timing columns.
+// webProcess merges two `ps` projections: the default one, whose trailing
+// command column keeps the command line's spaces, and an all-numeric one that
+// carries the memory, thread and timing columns.
 type webProcess struct {
 	PID         int
 	PPID        int
@@ -76,7 +40,6 @@ type webProcess struct {
 	CPUTime     string
 }
 
-// webThread is one row of the engine's thread-level process table.
 type webThread struct {
 	PID         int
 	TID         int
@@ -86,9 +49,7 @@ type webThread struct {
 	ElapsedSecs int64
 }
 
-// webSiteInstanceContainer resolves the live workload backing a site or slot.
-// The second result is false when the site has no running workload, which is
-// the state a stopped site is in.
+// The second result is false when the site has no running workload.
 func webSiteInstanceContainer(site Site) (placement.Handle, bool) {
 	_, handle := azfInstanceFor(site.Name).running()
 	if handle == nil {
@@ -102,8 +63,6 @@ func webSiteInstanceContainer(site Site) (placement.Handle, bool) {
 	}
 }
 
-// webContainerTop reads one `ps` projection for a container through the
-// engine's process-table API and returns it keyed by column title.
 func webContainerTop(containerID string, args ...string) ([]string, [][]string, error) {
 	cli := sim.DockerClient()
 	if cli == nil {
@@ -118,9 +77,8 @@ func webContainerTop(containerID string, args ...string) ([]string, [][]string, 
 	return res.Titles, res.Processes, nil
 }
 
-// webTopColumn reads a named column out of one process-table row. Engines
-// spell the same column differently (`UID` and `USER`, `CMD` and `COMMAND`),
-// so a caller names every spelling it accepts.
+// Engines spell the same column differently (`UID` and `USER`, `CMD` and
+// `COMMAND`), so a caller names every spelling it accepts.
 func webTopColumn(titles []string, row []string, names ...string) string {
 	for _, name := range names {
 		for i, title := range titles {
@@ -141,10 +99,6 @@ func webTopInt(titles []string, row []string, names ...string) int64 {
 	return v
 }
 
-// webProcessTable reads the site container's processes. Two projections are
-// requested: the engine's default one, whose trailing command column is parsed
-// as a whole so a command line keeps its spaces, and an all-numeric one that
-// carries the columns the default projection does not.
 func webProcessTable(containerID string) ([]webProcess, error) {
 	titles, rows, err := webContainerTop(containerID)
 	if err != nil {
@@ -195,7 +149,6 @@ func webProcessTable(containerID string) ([]webProcess, error) {
 	return out, nil
 }
 
-// webThreadTable reads the site container's threads, one row per thread.
 func webThreadTable(containerID string) ([]webThread, error) {
 	titles, rows, err := webContainerTop(containerID, "-eLo", "pid,tid,stat,time,pri,etimes")
 	if err != nil {
@@ -226,8 +179,6 @@ func webThreadTable(containerID string) ([]webThread, error) {
 	return out, nil
 }
 
-// webContainerStats reads one resource-usage sample for a container, the
-// document that fills the instance's `containers` statistics.
 func webContainerStats(containerID string) (mobycontainer.StatsResponse, error) {
 	var stats mobycontainer.StatsResponse
 	cli := sim.DockerClient()
@@ -247,8 +198,6 @@ func webContainerStats(containerID string) (mobycontainer.StatsResponse, error) 
 	return stats, nil
 }
 
-// wire shapes
-
 func webProcessResourceID(base string, instanceID string, pid int) string {
 	if instanceID != "" {
 		return fmt.Sprintf("%s/instances/%s/processes/%d", base, instanceID, pid)
@@ -256,8 +205,8 @@ func webProcessResourceID(base string, instanceID string, pid int) string {
 	return fmt.Sprintf("%s/processes/%d", base, pid)
 }
 
-// webProcessDoc renders one ProcessInfo. Only members the engine's process
-// table reports are present; see webProcessUnservedNote for the rest.
+// webProcessDoc renders one ProcessInfo with only the members the engine's
+// process table reports.
 func webProcessDoc(base, instanceID string, proc webProcess, procs []webProcess, readAt time.Time) map[string]any {
 	href := webProcessResourceID(base, instanceID, proc.PID)
 	props := map[string]any{
@@ -307,8 +256,7 @@ func webProcessDoc(base, instanceID string, proc webProcess, procs []webProcess,
 	}
 }
 
-// webProcessFileName is the executable the process runs: the first token of
-// the command line the engine reports.
+// webProcessFileName is the first token of the command line.
 func webProcessFileName(commandLine string) string {
 	fields := strings.Fields(commandLine)
 	if len(fields) == 0 {
@@ -341,9 +289,6 @@ func webThreadDoc(base, instanceID string, thread webThread, readAt time.Time) m
 	}
 }
 
-// webContainerInfoDoc maps the engine's resource-usage sample onto the
-// ContainerInfo the WebSiteInstanceStatus `containers` dictionary holds. Every
-// member is the engine's own counter.
 func webContainerInfoDoc(containerID string, stats mobycontainer.StatsResponse) map[string]any {
 	info := map[string]any{
 		"id":               containerID,
@@ -396,10 +341,9 @@ func webCPUStatsDoc(cpu mobycontainer.CPUStats) map[string]any {
 	}
 }
 
-// webInstanceDoc renders one WebSiteInstanceStatus. The URL members Azure
-// fills with Kudu links (statusUrl, consoleUrl, detectorUrl, healthCheckUrl)
-// are absent: this simulator serves no Kudu status, console or detector
-// endpoint, and a link to something nothing answers would be a fabrication.
+// The URL members Azure fills with Kudu links (statusUrl, consoleUrl,
+// detectorUrl, healthCheckUrl) are absent: the simulator serves no Kudu
+// status, console or detector endpoint for them to name.
 func webInstanceDoc(base, instanceID string, running bool, containers map[string]any) map[string]any {
 	state := "STOPPED"
 	if running {
@@ -417,23 +361,15 @@ func webInstanceDoc(base, instanceID string, running bool, containers map[string
 	}
 }
 
-// handlers
-
-// webEngineFailure reports a container-engine read that did not succeed. The
-// operation cannot answer without the engine, and answering with an empty
-// collection would claim the site has no processes when the truth is unknown.
+// Answering an empty collection would claim the site has no processes when
+// the truth is unknown.
 func webEngineFailure(w http.ResponseWriter, err error) {
 	AzureError(w, "InternalServerError",
 		"Could not read the site instance from the container engine: "+err.Error(),
 		http.StatusInternalServerError)
 }
 
-// registerWebProcesses mounts WebApps_ListInstanceIdentifiers[Slot],
-// WebApps_GetInstanceInfo[Slot], WebApps_ListProcesses[Slot],
-// WebApps_GetProcess[Slot], WebApps_ListProcessThreads[Slot] and their
-// per-instance spellings.
 func registerWebProcesses(both func(string, string, http.HandlerFunc)) {
-	// WebApps_ListInstanceIdentifiers[Slot] — the site's running instances.
 	both("GET", "/instances", func(w http.ResponseWriter, r *http.Request) {
 		if webMissing(w, r) {
 			return
@@ -447,8 +383,6 @@ func registerWebProcesses(both func(string, string, http.HandlerFunc)) {
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"value": values})
 	})
 
-	// WebApps_GetInstanceInfo[Slot] — one instance, carrying the container
-	// engine's live resource-usage statistics.
 	both("GET", "/instances/{instanceId}", func(w http.ResponseWriter, r *http.Request) {
 		instance, ok := webRequireInstance(w, r)
 		if !ok {
@@ -469,34 +403,26 @@ func registerWebProcesses(both func(string, string, http.HandlerFunc)) {
 			map[string]any{name: info}))
 	})
 
-	// WebApps_ListProcesses[Slot] and WebApps_ListInstanceProcesses[Slot].
 	both("GET", "/processes", webListProcesses)
 	both("GET", "/instances/{instanceId}/processes", webListProcesses)
 
-	// WebApps_GetProcess[Slot] and WebApps_GetInstanceProcess[Slot].
 	both("GET", "/processes/{processId}", webGetProcess)
 	both("GET", "/instances/{instanceId}/processes/{processId}", webGetProcess)
 
-	// WebApps_ListProcessThreads[Slot] and
-	// WebApps_ListInstanceProcessThreads[Slot].
 	both("GET", "/processes/{processId}/threads", webListProcessThreads)
 	both("GET", "/instances/{instanceId}/processes/{processId}/threads", webListProcessThreads)
 
-	// Killing a process really kills it in the site's container, so the
-	// process table the read beside this returns no longer has it.
 	both("DELETE", "/processes/{processId}", webDeleteProcess)
 	both("DELETE", "/instances/{instanceId}/processes/{processId}", webDeleteProcess)
 
-	// The modules a process has loaded, read from the process itself.
 	both("GET", "/processes/{processId}/modules", webListProcessModules)
 	both("GET", "/instances/{instanceId}/processes/{processId}/modules", webListProcessModules)
 	both("GET", "/processes/{processId}/modules/{baseAddress}", webGetProcessModule)
 	both("GET", "/instances/{instanceId}/processes/{processId}/modules/{baseAddress}", webGetProcessModule)
 }
 
-// webRequireInstance resolves the site's live container and checks it against
-// the instance the request addresses, writing the ARM 404 when either the site
-// or the instance is not there.
+// webRequireInstance writes the ARM 404 when either the site or the instance
+// the request addresses is not there.
 func webRequireInstance(w http.ResponseWriter, r *http.Request) (placement.Handle, bool) {
 	instance, running, ok := webResolveInstance(w, r)
 	if !ok {
@@ -509,11 +435,9 @@ func webRequireInstance(w http.ResponseWriter, r *http.Request) (placement.Handl
 	return instance, true
 }
 
-// webResolveInstance resolves the site addressed by the request and its live
-// workload container. The second result is false when the site has no running
-// container, or when the request names an instance that is not the running
-// one; the third is false only when the site itself does not exist, in which
-// case the ARM 404 has already been written.
+// The second result is false when the site has no running container or the
+// request names an instance that is not the running one; the third is false
+// only when the site does not exist, and the ARM 404 is already written.
 func webResolveInstance(w http.ResponseWriter, r *http.Request) (placement.Handle, bool, bool) {
 	if webMissing(w, r) {
 		return nil, false, false
@@ -532,9 +456,7 @@ func webInstanceNotFound(w http.ResponseWriter, r *http.Request) {
 		sim.PathParam(r, "siteName"), sim.PathParam(r, "instanceId"))
 }
 
-// webSiteProcesses resolves the site's instance and reads its process table.
-// A site whose container is not running has an empty process table rather than
-// an error, which is what a collection read of a stopped site answers.
+// A stopped site answers an empty process table, not an error.
 func webSiteProcesses(w http.ResponseWriter, r *http.Request) (placement.Handle, []webProcess, bool) {
 	instance, running, ok := webResolveInstance(w, r)
 	if !ok {
@@ -551,9 +473,8 @@ func webSiteProcesses(w http.ResponseWriter, r *http.Request) (placement.Handle,
 	return instance, procs, true
 }
 
-// webInstanceSegment is the instance identifier the request addressed, or ""
-// for the site-scoped spelling, so the resource IDs a response carries match
-// the path the client called.
+// webInstanceSegment is "" for the site-scoped spelling, so the resource IDs a
+// response carries match the path the client called.
 func webInstanceSegment(r *http.Request) string { return sim.PathParam(r, "instanceId") }
 
 func webListProcesses(w http.ResponseWriter, r *http.Request) {
@@ -649,9 +570,6 @@ func webProcessNotFound(w http.ResponseWriter, r *http.Request, pid int) {
 		sim.PathParam(r, "siteName"), pid)
 }
 
-// webDeleteProcess kills a process in the site's container. It is a real kill:
-// the process table the reads beside it return comes from the container, so a
-// process killed here is gone from them afterwards.
 func webDeleteProcess(w http.ResponseWriter, r *http.Request) {
 	instance, procs, ok := webSiteProcesses(w, r)
 	if !ok {
@@ -684,9 +602,8 @@ func webDeleteProcess(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// webKillContainerProcess sends the process a TERM inside the workload it runs
-// in. No backend kills one process, so it is done the way an operator would:
-// by running kill in the workload.
+// No backend kills a single process, so run kill in the workload, as an
+// operator would.
 func webKillContainerProcess(instance placement.Handle, pid int) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
@@ -694,7 +611,6 @@ func webKillContainerProcess(instance placement.Handle, pid int) error {
 	return err
 }
 
-// webListProcessModules reports the modules a process has loaded.
 func webListProcessModules(w http.ResponseWriter, r *http.Request) {
 	proc, instance, ok := webResolveProcess(w, r)
 	if !ok {
@@ -715,7 +631,6 @@ func webListProcessModules(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// webGetProcessModule reports one module by the address it is mapped at.
 func webGetProcessModule(w http.ResponseWriter, r *http.Request) {
 	proc, instance, ok := webResolveProcess(w, r)
 	if !ok {
@@ -747,7 +662,6 @@ func webGetProcessModule(w http.ResponseWriter, r *http.Request) {
 		fmt.Sprintf("No module is mapped at %q in this process.", wanted), http.StatusNotFound)
 }
 
-// webResolveProcess finds the process a request names in the site's container.
 func webResolveProcess(w http.ResponseWriter, r *http.Request) (webProcess, placement.Handle, bool) {
 	instance, procs, ok := webSiteProcesses(w, r)
 	if !ok {
@@ -771,10 +685,6 @@ func webResolveProcess(w http.ResponseWriter, r *http.Request) (webProcess, plac
 	return webProcess{}, nil, false
 }
 
-// webProcessModuleDocs renders the modules of a process. The executable a
-// process is running is the one module every process has, and it is the one the
-// container can name — the rest are shared objects the kernel maps, which this
-// engine's process table does not expose.
 func webProcessModuleDocs(base, instanceID string, proc webProcess, modules []webProcModule) []any {
 	docs := make([]any, 0, len(modules))
 	for _, module := range modules {
@@ -796,11 +706,9 @@ func webProcessModuleDocs(base, instanceID string, proc webProcess, modules []we
 	return docs
 }
 
-// webProcessModulesUnreadable answers the module reads on a host that cannot
-// see the site's processes. The engine reports them in its own host's PID
-// namespace, so /proc holds them only where the simulator shares that kernel;
-// where it does not — the engine in a virtual machine, which is every macOS
-// host — there is no mapping table to read and no honest answer but this one.
+// The engine reports processes in its own host's PID namespace, so /proc holds
+// them only where the simulator shares that kernel; an engine in a virtual
+// machine, as on every macOS host, leaves no mapping table to read.
 func webProcessModulesUnreadable(w http.ResponseWriter, operation string) {
 	AzureErrorf(w, "NotImplemented", http.StatusNotImplemented,
 		"%s is not implemented by the simulator: a process's loaded modules and "+

@@ -11,8 +11,8 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// withConsoleFederation loads the broker's coordinates from the environment
-// the way buildSimulator does, and restores the package state afterwards.
+// withConsoleFederation loads the coordinates as buildSimulator does and
+// restores the package state afterwards.
 func withConsoleFederation(t *testing.T) {
 	t.Helper()
 	fed, err := loadConsoleFederation()
@@ -62,10 +62,8 @@ func TestLoadConsoleFederationAllOrNothing(t *testing.T) {
 	})
 }
 
-// TestBuildSimulatorFailsLoudOnIncompleteFederationConfig proves the broker's
-// startup config is validated exactly like the OIDC config it sits beside: an
-// operator who sets one SOCKERLESS_CONSOLE_FEDERATION_* coordinate but not
-// the rest gets a startup error, not a silently disabled broker.
+// One SOCKERLESS_CONSOLE_FEDERATION_* coordinate without the rest is a startup
+// error, not a silently disabled broker.
 func TestBuildSimulatorFailsLoudOnIncompleteFederationConfig(t *testing.T) {
 	t.Setenv("SIM_RUNTIME", "process")
 	t.Setenv("SOCKERLESS_CONSOLE_FEDERATION_CLIENT_ID", "console-app")
@@ -94,16 +92,10 @@ func federationTestServer(t *testing.T, configureFederation bool) *sim.Server {
 	return srv
 }
 
-// TestUIConfigJSONNoLongerExposesFederationCredentialCoordinates proves the
-// browser-visible /ui/config.json never carries the federation endpoint or
-// client ID that resolveFederation() used to build the browser-side
-// client_credentials exchange — those coordinates are broker-internal now
-// (see azureConsoleFederation) — while it keeps the directory tenant, which the
-// portal still displays in CLI usage samples unrelated to the exchange
-// itself. /ui/config.json is unauthenticated-reachable only when the UI's own
-// OpenID Connect layer is disabled (see TestFirstPartyOIDCProtectsOperatorSurfacesOnly
-// for the protected case), which is also the shape a local/test instance
-// with no console auth layer takes.
+// /ui/config.json never carries the federation endpoint or client ID, which
+// stay inside the broker, but keeps the tenant the portal's CLI samples show.
+// It is reachable unauthenticated only when the UI's OpenID Connect layer is
+// off (see TestFirstPartyOIDCProtectsOperatorSurfacesOnly).
 func TestUIConfigJSONNoLongerExposesFederationCredentialCoordinates(t *testing.T) {
 	t.Setenv("SIM_RUNTIME", "process")
 	t.Setenv("SOCKERLESS_CONSOLE_FEDERATION_CLIENT_ID", "console-app")
@@ -130,9 +122,8 @@ func TestUIConfigJSONNoLongerExposesFederationCredentialCoordinates(t *testing.T
 	if _, present := got["federationEndpoint"]; present {
 		t.Fatal("federationEndpoint leaked to the browser — the exchange is server-side now")
 	}
-	// The UI's own OpenID Connect layer is disabled in this test (no
-	// UIOIDCIssuer set), so the broker route is never registered — the
-	// federation token endpoint coordinate must not be advertised either.
+	// No UIOIDCIssuer, so the broker route is not registered and must not be
+	// advertised.
 	if got["federationTokenEndpoint"] != "" {
 		t.Fatalf("federationTokenEndpoint = %q, want empty when the console auth layer is disabled", got["federationTokenEndpoint"])
 	}
@@ -179,23 +170,16 @@ func TestFederationTokenRequiresOperatorSession(t *testing.T) {
 	}
 }
 
-// TestExchangeFederationAssertionUsesFullHandlerChainInProcess proves the
-// co-served exchange path (empty SOCKERLESS_CONSOLE_FEDERATION_ENDPOINT)
-// reaches the token endpoint through the server's final handler chain — the
-// same fully-built middleware chain an external HTTP client reaches — rather
-// than a registration-time snapshot that could go stale, so a handler invoked
-// later (as this one is, from inside a request) always sees every WrapHandler
-// layer added after construction.
+// The co-served exchange (empty SOCKERLESS_CONSOLE_FEDERATION_ENDPOINT) must
+// reach the server's final handler chain, not a construction-time snapshot, so
+// it sees every WrapHandler layer added later.
 func TestExchangeFederationAssertionUsesFullHandlerChainInProcess(t *testing.T) {
 	t.Setenv("SIM_RUNTIME", "process")
 	srv, err := sim.NewServer(sim.Config{Provider: "azure", LogLevel: "disabled"})
 	if err != nil {
 		t.Fatalf("new server: %v", err)
 	}
-	// Wrap after construction, the way main.go layers
-	// provider-specific middleware via WrapHandler — proves the in-process
-	// dispatch sees the current chain, not a value captured at construction
-	// time.
+	// Wrap after construction, as main.go does.
 	var sawWrapper bool
 	srv.WrapHandler(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -34,12 +34,10 @@ func TestContainerAppEnv_CreateAndShow(t *testing.T) {
 	assert.Equal(t, "Succeeded", env.Properties.ProvisioningState)
 	assert.NotEmpty(t, env.Properties.DefaultDomain)
 
-	// GET
 	out = runCLI(t, azRest("GET", url, ""))
 	parseJSON(t, out, &env)
 	assert.Equal(t, "cli-test-env", env.Name)
 
-	// Cleanup
 	runCLI(t, azRest("DELETE", url, ""))
 }
 

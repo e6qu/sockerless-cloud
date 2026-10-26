@@ -9,13 +9,10 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// The families that joined the cross-resource-group move dispatch alongside
-// Microsoft.ServiceBus all share one hazard: their credential material is
-// derived from the resource ID, which embeds the resource group. Each test
-// below captures the credential an operator holds before the move and proves
-// it still works after it — through the data plane where the family has one
-// that authenticates, and through the control-plane surface that serves the
-// credential where it does not.
+// Each of these families derives credential material from the resource ID,
+// which embeds the resource group. Each test captures the operator's credential
+// before the move and proves it works after, through the data plane where one
+// authenticates, and through the control plane that serves it otherwise.
 
 func moveTestResourceID(rg, provider, typeName, name string) string {
 	return "/subscriptions/sub-move/resourceGroups/" + rg + "/providers/" + provider + "/" + typeName + "/" + name
@@ -37,10 +34,9 @@ func newEventHubMoveTestStores(t *testing.T) {
 	})
 }
 
-// TestEventHubMovePinsAuthorizationRuleKeys drives the Microsoft.EventHub hook
-// against the data plane's own Shared Access Signature verification: a token
-// signed before the move with the namespace's root key still authenticates
-// after it, and the whole ARM subtree answers under the destination group.
+// A SAS signed with the namespace's root key before the move still
+// authenticates through the data plane after it, and the subtree answers under
+// the destination group.
 func TestEventHubMovePinsAuthorizationRuleKeys(t *testing.T) {
 	newEventHubMoveTestStores(t)
 
@@ -65,7 +61,6 @@ func TestEventHubMovePinsAuthorizationRuleKeys(t *testing.T) {
 		Properties: map[string]any{"rights": []any{"Send"}},
 	})
 
-	// The credential an operator holds, captured before the move.
 	rootKeyBefore := azureKeyMaterial32(rootRuleID, "primary")
 	hubKeyBefore := azureKeyMaterial32(hubRuleID, "primary")
 	audience := "amqps://" + namespace + ".servicebus.localhost/telemetry"
@@ -91,8 +86,8 @@ func TestEventHubMovePinsAuthorizationRuleKeys(t *testing.T) {
 		t.Fatalf("the move rotated an event hub rule key: %q != %q", got, hubKeyBefore)
 	}
 
-	// The proof that matters: the token signed before the move still verifies
-	// against the moved rule's material through the data plane's own path.
+	// The token signed before the move still verifies through the data plane's own
+	// path.
 	granted, err := verifyMessagingSAS(namespace, token)
 	if err != nil {
 		t.Fatalf("a Shared Access Signature issued before the move must still authenticate: %v", err)
@@ -101,7 +96,7 @@ func TestEventHubMovePinsAuthorizationRuleKeys(t *testing.T) {
 		t.Fatalf("granted audience %q does not cover the event hub it was signed for", granted)
 	}
 
-	// The rotation contract is unchanged: regenerating clears the pin.
+	// Regenerating still clears the pin.
 	azureBumpKeyGen(movedRootRule, "primary", "")
 	if got := azureKeyMaterial32(movedRootRule, "primary"); got == rootKeyBefore {
 		t.Fatal("regenerating the moved rule's key returned the pinned material")
@@ -122,13 +117,10 @@ func eventHubMoveRecordExists(id string) bool {
 	return ok
 }
 
-// TestWebSiteMovePinsSiteDerivedCredentials covers the two credentials a
-// Microsoft.Web site derives from its own resource ID: the publishing password
-// the deployment surfaces serve, and the access key a hosted workflow signs its
-// callback URLs with. Both are pinned across the move, so the publish profile
-// and the callback URL an operator already holds keep working. The full
-// simulator is built here because the site hook re-keys the whole
-// Microsoft.Web child subtree, which is more stores than a seeded subset.
+// The site's publishing password and a hosted workflow's callback signing key
+// both derive from the site's resource ID and are pinned, so the publish
+// profile and callback URL keep working. The full simulator is built because
+// the site hook re-keys the whole Microsoft.Web subtree.
 func TestWebSiteMovePinsSiteDerivedCredentials(t *testing.T) {
 	srv, err := buildSimulator(sim.Config{Provider: "azure", ListenAddr: ":0", LogLevel: "error"})
 	if err != nil {
@@ -189,11 +181,8 @@ func newRedisMoveTestStores(t *testing.T) {
 	})
 }
 
-// TestRedisMovePinsAccessKeys drives the Microsoft.Cache hook. Azure Cache for
-// Redis has no data plane in this simulator — the slice serves the ARM
-// lifecycle only — so the credential proof is the strongest one the surface
-// supports: the access keys listKeys serves, which are the password a Redis
-// client authenticates with, are identical before and after the move.
+// The access keys listKeys serves are the password a Redis client
+// authenticates with, and they are identical before and after the move.
 func TestRedisMovePinsAccessKeys(t *testing.T) {
 	newRedisMoveTestStores(t)
 
@@ -257,11 +246,9 @@ func newACRMoveTestStores(t *testing.T) {
 	})
 }
 
-// TestACRMovePinsAdminCredentials drives the Microsoft.ContainerRegistry hook.
-// The registry's admin passwords are derived from the resource ID, so the move
-// pins them: listCredentials serves the same username and passwords, and the
-// whole child subtree — including a task run, which is stored under its own
-// run identifier but reports a resource ID naming the registry — re-homes.
+// listCredentials serves the same username and passwords, and the child subtree
+// re-homes, including a task run stored under its own run ID but naming the
+// registry.
 func TestACRMovePinsAdminCredentials(t *testing.T) {
 	newACRMoveTestStores(t)
 
@@ -337,11 +324,8 @@ func newEventGridMoveTestStores(t *testing.T) {
 	})
 }
 
-// TestEventGridTopicMovePinsKeysAndRewritesSubscriptionTopic drives the
-// Microsoft.EventGrid hook against the publish data plane's own credential
-// check. A topic's access keys are derived from its resource ID, and its event
-// subscriptions carry that same ID in their `topic` property, so the move has
-// to pin the one and rewrite the other.
+// The topic's keys derive from its resource ID, and its subscriptions carry
+// that ID in `topic`, so the move pins the one and rewrites the other.
 func TestEventGridTopicMovePinsKeysAndRewritesSubscriptionTopic(t *testing.T) {
 	newEventGridMoveTestStores(t)
 
@@ -402,12 +386,8 @@ func TestEventGridTopicMovePinsKeysAndRewritesSubscriptionTopic(t *testing.T) {
 	}
 }
 
-// TestEventGridTopicMoveWithoutKeyPinningBreaksTheCredential is the negative
-// control for the pin. It re-keys the same topic the way a move that only
-// re-homed the ARM record would — the record lands at the destination, but
-// nothing carries the derived key material — and shows that the key and the
-// signature an operator captured before the move stop authorizing a publish.
-// That failure is what the pin in moveEventGridTopicARM exists to prevent.
+// The negative control: re-keying only the record leaves the key and signature
+// captured before the move unable to authorize a publish.
 func TestEventGridTopicMoveWithoutKeyPinningBreaksTheCredential(t *testing.T) {
 	newEventGridMoveTestStores(t)
 
@@ -448,10 +428,8 @@ func TestEventGridTopicMoveWithoutKeyPinningBreaksTheCredential(t *testing.T) {
 	}
 }
 
-// TestEventGridDomainMoveCarriesItsTopicsAndSubscriptions covers the domain
-// spelling of the same hook: the domain, its domain topics, and the event
-// subscriptions hanging off both re-key, and the domain's publish credential
-// is pinned.
+// The domain, its domain topics and the subscriptions of both re-key, and the
+// publish credential is pinned.
 func TestEventGridDomainMoveCarriesItsTopicsAndSubscriptions(t *testing.T) {
 	newEventGridMoveTestStores(t)
 

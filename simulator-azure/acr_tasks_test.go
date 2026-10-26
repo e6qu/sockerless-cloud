@@ -32,8 +32,6 @@ func acrTasksURL(reg Registry, suffix string) string {
 	return fmt.Sprintf("http://%s%s%s?api-version=2019-06-01-preview", acrAuthTestARMHost, reg.ID, suffix)
 }
 
-// acrTasksARM sends an Azure Resource Manager request with the bearer a client
-// acquires from the token endpoint.
 func acrTasksARM(t *testing.T, srv *sim.Server, method, target, body string) (*http.Response, []byte) {
 	t.Helper()
 	now := time.Now()
@@ -195,7 +193,6 @@ func acrTasksQueuedRun(t *testing.T, reg Registry, runID string) (*acrActiveRun,
 	return active, stop
 }
 
-// acrTasksMissingContext is a docker build run whose source does not exist.
 func acrTasksMissingContext(timeout time.Duration) acrRunSpec {
 	return acrRunSpec{
 		runType: "QuickBuild",

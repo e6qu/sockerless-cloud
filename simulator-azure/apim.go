@@ -8,12 +8,8 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// Microsoft.ApiManagement ARM control plane. Real Azure exposes
-// ~60 ops across Service / Apis / Operations / Products /
-// Subscriptions / Backends / NamedValues / Policy. The sim
-// implements the Service + Api + Product + Subscription slice —
-// sufficient for terraform-provider-azurerm `azurerm_api_management*`
-// resources.
+// Microsoft.ApiManagement: the Service, Api, Product and Subscription slice
+// the azurerm `azurerm_api_management*` resources use.
 
 type APIMService struct {
 	ID         string            `json:"id"`
@@ -46,8 +42,6 @@ type APIMSubscription struct {
 	Properties map[string]any `json:"properties,omitempty"`
 }
 
-// APIMOperation is one operation under an API. Real Azure paths:
-// `Microsoft.ApiManagement/service/{svc}/apis/{api}/operations/{op}`.
 type APIMOperation struct {
 	ID         string         `json:"id"`
 	Name       string         `json:"name"`
@@ -55,7 +49,6 @@ type APIMOperation struct {
 	Properties map[string]any `json:"properties,omitempty"`
 }
 
-// APIMBackend models a backend endpoint registered under a service.
 type APIMBackend struct {
 	ID         string         `json:"id"`
 	Name       string         `json:"name"`
@@ -63,8 +56,7 @@ type APIMBackend struct {
 	Properties map[string]any `json:"properties,omitempty"`
 }
 
-// APIMNamedValue models a per-service named value (typed key/value
-// used for variable substitution inside policies).
+// APIMNamedValue is a typed key/value that policies substitute.
 type APIMNamedValue struct {
 	ID         string         `json:"id"`
 	Name       string         `json:"name"`
@@ -101,9 +93,9 @@ func registerAPIM(srv *sim.Server) {
 	srv.HandleFunc("DELETE "+base+"/{name}", handleAPIMDeleteService)
 	srv.HandleFunc("GET "+base, handleAPIMListServicesByRG)
 
-	// Soft-deleted-service (purge) surface — subscription+location scoped, no
-	// resourceGroup. terraform-provider-azurerm purges by default on destroy:
-	// after DELETE service it GETs the deleted service then DELETEs (purges) it.
+	// The soft-deleted service surface is subscription- and location-scoped.
+	// terraform-provider-azurerm purges on destroy: after DELETE service it GETs
+	// the deleted service, then DELETEs it.
 	const deletedBase = "/subscriptions/{subscriptionId}/providers/Microsoft.ApiManagement/locations/{location}/deletedServices/{name}"
 	srv.HandleFunc("GET "+deletedBase, handleAPIMGetDeletedService)
 	srv.HandleFunc("DELETE "+deletedBase, handleAPIMPurgeDeletedService)
@@ -122,25 +114,20 @@ func registerAPIM(srv *sim.Server) {
 	srv.HandleFunc("GET "+base+"/{name}/subscriptions/{sub}", handleAPIMGetSubscription)
 	srv.HandleFunc("DELETE "+base+"/{name}/subscriptions/{sub}", handleAPIMDeleteSubscription)
 	srv.HandleFunc("GET "+base+"/{name}/subscriptions", handleAPIMListSubscriptions)
-	// AzurePathNormalizationMiddleware lowercases action verbs, so the route
-	// must be registered lowercase (`listsecrets`) to match the provider's
-	// `POST .../listSecrets` after normalization.
+	// AzurePathNormalizationMiddleware lowercases action verbs, so register
+	// `listsecrets` to match the provider's `listSecrets`.
 	srv.HandleFunc("POST "+base+"/{name}/subscriptions/{sub}/listsecrets", handleAPIMListSubscriptionSecrets)
 
-	// Operations: scoped to an API. Path:
-	// /service/{svc}/apis/{api}/operations/{op}.
 	srv.HandleFunc("PUT "+base+"/{name}/apis/{api}/operations/{op}", handleAPIMCreateOperation)
 	srv.HandleFunc("GET "+base+"/{name}/apis/{api}/operations/{op}", handleAPIMGetOperation)
 	srv.HandleFunc("DELETE "+base+"/{name}/apis/{api}/operations/{op}", handleAPIMDeleteOperation)
 	srv.HandleFunc("GET "+base+"/{name}/apis/{api}/operations", handleAPIMListOperations)
 
-	// Backends: scoped to the service.
 	srv.HandleFunc("PUT "+base+"/{name}/backends/{backend}", handleAPIMCreateBackend)
 	srv.HandleFunc("GET "+base+"/{name}/backends/{backend}", handleAPIMGetBackend)
 	srv.HandleFunc("DELETE "+base+"/{name}/backends/{backend}", handleAPIMDeleteBackend)
 	srv.HandleFunc("GET "+base+"/{name}/backends", handleAPIMListBackends)
 
-	// NamedValues: scoped to the service.
 	srv.HandleFunc("PUT "+base+"/{name}/namedValues/{nv}", handleAPIMCreateNamedValue)
 	srv.HandleFunc("GET "+base+"/{name}/namedValues/{nv}", handleAPIMGetNamedValue)
 	srv.HandleFunc("DELETE "+base+"/{name}/namedValues/{nv}", handleAPIMDeleteNamedValue)
@@ -149,9 +136,8 @@ func registerAPIM(srv *sim.Server) {
 	registerAPIMMore(srv)
 }
 
-// apimRedactNamedValue returns a copy of the named value with the secret
-// `value` stripped from properties. A named value's secret is write-only on the
-// real service: GET / LIST / PUT / PATCH never echo it; only listValue does.
+// A named value's secret is write-only: GET, LIST, PUT and PATCH never echo
+// it; only listValue does.
 func apimRedactNamedValue(nv APIMNamedValue) APIMNamedValue {
 	if nv.Properties == nil {
 		return nv
@@ -170,10 +156,8 @@ func apimRedactNamedValue(nv APIMNamedValue) APIMNamedValue {
 	return nv
 }
 
-// Sub-resource handlers — each follows the same shape: PUT replaces,
-// GET returns the row or 404, DELETE removes, LIST filters by parent.
-// Store keys are `<sub>/<rg>/<service>[/api]/<resource>` so cascade
-// delete + per-service filter stay cheap.
+// Store keys are `<sub>/<rg>/<service>[/api]/<resource>`, so cascade delete
+// and per-service filtering are prefix scans.
 
 func apimOperationKey(sub, rg, svc, api, op string) string {
 	return sub + "/" + rg + "/" + svc + "/" + api + "/" + op
@@ -389,8 +373,6 @@ func handleAPIMDeleteService(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	apimServices.Delete(id)
-	// Move the service to the soft-deleted store so the provider's default
-	// purge step (GET + DELETE deletedServices) can find and purge it.
 	apimDeleted.Put(apimDeletedKey(sub, svc.Location, svc.Name), svc)
 	prefix := id + "/"
 	for _, a := range apimApis.List() {
@@ -433,16 +415,14 @@ func handleAPIMDeleteService(w http.ResponseWriter, r *http.Request) {
 			apimChildren.Delete(strings.ToLower(c.ID))
 		}
 	}
-	// All APIM deletes return a synchronous 200: terraform-provider-azurerm's
-	// sub-resource delete clients require 200 (not 202), and its service
-	// DeleteThenPoll treats a 200 as an immediately-complete LRO. A bare 202
-	// with no Location header makes both error "unexpected status 202".
+	// terraform-provider-azurerm's sub-resource delete clients require 200, and
+	// its service DeleteThenPoll treats 200 as a completed operation; a bare 202
+	// with no Location header fails both.
 	w.WriteHeader(http.StatusOK)
 }
 
-// handleAPIMGetDeletedService serves the soft-deleted service (DeletedService
-// contract). The provider GETs this both before create (404 → name is free)
-// and during purge (200 → proceed to DELETE/purge).
+// The provider GETs the deleted service before create (404: the name is free)
+// and during purge (200: proceed to purge).
 func handleAPIMGetDeletedService(w http.ResponseWriter, r *http.Request) {
 	sub, location, name := sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "location"), sim.PathParam(r, "name")
 	svc, ok := apimDeleted.Get(apimDeletedKey(sub, location, name))
@@ -461,7 +441,6 @@ func handleAPIMGetDeletedService(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleAPIMPurgeDeletedService hard-deletes (purges) the soft-deleted service.
 func handleAPIMPurgeDeletedService(w http.ResponseWriter, r *http.Request) {
 	sub, location, name := sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "location"), sim.PathParam(r, "name")
 	if !apimDeleted.Delete(apimDeletedKey(sub, location, name)) {
@@ -512,9 +491,8 @@ func handleAPIMCreateApi(w http.ResponseWriter, r *http.Request) {
 			a.Properties[k] = v
 		}
 	}
-	// ARM Microsoft.ApiManagement/service/apis defaults, applied only when the
-	// request omits them. terraform-provider-azurerm reads apiRevision (default
-	// "1"); a missing revision forces a replacement on every plan.
+	// terraform-provider-azurerm reads apiRevision; a missing one forces a
+	// replacement on every plan.
 	if v, ok := a.Properties["apiRevision"]; !ok || v == nil || v == "" {
 		a.Properties["apiRevision"] = "1"
 	}
@@ -522,8 +500,8 @@ func handleAPIMCreateApi(w http.ResponseWriter, r *http.Request) {
 		a.Properties["isCurrent"] = true
 	}
 	// The create request carries the API kind as apiType
-	// (ApiCreateOrUpdateProperties); read shapes expose it as type
-	// (ApiEntityBaseContract). Translate and never echo apiType back.
+	// (ApiCreateOrUpdateProperties); reads expose it as type
+	// (ApiEntityBaseContract), and never echo apiType.
 	if v, ok := a.Properties["apiType"]; ok && v != nil && v != "" {
 		a.Properties["type"] = v
 	}
@@ -648,10 +626,8 @@ func handleAPIMCreateSubscription(w http.ResponseWriter, r *http.Request) {
 		AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
 		return
 	}
-	// The contract requires both the scope the subscription is for and its
-	// state. The state has a default the service applies; the scope names what
-	// is being subscribed to and only the caller knows it, so a create without
-	// one is refused rather than stored as a subscription to nothing.
+	// The contract requires scope and state. The service defaults the state, but
+	// only the caller knows the scope, so refuse a create without one.
 	if req.Properties == nil {
 		req.Properties = map[string]any{}
 	}
@@ -694,10 +670,8 @@ func handleAPIMDeleteSubscription(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-// handleAPIMListSubscriptionSecrets returns the subscription's primary and
-// secondary keys (ARM SubscriptionKeysContract). terraform-provider-azurerm's
-// azurerm_api_management_subscription Read calls POST .../listSecrets after
-// create to populate primary_key/secondary_key; without it the create hangs.
+// terraform-provider-azurerm's subscription Read calls listSecrets after
+// create to populate primary_key and secondary_key.
 func handleAPIMListSubscriptionSecrets(w http.ResponseWriter, r *http.Request) {
 	id := apimServiceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name")) +
 		"/subscriptions/" + sim.PathParam(r, "sub")
@@ -708,9 +682,6 @@ func handleAPIMListSubscriptionSecrets(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, apimSubscriptionKeysBody(id))
 }
 
-// apimSubscriptionKeysBody is the SubscriptionKeysContract listSecrets
-// returns, reflecting every regeneratePrimaryKey / regenerateSecondaryKey
-// performed so far.
 func apimSubscriptionKeysBody(id string) map[string]any {
 	return map[string]any{
 		"primaryKey":   azureKeyMaterial32(id, "apim-subscription-primary"),
@@ -718,9 +689,8 @@ func apimSubscriptionKeysBody(id string) map[string]any {
 	}
 }
 
-// apimDropSubscriptionKeyGens removes a deleted subscription's key-rotation
-// state so a later subscription created under the same ID starts from fresh
-// key material.
+// apimDropSubscriptionKeyGens lets a later subscription with the same ID start
+// from fresh keys.
 func apimDropSubscriptionKeyGens(id string) {
 	azureDropKeyGens(id, "apim-subscription-primary", "apim-subscription-secondary")
 }

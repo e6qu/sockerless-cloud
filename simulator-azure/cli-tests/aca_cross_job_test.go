@@ -14,11 +14,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestContainerApps_CrossJobDNS_CLI mirrors the SDK cross-job DNS
-// test through direct REST (az CLI doesn't reliably respect
-// `arm_endpoint` overrides for ACA-specific commands against our
-// simulator). Validates that the env's Docker network + job name
-// alias path works regardless of invocation surface.
+// TestContainerApps_CrossJobDNS_CLI checks that a job resolves another job of
+// the same managed environment by name, driven through `az rest`.
 func TestContainerApps_CrossJobDNS_CLI(t *testing.T) {
 	t.Parallel()
 	if _, err := exec.LookPath("docker"); err != nil {
@@ -28,18 +25,15 @@ func TestContainerApps_CrossJobDNS_CLI(t *testing.T) {
 	rg := "cli-xjob-rg"
 	env := "cli-xjob-env"
 
-	// Resource group.
 	armPUT(t, fmt.Sprintf("/subscriptions/%s/resourceGroups/%s?api-version=2023-07-01",
 		subscriptionID, rg), `{"location":"eastus"}`)
 
-	// Managed env.
 	envID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.App/managedEnvironments/%s",
 		subscriptionID, rg, env)
 	armPUT(t, envID+"?api-version=2024-03-01",
 		`{"location":"eastus","properties":{"zoneRedundant":false}}`)
 	defer armDELETE(t, envID+"?api-version=2024-03-01")
 
-	// Two jobs.
 	createJob := func(jobName string) {
 		body := map[string]any{
 			"location": "eastus",
@@ -67,7 +61,6 @@ func TestContainerApps_CrossJobDNS_CLI(t *testing.T) {
 	createJob("alpha")
 	createJob("beta")
 
-	// Start both.
 	startJob := func(jobName string) {
 		armPOST(t, fmt.Sprintf(
 			"/subscriptions/%s/resourceGroups/%s/providers/Microsoft.App/jobs/%s/start?api-version=2024-03-01",
@@ -76,11 +69,9 @@ func TestContainerApps_CrossJobDNS_CLI(t *testing.T) {
 	startJob("alpha")
 	startJob("beta")
 
-	// Wait for containers.
 	alphaContainer := waitForJobContainer(t, "alpha")
 	_ = waitForJobContainer(t, "beta")
 
-	// Cross-job DNS.
 	var getent []byte
 	require.Eventually(t, func() bool {
 		var err error

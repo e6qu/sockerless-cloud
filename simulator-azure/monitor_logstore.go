@@ -9,15 +9,10 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/logstore"
 )
 
-// classicAppInsightsDefaultRetentionDays is how long a classic Application
-// Insights component keeps telemetry when it names no RetentionInDays.
 const classicAppInsightsDefaultRetentionDays = 90
 
-// webSiteDockerLogMaxLines bounds a site's retained container output.
 const webSiteDockerLogMaxLines = 50000
 
-// monitorRetentionSweepInterval is how often rows past their table's total
-// retention are deleted.
 const monitorRetentionSweepInterval = time.Hour
 
 func monitorNewLog(db *sql.DB, entries, heads string) *logstore.Log[monitorLogRow] {
@@ -26,8 +21,7 @@ func monitorNewLog(db *sql.DB, entries, heads string) *logstore.Log[monitorLogRo
 		sim.MakeStore[logstore.Head](db, heads))
 }
 
-// monitorRowTime is the instant a row's TimeGenerated names, which every
-// retention period counts from. A row without one counts from now.
+// A row without TimeGenerated counts from now.
 func monitorRowTime(row monitorLogRow, now time.Time) time.Time {
 	if at, err := time.Parse(time.RFC3339Nano, row["TimeGenerated"]); err == nil {
 		return at
@@ -40,9 +34,8 @@ func monitorAppendRow(log *logstore.Log[monitorLogRow], scope string, row monito
 	log.Append(scope, now, logstore.Item[monitorLogRow]{Time: monitorRowTime(row, now).UnixMilli(), Value: row})
 }
 
-// logTableRetention returns the days a workspace table keeps rows queryable
-// and the days it keeps them at all, resolving a table that follows its
-// workspace's retention against the workspace as it is now.
+// logTableRetention returns the interactive and total retention in days,
+// resolving a table that follows its workspace against the workspace now.
 func logTableRetention(ws Workspace, table string) (interactive, total int) {
 	interactive = ws.Properties.RetentionInDays
 	total = interactive
@@ -71,9 +64,7 @@ func classicAppInsightsRetention(appID string) int {
 	return c.Properties.RetentionInDays
 }
 
-// monitorScopeRetention returns, for a row store scope, the days its rows stay
-// queryable and the days they are kept, and false for a scope whose workspace
-// is gone.
+// False for a scope whose workspace is gone.
 func monitorScopeRetention(scope string) (interactive, total int, ok bool) {
 	if rest, isApp := strings.CutPrefix(scope, "app/"); isApp {
 		appID, _, _ := strings.Cut(rest, ":")
@@ -96,10 +87,8 @@ func retentionCutoff(now time.Time, days int) time.Time {
 	return now.Add(-time.Duration(days) * 24 * time.Hour)
 }
 
-// monitorQueryableRows returns a scope's rows a query reads at now: those its
-// table's interactive retention still holds. Rows past it and within the
-// table's total retention stay in long-term retention, which queries do not
-// read.
+// Rows past the interactive retention but within the total stay in long-term
+// retention, which queries do not read.
 func monitorQueryableRows(scope string, now time.Time) []monitorLogRow {
 	interactive, _, ok := monitorScopeRetention(scope)
 	if !ok {
@@ -115,8 +104,6 @@ func monitorQueryableRows(scope string, now time.Time) []monitorLogRow {
 	return rows
 }
 
-// monitorSweepRetention deletes every row past its table's total retention,
-// and returns how many it deleted.
 func monitorSweepRetention(now time.Time) int {
 	deleted := 0
 	for _, scope := range monitorLogs.Scopes("") {
@@ -130,8 +117,8 @@ func monitorSweepRetention(now time.Time) int {
 	return deleted
 }
 
-// monitorMigrateRows moves the rows an earlier build stored whole, every row
-// of a table or a site's docker log in one row, into the log stores.
+// monitorMigrateRows moves rows earlier builds stored whole — every row of a
+// table, or a site's docker log, in one row — into the log stores.
 func monitorMigrateRows(db *sql.DB) error {
 	for _, legacy := range []struct {
 		table string

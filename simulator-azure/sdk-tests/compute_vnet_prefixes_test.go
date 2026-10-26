@@ -15,10 +15,9 @@ import (
 )
 
 // A virtual network with two address prefixes carries a subnet in each: a
-// machine in the second prefix's subnet boots at an address there, and both
-// machines resolve each other's registered name through the private zone the
-// network is linked to, from their own prefix. A subnet outside every prefix
-// is refused.
+// machine in the second boots at an address there, and the machines resolve
+// each other through the linked private zone. A subnet outside every prefix is
+// refused.
 //
 //	PUT /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Network/virtualNetworks/{virtualNetworkName}
 //	PUT /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Network/virtualNetworks/{virtualNetworkName}/subnets/{subnetName}

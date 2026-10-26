@@ -44,9 +44,8 @@ func TestComputeVirtualMachineLifecycleCLI(t *testing.T) {
 		t.Fatalf("expected running VM instance view, got %s", out)
 	}
 
-	// VirtualMachines_ListAll — `az vm list` without --resource-group reads
-	// the subscription-wide path, a different operation from the
-	// resource-group list.
+	// `az vm list` without --resource-group reads VirtualMachines_ListAll, a
+	// different operation from the resource-group list.
 	listAllURL := fmt.Sprintf("%s/subscriptions/%s/providers/Microsoft.Compute/virtualMachines?api-version=2024-07-01", baseURL, subscriptionID)
 	out = runCLI(t, azRest("GET", listAllURL, ""))
 	if !strings.Contains(out, "cli-vm") {
@@ -57,8 +56,7 @@ func TestComputeVirtualMachineLifecycleCLI(t *testing.T) {
 		t.Fatalf("expected statusOnly VM list to carry the instance view, got %s", out)
 	}
 
-	// VirtualMachines_Update — a tags-only PATCH must replace the tags and
-	// leave the hardware profile untouched.
+	// A tags-only PATCH replaces the tags and leaves the hardware profile intact.
 	out = runCLI(t, azRest("PATCH", vmURL, `{"tags":{"env":"cli","owner":"platform"}}`))
 	if !strings.Contains(out, "platform") || !strings.Contains(out, "Standard_B1s") {
 		t.Fatalf("expected the VM PATCH to set tags and preserve the hardware profile, got %s", out)
@@ -79,18 +77,16 @@ func TestComputeVirtualMachineLifecycleCLI(t *testing.T) {
 	runCLI(t, azRest("DELETE", vmURL, ""))
 }
 
-// azRestLongRunning sends a request that starts an Azure Resource Manager
-// long-running operation, waits for the operation the way the Azure SDK's
-// pollers do, and returns the initial response body.
+// azRestLongRunning starts an Azure Resource Manager long-running operation,
+// waits for it as the Azure SDK's pollers do, and returns the initial body.
 func azRestLongRunning(t *testing.T, method, url, body string) string {
 	t.Helper()
 	return azLongRunning(t, azRest, method, url, body)
 }
 
-// azLongRunning drives one long-running operation through rest, which builds
-// an `az rest` command. `az rest` returns once the request is accepted, so read
-// the Azure-AsyncOperation or Location it names from az's --debug log, then
-// read it again after each Retry-After it advertises until it is terminal.
+// azLongRunning drives one long-running operation. `az rest` returns once the
+// request is accepted, so read the Azure-AsyncOperation or Location from az's
+// --debug log and poll it after each Retry-After until it is terminal.
 func azLongRunning(t *testing.T, rest func(method, url, body string, extra ...string) *exec.Cmd, method, url, body string) string {
 	t.Helper()
 	initial, stderr := runCLIStreams(t, rest(method, url, body, "--debug"))
@@ -124,9 +120,8 @@ func azLongRunning(t *testing.T, rest func(method, url, body string, extra ...st
 	}
 }
 
-// azLocationResult reads a long-running operation's Location the way the Azure
-// SDK's pollers do: a 202 means the operation is still running, so wait its
-// Retry-After and read again; any other answer carries the operation's result.
+// azLocationResult polls a Location as the Azure SDK's pollers do: a 202 means
+// still running, any other answer carries the result.
 func azLocationResult(t *testing.T, location string) string {
 	t.Helper()
 	for {
@@ -138,7 +133,6 @@ func azLocationResult(t *testing.T, location string) string {
 	}
 }
 
-// azAwaitRetryAfter waits the interval a running operation's poll advertised.
 func azAwaitRetryAfter(t *testing.T, debugLog string) {
 	t.Helper()
 	seconds, err := strconv.Atoi(azDebugResponseHeader(debugLog, "Retry-After"))
@@ -148,7 +142,6 @@ func azAwaitRetryAfter(t *testing.T, debugLog string) {
 	time.Sleep(time.Duration(seconds) * time.Second)
 }
 
-// azDebugResponseStatus reads the last response status az's --debug log names.
 func azDebugResponseStatus(t *testing.T, debugLog string) string {
 	t.Helper()
 	matches := regexp.MustCompile(`Response status: (\d+)`).FindAllStringSubmatch(debugLog, -1)
@@ -158,9 +151,8 @@ func azDebugResponseStatus(t *testing.T, debugLog string) string {
 	return matches[len(matches)-1][1]
 }
 
-// azDebugResponseHeader reads a response header from az's --debug log. The
-// match ignores case: a Go server canonicalizes Azure-AsyncOperation to
-// Azure-Asyncoperation on the wire, and header names are case-insensitive.
+// Match case-insensitively: Go canonicalizes Azure-AsyncOperation to
+// Azure-Asyncoperation on the wire.
 func azDebugResponseHeader(debugLog, header string) string {
 	match := regexp.MustCompile(`(?i)'` + regexp.QuoteMeta(header) + `':\s*'([^']+)'`).FindStringSubmatch(debugLog)
 	if match == nil {

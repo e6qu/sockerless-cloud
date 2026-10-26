@@ -8,22 +8,15 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// eventGridKeySlots are the two access-key slots every Event Grid publishing
-// resource — a custom topic, a domain, a partner namespace — serves through
-// listKeys and rotates through regenerateKey.
 var eventGridKeySlots = []string{"key1", "key2"}
 
-// eventGridKeyMaterial returns the current access key for a resource's key
-// slot. Event Grid's keys live in the rotation store every other Azure key
-// surface shares (key_rotation.go), so a rotation and a cross-resource-group
-// key pin behave identically here and on Storage, Service Bus, Event Hubs,
-// Azure Cache for Redis and Azure Container Registry.
+// Event Grid's keys live in the rotation store every Azure key surface shares
+// (key_rotation.go), so rotation and move pinning behave as on the other
+// services.
 func eventGridKeyMaterial(id, keyName string) string {
 	return azureKeyMaterial32(id, keyName)
 }
 
-// eventGridListKeysResponse is the {key1,key2} body listKeys and
-// regenerateKey both return, reflecting every rotation performed so far.
 func eventGridListKeysResponse(id string) map[string]string {
 	return map[string]string{
 		"key1": eventGridKeyMaterial(id, "key1"),
@@ -31,18 +24,15 @@ func eventGridListKeysResponse(id string) map[string]string {
 	}
 }
 
-// eventGridDropKeyGens removes a deleted resource's rotation state so a later
-// resource created under the same id starts from fresh key material.
+// A later resource with the same ID starts from fresh keys.
 func eventGridDropKeyGens(id string) {
 	azureDropKeyGens(id, eventGridKeySlots...)
 }
 
-// Microsoft.EventGrid ARM control plane — operations, topic types, resource
-// updates (PATCH), key regeneration, the per-scope EventSubscription
-// extensions (update / getFullUrl / getDeliveryAttributes) and the
-// subscription-, resource-group-, regional- and topic-type-scoped event
-// subscription list views, plus private link resources / private endpoint
-// connections. These extend the core CRUD in eventgrid.go.
+// The Microsoft.EventGrid operations beyond eventgrid.go's core CRUD:
+// operations, topic types, PATCH, key regeneration, event subscription
+// extensions and scoped list views, and private link resources and endpoint
+// connections.
 
 var eventGridPrivateEndpointConnections sim.Store[EventGridTopic]
 
@@ -54,44 +44,36 @@ func registerEventGridMore(srv *sim.Server) {
 	const systemTopicsBase = "/subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.EventGrid/systemTopics"
 	const partnerTopicsBase = "/subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.EventGrid/partnerTopics"
 
-	// Provider operations + topic types (tenant-level read-only registries).
 	srv.HandleFunc("GET /providers/Microsoft.EventGrid/operations", handleEventGridListOperations)
 	srv.HandleFunc("GET /providers/Microsoft.EventGrid/topicTypes", handleEventGridListTopicTypes)
 	srv.HandleFunc("GET /providers/Microsoft.EventGrid/topicTypes/{topicTypeName}", handleEventGridGetTopicType)
 	srv.HandleFunc("GET /providers/Microsoft.EventGrid/topicTypes/{topicTypeName}/eventTypes", handleEventGridListTopicTypeEventTypes)
 
-	// Resource updates (PATCH) and key regeneration.
 	srv.HandleFunc("PATCH "+topicsBase+"/{topicName}", handleEventGridUpdateTopic)
 	srv.HandleFunc("POST "+topicsBase+"/{topicName}/regenerateKey", handleEventGridRegenerateTopicKey)
 	srv.HandleFunc("PATCH "+domainsBase+"/{domainName}", handleEventGridUpdateDomain)
 	srv.HandleFunc("POST "+domainsBase+"/{domainName}/regenerateKey", handleEventGridRegenerateDomainKey)
 	srv.HandleFunc("PATCH "+systemTopicsBase+"/{systemTopicName}", handleEventGridUpdateSystemTopic)
 
-	// Event-subscription extensions, registered on every scope. PATCH covers
-	// the per-resource *EventSubscriptions update groups and — by the
-	// route-validity matcher's scope expansion — the global {scope}
-	// EventSubscriptions_Update too. getFullUrl / getDeliveryAttributes the
-	// same.
+	// PATCH also covers the global {scope} EventSubscriptions_Update through the
+	// route-validity matcher's scope expansion; getFullUrl and
+	// getDeliveryAttributes likewise.
 	registerEventGridSubscriptionExtras(srv, topicsBase+"/{topicName}/providers/Microsoft.EventGrid/eventSubscriptions/{eventSubscriptionName}")
 	registerEventGridSubscriptionExtras(srv, domainsBase+"/{domainName}/topics/{domainTopicName}/providers/Microsoft.EventGrid/eventSubscriptions/{eventSubscriptionName}")
 	registerEventGridSubscriptionExtras(srv, systemTopicsBase+"/{systemTopicName}/eventSubscriptions/{eventSubscriptionName}")
 	registerEventGridSubscriptionExtras(srv, partnerTopicsBase+"/{partnerTopicName}/providers/Microsoft.EventGrid/eventSubscriptions/{eventSubscriptionName}")
 
-	// The 2022-06-15 per-resource EventSubscriptions groups address the
-	// subscription through the nested (non-provider) URL form. Full CRUD on
-	// each scope.
+	// The 2022-06-15 per-resource groups address the subscription through the
+	// nested URL form.
 	registerEventGridNestedSubscription(srv, topicsBase+"/{topicName}/eventSubscriptions/{eventSubscriptionName}")
 	registerEventGridNestedSubscription(srv, domainsBase+"/{domainName}/eventSubscriptions/{eventSubscriptionName}")
 	registerEventGridNestedSubscription(srv, domainsBase+"/{domainName}/topics/{domainTopicName}/eventSubscriptions/{eventSubscriptionName}")
 	registerEventGridNestedSubscription(srv, partnerTopicsBase+"/{partnerTopicName}/eventSubscriptions/{eventSubscriptionName}")
-	// The topics nested-list (topics/{topicName}/eventSubscriptions) is already
-	// registered in registerEventGrid; the remaining scopes add theirs here.
+	// registerEventGrid registers the topics' nested list.
 	srv.HandleFunc("GET "+domainsBase+"/{domainName}/eventSubscriptions", handleEventGridListEventSubscriptions)
 	srv.HandleFunc("GET "+domainsBase+"/{domainName}/topics/{domainTopicName}/eventSubscriptions", handleEventGridListEventSubscriptions)
 	srv.HandleFunc("GET "+partnerTopicsBase+"/{partnerTopicName}/eventSubscriptions", handleEventGridListEventSubscriptions)
 
-	// Subscription / resource-group / regional / topic-type-scoped list views
-	// (the EventSubscriptions list pagers).
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/providers/Microsoft.EventGrid/eventSubscriptions", handleEventGridListSubsGlobal)
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.EventGrid/eventSubscriptions", handleEventGridListSubsGlobal)
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/providers/Microsoft.EventGrid/locations/{location}/eventSubscriptions", handleEventGridListSubsRegional)
@@ -101,14 +83,11 @@ func registerEventGridMore(srv *sim.Server) {
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/providers/Microsoft.EventGrid/locations/{location}/topicTypes/{topicTypeName}/eventSubscriptions", handleEventGridListSubsForTopicType)
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.EventGrid/locations/{location}/topicTypes/{topicTypeName}/eventSubscriptions", handleEventGridListSubsForTopicType)
 
-	// Event subscriptions + event types under an arbitrary Azure resource
-	// (ListByResource).
 	const byResourceBase = "/subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/{providerNamespace}/{resourceTypeName}/{resourceName}/providers/Microsoft.EventGrid"
 	srv.HandleFunc("GET "+byResourceBase+"/eventSubscriptions", handleEventGridListSubsByResource)
 	srv.HandleFunc("GET "+byResourceBase+"/eventTypes", handleEventGridListResourceEventTypes)
 
-	// Private link resources + private endpoint connections, mounted under an
-	// arbitrary parent (topics / domains / partnerNamespaces).
+	// Mounted under topics, domains and partnerNamespaces.
 	const parentBase = "/subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.EventGrid/{parentType}/{parentName}"
 	srv.HandleFunc("GET "+parentBase+"/privateLinkResources", handleEventGridListPrivateLinkResources)
 	srv.HandleFunc("GET "+parentBase+"/privateLinkResources/{privateLinkResourceName}", handleEventGridGetPrivateLinkResource)
@@ -131,8 +110,8 @@ func registerEventGridNestedSubscription(srv *sim.Server, base string) {
 	registerEventGridSubscriptionExtras(srv, base)
 }
 
-// eventGridMergeUpdate applies a TrackedResource-shaped PATCH (tags +
-// properties) onto an existing resource, preserving fields the request omits.
+// eventGridUpdateARMResource applies a tags-and-properties PATCH, keeping the
+// fields the request omits.
 func eventGridUpdateARMResource(w http.ResponseWriter, r *http.Request, store sim.Store[EventGridTopic], id, label string) {
 	existing, ok := store.Get(id)
 	if !ok {
@@ -174,10 +153,7 @@ func handleEventGridUpdateSystemTopic(w http.ResponseWriter, r *http.Request) {
 	eventGridUpdateARMResource(w, r, eventGridSystemTopics, id, "system topic")
 }
 
-// eventGridRegenerateKeyResponse rotates one of a resource's two SAS keys and
-// returns the resulting {key1,key2}. The rotated key changes deterministically
-// per generation so a subsequent listKeys observes the new value; the other key
-// is unchanged.
+// The rotated key changes per generation; the other stays.
 func eventGridRegenerateKeyResponse(w http.ResponseWriter, r *http.Request, store sim.Store[EventGridTopic], id, label string) {
 	if _, ok := store.Get(id); !ok {
 		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "%s %q not found", label, id)
@@ -223,8 +199,7 @@ func handleEventGridUpdateEventSubscription(w http.ResponseWriter, r *http.Reque
 	prior := es
 	prior.Properties = maps.Clone(es.Properties)
 	// EventSubscriptionUpdateParameters carries the mutable fields at the top
-	// level (not wrapped in "properties"); merge each provided field into the
-	// stored subscription's properties.
+	// level, not under "properties".
 	var patch map[string]any
 	if err := sim.ReadJSON(r, &patch); err != nil {
 		AzureErrorf(w, "InvalidRequestContent", http.StatusBadRequest, "invalid request body: %v", err)
@@ -242,7 +217,7 @@ func handleEventGridUpdateEventSubscription(w http.ResponseWriter, r *http.Reque
 			es.Properties[k] = v
 		}
 	}
-	// EventSubscriptions_Update declares 201 as its (only) success status.
+	// EventSubscriptions_Update declares 201 as its only success status.
 	if !eventGridNeedsValidation(es, &prior) {
 		es.Properties["provisioningState"] = "Succeeded"
 		eventGridSubscriptions.Put(id, es)
@@ -358,8 +333,6 @@ func handleEventGridListSubsByResource(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// eventGridScopeLocation resolves the location of an event subscription's
-// parent source resource by looking it up across the topic-family stores.
 func eventGridScopeLocation(es EventGridEventSubscription) string {
 	scope, _ := es.Properties["topic"].(string)
 	for _, store := range []sim.Store[EventGridTopic]{eventGridTopics, eventGridDomains, eventGridSystemTopics, eventGridPartnerTopics} {
@@ -367,7 +340,7 @@ func eventGridScopeLocation(es EventGridEventSubscription) string {
 			return res.Location
 		}
 	}
-	// Domain topics inherit the parent domain's location.
+	// A domain topic inherits its domain's location.
 	if i := strings.Index(scope, "/topics/"); i >= 0 {
 		if res, ok := eventGridDomains.Get(scope[:i]); ok {
 			return res.Location
@@ -376,8 +349,6 @@ func eventGridScopeLocation(es EventGridEventSubscription) string {
 	return ""
 }
 
-// eventGridScopeTopicType maps an event subscription's parent source resource
-// type to its Event Grid topic type name.
 func eventGridScopeTopicType(es EventGridEventSubscription) string {
 	scope, _ := es.Properties["topic"].(string)
 	lower := strings.ToLower(scope)
@@ -421,9 +392,8 @@ func eventGridParentExists(r *http.Request) (string, bool) {
 	return id, false
 }
 
-// eventGridPrivateLinkGroupID returns the private-link sub-resource group id a
-// given parent resource type exposes (a topic exposes "topic", a domain
-// "domain", a partner namespace "partnernamespace").
+// A topic exposes "topic", a domain "domain", a partner namespace
+// "partnernamespace".
 func eventGridPrivateLinkGroupID(parentType string) string {
 	switch strings.ToLower(parentType) {
 	case "domains":
@@ -541,26 +511,17 @@ func handleEventGridDeletePrivateEndpointConnection(w http.ResponseWriter, r *ht
 	w.WriteHeader(http.StatusOK)
 }
 
-// ExtensionTopics_Get — the extension topic of an arbitrary Azure resource.
-//
-// An extension topic is not a resource a client creates: it is the addressable
-// name Event Grid gives the events a resource already emits, and it points at
-// the system topic carrying them. So the answer is derived from the scope in
-// the path — the resource being asked about — and names the system topic whose
-// source is that resource, when the subscription holds one.
+// ExtensionTopics_Get: an extension topic is the name Event Grid gives the
+// events a resource already emits, so the answer derives from the scope in the
+// path and names the system topic whose source is that resource, if any.
 func registerEventGridExtensionTopics(srv *sim.Server) {
-	// Go's router cannot spell a wildcard that is not last, so the scopes an
-	// extension topic is addressed at are enumerated the way every other
-	// scope-rooted Event Grid route in this simulator is: the subscription, the
-	// resource group, and a resource under a provider.
+	// Go's mux cannot spell a non-final wildcard, so enumerate the scopes: the
+	// subscription, the resource group, and a resource under a provider.
 	const suffix = "/providers/Microsoft.EventGrid/extensionTopics/default"
 	handler := func(w http.ResponseWriter, r *http.Request) {
 		scope := strings.TrimSuffix(r.URL.Path, suffix)
 
-		// The system topic mapped to the source, if the subscription has
-		// one. A resource nobody created a system topic for still has an
-		// extension topic — the events exist either way — and it names no
-		// system topic, because there is none to name.
+		// A resource without a system topic still has an extension topic, naming none.
 		systemTopic := ""
 		if eventGridSystemTopics != nil {
 			for _, held := range eventGridSystemTopics.List() {

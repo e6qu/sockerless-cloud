@@ -7,33 +7,20 @@ import (
 	"testing"
 )
 
-// web_staticsites_test.go drives the Static Web Apps family through the real
-// `az staticwebapp` command group — create/show/list, appsettings,
-// environments (builds), secrets + API-key reset, users, custom hostnames
-// backed by real Azure DNS records, linked backends and user-provided
-// function apps — plus `az rest` for the database-connection surface this az
-// version does not expose. Native az service commands authenticate through
-// `az cloud update` + `az login` against the TLS simulator, exactly like an
-// operator repointing the CLI's endpoints at a private deployment (see
-// az_login_test.go); only the coordinates differ from a run against Azure.
-// The staticwebapp command group carries a client-side validator that
-// requires the selected cloud to BE AzureCloud, so this flow updates the
-// built-in cloud's endpoints in place (az fetches /metadata/endpoints from
-// the new Azure Resource Manager coordinate — the ARM cloud-metadata
-// bootstrap the simulator serves) instead of registering a separate cloud.
+// The Azure Static Web Apps family through `az staticwebapp`, plus `az rest`
+// for the database-connection surface this az version lacks. The command group
+// requires the selected cloud to be AzureCloud, so this flow updates the
+// built-in cloud's endpoints in place (az then fetches /metadata/endpoints from
+// the new resource manager) instead of registering a separate cloud.
 //
-// The az CLI flattens each SDK model's `properties` block into the top level
-// of its JSON output (x-ms-client-flatten), so the parse structs here read
-// members like defaultHostname and status at the top level; only
-// StringDictionary keeps a nested "properties" map.
+// az flattens each model's `properties` into the top level of its output
+// (x-ms-client-flatten); only StringDictionary keeps a nested "properties".
 
 func TestAzStaticWebApp_CLIFlow(t *testing.T) {
 	t.Parallel()
 	env := startAzLoginSimulator(t)
 
-	// az logger warnings ("Waiting for validation to finish...", the
-	// appsettings redaction notice) print to stderr, which runCLI merges into
-	// the captured output; --only-show-errors keeps command output pure JSON.
+	// --only-show-errors keeps az's logger warnings out of the JSON output.
 	swa := func(args ...string) *exec.Cmd {
 		return env.command(append(args, "--only-show-errors")...)
 	}
@@ -53,7 +40,6 @@ func TestAzStaticWebApp_CLIFlow(t *testing.T) {
 	app := "cli-swa"
 	runCLI(t, swa("group", "create", "-n", rg, "-l", "eastus2", "-o", "json"))
 
-	// Create + show + list.
 	var created struct {
 		Name            string `json:"name"`
 		DefaultHostname string `json:"defaultHostname"`
@@ -86,7 +72,6 @@ func TestAzStaticWebApp_CLIFlow(t *testing.T) {
 		t.Errorf("list = %+v", listed)
 	}
 
-	// Application settings.
 	runCLI(t, swa("staticwebapp", "appsettings", "set",
 		"-n", app, "-g", rg, "--setting-names", "PING=pong", "WORKERS=3", "-o", "json"))
 	var settings struct {
@@ -109,7 +94,7 @@ func TestAzStaticWebApp_CLIFlow(t *testing.T) {
 		t.Errorf("PING lost on delete: %+v", afterDelete.Properties)
 	}
 
-	// Environments: the production build exists from creation.
+	// The production build exists from creation.
 	var envs []struct {
 		Name   string `json:"name"`
 		Status string `json:"status"`
@@ -127,7 +112,7 @@ func TestAzStaticWebApp_CLIFlow(t *testing.T) {
 		t.Errorf("default environment hostname = %q", defaultEnv.Hostname)
 	}
 
-	// Secrets: deployment token list + rotation.
+	// Deployment token list and rotation.
 	var secrets struct {
 		Properties map[string]string `json:"properties"`
 	}
@@ -145,7 +130,6 @@ func TestAzStaticWebApp_CLIFlow(t *testing.T) {
 		t.Error("apiKey did not rotate on reset-api-key")
 	}
 
-	// Users: invite, list, update roles.
 	var invitation struct {
 		InvitationURL string `json:"invitationUrl"`
 		ExpiresOn     string `json:"expiresOn"`
@@ -185,9 +169,9 @@ func TestAzStaticWebApp_CLIFlow(t *testing.T) {
 		t.Errorf("users after update = %+v", usersAfter)
 	}
 
-	// Custom hostname, validated off a real Azure DNS CNAME record in the
-	// simulator: the same two commands an operator runs against Azure DNS.
-	// `az staticwebapp hostname set` validates first, then creates and waits.
+	// The hostname validates off an Azure DNS CNAME record in the simulator, with
+	// the two commands an operator runs against Azure DNS. `az staticwebapp
+	// hostname set` validates first, then creates and waits.
 	zone := "cli-swa-example.com"
 	hostname := "www." + zone
 	runCLI(t, swa("network", "dns", "zone", "create", "-g", rg, "-n", zone, "-o", "json"))
@@ -211,10 +195,8 @@ func TestAzStaticWebApp_CLIFlow(t *testing.T) {
 	runCLI(t, swa("staticwebapp", "hostname", "delete",
 		"-n", app, "-g", rg, "--hostname", hostname, "--yes"))
 
-	// Backends + user-provided function apps link EXISTING Microsoft.Web
-	// sites; create the backing plan + function app through the ARM plane the
-	// logged-in CLI already talks to. The az backends commands operate on the
-	// default build environment.
+	// Backends and user-provided function apps link existing Microsoft.Web sites.
+	// The backends commands operate on the default build environment.
 	subID := subscriptionID
 	planURL := fmt.Sprintf("%s/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Web/serverfarms/swa-cli-plan?api-version=2023-12-01", env.baseURL, subID, rg)
 	runCLI(t, swa("rest", "--method", "PUT", "--url", planURL,
@@ -239,7 +221,6 @@ func TestAzStaticWebApp_CLIFlow(t *testing.T) {
 	}
 	runCLI(t, swa("staticwebapp", "backends", "unlink", "-n", app, "-g", rg))
 
-	// User-provided function app link (site scope).
 	runCLI(t, swa("staticwebapp", "functions", "link",
 		"-n", app, "-g", rg, "--function-resource-id", fnAppID, "-o", "json"))
 	var fnApps []struct {
@@ -251,9 +232,8 @@ func TestAzStaticWebApp_CLIFlow(t *testing.T) {
 	}
 	runCLI(t, swa("staticwebapp", "functions", "unlink", "-n", app, "-g", rg))
 
-	// Database connections: this az version has no `az staticwebapp
-	// dbconnection` group, so the surface is exercised with `az rest` — the
-	// same requests the newer CLI issues.
+	// This az version has no `az staticwebapp dbconnection` group, so `az rest`
+	// sends the requests the newer CLI issues.
 	dbResourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.DocumentDB/databaseAccounts/swa-cli-cosmos", subID, rg)
 	dbConnBase := fmt.Sprintf("%s/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Web/staticSites/%s/databaseConnections", env.baseURL, subID, rg, app)
 	runCLI(t, swa("rest", "--method", "PUT",
@@ -284,7 +264,6 @@ func TestAzStaticWebApp_CLIFlow(t *testing.T) {
 	runCLI(t, swa("rest", "--method", "DELETE",
 		"--url", dbConnBase+"/default?api-version=2025-03-01"))
 
-	// Delete the app; a fresh list is empty.
 	runCLI(t, swa("staticwebapp", "delete", "-n", app, "-g", rg, "--yes"))
 	var afterDeleteList []struct {
 		Name string `json:"name"`

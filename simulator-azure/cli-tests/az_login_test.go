@@ -19,32 +19,20 @@ import (
 	"github.com/e6qu/sockerless-cloud/testutil/simready"
 )
 
-// The real Azure CLI, logged in to the simulator through Azure's own
-// custom-cloud flow.
+// The Azure CLI logs in to the simulator through Azure's own custom-cloud flow
+// (`az cloud register`, `az cloud set`, `az login`). MSAL requires an https
+// authority and, for a host outside its own table, asks
+// login.microsoftonline.com to vouch for it. The one shape it resolves against
+// the configured host is the AD FS authority
+// (`--endpoint-active-directory https://<host>/adfs`) Azure Stack Hub uses.
 //
-// `az cloud register` + `az cloud set` + `az login` is how an operator points
-// the CLI at a deployment other than Azure's public one. The CLI's identity
-// layer is MSAL, which requires an https authority and refuses to talk to an
-// authority whose host it does not recognise: for any host outside its own
-// hard-coded table it sends instance discovery to login.microsoftonline.com —
-// never to the configured authority — and fails with invalid_instance when the
-// public service does not vouch for the host. The one authority shape MSAL
-// resolves against the configured host, with no client-side switch, is the AD
-// FS shape `az cloud register --endpoint-active-directory https://<host>/adfs`
-// that Azure Stack Hub deployments use: MSAL then fetches the authority's own
-// OpenID metadata document and takes the token endpoint from it.
-//
-// So the two coordinates below are all that separate this run from one against
-// Azure: the endpoint URLs registered on the cloud, and the certificate
-// authority the CLI trusts (REQUESTS_CA_BUNDLE, the same variable an operator
-// sets for a private CA). Every command, credential and identifier is what a
-// real client uses.
+// Only the registered endpoint URLs and the trusted CA (REQUESTS_CA_BUNDLE)
+// separate this run from one against Azure.
 
 const azLoginTenantID = "11111111-1111-1111-1111-111111111111"
 
-// azLoginEnv isolates this test's CLI state. `az cloud set` and `az login`
-// mutate the configuration directory, so the login test must not share the one
-// the rest of the suite uses for `az rest`.
+// azLoginEnv isolates this test's CLI state: `az cloud set` and `az login`
+// mutate the configuration directory the rest of the suite uses.
 type azLoginEnv struct {
 	baseURL   string
 	configDir string
@@ -62,15 +50,13 @@ func (e azLoginEnv) command(args ...string) *exec.Cmd {
 	return cmd
 }
 
-// TestAzLogin_ServicePrincipalAgainstSimulatorCloud runs the whole operator
-// flow end to end: register the simulator as a cloud, select it, log in with a
-// service principal, and then drive native `az` commands whose bearer token the
-// CLI acquired and attached itself.
+// TestAzLogin_ServicePrincipalAgainstSimulatorCloud registers the simulator as
+// a cloud, logs in with a service principal, and drives native `az` commands
+// with the token the CLI acquired itself.
 func TestAzLogin_ServicePrincipalAgainstSimulatorCloud(t *testing.T) {
 	t.Parallel()
 	env := startAzLoginSimulator(t)
 
-	// Register the simulator's coordinates as an Azure CLI cloud.
 	runCLI(t, env.command("cloud", "register", "-n", "sockerless-sim",
 		"--endpoint-resource-manager", env.baseURL,
 		"--endpoint-active-directory", env.baseURL+"/adfs",
@@ -78,15 +64,12 @@ func TestAzLogin_ServicePrincipalAgainstSimulatorCloud(t *testing.T) {
 		"--endpoint-active-directory-graph-resource-id", env.baseURL))
 	runCLI(t, env.command("cloud", "set", "-n", "sockerless-sim"))
 
-	// The login the issue reports as impossible.
 	runCLI(t, env.command("login", "--service-principal",
 		"-u", "test-client-id",
 		"-p", "test-client-secret",
 		"--tenant", azLoginTenantID,
 		"--allow-no-subscriptions"))
 
-	// The CLI now holds a simulator-minted token and reports the identity it
-	// logged in as.
 	var account struct {
 		EnvironmentName string `json:"environmentName"`
 		ID              string `json:"id"`
@@ -111,9 +94,7 @@ func TestAzLogin_ServicePrincipalAgainstSimulatorCloud(t *testing.T) {
 		t.Errorf("subscription id = %q, want %q", account.ID, subscriptionID)
 	}
 
-	// Native `az` commands — not `az rest` with a hand-fetched bearer — now work
-	// against the simulator, which is what the issue asks for. Create a resource
-	// group and read it back through the CLI's own resource commands.
+	// Native `az` commands, not `az rest` with a hand-fetched bearer.
 	groupName := "az-login-rg"
 	var created struct {
 		Name     string `json:"name"`
@@ -142,10 +123,8 @@ func TestAzLogin_ServicePrincipalAgainstSimulatorCloud(t *testing.T) {
 	runCLI(t, env.command("logout"))
 }
 
-// TestAzLogin_InstanceDiscoveryThroughCLI drives the Entra instance discovery
-// endpoint with the CLI's own HTTP client. The endpoint is unauthenticated on
-// Entra and on the simulator alike, and answers which authority hosts this
-// identity service vouches for.
+// TestAzLogin_InstanceDiscoveryThroughCLI drives the unauthenticated Entra
+// instance discovery endpoint with the CLI's own HTTP client.
 func TestAzLogin_InstanceDiscoveryThroughCLI(t *testing.T) {
 	t.Parallel()
 	env := startAzLoginSimulator(t)
@@ -177,8 +156,7 @@ func TestAzLogin_InstanceDiscoveryThroughCLI(t *testing.T) {
 		t.Errorf("metadata = %+v, want a single entry preferring %q", discovered.Metadata, host)
 	}
 
-	// An authority the simulator does not serve is rejected, which is the
-	// answer MSAL turns into its invalid_instance error.
+	// MSAL turns this rejection into its invalid_instance error.
 	rejected := env.command("rest", "--method", "GET", "--skip-authorization-header",
 		"--url", fmt.Sprintf("%s/common/discovery/instance?api-version=1.1&authorization_endpoint=https%%3A%%2F%%2Fsomewhere-else.test%%2F%s%%2Foauth2%%2Fv2.0%%2Fauthorize",
 			env.baseURL, azLoginTenantID))
@@ -193,18 +171,14 @@ func TestAzLogin_InstanceDiscoveryThroughCLI(t *testing.T) {
 	}
 }
 
-// startAzLoginSimulator runs a TLS-terminated simulator (API-only: no
-// workload runtime) and returns the coordinates the CLI needs to reach it.
-// MSAL refuses a plain-http authority, so this test cannot share the suite's
-// http listener.
+// startAzLoginSimulator runs an API-only simulator over TLS: MSAL refuses a
+// plain-http authority, so this test cannot share the suite's listener.
 func startAzLoginSimulator(t *testing.T) azLoginEnv {
 	return startAzTLSSimulator(t, "SIM_RUNTIME=process")
 }
 
-// startAzTLSSimulator runs a TLS-terminated simulator with the given extra
-// environment. Without a SIM_RUNTIME override it runs the full workload
-// runtime (Docker), which the native-az App Service tests need for real
-// webjob executions.
+// startAzTLSSimulator runs a simulator over TLS. Without a SIM_RUNTIME override
+// it runs the Docker workload runtime the native-az App Service tests need.
 func startAzTLSSimulator(t *testing.T, extraEnv ...string) azLoginEnv {
 	t.Helper()
 	dir := t.TempDir()
@@ -220,8 +194,8 @@ func startAzTLSSimulator(t *testing.T, extraEnv ...string) azLoginEnv {
 		t.Fatalf("release reserved port: %v", err)
 	}
 
-	// Bound on every interface, as the suite's simulator is, so the workloads
-	// the tests place reach it through the engine's bridge.
+	// Bind on every interface so placed workloads reach it through the engine's
+	// bridge.
 	cmd := exec.Command(binaryPath)
 	cmd.Env = append(os.Environ(),
 		"SIM_LISTEN_ADDR="+port,
@@ -239,8 +213,7 @@ func startAzTLSSimulator(t *testing.T, extraEnv ...string) azLoginEnv {
 		}
 	})
 
-	// The certificate names localhost, so address the simulator by that name —
-	// the CLI verifies the hostname against the trusted bundle.
+	// The CLI verifies the certificate's localhost name.
 	base := "https://localhost" + port
 
 	return azLoginEnv{
@@ -251,8 +224,7 @@ func startAzTLSSimulator(t *testing.T, extraEnv ...string) azLoginEnv {
 }
 
 // writeAzLoginTLSCert issues the certificate the simulator serves and the CLI
-// trusts — the stand-in for the private certificate authority an operator
-// points REQUESTS_CA_BUNDLE at.
+// trusts, standing in for an operator's private certificate authority.
 func writeAzLoginTLSCert(t *testing.T, dir string) (string, string) {
 	t.Helper()
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
@@ -272,8 +244,7 @@ func writeAzLoginTLSCert(t *testing.T, dir string) (string, string) {
 		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 		BasicConstraintsValid: true,
 		IsCA:                  true,
-		// A web app's SCM site is <app>.scm.<host>, the hostname the
-		// deployment commands connect to.
+		// The deployment commands connect to <app>.scm.<host>.
 		DNSNames:    []string{"localhost", "*.scm.localhost"},
 		IPAddresses: []net.IP{net.ParseIP("127.0.0.1")},
 	}

@@ -18,18 +18,15 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// acaQueueReader reads the length of an Azure Queue scale rule's queue the way
-// the rule's scaler does: Get Queue Metadata against the account's Queue
-// service, signed with the account key of the connection string a secret
-// holds, or carrying a token of the managed identity the rule names.
+// acaQueueReader reads a queue's length as the rule's scaler does: Get Queue
+// Metadata signed with the account key of the secret's connection string, or
+// with a token of the managed identity the rule names.
 type acaQueueReader struct {
 	appID    string
 	identity *SiteIdentity
 	secrets  map[string]string
 }
 
-// connection is the connection string the rule's `connection` trigger
-// parameter takes from a secret, split into its fields, or nil.
 func (q acaQueueReader) connection(auths []ContainerAppScaleRuleAuth) (map[string]string, error) {
 	for _, auth := range auths {
 		if !strings.EqualFold(auth.TriggerParameter, "connection") {
@@ -89,9 +86,9 @@ func (q acaQueueReader) length(ctx context.Context, rule ContainerAppQueueScaleR
 	return strconv.Atoi(response.Header().Get("x-ms-approximate-messages-count"))
 }
 
-// serviceBusLength reads the active messages of an azure-servicebus rule's
-// queue, or of its topic's subscription, from the namespace's management
-// endpoint, with a Shared Access Signature the connection string's key signs.
+// serviceBusLength reads the active messages of the queue or subscription from
+// the namespace's management endpoint, with a SAS the connection string's key
+// signs.
 func (q acaQueueReader) serviceBusLength(ctx context.Context, rule ContainerAppCustomScaleRule) (int, error) {
 	connection, err := q.connection(rule.Auth)
 	if err != nil {
@@ -112,7 +109,7 @@ func (q acaQueueReader) serviceBusLength(ctx context.Context, rule ContainerAppC
 		}
 		entity = topic + "/Subscriptions/" + subscription
 	}
-	// The Azure SDKs sign the escaped, lower-cased audience.
+	// The Azure SDKs sign the escaped, lowercased audience.
 	audience := strings.ToLower(url.QueryEscape("https://" + endpoint.Host + "/" + entity))
 	expiry := strconv.FormatInt(time.Now().Add(time.Hour).Unix(), 10)
 	mac := hmac.New(sha256.New, []byte(connection["SharedAccessKey"]))
@@ -150,9 +147,8 @@ func (q acaQueueReader) serviceBusLength(ctx context.Context, rule ContainerAppC
 	}
 }
 
-// token is a Microsoft Entra token for Azure Storage of the app's managed
-// identity the rule names: "system", or a user-assigned identity's resource
-// ID.
+// token is an Azure Storage token for the identity the rule names: "system" or
+// a user-assigned identity's resource ID.
 func (q acaQueueReader) token(name string) (string, error) {
 	if q.identity == nil {
 		return "", fmt.Errorf("the rule names identity %q, but the app has no managed identity", name)
@@ -194,8 +190,6 @@ func (q acaQueueReader) token(name string) (string, error) {
 	})
 }
 
-// acaConnectionStringFields splits a storage connection string into its
-// key=value fields.
 func acaConnectionStringFields(connection string) map[string]string {
 	fields := map[string]string{}
 	for _, part := range strings.Split(connection, ";") {

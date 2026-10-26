@@ -9,8 +9,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestACIOperationsList exercises the Microsoft.ContainerInstance provider
-// operation metadata endpoint (Operations_List).
 func TestACIOperationsList(t *testing.T) {
 	t.Parallel()
 	client, err := armcontainerinstance.NewOperationsClient(&fakeCredential{}, clientOpts())
@@ -32,9 +30,8 @@ func TestACIOperationsList(t *testing.T) {
 	assert.Contains(t, names, "Microsoft.ContainerInstance/containerGroups/write")
 }
 
-// TestACILocationUsages exercises the per-region usage endpoint
-// (Location_ListUsage): the simulator reports container-group consumption
-// computed from the groups it actually holds.
+// TestACILocationUsages: Location_ListUsage counts the container groups the
+// simulator holds.
 func TestACILocationUsages(t *testing.T) {
 	t.Parallel()
 	client, err := armcontainerinstance.NewLocationClient(subscriptionID, &fakeCredential{}, clientOpts())
@@ -56,8 +53,6 @@ func TestACILocationUsages(t *testing.T) {
 	assert.True(t, seen["StandardCores"], "StandardCores usage must be reported")
 }
 
-// TestACILocationCapabilities exercises the per-region capability endpoint
-// (Location_ListCapabilities).
 func TestACILocationCapabilities(t *testing.T) {
 	t.Parallel()
 	client, err := armcontainerinstance.NewLocationClient(subscriptionID, &fakeCredential{}, clientOpts())
@@ -80,9 +75,6 @@ func TestACILocationCapabilities(t *testing.T) {
 	assert.True(t, foundLinux, "a Linux containerGroups capability must be reported")
 }
 
-// TestACILocationCachedImages exercises the cached-images endpoint
-// (Location_ListCachedImages). The simulator maintains no platform image cache,
-// so the pager simply iterates without error.
 func TestACILocationCachedImages(t *testing.T) {
 	t.Parallel()
 	client, err := armcontainerinstance.NewLocationClient(subscriptionID, &fakeCredential{}, clientOpts())
@@ -95,10 +87,9 @@ func TestACILocationCachedImages(t *testing.T) {
 	}
 }
 
-// TestACIOutboundNetworkDependenciesAndAttach exercises a container group's
-// outbound network dependency endpoints (always empty) and the container attach
-// handshake (Containers_Attach), which returns a websocket URI for a running
-// container.
+// TestACIOutboundNetworkDependenciesAndAttach: a container group's outbound
+// dependency list is empty, and Containers_Attach returns a websocket URI for a
+// running container.
 func TestACIOutboundNetworkDependenciesAndAttach(t *testing.T) {
 	t.Parallel()
 	rg := "aci-ops-rg"

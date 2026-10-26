@@ -32,8 +32,8 @@ import (
 	pkcs12 "software.sslmate.com/src/go-pkcs12"
 )
 
-// SDK coverage for the App Service certificate, hostname-truth, config
-// snapshot, container-log and provider-singleton surfaces:
+// The App Service certificate, hostname, configuration snapshot, container log
+// and provider-singleton surfaces.
 //
 //	GET /subscriptions/{subscriptionId}/providers/Microsoft.Web/certificates
 //	GET+PUT+PATCH+DELETE /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Web/certificates/{name}
@@ -61,10 +61,9 @@ import (
 //	POST /subscriptions/{subscriptionId}/resourceGroups/{sourceResourceGroupName}/moveResources
 //	POST /subscriptions/{subscriptionId}/resourceGroups/{sourceResourceGroupName}/validateMoveResources
 
-// stage4SelfSignedCert issues a fresh self-signed certificate for the given
-// hostnames and returns the parsed certificate together with its PKCS#12
-// archive protected by password — the exact payload `az webapp config ssl
-// upload` and terraform-provider-azurerm send.
+// stage4SelfSignedCert returns a self-signed certificate for the hostnames and
+// its password-protected PKCS#12 archive, the payload
+// `az webapp config ssl upload` and terraform-provider-azurerm send.
 func stage4SelfSignedCert(t *testing.T, commonName string, dnsNames []string, password string) (*x509.Certificate, []byte) {
 	t.Helper()
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
@@ -116,7 +115,7 @@ func TestSDK_WebCertificates_PfxLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, created.Properties)
 
-	// Every derived member comes from the real certificate.
+	// Every derived member comes from the certificate itself.
 	require.NotNil(t, created.Properties.Thumbprint)
 	assert.Equal(t, stage4Thumbprint(leaf), *created.Properties.Thumbprint)
 	require.NotNil(t, created.Properties.SubjectName)
@@ -134,7 +133,7 @@ func TestSDK_WebCertificates_PfxLifecycle(t *testing.T) {
 		hostNames = append(hostNames, *h)
 	}
 	assert.ElementsMatch(t, []string{"stage4.example.com", "www.stage4.example.com"}, hostNames)
-	// pfxBlob and password are x-ms-secret: write-only, never returned.
+	// pfxBlob and password are x-ms-secret: write-only.
 	assert.Nil(t, created.Properties.PfxBlob, "pfxBlob is write-only")
 	assert.Nil(t, created.Properties.Password, "password is write-only")
 
@@ -146,7 +145,6 @@ func TestSDK_WebCertificates_PfxLifecycle(t *testing.T) {
 	assert.Equal(t, certID, *got.ID)
 	assert.Equal(t, stage4Thumbprint(leaf), *got.Properties.Thumbprint)
 
-	// List by resource group and by subscription.
 	foundRG, foundSub := false, false
 	rgPager := client.NewListByResourceGroupPager(rg, nil)
 	for rgPager.More() {
@@ -171,7 +169,7 @@ func TestSDK_WebCertificates_PfxLifecycle(t *testing.T) {
 	assert.True(t, foundRG, "certificate must appear in list-by-resource-group")
 	assert.True(t, foundSub, "certificate must appear in list-by-subscription")
 
-	// PATCH with a fresh payload re-derives the members.
+	// A PATCH with a new payload re-derives the members.
 	leaf2, pfx2 := stage4SelfSignedCert(t, "patched.example.com", []string{"patched.example.com"}, "p2")
 	patched, err := client.Update(ctx, rg, "s4-cert", armappservice.AppCertificatePatchResource{
 		Properties: &armappservice.AppCertificatePatchResourceProperties{
@@ -183,7 +181,7 @@ func TestSDK_WebCertificates_PfxLifecycle(t *testing.T) {
 	require.NotNil(t, patched.Properties.Thumbprint)
 	assert.Equal(t, stage4Thumbprint(leaf2), *patched.Properties.Thumbprint)
 
-	// A wrong PFX password is a parse failure, not a stored certificate.
+	// A wrong PFX password fails the parse; nothing is stored.
 	_, err = client.CreateOrUpdate(ctx, rg, "s4-badpass", armappservice.AppCertificate{
 		Location: to.Ptr("eastus"),
 		Properties: &armappservice.AppCertificateProperties{
@@ -193,8 +191,8 @@ func TestSDK_WebCertificates_PfxLifecycle(t *testing.T) {
 	}, nil)
 	require.Error(t, err, "wrong PFX password must be rejected")
 
-	// Delete: 200 for an existing certificate, 204 for an absent one — the
-	// SDK treats both as success; the follow-up Get proves it is gone.
+	// Delete answers 200 for an existing certificate and 204 for an absent one,
+	// both success to the SDK, so a Get confirms it is gone.
 	_, err = client.Delete(ctx, rg, "s4-cert", nil)
 	require.NoError(t, err)
 	_, err = client.Get(ctx, rg, "s4-cert", nil)
@@ -203,9 +201,9 @@ func TestSDK_WebCertificates_PfxLifecycle(t *testing.T) {
 	require.NoError(t, err, "deleting an absent certificate answers 204")
 }
 
-// appServicePrincipalID is the object ID of the tenant's "Microsoft Azure
-// App Service" service principal, found the way `az keyvault set-policy --spn`
-// finds it: by its application ID among the service principal names.
+// appServicePrincipalID finds the object ID of the tenant's "Microsoft Azure
+// App Service" service principal as `az keyvault set-policy --spn` does: by its
+// application ID among the service principal names.
 func appServicePrincipalID(t *testing.T) string {
 	t.Helper()
 	filter := url.QueryEscape("servicePrincipalNames/any(c:c eq '" + appServiceAppID + "')")
@@ -225,13 +223,12 @@ func appServicePrincipalID(t *testing.T) string {
 	return listed.Value[0].ID
 }
 
-// appServiceAppID is the application ID of App Service's first-party
-// service principal, the same in every tenant.
+// appServiceAppID is App Service's first-party application ID, the same in
+// every tenant.
 const appServiceAppID = "abfa0a7c-a6b6-4736-8310-5855508787cd"
 
-// stage4CreateVault creates a Key Vault through the ARM control plane,
-// granting reader the secret verbs secretPerms names, and the test's own
-// principal the permission to write the secret.
+// stage4CreateVault creates a key vault granting reader the secretPerms and the
+// test's own principal permission to write the secret.
 func stage4CreateVault(t *testing.T, rg, vault, reader string, secretPerms []string) string {
 	t.Helper()
 	props := map[string]any{
@@ -263,8 +260,7 @@ func stage4CreateVault(t *testing.T, rg, vault, reader string, secretPerms []str
 	return "/subscriptions/" + subscriptionID + "/resourceGroups/" + rg + "/providers/Microsoft.KeyVault/vaults/" + vault
 }
 
-// stage4SetVaultSecret writes a secret through the Key Vault data plane —
-// the coordinate real certificate imports land on.
+// stage4SetVaultSecret writes a secret through the Key Vault data plane.
 func stage4SetVaultSecret(t *testing.T, vault, name, value string) {
 	t.Helper()
 	body, _ := json.Marshal(map[string]any{"value": value, "contentType": "application/x-pkcs12"})
@@ -298,7 +294,7 @@ func TestSDK_WebCertificates_KeyVaultSourced(t *testing.T) {
 		return *c.Properties.KeyVaultSecretStatus
 	}
 
-	// Secret resolves and parses → Succeeded, with the real thumbprint.
+	// The secret resolves and parses: Succeeded, with its thumbprint.
 	ok, err := client.CreateOrUpdate(ctx, rg, "s4-kv-ok", armappservice.AppCertificate{
 		Location: to.Ptr("eastus"),
 		Properties: &armappservice.AppCertificateProperties{
@@ -311,7 +307,7 @@ func TestSDK_WebCertificates_KeyVaultSourced(t *testing.T) {
 	require.NotNil(t, ok.Properties.Thumbprint)
 	assert.Equal(t, stage4Thumbprint(leaf), *ok.Properties.Thumbprint)
 
-	// Vault exists, secret does not → KeyVaultSecretDoesNotExist.
+	// The vault exists, the secret does not: KeyVaultSecretDoesNotExist.
 	noSecret, err := client.CreateOrUpdate(ctx, rg, "s4-kv-nosecret", armappservice.AppCertificate{
 		Location: to.Ptr("eastus"),
 		Properties: &armappservice.AppCertificateProperties{
@@ -323,9 +319,8 @@ func TestSDK_WebCertificates_KeyVaultSourced(t *testing.T) {
 	assert.Equal(t, armappservice.KeyVaultSecretStatusKeyVaultSecretDoesNotExist, status(noSecret))
 
 	// App Service reads the secret as its own service principal, so a vault
-	// that grants the secret get permission only to someone else, or that
-	// uses Azure RBAC and assigns App Service no role, keeps it out →
-	// OperationNotPermittedOnKeyVault.
+	// granting get only to someone else, or using Azure RBAC with no role for App
+	// Service, answers OperationNotPermittedOnKeyVault.
 	otherID := stage4CreateVault(t, rg, "s4kvcertother", "11111111-2222-3333-4444-555555555555", []string{"Get", "List"})
 	stage4SetVaultSecret(t, "s4kvcertother", "s4-cert-secret", base64.StdEncoding.EncodeToString(pfx))
 	createAuthTestVault(t, rg, "s4kvcertrbac", armkeyvault.VaultProperties{EnableRbacAuthorization: to.Ptr(true)})
@@ -358,7 +353,7 @@ func TestSDK_WebCertificates_KeyVaultSourced(t *testing.T) {
 	assert.Equal(t, armappservice.KeyVaultSecretStatusSucceeded, status(rbacOK),
 		"a role assignment granting App Service's service principal the secret imports it")
 
-	// No vault at that resource ID → KeyVaultDoesNotExist.
+	// No vault at that resource ID: KeyVaultDoesNotExist.
 	missing, err := client.CreateOrUpdate(ctx, rg, "s4-kv-missing", armappservice.AppCertificate{
 		Location: to.Ptr("eastus"),
 		Properties: &armappservice.AppCertificateProperties{
@@ -384,8 +379,8 @@ func TestSDK_WebApps_HostnameTruth(t *testing.T) {
 	webMoreCreateSite(t, client, rg, s4HostSiteName, planID)
 	webMoreCreateSite(t, client, rg, s4HostOtherName, planID)
 
-	// Publish the ownership proof in the simulator's Azure DNS: a zone with
-	// a CNAME pointing the custom hostname at the site's default hostname.
+	// Prove ownership in the simulator's Azure DNS with a CNAME from the custom
+	// hostname to the site's default hostname.
 	zonesClient, err := armdns.NewZonesClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = zonesClient.CreateOrUpdate(ctx, rg, zone, armdns.Zone{Location: to.Ptr("global")}, nil)
@@ -402,8 +397,8 @@ func TestSDK_WebApps_HostnameTruth(t *testing.T) {
 
 	host := "app." + zone
 
-	// The CNAME analysis reads the record set for real: target listed,
-	// verification test passed.
+	// The CNAME analysis reads the record set: the target is listed and the
+	// verification passes.
 	analysis, err := client.AnalyzeCustomHostname(ctx, rg, s4HostSiteName,
 		&armappservice.WebAppsClientAnalyzeCustomHostnameOptions{HostName: to.Ptr(host)})
 	require.NoError(t, err)
@@ -415,7 +410,7 @@ func TestSDK_WebApps_HostnameTruth(t *testing.T) {
 	require.NotNil(t, analysis.Properties.IsHostnameAlreadyVerified)
 	assert.False(t, *analysis.Properties.IsHostnameAlreadyVerified)
 
-	// A hostname without any DNS record fails the verification test.
+	// A hostname with no DNS record fails verification.
 	unproven, err := client.AnalyzeCustomHostname(ctx, rg, s4HostSiteName,
 		&armappservice.WebAppsClientAnalyzeCustomHostnameOptions{HostName: to.Ptr("nowhere." + zone)})
 	require.NoError(t, err)
@@ -423,8 +418,8 @@ func TestSDK_WebApps_HostnameTruth(t *testing.T) {
 	assert.Equal(t, armappservice.DNSVerificationTestResultFailed, *unproven.Properties.CustomDomainVerificationTest)
 	require.NotNil(t, unproven.Properties.CustomDomainVerificationFailureInfo)
 
-	// Bind the hostname to the site, then re-analyze: the binding owner sees
-	// isHostnameAlreadyVerified, the other site sees the conflict.
+	// Once bound, the owner sees isHostnameAlreadyVerified and another site sees
+	// the conflict.
 	_, err = client.CreateOrUpdateHostNameBinding(ctx, rg, s4HostSiteName, host, armappservice.HostNameBinding{
 		Properties: &armappservice.HostNameBindingProperties{
 			CustomHostNameDNSRecordType: to.Ptr(armappservice.CustomHostNameDNSRecordTypeCName),
@@ -447,7 +442,6 @@ func TestSDK_WebApps_HostnameTruth(t *testing.T) {
 	require.NotNil(t, conflicted.Properties.ConflictingAppResourceID)
 	assert.Contains(t, *conflicted.Properties.ConflictingAppResourceID, s4HostSiteName)
 
-	// Slot spelling.
 	slotPoller, err := client.BeginCreateOrUpdateSlot(ctx, rg, s4HostSiteName, "staging", armappservice.Site{
 		Location:   to.Ptr("eastus"),
 		Properties: &armappservice.SiteProperties{ServerFarmID: to.Ptr(planID)},
@@ -460,7 +454,7 @@ func TestSDK_WebApps_HostnameTruth(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, slotAnalysis.Properties)
 
-	// ListCustomHostNameSites assembles the binding truth per hostname.
+	// ListCustomHostNameSites assembles the bindings per hostname.
 	mgmt, err := armappservice.NewWebSiteManagementClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	foundHost := false
@@ -482,7 +476,6 @@ func TestSDK_WebApps_HostnameTruth(t *testing.T) {
 	}
 	assert.True(t, foundHost, "bound hostname must appear in customhostnameSites")
 
-	// ListSiteIdentifiersAssignedToHostName names the assigned site.
 	idPager := mgmt.NewListSiteIdentifiersAssignedToHostNamePager(armappservice.NameIdentifier{Name: to.Ptr(host)}, nil)
 	foundSite := false
 	for idPager.More() {
@@ -531,14 +524,14 @@ func TestSDK_WebApps_ConfigSnapshotsAndRecover(t *testing.T) {
 	require.NotNil(t, first.Properties.Time)
 	firstID := *first.Name
 
-	// The snapshot body is the exact stored config of that update.
+	// The snapshot body is the stored config of that update.
 	snap, err := client.GetConfigurationSnapshot(ctx, rg, "s4-snap-site", firstID, nil)
 	require.NoError(t, err)
 	require.NotNil(t, snap.Properties)
 	require.NotNil(t, snap.Properties.LinuxFxVersion)
 	assert.Equal(t, "DOCKER|registry.example/app:v1", *snap.Properties.LinuxFxVersion)
 
-	// Recover restores that exact config into the live site.
+	// Recover restores that config into the live site.
 	_, err = client.RecoverSiteConfigurationSnapshot(ctx, rg, "s4-snap-site", firstID, nil)
 	require.NoError(t, err)
 	live, err := client.GetConfiguration(ctx, rg, "s4-snap-site", nil)
@@ -546,7 +539,7 @@ func TestSDK_WebApps_ConfigSnapshotsAndRecover(t *testing.T) {
 	require.NotNil(t, live.Properties.LinuxFxVersion)
 	assert.Equal(t, "DOCKER|registry.example/app:v1", *live.Properties.LinuxFxVersion)
 
-	// Slot spellings walk the same history on the slot resource.
+	// The slot walks its own history.
 	slotPoller, err := client.BeginCreateOrUpdateSlot(ctx, rg, "s4-snap-site", "staging", armappservice.Site{
 		Location:   to.Ptr("eastus"),
 		Properties: &armappservice.SiteProperties{ServerFarmID: to.Ptr(planID)},
@@ -582,16 +575,15 @@ func TestSDK_WebApps_ContainerLogs(t *testing.T) {
 	azureCreateContainerSite(t, rg, name, commandImageName, "serve 80 hello-from-stage4", nil)
 	t.Cleanup(func() { azureDeleteSite(rg, name) })
 
-	// Run the site container for real; its output flows through the site's
-	// log sink into the retained container log.
+	// The site container's output flows through the site's log sink into the
+	// retained container log.
 	assert.Equal(t, "hello-from-stage4", string(azureInvokeFunction(t, name)))
 
 	client, err := armappservice.NewWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 
-	// The engine's log stream delivers the container's access-log line after
-	// the response; App Service offers no event for its arrival, so read the
-	// log until it carries it.
+	// The engine's log stream delivers the access-log line after the response,
+	// and App Service offers no event for its arrival, so read until it does.
 	var logText []byte
 	require.Eventually(t, func() bool {
 		logsResp, err := client.GetWebSiteContainerLogs(ctx, rg, name, nil)
@@ -602,7 +594,7 @@ func TestSDK_WebApps_ContainerLogs(t *testing.T) {
 		return strings.Contains(string(logText), "POST /api/function")
 	}, 30*time.Second, 200*time.Millisecond, "the log text carries the container's real stdout")
 
-	// The zip spelling carries the same log content in one docker log file.
+	// The zip carries the same content in one docker log file.
 	zipResp, err := client.GetContainerLogsZip(ctx, rg, name, nil)
 	require.NoError(t, err)
 	zipBytes, err := io.ReadAll(zipResp.Body)
@@ -638,7 +630,6 @@ func TestSDK_Web_ProviderAndGlobalSingletons(t *testing.T) {
 	ensureRG(t, rg)
 	planID := webMoreEnsurePlan(t, rg, "s4-glob-plan")
 
-	// Provider_ListOperations — the Microsoft.Web operation catalog.
 	provider, err := armappservice.NewProviderClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	var ops []*armappservice.CsmOperationDescription
@@ -660,8 +651,7 @@ func TestSDK_Web_ProviderAndGlobalSingletons(t *testing.T) {
 	mgmt, err := armappservice.NewWebSiteManagementClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 
-	// The catalog surfaces the simulator genuinely hosts nothing of are
-	// truthfully empty collections.
+	// The simulator hosts nothing these catalogs list, so they are empty.
 	bmPager := mgmt.NewListBillingMetersPager(nil)
 	for bmPager.More() {
 		page, err := bmPager.NextPage(ctx)
@@ -689,8 +679,7 @@ func TestSDK_Web_ProviderAndGlobalSingletons(t *testing.T) {
 		assert.Empty(t, page.Value, "the simulator enforces no location quotas")
 	}
 
-	// Validate — against the real stores: an existing plan validates a Site,
-	// a missing plan fails it.
+	// An existing plan validates a site; a missing plan fails it.
 	valid, err := mgmt.Validate(ctx, rg, armappservice.ValidateRequest{
 		Name:       to.Ptr("s4-validate-site"),
 		Type:       to.Ptr(armappservice.ValidateResourceTypesSite),
@@ -716,8 +705,7 @@ func TestSDK_Web_ProviderAndGlobalSingletons(t *testing.T) {
 	require.NotNil(t, invalid.Error.Code)
 	assert.Equal(t, "ServerFarmNotFound", *invalid.Error.Code)
 
-	// VerifyHostingEnvironmentVnet — a subnet the Microsoft.Network store
-	// does not hold fails the check truthfully.
+	// A subnet Microsoft.Network does not hold fails the check.
 	vnetCheck, err := mgmt.VerifyHostingEnvironmentVnet(ctx, armappservice.VnetParameters{
 		Properties: &armappservice.VnetParametersProperties{
 			VnetResourceGroup: to.Ptr(rg),
@@ -731,15 +719,14 @@ func TestSDK_Web_ProviderAndGlobalSingletons(t *testing.T) {
 	assert.True(t, *vnetCheck.Properties.Failed)
 	assert.NotEmpty(t, vnetCheck.Properties.FailedTests)
 
-	// UpdateMachineKey — resets the verified site's machine key.
+	// UpdateMachineKey resets the verified site's machine key.
 	client, err := armappservice.NewWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	webMoreCreateSite(t, client, rg, "s4-machinekey-site", planID)
 	_, err = client.UpdateMachineKey(ctx, rg, "s4-machinekey-site", nil)
 	require.NoError(t, err)
 
-	// Deleted-web-app reads: the simulator hard-deletes sites, so every
-	// deletedSiteId is truthfully absent.
+	// The simulator hard-deletes sites, so every deletedSiteId is absent.
 	global, err := armappservice.NewGlobalClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = global.GetDeletedWebApp(ctx, "12345", nil)
@@ -772,13 +759,13 @@ func TestSDK_Web_MoveResources(t *testing.T) {
 		Resources:           []*string{to.Ptr(siteID), to.Ptr(planID)},
 	}
 
-	// ValidateMove runs the move's checks without moving anything.
+	// ValidateMove checks without moving anything.
 	_, err = mgmt.ValidateMove(ctx, srcRG, envelope, nil)
 	require.NoError(t, err)
 	_, err = client.Get(ctx, srcRG, s4MoveSiteName, nil)
 	require.NoError(t, err, "validate-move must not move the site")
 
-	// Move re-homes the site (and its plan) into the target resource group.
+	// Move re-homes the site and its plan.
 	_, err = mgmt.Move(ctx, srcRG, envelope, nil)
 	require.NoError(t, err)
 
@@ -790,7 +777,7 @@ func TestSDK_Web_MoveResources(t *testing.T) {
 	assert.Contains(t, *moved.Properties.ServerFarmID, "/resourceGroups/"+dstRG+"/",
 		"the moved plan reference follows the move")
 
-	// Moving a resource the store does not hold refuses with the ARM error.
+	// Moving a resource that does not exist answers the ARM error.
 	_, err = mgmt.ValidateMove(ctx, srcRG, armappservice.CsmMoveResourceEnvelope{
 		TargetResourceGroup: to.Ptr(dstRG),
 		Resources:           []*string{to.Ptr("/subscriptions/" + subscriptionID + "/resourceGroups/" + srcRG + "/providers/Microsoft.Web/sites/never-created")},
@@ -803,9 +790,8 @@ func TestSDK_Web_GetSubscriptionOperation(t *testing.T) {
 	rg := "stage4-op-rg"
 	ensureRG(t, rg)
 
-	// Run a real long-running operation and capture the operation record it
-	// issued: an Event Hubs namespace create answers 202 with an
-	// Azure-AsyncOperation URL whose last segment is the operation ID.
+	// An Event Hubs namespace create answers 202 with an Azure-AsyncOperation URL
+	// whose last segment is the operation ID.
 	nsClient, err := armeventhub.NewNamespacesClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	var createRaw *http.Response
@@ -828,8 +814,8 @@ func TestSDK_Web_GetSubscriptionOperation(t *testing.T) {
 	segs := strings.Split(strings.Trim(parsed.Path, "/"), "/")
 	opID := segs[len(segs)-1]
 
-	// Global_GetSubscriptionOperationWithAsyncResponse: 204 for an operation
-	// the service issued, 404 for one it never did.
+	// Global_GetSubscriptionOperationWithAsyncResponse answers 204 for an
+	// operation the service issued and 404 for one it never did.
 	global, err := armappservice.NewGlobalClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = global.GetSubscriptionOperationWithAsyncResponse(ctx, "eastus", opID, nil)

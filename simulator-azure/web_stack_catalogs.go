@@ -7,13 +7,10 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// App Service's runtime-stack catalogs list the built-in runtime stacks the
-// App Service runs, read from the same tables (appServiceLinuxStacks and
-// functionsHostStacks) the site path starts a stack's image from, so the two
-// cannot disagree. Every stack here is a Linux stack; a Windows selection
-// lists none.
+// The catalogs read the tables the site path starts a stack's image from
+// (appServiceLinuxStacks and functionsHostStacks), so the two cannot
+// disagree. Every stack is a Linux stack; a Windows selection lists none.
 
-// registerWebStackCatalogs mounts the six spellings of the four catalog reads.
 func registerWebStackCatalogs(srv *sim.Server) {
 	webAppStacks := func(location string) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
@@ -53,8 +50,6 @@ func registerWebStackCatalogs(srv *sim.Server) {
 	srv.HandleFunc("GET "+webSubscriptionProvider+"/availableStacks", availableStacks)
 }
 
-// webAppStackEntries renders the stack table as WebAppStack resources: one per
-// stack, its major versions in table order, each holding its minor versions.
 func webAppStackEntries(location string) []any {
 	type major struct {
 		value, display string
@@ -132,9 +127,6 @@ func webAppStackEntries(location string) []any {
 	return out
 }
 
-// availableStackEntries renders the stack table as the ApplicationStack
-// resources of the availableStacks read: one per stack, one major version per
-// runnable version.
 func availableStackEntries() []any {
 	var order []string
 	byStack := map[string][]any{}
@@ -168,10 +160,6 @@ func availableStackEntries() []any {
 	return out
 }
 
-// functionAppStackEntries renders the Functions host stacks as FunctionAppStack
-// resources: one per runtime, one major version per runtime version, each
-// carrying the app settings and site configuration a function app on it is
-// created with.
 func functionAppStackEntries(location string) []any {
 	var order []string
 	majors := map[string][]any{}

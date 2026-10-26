@@ -9,32 +9,20 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// Azure Virtual Network Manager (Microsoft.Network/networkManagers) is the
-// scope-and-deployment half of Azure's centrally managed networking. A network
-// manager declares the management groups and subscriptions it governs and the
-// kinds of configuration it is allowed to manage there; the configurations
-// themselves are separate resources, and none of them takes effect until a
-// commit deploys it to a set of regions. Deployment status is then read back
-// per region and per configuration type.
-//
-// Both halves are executed here rather than echoed. A commit is validated
-// against the manager's declared scope accesses and against the configurations
-// it names, and it writes a deployment record per target region; the deployment
-// status list answers from those records, filtered the way the request asks.
-// Because the simulator has no fleet to roll a configuration out to, a commit
-// reaches its terminal state within the call — there is no interval during
-// which a region is still Deploying — which is why the operation answers with
-// the committed state directly.
+// Azure Virtual Network Manager: a manager declares the management groups and
+// subscriptions it governs and the configuration kinds it may manage; a
+// configuration takes effect only when a commit deploys it to regions, whose
+// status reads back per region and type. A commit is validated against the
+// declared scope accesses and the configurations it names, and writes a
+// deployment record per region. With no fleet to roll out to, a commit
+// reaches its terminal state within the call.
 
-// NetworkManager mirrors Microsoft.Network/networkManagers.
 type NetworkManager struct {
 	azureNetworkResourceHeader
 	SystemData *SystemData              `json:"systemData,omitempty"`
 	Properties NetworkManagerProperties `json:"properties"`
 }
 
-// NetworkManagerProperties holds the manager's scope, the configuration types
-// it may manage there, and the read-only state the resource provider computes.
 type NetworkManagerProperties struct {
 	Description                 string               `json:"description,omitempty"`
 	NetworkManagerScopes        NetworkManagerScopes `json:"networkManagerScopes"`
@@ -43,25 +31,20 @@ type NetworkManagerProperties struct {
 	ResourceGUID                string               `json:"resourceGuid,omitempty"`
 }
 
-// NetworkManagerScopes is the set of management groups and subscriptions a
-// network manager governs.
 type NetworkManagerScopes struct {
 	ManagementGroups  []string                         `json:"managementGroups,omitempty"`
 	Subscriptions     []string                         `json:"subscriptions,omitempty"`
 	CrossTenantScopes []NetworkManagerCrossTenantScope `json:"crossTenantScopes,omitempty"`
 }
 
-// NetworkManagerCrossTenantScope is a scope another tenant delegated to this
-// manager.
 type NetworkManagerCrossTenantScope struct {
 	TenantID         string   `json:"tenantId,omitempty"`
 	ManagementGroups []string `json:"managementGroups,omitempty"`
 	Subscriptions    []string `json:"subscriptions,omitempty"`
 }
 
-// NetworkManagerCommit is the body of a commit request and the answer it gets:
-// which configurations are deployed to which regions, for one configuration
-// type.
+// The body of a commit request and its answer: which configurations deploy to
+// which regions, for one configuration type.
 type NetworkManagerCommit struct {
 	CommitID         string   `json:"commitId,omitempty"`
 	TargetLocations  []string `json:"targetLocations"`
@@ -69,8 +52,6 @@ type NetworkManagerCommit struct {
 	CommitType       string   `json:"commitType"`
 }
 
-// NetworkManagerDeploymentStatus is what one region holds for one configuration
-// type after a commit.
 type NetworkManagerDeploymentStatus struct {
 	CommitTime       string   `json:"commitTime,omitempty"`
 	Region           string   `json:"region,omitempty"`
@@ -80,15 +61,12 @@ type NetworkManagerDeploymentStatus struct {
 	ErrorMessage     string   `json:"errorMessage,omitempty"`
 }
 
-// networkManagerDeployment is one stored deployment record, keyed by the
-// manager, region and configuration type it belongs to.
+// Keyed by manager, region and configuration type.
 type networkManagerDeployment struct {
 	ManagerID string                         `json:"managerId"`
 	Status    NetworkManagerDeploymentStatus `json:"status"`
 }
 
-// networkManagerConfigurationTypes are the configuration kinds a manager may be
-// given access to and may commit.
 var networkManagerConfigurationTypes = map[string]bool{
 	"SecurityAdmin": true,
 	"Connectivity":  true,
@@ -123,9 +101,8 @@ func registerNetworkManagers(srv *sim.Server) {
 	registerNetworkManagerCommits(srv)
 }
 
-// validateNetworkManager rejects a manager the resource provider will not
-// accept: one that governs nothing, or one that claims a configuration type
-// that does not exist.
+// Refuse a manager that governs nothing or claims a configuration type that
+// does not exist.
 func validateNetworkManager(w http.ResponseWriter, _ *http.Request, nm *NetworkManager) bool {
 	scopes := nm.Properties.NetworkManagerScopes
 	if len(scopes.ManagementGroups) == 0 && len(scopes.Subscriptions) == 0 {
@@ -143,9 +120,6 @@ func validateNetworkManager(w http.ResponseWriter, _ *http.Request, nm *NetworkM
 	return true
 }
 
-// provisionNetworkManager assigns the read-only state the resource provider
-// computes: a resource GUID minted once, the ARM system metadata, and the
-// terminal provisioning state.
 func provisionNetworkManager(_ context.Context, nm *NetworkManager, previous *NetworkManager) error {
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	nm.Properties.ResourceGUID = sim.NewUUID()
@@ -158,16 +132,14 @@ func provisionNetworkManager(_ context.Context, nm *NetworkManager, previous *Ne
 			nm.SystemData.CreatedAt = previous.SystemData.CreatedAt
 		}
 	}
-	// A cross-tenant scope is granted by the other tenant, never declared by
-	// the manager's own write, so a request that carries one is ignored.
+	// The other tenant grants a cross-tenant scope; the manager's own write cannot
+	// declare one.
 	nm.Properties.NetworkManagerScopes.CrossTenantScopes = nil
 	nm.Properties.ProvisioningState = "Succeeded"
 	return nil
 }
 
-// deleteNetworkManagerDeployments drops the deployment records of a manager
-// that no longer exists, so a manager recreated under the same name starts with
-// nothing deployed.
+// A manager recreated under the same name starts with nothing deployed.
 func deleteNetworkManagerDeployments(_ context.Context, id string, _ NetworkManager) {
 	for _, deployment := range azureNetworkManagerDeployments.Filter(func(d networkManagerDeployment) bool {
 		return strings.EqualFold(d.ManagerID, id)
@@ -181,8 +153,6 @@ func networkManagerDeploymentKey(managerID, region, configurationType string) st
 	return strings.ToLower(managerID) + "|" + strings.ToLower(region) + "|" + configurationType
 }
 
-// registerNetworkManagerCommits mounts the two operations that make a network
-// manager's configurations take effect and report what took effect where.
 func registerNetworkManagerCommits(srv *sim.Server) {
 	armBase := azureNetworkArmBase()
 	base := armBase + "/networkManagers/{networkManagerName}"
@@ -257,10 +227,8 @@ func registerNetworkManagerCommits(srv *sim.Server) {
 	})
 }
 
-// validateNetworkManagerCommit applies the checks the resource provider applies
-// before a commit changes anything: the commit type must be a real
-// configuration type the manager is allowed to manage, at least one target
-// region must be named, and every configuration the commit names must exist.
+// The commit type must be one the manager may manage, at least one region must
+// be named, and every named configuration must exist.
 func validateNetworkManagerCommit(w http.ResponseWriter, nm NetworkManager, commit NetworkManagerCommit) bool {
 	if !networkManagerConfigurationTypes[commit.CommitType] {
 		AzureErrorf(w, "InvalidRequestFormat", http.StatusBadRequest,
@@ -279,12 +247,9 @@ func validateNetworkManagerCommit(w http.ResponseWriter, nm NetworkManager, comm
 			nm.Name, commit.CommitType, commit.CommitType)
 		return false
 	}
-	// A commit deploys configurations that already exist under the manager. The
-	// simulator holds none of the network manager configuration resource types,
-	// so every configuration a commit names is absent and the commit is
-	// refused, exactly as it is for an id that names nothing. A commit with no
-	// configurations is the one that removes what a region currently holds, and
-	// it is accepted.
+	// The simulator holds none of the configuration resource types, so a named
+	// configuration is absent and the commit refused. A commit naming none removes
+	// what a region holds, and is accepted.
 	for _, configurationID := range commit.ConfigurationIDs {
 		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 			"The Resource %q was not found.", configurationID)
@@ -293,9 +258,7 @@ func validateNetworkManagerCommit(w http.ResponseWriter, nm NetworkManager, comm
 	return true
 }
 
-// networkManagerMatches reports whether a filter list selects a value; an empty
-// filter selects everything, which is how the deployment-status query treats an
-// omitted region or type list.
+// An empty filter selects everything, as an omitted region or type list does.
 func networkManagerMatches(filter []string, value string) bool {
 	if len(filter) == 0 {
 		return true

@@ -12,11 +12,9 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// functionsHostStack is one built-in Linux stack a function app runs on: the
-// linuxFxVersion that selects it and the Azure Functions host image App
-// Service runs for it. The image's entrypoint starts the host on PORT, which
-// loads the function app from /home/site/wwwroot and its keys from the secret
-// store AzureWebJobsSecretStorageType selects.
+// The image's entrypoint starts the host on PORT, which loads the app from
+// /home/site/wwwroot and its keys from the store AzureWebJobsSecretStorageType
+// selects.
 type functionsHostStack struct {
 	Runtime        string // FUNCTIONS_WORKER_RUNTIME and the catalogue's stack value, "node"
 	RuntimeDisplay string // "Node.js"
@@ -26,8 +24,7 @@ type functionsHostStack struct {
 	Image          string
 }
 
-// functionsHostStacks are the built-in stacks this App Service runs function
-// apps on, each on the Functions host image Microsoft publishes for it under
+// Each on the Functions host image Microsoft publishes under
 // mcr.microsoft.com/azure-functions, pinned to the build the floating
 // 4-<runtime><version>-appservice tag names.
 var functionsHostStacks = []functionsHostStack{
@@ -46,8 +43,6 @@ func functionsHostStackNames() []string {
 	return out
 }
 
-// siteFunctionsHostStack returns the stack a function app's linuxFxVersion
-// selects, when it is one this App Service runs the Functions host for.
 func siteFunctionsHostStack(site *Site) (functionsHostStack, bool) {
 	fx := strings.TrimSpace(siteRuntimeStack(site))
 	if fx == "" || !siteIsFunctionApp(site) {
@@ -61,8 +56,7 @@ func siteFunctionsHostStack(site *Site) (functionsHostStack, bool) {
 	return functionsHostStack{}, false
 }
 
-// sitePlatformImage is the image App Service supplies for a site on a
-// built-in stack: a web stack's image, or the Functions host's.
+// A web stack's image, or the Functions host's.
 func sitePlatformImage(site *Site) (string, bool) {
 	if stack, ok := siteBuiltInStack(site); ok {
 		return stack.Image, true
@@ -73,8 +67,6 @@ func sitePlatformImage(site *Site) (string, bool) {
 	return "", false
 }
 
-// hostRunFunctionApp returns the production site resID names when it is a
-// function app the Functions host runs.
 func hostRunFunctionApp(resID string) (*Site, bool) {
 	site, ok := azfSites.Get(resID)
 	if !ok {
@@ -86,10 +78,8 @@ func hostRunFunctionApp(resID string) (*Site, bool) {
 	return &site, true
 }
 
-// siteDataProtectionKey is the key the host protects stored key values with:
-// the AzureWebEncryptionKey app setting, else MACHINEKEY_DecryptionKey (which
-// az functionapp create sets on a Linux app), else the platform's
-// WEBSITE_AUTH_ENCRYPTION_KEY.
+// The AzureWebEncryptionKey app setting, else MACHINEKEY_DecryptionKey (which
+// az functionapp create sets on Linux), else WEBSITE_AUTH_ENCRYPTION_KEY.
 func siteDataProtectionKey(site *Site) string {
 	settings := siteAppSettings(site)
 	for _, name := range []string{"AzureWebEncryptionKey", "MACHINEKEY_DecryptionKey"} {
@@ -126,11 +116,8 @@ type functionsFunctionSecretsFile struct {
 	DecryptionKeyID string               `json:"decryptionKeyId,omitempty"`
 }
 
-// syncFunctionsHostSecrets makes the key rows the ARM key operations serve and
-// the host's secret store hold the same keys: the store's keys are read in
-// first, since the host writes keys too, then every row is written back. It
-// does nothing for a site whose host keeps its keys in a store the simulator
-// does not model.
+// Read the store's keys in first, since the host writes keys too, then write
+// every row back. Does nothing for a store the simulator does not model.
 func syncFunctionsHostSecrets(site *Site) error {
 	if err := importFunctionsHostSecrets(site); err != nil {
 		return err
@@ -195,17 +182,16 @@ func importFunctionsHostSecrets(site *Site) error {
 		id := siteFunctionID(site, name)
 		webFunctionKeys.Put(id, WebFunctionKeysRow{ID: id, Keys: keys})
 	}
-	// The host generates and stores its keys the first time it loads them,
-	// and ARM loads them through the host.
+	// The host generates and stores its keys the first time it loads them, and
+	// ARM loads them through the host.
 	if _, stored := documents["host"]; !stored {
 		return exportFunctionsHostSecrets(site)
 	}
 	return nil
 }
 
-// siteFunctionID is the ARM ID of a site's function. The host names a
-// function's secrets file after the function in lower case, and function
-// names are case-insensitive, so an existing function's own spelling wins.
+// The host names a secrets file after the function in lower case and names
+// compare case-insensitively, so an existing function's spelling wins.
 func siteFunctionID(site *Site, name string) string {
 	prefix := site.ID + "/functions/"
 	for _, row := range webFunctionKeys.Filter(func(r WebFunctionKeysRow) bool { return strings.HasPrefix(r.ID, prefix) }) {
@@ -221,10 +207,9 @@ func siteFunctionID(site *Site, name string) string {
 	return prefix + name
 }
 
-// exportFunctionsHostSecrets writes the site's key rows into the host's
-// secret store as the host itself writes them on App Service: each value
-// protected with the site's encryption key. A function the site declares
-// gets the default key the host would generate for it.
+// As the host writes them on App Service: each value protected with the
+// site's encryption key. A declared function gets the default key the host
+// would generate.
 func exportFunctionsHostSecrets(site *Site) error {
 	store, err := siteFunctionsSecretStore(site)
 	if store == nil || err != nil {
@@ -279,10 +264,9 @@ func exportFunctionsHostSecrets(site *Site) error {
 	return nil
 }
 
-// removeFunctionSecrets deletes a deleted function's secrets from a file
-// store, so the host stops accepting its keys and the next import does not
-// restore them. The blob store keeps them, as the host's own blob repository
-// does.
+// From a file store, so the host stops accepting the keys and the next import
+// does not restore them. The blob store keeps them, as the host's blob
+// repository does.
 func removeFunctionSecrets(site *Site, name string) error {
 	store, err := siteFunctionsSecretStore(site)
 	if store == nil || err != nil {
@@ -314,10 +298,9 @@ func sortedKeys[V any](m map[string]V) []string {
 	return out
 }
 
-// siteFunctions lists the functions a site declares: the functions created
-// through the ARM functions resource and, for a function app the Functions
-// host runs, every function.json in its deployed content, read the way Kudu
-// lists functions. A declared envelope wins over the content's.
+// The ARM functions resource's functions and, for a host-run app, every
+// function.json in its content, read as Kudu lists them. A declared envelope
+// wins.
 func siteFunctions(site *Site) []FunctionEnvelope {
 	prefix := site.ID + "/functions/"
 	out := azfFunctionConfigs.Filter(func(f FunctionEnvelope) bool { return strings.HasPrefix(f.ID, prefix) })
@@ -358,8 +341,7 @@ func siteFunctions(site *Site) []FunctionEnvelope {
 	return out
 }
 
-// siteFunction returns the function a site declares under name, compared
-// case-insensitively as the host compares function names.
+// Compared case-insensitively, as the host compares function names.
 func siteFunction(site *Site, name string) (FunctionEnvelope, bool) {
 	for _, fn := range siteFunctions(site) {
 		if strings.EqualFold(fn.FunctionName, name) {
@@ -369,9 +351,8 @@ func siteFunction(site *Site, name string) (FunctionEnvelope, bool) {
 	return FunctionEnvelope{}, false
 }
 
-// siteContentFunctionConfigs reads <function>/function.json from the site's
-// wwwroot: the package WEBSITE_RUN_FROM_PACKAGE names by URL once the site has
-// unpacked it there, else what its deployments and its file system wrote.
+// The package WEBSITE_RUN_FROM_PACKAGE names once unpacked there, else what
+// deployments and the file system wrote.
 func siteContentFunctionConfigs(site *Site) map[string]map[string]any {
 	out := map[string]map[string]any{}
 	root := webWWWRootDir(site.ID)
@@ -396,8 +377,7 @@ func siteContentFunctionConfigs(site *Site) map[string]map[string]any {
 	return out
 }
 
-// functionHTTPRoute is the route an HTTP-triggered function answers under
-// /api: its httpTrigger binding's route, else the function's name.
+// The httpTrigger's route, else the function's name.
 func functionHTTPRoute(name string, config map[string]any) (string, bool) {
 	bindings, _ := config["bindings"].([]any)
 	for _, b := range bindings {
@@ -413,11 +393,9 @@ func functionHTTPRoute(name string, config map[string]any) (string, bool) {
 	return "", false
 }
 
-// appServicePlatformEnv is the environment App Service gives every site's
-// container beside its app settings: the site's identity, the instance it runs
-// on, and the key the site's platform components encrypt and sign with. A
-// slot's container carries its app's name and its own slot name; the
-// production slot is "Production".
+// The site's identity, its instance, and the key its platform components
+// encrypt and sign with. A slot's container carries its app's name and its own
+// slot name; the production slot is "Production".
 func appServicePlatformEnv(site *Site) map[string]string {
 	app, slot, isSlot := strings.Cut(site.Name, "/")
 	if !isSlot {

@@ -6,10 +6,8 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// A virtual machine in a virtual network linked to a private zone with
-// registration enabled has an A record under its computer name, which follows
-// the link, the machine and its address, and never replaces a record someone
-// created by hand.
+// The A record under the computer name follows the link, the machine and its
+// address, and never replaces a hand-created record.
 func TestAzureAutoRegistrationFollowsLinksAndMachines(t *testing.T) {
 	zones, sets, links, vms, nics := azurePrivateDNSZones, azurePrivateDNSRecordSets, azurePrivateDNSVNetLinks, azureVMs, azureNICs
 	t.Cleanup(func() {

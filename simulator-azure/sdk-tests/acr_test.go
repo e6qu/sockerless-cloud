@@ -14,10 +14,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// acrDataPlaneClient creates an azcontainerregistry.Client for a registry's
-// data plane. The endpoint is the registry's own login server — the coordinate
-// the control plane advertises — so the client runs the same challenge,
-// token-exchange and retry it runs against a real registry.
+// acrDataPlaneClient targets the registry's own login server, so the client
+// runs the challenge, token exchange and retry it runs against Azure.
 func acrDataPlaneClient(t *testing.T, loginServer string) *azcontainerregistry.Client {
 	t.Helper()
 	client, err := azcontainerregistry.NewClient("http://"+loginServer, &fakeCredential{}, acrClientOptions())
@@ -25,7 +23,7 @@ func acrDataPlaneClient(t *testing.T, loginServer string) *azcontainerregistry.C
 	return client
 }
 
-// sampleManifestJSON is a minimal OCI v2 manifest body — no actual layer data needed.
+// sampleManifestJSON is a minimal manifest that needs no layer data.
 const sampleManifestJSON = `{
   "schemaVersion": 2,
   "mediaType": "application/vnd.docker.distribution.manifest.v2+json",
@@ -48,7 +46,6 @@ func TestACR_ImageManifestPushGetDelete(t *testing.T) {
 
 	ensureRG(t, rgName)
 
-	// Create ACR registry via ARM so it exists in the store
 	registriesClient, err := armcontainerregistry.NewRegistriesClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	regPoller, err := registriesClient.BeginCreate(ctx, rgName, registryName, armcontainerregistry.Registry{
@@ -63,7 +60,7 @@ func TestACR_ImageManifestPushGetDelete(t *testing.T) {
 
 	dp := acrDataPlaneClient(t, *created.Properties.LoginServer)
 
-	// Push manifest — UploadManifest requires io.ReadSeekCloser
+	// UploadManifest requires an io.ReadSeekCloser.
 	uploadResp, err := dp.UploadManifest(ctx, imageName, imageTag,
 		azcontainerregistry.ContentTypeApplicationVndDockerDistributionManifestV2JSON,
 		nopSeekCloser(strings.NewReader(sampleManifestJSON)), nil)
@@ -72,14 +69,12 @@ func TestACR_ImageManifestPushGetDelete(t *testing.T) {
 	digest := *uploadResp.DockerContentDigest
 	assert.True(t, strings.HasPrefix(digest, "sha256:"), "digest must be sha256: prefixed, got %s", digest)
 
-	// Get manifest back by tag — verify the digest matches what was pushed
 	getResp, err := dp.GetManifest(ctx, imageName, imageTag, nil)
 	require.NoError(t, err)
 	getResp.ManifestData.Close()
 	require.NotNil(t, getResp.DockerContentDigest)
 	assert.Equal(t, digest, *getResp.DockerContentDigest)
 
-	// List repositories — must include imageName
 	pager := dp.NewListRepositoriesPager(nil)
 	var foundRepo bool
 	for pager.More() {
@@ -93,7 +88,6 @@ func TestACR_ImageManifestPushGetDelete(t *testing.T) {
 	}
 	assert.True(t, foundRepo, "expected ListRepositories to include %q", imageName)
 
-	// List tags for the image — must include imageTag
 	tagsPager := dp.NewListTagsPager(imageName, nil)
 	var foundTag bool
 	for tagsPager.More() {
@@ -107,18 +101,13 @@ func TestACR_ImageManifestPushGetDelete(t *testing.T) {
 	}
 	assert.True(t, foundTag, "expected ListTags to include tag %q", imageTag)
 
-	// Delete manifest by digest
 	_, err = dp.DeleteManifest(ctx, imageName, digest, nil)
 	require.NoError(t, err)
 
-	// Get after delete — must fail
 	_, err = dp.GetManifest(ctx, imageName, imageTag, nil)
 	assert.Error(t, err, "GetManifest after DeleteManifest should fail")
 }
 
-// TestACR_CacheRuleCRUD covers the `cacheRules` sub-resource.
-// Create + Get + List + Delete round-trip via
-// `armcontainerregistry.CacheRulesClient` against the simulator.
 func TestACR_CacheRuleCRUD(t *testing.T) {
 	t.Parallel()
 	const (
@@ -134,7 +123,7 @@ func TestACR_CacheRuleCRUD(t *testing.T) {
 	}, nil)
 	require.NoError(t, err)
 
-	// Registry must exist before cache rule create (real ACR validates this).
+	// Azure Container Registry validates that the registry exists.
 	registriesClient, err := armcontainerregistry.NewRegistriesClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	regPoller, err := registriesClient.BeginCreate(ctx, rgName, registryName, armcontainerregistry.Registry{
@@ -145,11 +134,9 @@ func TestACR_CacheRuleCRUD(t *testing.T) {
 	_, err = regPoller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 
-	// CacheRule CRUD
 	rulesClient, err := armcontainerregistry.NewCacheRulesClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 
-	// Create
 	createPoller, err := rulesClient.BeginCreate(ctx, rgName, registryName, ruleName, armcontainerregistry.CacheRule{
 		Properties: &armcontainerregistry.CacheRuleProperties{
 			SourceRepository: ptrStr("docker.io/library/*"),
@@ -164,13 +151,11 @@ func TestACR_CacheRuleCRUD(t *testing.T) {
 	assert.Equal(t, "docker.io/library/*", *createResp.Properties.SourceRepository)
 	assert.Equal(t, "docker-hub/library/*", *createResp.Properties.TargetRepository)
 
-	// Get
 	getResp, err := rulesClient.Get(ctx, rgName, registryName, ruleName, nil)
 	require.NoError(t, err)
 	assert.Equal(t, ruleName, *getResp.Name)
 	assert.Equal(t, "docker.io/library/*", *getResp.Properties.SourceRepository)
 
-	// List — should contain our rule.
 	pager := rulesClient.NewListPager(rgName, registryName, nil)
 	var found bool
 	for pager.More() {
@@ -184,21 +169,17 @@ func TestACR_CacheRuleCRUD(t *testing.T) {
 	}
 	assert.True(t, found, "expected List to return the created cache rule")
 
-	// Delete
 	delPoller, err := rulesClient.BeginDelete(ctx, rgName, registryName, ruleName, nil)
 	require.NoError(t, err)
 	_, err = delPoller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 
-	// Get after delete — should 404.
 	_, err = rulesClient.Get(ctx, rgName, registryName, ruleName, nil)
 	assert.Error(t, err, "Get after delete should fail")
 }
 
-// TestACR_CacheRuleIdempotentUpsert ensures the simulator's PUT is
-// idempotent — re-creating the same rule updates in place rather than
-// erroring. Real ACR's BeginCreate behaves this way too (hence the
-// name, which matches the SDK method).
+// TestACR_CacheRuleIdempotentUpsert: BeginCreate on an existing rule updates
+// it in place.
 func TestACR_CacheRuleIdempotentUpsert(t *testing.T) {
 	t.Parallel()
 	const (
@@ -237,7 +218,6 @@ func TestACR_CacheRuleIdempotentUpsert(t *testing.T) {
 	_, err = first.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 
-	// Second create with an updated target — must upsert cleanly.
 	second, err := rulesClient.BeginCreate(ctx, rgName, registryName, ruleName, armcontainerregistry.CacheRule{
 		Properties: &armcontainerregistry.CacheRuleProperties{
 			SourceRepository: ptrStr("ghcr.io/owner/app"),
@@ -250,15 +230,9 @@ func TestACR_CacheRuleIdempotentUpsert(t *testing.T) {
 	assert.Equal(t, "ghcr-io/owner/app-v2", *secondResp.Properties.TargetRepository)
 }
 
-// TestACR_LoginServerIsSimulatorCoordinate verifies BUG-2643's fix: a
-// registry's `loginServer` is derived from the ARM request host (via the
-// SIM_AZURE_ARM_EXTERNAL_DATA_PLANE_URLS_JSON "acr" template TestMain
-// configures, mirroring storage/keyVault/serviceBus) rather than hardcoded to
-// the real-cloud `<name>.azurecr.io` host, which the simulator can never
-// serve. The derived host must actually resolve to this simulator's ACR data
-// plane — the OCI /v2/ and /acr/v1/ routes are mounted without a host
-// component, so any Host reaching this process's port is served, but the
-// value must no longer be the unreachable real-cloud host.
+// TestACR_LoginServerIsSimulatorCoordinate: the loginServer follows the "acr"
+// data-plane host template TestMain configures, not the real-cloud
+// `<name>.azurecr.io` host, and reaches this simulator's registry.
 func TestACR_LoginServerIsSimulatorCoordinate(t *testing.T) {
 	t.Parallel()
 	const (
@@ -285,10 +259,8 @@ func TestACR_LoginServerIsSimulatorCoordinate(t *testing.T) {
 		"loginServer must not be the unreachable real-cloud host, got %q", loginServer)
 	assert.Contains(t, loginServer, registryName+".azurecr.shim.localhost")
 
-	// The advertised coordinate must actually reach this registry's data
-	// plane, proving it differs from real Azure only in coordinates: the
-	// registry answers a request dialled at that host with the Bearer
-	// challenge naming its own token service.
+	// The registry answers a request at that host with the Bearer challenge
+	// naming its own token service.
 	req, err := http.NewRequest(http.MethodGet, "http://"+loginServer+"/acr/v1/_catalog", nil)
 	require.NoError(t, err)
 	resp, err := http.DefaultClient.Do(req)
@@ -301,16 +273,14 @@ func TestACR_LoginServerIsSimulatorCoordinate(t *testing.T) {
 
 func ptrSKU(s armcontainerregistry.SKUName) *armcontainerregistry.SKUName { return &s }
 
-// nopSeekCloser wraps an io.ReadSeeker with a no-op Close, satisfying io.ReadSeekCloser.
 type nopSeekCloserT struct{ io.ReadSeeker }
 
 func (nopSeekCloserT) Close() error                   { return nil }
 func nopSeekCloser(r io.ReadSeeker) io.ReadSeekCloser { return nopSeekCloserT{r} }
 
-// TestACR_NameAvailabilityAnswersFromTheRegistriesThatExist checks the
-// operation a client calls precisely so it can avoid a conflict. Answering
-// "available" for every name makes it worthless — the caller creates, and the
-// create is the thing that tells it the name was taken.
+// TestACR_NameAvailabilityAnswersFromTheRegistriesThatExist: a client calls
+// this to avoid a conflict, so answering "available" for every name is
+// worthless.
 func TestACR_NameAvailabilityAnswersFromTheRegistriesThatExist(t *testing.T) {
 	t.Parallel()
 	rgName, registryName := "acr-namecheck-rg", uniquename.Alnum("namecheckregistry")
@@ -329,7 +299,6 @@ func TestACR_NameAvailabilityAnswersFromTheRegistriesThatExist(t *testing.T) {
 		return resp.RegistryNameStatus
 	}
 
-	// Free before anything holds it.
 	free := check(registryName)
 	require.NotNil(t, free.NameAvailable)
 	assert.True(t, *free.NameAvailable)
@@ -342,7 +311,6 @@ func TestACR_NameAvailabilityAnswersFromTheRegistriesThatExist(t *testing.T) {
 	_, err = poller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 
-	// Taken once the registry holding it exists.
 	taken := check(registryName)
 	require.NotNil(t, taken.NameAvailable)
 	assert.False(t, *taken.NameAvailable)
@@ -351,8 +319,8 @@ func TestACR_NameAvailabilityAnswersFromTheRegistriesThatExist(t *testing.T) {
 	require.NotNil(t, taken.Message)
 	assert.Contains(t, *taken.Message, registryName)
 
-	// A name the service's own rule refuses is refused for that reason rather
-	// than reported free: the document declares 5 to 50 alphanumerics.
+	// The document's rule allows 5 to 50 alphanumerics; a name outside it is
+	// refused for that reason.
 	for _, bad := range []string{"abc", "has-a-hyphen", strings.Repeat("a", 51)} {
 		invalid := check(bad)
 		require.NotNil(t, invalid.NameAvailable, bad)

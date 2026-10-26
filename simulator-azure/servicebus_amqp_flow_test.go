@@ -10,8 +10,8 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// sbFlowTestConn is a connection in namespace "ns" whose client authenticated
-// for the whole namespace and began a session on channel 0.
+// The client authenticated for the whole namespace "ns" and began a session on
+// channel 0.
 func sbFlowTestConn(t *testing.T) (*sbAMQPConn, *chunkedAMQPTransport) {
 	t.Helper()
 	transport := &chunkedAMQPTransport{}
@@ -21,7 +21,6 @@ func sbFlowTestConn(t *testing.T) (*sbAMQPConn, *chunkedAMQPTransport) {
 	return c, transport
 }
 
-// sbFlowTestSend hands the connection one frame from the client.
 func sbFlowTestSend(t *testing.T, c *sbAMQPConn, desc uint64, fields []any, payload ...byte) {
 	t.Helper()
 	body := append(encodeDescribedList(desc, fields), payload...)
@@ -38,7 +37,6 @@ func sbFlowTestSend(t *testing.T, c *sbAMQPConn, desc uint64, fields []any, payl
 	}
 }
 
-// sbFlowTestFrames returns the frames the connection wrote since the last call.
 func sbFlowTestFrames(t *testing.T, transport *chunkedAMQPTransport) []amqpFrame {
 	t.Helper()
 	data := transport.wrote.Bytes()
@@ -66,8 +64,6 @@ func sbFlowTestOfType(frames []amqpFrame, desc uint64) []amqpFrame {
 	return out
 }
 
-// sbFlowTestAttachReceiver attaches a receive-and-delete receiver link and
-// returns the handle the simulator assigned it.
 func sbFlowTestAttachReceiver(t *testing.T, c *sbAMQPConn, transport *chunkedAMQPTransport, name string, handle uint32, source string) uint32 {
 	t.Helper()
 	sbFlowTestSend(t, c, amqpDescAttach, []any{name, handle, true, uint8(1), uint8(0), encodeSource(source), encodeTarget(name)})
@@ -95,11 +91,9 @@ func sbFlowTestBody(t *testing.T, transfer amqpFrame) string {
 	return string(msg.GetData())
 }
 
-// A subscription's management node sources from
-// `<topic>/Subscriptions/<sub>/$management`. The Service Bus SDKs attach a
-// reply link there beside every receiver and give it credit first; the
-// subscription's messages go to the receiver, never to that reply link, which
-// would drop them.
+// The Service Bus SDKs attach a reply link at
+// `<topic>/Subscriptions/<sub>/$management` beside every receiver and credit it
+// first; messages must go to the receiver, never to the reply link.
 func TestSBAMQPDeliversASubscriptionsMessageOnlyToItsReceiver(t *testing.T) {
 	newServiceBusQueueTestStores(t)
 	topicID := sbAdminTopicID("ns", "t")
@@ -128,10 +122,9 @@ func TestSBAMQPDeliversASubscriptionsMessageOnlyToItsReceiver(t *testing.T) {
 	}
 }
 
-// AMQP 1.0 section 2.6.7: link-credit is relative to the receiver's
-// delivery-count, so a flow restates the receiver's allowance instead of
-// adding to it, and a drain returns the unused credit by advancing the
-// delivery count, answered with a flow carrying drain.
+// AMQP 1.0 section 2.6.7: a flow restates the receiver's allowance instead of
+// adding to it, and a drain returns unused credit by advancing the delivery
+// count, answered with a flow carrying drain.
 func TestSBAMQPLinkCreditFollowsDeliveryCount(t *testing.T) {
 	newServiceBusQueueTestStores(t)
 	sbTestQueue("q", nil)
@@ -202,8 +195,6 @@ func TestSBAMQPSenderCreditFromSerialArithmetic(t *testing.T) {
 	}
 }
 
-// A client sender link starts with the credit the simulator grants and has it
-// renewed once half is spent, so a long-running sender never stalls.
 func TestSBAMQPRenewsASendersCredit(t *testing.T) {
 	newServiceBusQueueTestStores(t)
 	savedHubs := ehEventHubs

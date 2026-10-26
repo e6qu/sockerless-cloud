@@ -5,12 +5,9 @@ import (
 	"testing"
 )
 
-// TestPrivateEndpointAlwaysReportsBothConnectionCollections pins a shape the
-// HashiCorp provider depends on: it walks both privateLinkServiceConnections
-// and manualPrivateLinkServiceConnections on delete, dereferencing each
-// without checking for absence. The service always reports both — empty when
-// unused — so a document that omits either faults the provider rather than
-// returning an error a caller could act on.
+// The azurerm provider walks privateLinkServiceConnections and
+// manualPrivateLinkServiceConnections on delete without checking for absence,
+// so the service always reports both.
 func TestPrivateEndpointAlwaysReportsBothConnectionCollections(t *testing.T) {
 	var pe PrivateEndpoint
 	projectPrivateEndpoint(&pe)

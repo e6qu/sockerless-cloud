@@ -158,9 +158,6 @@ func TestEventGridAdvertisedEndpointPublishesThroughSharedHostDataPlane(t *testi
 	}
 }
 
-// eventGridTestListKeys reads a publishing resource's two access keys through
-// the control plane's listKeys action, the way an operator obtains the
-// credential a publish carries.
 func eventGridTestListKeys(t *testing.T, srv *sim.Server, resourceID string) map[string]string {
 	t.Helper()
 	url := "http://localhost:4568" + resourceID + "/listKeys?api-version=2021-12-01"
