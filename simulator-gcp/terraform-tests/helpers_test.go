@@ -2,6 +2,7 @@ package gcp_tf_test
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
@@ -23,10 +24,12 @@ import (
 
 	"github.com/e6qu/sockerless-cloud/testutil/baseimage"
 	"github.com/e6qu/sockerless-cloud/testutil/freeports"
+	"github.com/e6qu/sockerless-cloud/testutil/gcpbootstrap"
 	"github.com/e6qu/sockerless-cloud/testutil/httpsgateway"
 	"github.com/e6qu/sockerless-cloud/testutil/simready"
 
 	"github.com/stretchr/testify/require"
+	"golang.org/x/oauth2/google"
 )
 
 var (
@@ -39,36 +42,30 @@ var (
 	grpcEndpoint string
 	caCertFile   string
 	tfEndpoint   string
-	// accessToken is a real simulator-minted OAuth2 access token the terraform
-	// google provider presents to the data plane; set once in TestMain.
+	// accessToken is the bootstrap service account's access token the
+	// harness's own raw HTTP calls present; set once in TestMain.
 	accessToken string
+	// credentialsFile is the bootstrap service account's credential file the
+	// configurations hand the provider as `credentials`, its token_uri naming
+	// the token endpoint at tfEndpoint.
+	credentialsFile string
 )
 
-// mintSimAccessToken fetches an access token from the simulator's OAuth2 token
-// endpoint — the same JWT-bearer grant a real terraform google provider obtains
-// — so provider requests authenticate against the data plane exactly as they
-// would against Google, differing only in the endpoint coordinate.
-func mintSimAccessToken(base string) (string, error) {
-	resp, err := http.PostForm(base+"/token", url.Values{
-		"grant_type": {"urn:ietf:params:oauth:grant-type:jwt-bearer"},
-	})
+// mintBootstrapAccessToken mints an access token for the simulator's bootstrap
+// service account through the client library's service-account flow: it signs
+// a JWT-bearer assertion with the account's key and exchanges it at the
+// credential file's token_uri.
+func mintBootstrapAccessToken(tokenURI string) (string, error) {
+	config, err := google.JWTConfigFromJSON(gcpbootstrap.CredentialJSON(tokenURI),
+		"https://www.googleapis.com/auth/cloud-platform")
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("token endpoint returned %d", resp.StatusCode)
-	}
-	var body struct {
-		AccessToken string `json:"access_token"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+	token, err := config.TokenSource(context.Background()).Token()
+	if err != nil {
 		return "", err
 	}
-	if body.AccessToken == "" {
-		return "", fmt.Errorf("token endpoint returned an empty access token")
-	}
-	return body.AccessToken, nil
+	return token.AccessToken, nil
 }
 
 func TestMain(m *testing.M) {
@@ -150,15 +147,11 @@ func TestMain(m *testing.M) {
 	baseURL = fmt.Sprintf("http://127.0.0.1:%d", simPort)
 	tfEndpoint = baseURL
 
-	// The data plane verifies the bearer on every request, so the terraform
-	// google provider must present a token the simulator signed. Mint one from
-	// the simulator's own token endpoint (reachable directly over plain HTTP
-	// even when the provider talks through the HTTPS gateway).
 	var tokenErr error
-	accessToken, tokenErr = mintSimAccessToken(baseURL)
+	accessToken, tokenErr = mintBootstrapAccessToken(baseURL + "/token")
 	if tokenErr != nil {
 		simCmd.Process.Kill()
-		log.Fatalf("Failed to mint simulator access token: %v", tokenErr)
+		log.Fatalf("Failed to mint the bootstrap service account's access token: %v", tokenErr)
 	}
 
 	number, err := createHarnessProject()
@@ -222,6 +215,18 @@ func TestMain(m *testing.M) {
 			simCmd.Process.Kill()
 			log.Fatalf("HTTPS gateway did not become healthy: %v", err)
 		}
+	}
+
+	credentialsDir, err := os.MkdirTemp("", "gcp-tf-credentials-*")
+	if err != nil {
+		simCmd.Process.Kill()
+		log.Fatalf("Failed to create the credential file's directory: %v", err)
+	}
+	defer os.RemoveAll(credentialsDir)
+	credentialsFile = filepath.Join(credentialsDir, "bootstrap-key.json")
+	if err := gcpbootstrap.WriteCredentialFile(credentialsFile, tfEndpoint+"/token"); err != nil {
+		simCmd.Process.Kill()
+		log.Fatalf("Failed to write the bootstrap credential file: %v", err)
 	}
 
 	code := m.Run()
@@ -308,7 +313,7 @@ func terraformCmd(args ...string) *exec.Cmd {
 	cmd.Env = append(os.Environ(),
 		fmt.Sprintf("BIGTABLE_EMULATOR_HOST=%s", grpcEndpoint),
 		fmt.Sprintf("TF_VAR_endpoint=%s", tfEndpoint),
-		fmt.Sprintf("TF_VAR_access_token=%s", accessToken),
+		"TF_VAR_credentials="+credentialsFile,
 		"TF_VAR_debian_image_family="+debianImageFamily(),
 	)
 	if caCertFile != "" {

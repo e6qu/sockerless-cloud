@@ -3,8 +3,8 @@ variable "endpoint" {
   type        = string
 }
 
-variable "access_token" {
-  description = "OAuth2 access token the provider presents to the simulator data plane; minted by the test harness from the simulator's token endpoint."
+variable "credentials" {
+  description = "The service-account credential file the provider authenticates with, by path or by contents; the test harness writes the simulator's bootstrap key."
   type        = string
 }
 

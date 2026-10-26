@@ -40,40 +40,40 @@ import (
 // accepts the access token, and the Cloud Run front end accepts the ID token
 // at the service URL its audience names.
 //
-// Test surfaces that only need an access token POST a bare grant_type with no
-// assertion, in which case the sim mints an access token for the default
-// principal and returns no ID token — matching real Google in that an
-// id_token is returned only when target_audience is requested.
+// A request with no assertion, or with a grant type other than JWT bearer, is
+// refused with the RFC 6749 error Google answers it with. The first credential
+// a client holds is the seeded bootstrap service account's key (see
+// iam_bootstrap.go), which signs its assertions like any other key.
 func registerOAuth2(srv *sim.Server) {
 	handler := func(w http.ResponseWriter, r *http.Request) {
-		_ = r.ParseForm()
+		if err := r.ParseForm(); err != nil {
+			writeOAuth2GrantError(w, &oauth2GrantError{code: "invalid_request", description: "Invalid request body"})
+			return
+		}
+		if grantType := r.Form.Get("grant_type"); grantType != grantTypeJWTBearer {
+			writeOAuth2GrantError(w, &oauth2GrantError{code: "unsupported_grant_type", description: "Invalid grant_type: " + grantType})
+			return
+		}
+		assertion := r.Form.Get("assertion")
+		if assertion == "" {
+			writeOAuth2GrantError(w, &oauth2GrantError{code: "invalid_request", description: "Missing required parameter: assertion"})
+			return
+		}
 		now := time.Now()
 		expires := now.Add(1 * time.Hour)
-
-		principal := "sockerless-sim"
-		targetAudience := ""
-		if assertion := r.Form.Get("assertion"); assertion != "" {
-			claims, grantErr := verifyServiceAccountAssertion(assertion, now)
-			if grantErr != nil {
-				// The real token endpoint answers a failed grant with the
-				// RFC 6749 error body, not the Google API error envelope.
-				sim.WriteJSON(w, http.StatusBadRequest, map[string]string{
-					"error":             grantErr.code,
-					"error_description": grantErr.description,
-				})
-				return
-			}
-			principal = claims.issuer
-			targetAudience = claims.targetAudience
+		claims, grantErr := verifyServiceAccountAssertion(assertion, now)
+		if grantErr != nil {
+			writeOAuth2GrantError(w, grantErr)
+			return
 		}
 
 		resp := map[string]any{
-			"access_token": signAccessToken(principal, now, expires),
+			"access_token": signAccessToken(claims.issuer, now, expires),
 			"expires_in":   int(time.Until(expires).Seconds()),
 			"token_type":   "Bearer",
 		}
-		if targetAudience != "" {
-			resp["id_token"] = signInvokeIDToken(principal, targetAudience, now, expires)
+		if claims.targetAudience != "" {
+			resp["id_token"] = signInvokeIDToken(claims.issuer, claims.targetAudience, now, expires)
 		}
 		sim.WriteJSON(w, http.StatusOK, resp)
 	}
@@ -93,6 +93,17 @@ func registerOAuth2(srv *sim.Server) {
 type oauth2GrantError struct {
 	code        string
 	description string
+}
+
+const grantTypeJWTBearer = "urn:ietf:params:oauth:grant-type:jwt-bearer"
+
+// writeOAuth2GrantError answers a failed grant with the RFC 6749 error body,
+// not the Google API error envelope, as the real token endpoint does.
+func writeOAuth2GrantError(w http.ResponseWriter, grantErr *oauth2GrantError) {
+	sim.WriteJSON(w, http.StatusBadRequest, map[string]string{
+		"error":             grantErr.code,
+		"error_description": grantErr.description,
+	})
 }
 
 func invalidGrant(description string) *oauth2GrantError {

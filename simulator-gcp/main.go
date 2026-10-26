@@ -197,6 +197,9 @@ func buildSimulator(cfg sim.Config) (*sim.Server, error) {
 	registerCloudScheduler(srv)
 	registerCloudTasks(srv)
 	registerIAM(srv)
+	if err := iamSeedBootstrapServiceAccount(); err != nil {
+		log.Fatalf("seed the bootstrap service account: %v", err)
+	}
 	registerOAuth2(srv)
 	registerSTS(srv)
 	registerComputeMetadata(srv)
