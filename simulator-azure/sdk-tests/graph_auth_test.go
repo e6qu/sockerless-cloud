@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/AzureAD/microsoft-authentication-library-for-go/apps/confidential"
+	"github.com/AzureAD/microsoft-authentication-library-for-go/apps/public"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -130,4 +131,72 @@ func TestGraph_MSALAcquiresAGraphTokenGraphAccepts(t *testing.T) {
 	require.NoError(t, err)
 	resp.Body.Close()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
+}
+
+// TestROPC_MSALPublicClientChecksThePassword signs a directory user in with
+// the resource-owner password credentials grant through the real MSAL Go
+// public client, which first asks home-realm discovery whether Entra manages
+// the user's domain. Entra issues tokens for the password passwordProfile set
+// and refuses any other with AADSTS50126.
+func TestROPC_MSALPublicClientChecksThePassword(t *testing.T) {
+	t.Parallel()
+	const authorityHost = "login.microsoftonline.com"
+	certPath, keyPath := writeAuthorityTLSCert(t, t.TempDir(), authorityHost)
+	addr := startTLSSimulator(t, certPath, keyPath, "SIM_RUNTIME=process")
+	httpClient := authorityRoutedHTTPClient(t, certPath, authorityHost, addr)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	cred, err := confidential.NewCredFromSecret("test-client-secret")
+	require.NoError(t, err)
+	admin, err := confidential.New("https://"+authorityHost+"/"+simTenantID, "test-client-id", cred,
+		confidential.WithHTTPClient(httpClient))
+	require.NoError(t, err)
+	graphToken, err := admin.AcquireTokenByCredential(ctx, []string{"https://graph.microsoft.com/.default"})
+	require.NoError(t, err)
+
+	const upn = "ropc-msal@sockerless-ropc.example"
+	body, err := json.Marshal(map[string]any{
+		"accountEnabled":    true,
+		"displayName":       "ROPC MSAL",
+		"mailNickname":      "ropc-msal",
+		"userPrincipalName": upn,
+		"passwordProfile":   map[string]any{"password": "Correct-Horse-1", "forceChangePasswordNextSignIn": false},
+	})
+	require.NoError(t, err)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://"+authorityHost+"/v1.0/users", bytes.NewReader(body))
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+graphToken.AccessToken)
+	resp, err := httpClient.Do(req)
+	require.NoError(t, err)
+	resp.Body.Close()
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+
+	client, err := public.New("ropc-public-client", public.WithAuthority("https://"+authorityHost+"/"+simTenantID),
+		public.WithHTTPClient(httpClient))
+	require.NoError(t, err)
+	scopes := []string{"https://graph.microsoft.com/.default"}
+
+	//nolint:staticcheck // ROPC is deprecated for new applications; the grant is what this test verifies.
+	_, err = client.AcquireTokenByUsernamePassword(ctx, scopes, upn, "wrong-password")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "AADSTS50126")
+
+	//nolint:staticcheck // ROPC is deprecated for new applications; the grant is what this test verifies.
+	result, err := client.AcquireTokenByUsernamePassword(ctx, scopes, upn, "Correct-Horse-1")
+	require.NoError(t, err)
+
+	me, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://"+authorityHost+"/v1.0/me", nil)
+	require.NoError(t, err)
+	me.Header.Set("Authorization", "Bearer "+result.AccessToken)
+	resp, err = httpClient.Do(me)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	var signedIn struct {
+		UserPrincipalName string `json:"userPrincipalName"`
+	}
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&signedIn))
+	assert.Equal(t, upn, signedIn.UserPrincipalName)
 }

@@ -31,3 +31,44 @@ func TestGraphCLI_RequiresAGraphToken(t *testing.T) {
 	out, err = azRest("DELETE", baseURL+"/v1.0/applications/"+id, "").CombinedOutput()
 	require.NoError(t, err, "%s", strings.TrimSpace(string(out)))
 }
+
+// TestAzLogin_UserPasswordIsChecked creates a directory user through Microsoft
+// Graph with a passwordProfile and signs `az login` in as that user: Entra
+// refuses a wrong password with AADSTS50126 and signs the right one in.
+func TestAzLogin_UserPasswordIsChecked(t *testing.T) {
+	t.Parallel()
+	env := startAzLoginSimulator(t)
+	runCLI(t, env.command("cloud", "register", "-n", "sockerless-sim",
+		"--endpoint-resource-manager", env.baseURL,
+		"--endpoint-active-directory", env.baseURL+"/adfs",
+		"--endpoint-active-directory-resource-id", "https://management.azure.com/",
+		"--endpoint-active-directory-graph-resource-id", env.baseURL))
+	runCLI(t, env.command("cloud", "set", "-n", "sockerless-sim"))
+	runCLI(t, env.command("login", "--service-principal",
+		"-u", "test-client-id", "-p", "test-client-secret",
+		"--tenant", azLoginTenantID, "--allow-no-subscriptions"))
+
+	const upn = "az-login-user@sockerless-login.example"
+	runCLI(t, env.command("rest", "--method", "POST", "--url", env.baseURL+"/v1.0/users",
+		"--resource", "https://graph.microsoft.com",
+		"--headers", "Content-Type=application/json",
+		"--body", `{"accountEnabled":true,"displayName":"az login user","mailNickname":"az-login-user","userPrincipalName":"`+upn+`","passwordProfile":{"forceChangePasswordNextSignIn":false,"password":"Correct-Horse-1"}}`))
+	runCLI(t, env.command("logout"))
+
+	refused, err := env.command("login", "-u", upn, "-p", "wrong-password",
+		"--tenant", azLoginTenantID, "--allow-no-subscriptions").CombinedOutput()
+	require.Error(t, err, "az login with a wrong password succeeded: %s", refused)
+	require.Contains(t, string(refused), "AADSTS50126")
+
+	runCLI(t, env.command("login", "-u", upn, "-p", "Correct-Horse-1",
+		"--tenant", azLoginTenantID, "--allow-no-subscriptions"))
+	var account struct {
+		User struct {
+			Name string `json:"name"`
+			Type string `json:"type"`
+		} `json:"user"`
+	}
+	parseJSON(t, runCLI(t, env.command("account", "show", "-o", "json")), &account)
+	require.Equal(t, upn, account.User.Name)
+	require.Equal(t, "user", account.User.Type)
+}

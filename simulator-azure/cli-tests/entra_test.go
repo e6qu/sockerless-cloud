@@ -113,7 +113,7 @@ func TestEntra_StandardProvisioningAndGraphMemberOf(t *testing.T) {
 		"grant_type": {"password"},
 		"client_id":  {"cli-client"},
 		"username":   {"cli-user@example.com"},
-		"password":   {"x"},
+		"password":   {"Test1234!"},
 		"scope":      {"https://graph.microsoft.com/.default"},
 	})
 	require.NoError(t, err)
@@ -160,7 +160,7 @@ func TestEntra_IDTokenGroupsViaROPC(t *testing.T) {
 		"grant_type": {"password"},
 		"client_id":  {clientID},
 		"username":   {"idtoken-ropc@example.com"},
-		"password":   {"x"},
+		"password":   {"Test1234!"},
 		"scope":      {"openid profile email"},
 	})
 	require.NoError(t, err)
@@ -221,7 +221,7 @@ func TestEntra_DuplicateUPNRejectedAndROPCClaimsStayDeterministicCLI(t *testing.
 		"grant_type": {"password"},
 		"client_id":  {"cli-duplicate-upn-client"},
 		"username":   {"duplicate-upn-cli@example.com"},
-		"password":   {"x"},
+		"password":   {"Test1234!"},
 		"scope":      {"openid profile email"},
 	})
 	require.NoError(t, err)

@@ -114,7 +114,7 @@ func doROPC(t *testing.T, tenant, clientID, username string) map[string]any {
 		"grant_type": {"password"},
 		"client_id":  {clientID},
 		"username":   {username},
-		"password":   {"irrelevant"},
+		"password":   {"Test1234!"},
 		"scope":      {"openid profile email"},
 	})
 	require.NotEmpty(t, tokenBody.IDToken, "ROPC must return id_token when scope includes openid")
@@ -294,7 +294,7 @@ func TestEntra_GraphMemberOf(t *testing.T) {
 		"grant_type": {"password"},
 		"client_id":  {"client-entra-graph"},
 		"username":   {"graph-user@example.com"},
-		"password":   {"x"},
+		"password":   {"Test1234!"},
 		"scope":      {"https://graph.microsoft.com/.default"},
 	})
 
@@ -334,7 +334,7 @@ func TestEntra_GraphTransitiveMemberOf(t *testing.T) {
 		"grant_type": {"password"},
 		"client_id":  {"client-entra-transitive"},
 		"username":   {"transitive@example.com"},
-		"password":   {"x"},
+		"password":   {"Test1234!"},
 		"scope":      {"https://graph.microsoft.com/.default"},
 	})
 
@@ -812,7 +812,7 @@ func TestEntra_GraphMeAndServicePrincipalNames(t *testing.T) {
 		"grant_type": {"password"},
 		"client_id":  {"client-entra-me"},
 		"username":   {"me-user@example.com"},
-		"password":   {"x"},
+		"password":   {"Test1234!"},
 		"scope":      {"https://graph.microsoft.com/.default"},
 	})
 	get := func(path, token string) (int, map[string]any) {

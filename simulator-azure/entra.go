@@ -25,6 +25,9 @@ type EntraUser struct {
 	PreferredUsername string `json:"preferredUsername"`
 	Name              string `json:"name"`
 	Email             string `json:"email,omitempty"`
+	// PasswordHash is the verifier of the password passwordProfile set; Graph
+	// never returns it.
+	PasswordHash string `json:"passwordHash,omitempty"`
 
 	Props map[string]json.RawMessage `json:"props,omitempty"`
 }
@@ -664,6 +667,18 @@ func handleGraphCreateUser(w http.ResponseWriter, r *http.Request) {
 		AzureError(w, "Request_BadRequest", fmt.Sprintf("Another object with the same value for property userPrincipalName already exists: %s", req.UserPrincipalName), http.StatusBadRequest)
 		return
 	}
+	password, present, valid := entraPasswordProfile(body.Props)
+	if !valid {
+		AzureError(w, "Request_BadRequest", entraInvalidPasswordProfile, http.StatusBadRequest)
+		return
+	}
+	var passwordHash string
+	if present {
+		if passwordHash, err = entraHashPassword(password); err != nil {
+			AzureError(w, "InternalServerError", err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
 	oid := newGraphID()
 	user := EntraUser{
 		OID:               oid,
@@ -671,6 +686,7 @@ func handleGraphCreateUser(w http.ResponseWriter, r *http.Request) {
 		PreferredUsername: req.UserPrincipalName,
 		Name:              req.DisplayName,
 		Email:             req.Mail,
+		PasswordHash:      passwordHash,
 		Props:             graphMergeProps(nil, body.Props, entraUserServiceOwned),
 	}
 	entraUsersStore.Put(oid, user)
@@ -713,7 +729,22 @@ func handleGraphUpdateUser(w http.ResponseWriter, r *http.Request) {
 		AzureError(w, "Request_BadRequest", err.Error(), http.StatusBadRequest)
 		return
 	}
+	password, present, valid := entraPasswordProfile(body.Props)
+	if !valid {
+		AzureError(w, "Request_BadRequest", entraInvalidPasswordProfile, http.StatusBadRequest)
+		return
+	}
+	var passwordHash string
+	if present {
+		if passwordHash, err = entraHashPassword(password); err != nil {
+			AzureError(w, "InternalServerError", err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
 	updated := entraUsersStore.Update(userID, func(u *EntraUser) {
+		if present {
+			u.PasswordHash = passwordHash
+		}
 		graphSetString(body.Props, "displayName", &u.Name)
 		graphSetString(body.Props, "mail", &u.Email)
 		graphSetString(body.Props, "userPrincipalName", &u.PreferredUsername)

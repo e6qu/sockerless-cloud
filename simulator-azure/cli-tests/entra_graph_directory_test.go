@@ -100,6 +100,7 @@ func runEntraGraphDirectoryCLI(t *testing.T, version string) {
 		"userPrincipalName": memberUPN,
 		"mailNickname":      "graph-cli-member" + suffix,
 		"accountEnabled":    true,
+		"passwordProfile":   map[string]any{"password": "Test1234!", "forceChangePasswordNextSignIn": false},
 	})
 	memberID, _ := member["id"].(string)
 	require.NotEmpty(t, memberID)
@@ -351,7 +352,7 @@ func graphUserBearer(t *testing.T, upn string) string {
 		"grant_type": {"password"},
 		"client_id":  {"graph-cli-directory"},
 		"username":   {upn},
-		"password":   {"irrelevant"},
+		"password":   {"Test1234!"},
 		"scope":      {"https://graph.microsoft.com/.default"},
 	})
 	require.NoError(t, err)
