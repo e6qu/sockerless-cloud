@@ -33,7 +33,7 @@ Pages read the real Google Cloud APIs at the console's configured cloud coordina
 - `bun run dev` — Vite dev server (`:5173`). It serves the bundle under `/ui/` and forwards every other path of the console's origin — `/ui/config.json`, the auth layer under `/auth/`, the Security Token Service and the Google Cloud APIs — to a running simulator on `:4567`, which leaves the cloud coordinates empty so the console reads them at its own origin.
 - `bun run build` — production bundle into `dist/`.
 - `bun run typecheck` — `tsc --noEmit`.
-- `bun run test` — vitest.
+- `bun run test` — Vitest suite, against the real `simulator-gcp` it builds and starts (needs Go and a built `dist/`).
 - `bun run test:e2e` — the Playwright suite. It builds and starts `simulator-gcp` with the console and `simulator-azure`, whose Microsoft Entra ID is the OpenID Connect issuer the operator signs in with; `e2e/global-setup.ts` creates the workforce pool, its provider and the project grant through the real IAM and Resource Manager APIs. The suite then drives create, list, describe and delete flows through the console and audits the main pages with axe-core in both themes. `SERVER_BIN` and `SIMULATOR_BIN` name prebuilt binaries instead.
 
 The package `Makefile` wraps these as `make build` / `run` / `preview` / `test` / `lint` / `clean` (see `make/ui-app.mk`).

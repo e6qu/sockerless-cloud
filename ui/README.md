@@ -25,7 +25,11 @@ From this directory:
 - `bunx turbo run build` — build every package; outputs land in each package's
   `dist/`.
 - `bunx turbo run typecheck` / `test` — TypeScript + vitest across the
-  workspace.
+  workspace. The AWS and Google Cloud console suites need Go: their
+  `vitest.global-setup.ts` builds the console's simulator and `simulator-azure`
+  from this checkout, starts them API-only on free ports serving the console's
+  `dist/` with its operator federated as the Playwright suite does, and the
+  tests sign in and drive the console against them.
 - `cd packages/simulator-aws && bun run test:e2e` (or `simulator-gcp`) —
   Playwright browser suite (builds the backing simulator binary via the
   `core/e2e` harness, plus `simulator-azure`, whose Microsoft Entra ID signs the

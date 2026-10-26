@@ -1620,11 +1620,10 @@ jobs:
     needs: verified-on-pr
     if: ${{ !cancelled() && needs.verified-on-pr.outputs.verified != 'true' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 15
     # A one-shot run on a fresh checkout has no use for turbo's background
     # daemon, and a build step has no business making a telemetry request: both
-    # are work that can block without producing output, on a job whose real
-    # work takes about two minutes. Each turbo step also carries its own
+    # are work that can block without producing output. Each turbo step also carries its own
     # timeout, so a step that stops making progress is reported as the step it
     # stopped in rather than as the whole job running out of time.
     env:
@@ -1632,6 +1631,10 @@ jobs:
       DO_NOT_TRACK: '1'
     steps:
       - uses: actions/checkout@v7.0.1
+      # The console unit tests build and run the real simulators.
+      - uses: ./.github/actions/install-go
+        with:
+          cache: 'true'
       - name: Install Bun
         uses: ./.github/actions/install-bun
       - run: cd ui && bun install --frozen-lockfile
@@ -1641,7 +1644,7 @@ jobs:
       - run: cd ui && bunx turbo run typecheck --no-daemon
         timeout-minutes: 4
       - run: cd ui && bunx turbo run test --no-daemon
-        timeout-minutes: 6
+        timeout-minutes: 10
 
   ui-browser:
     needs: verified-on-pr
