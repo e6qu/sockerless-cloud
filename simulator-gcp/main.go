@@ -337,7 +337,9 @@ func startGRPCServer(srv *sim.Server, port string) error {
 	}
 	srv.StartBackground("gRPC server", func(ctx context.Context) {
 		stop := context.AfterFunc(ctx, func() {
-			front.Close()
+			if err := front.Close(); err != nil {
+				log.Printf("gRPC: close the TLS front end: %v", err)
+			}
 			gs.Stop()
 		})
 		defer stop()

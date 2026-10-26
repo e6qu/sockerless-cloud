@@ -225,10 +225,9 @@ func serviceAccountSigned(account, kid string, digest, signature []byte) bool {
 		}
 		candidates = []GCPServiceAccountKeyMaterial{material}
 	} else {
-		keyPrefix := account + "/keys/"
-		candidates = iamSAKeyPublics.Filter(func(m GCPServiceAccountKeyMaterial) bool {
-			return strings.HasPrefix(m.Name, keyPrefix)
-		})
+		for _, kv := range iamSAKeyPublics.ListPrefix(account + "/keys/") {
+			candidates = append(candidates, kv.Item)
+		}
 	}
 	for _, candidate := range candidates {
 		if key, ok := iamSAKeys.Get(candidate.Name); ok && key.Disabled {

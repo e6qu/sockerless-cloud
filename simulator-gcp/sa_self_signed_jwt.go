@@ -57,7 +57,7 @@ func verifySelfSignedServiceAccountJWT(raw string, now time.Time) (accessTokenCl
 	}
 	// golang.org/x/oauth2's scoped self-signed JWT carries an empty aud.
 	aud, isString := claims.Aud.(string)
-	hasAud := claims.Aud != nil && !(isString && aud == "")
+	hasAud := claims.Aud != nil && (!isString || aud != "")
 	switch {
 	case !hasAud && claims.Scope == "":
 		return none, errors.New("the self-signed JWT carries neither an aud nor a scope claim")
