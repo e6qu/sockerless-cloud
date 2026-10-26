@@ -78,6 +78,16 @@ client asks for, such as `https://management.azure.com/.default` or
 `<endpoint>/<tenant>/discovery/v2.0/keys`. Applications created through
 Microsoft Graph sign in the same way.
 
+Azure Resource Manager authorizes every operation with Azure RBAC, as Azure
+does. The bootstrap service principal is Owner on the tenant root management
+group, which holds every subscription. Any other principal, a managed identity
+among them, does only what its role assignments grant, and a Microsoft Entra
+bearer reaches blobs, queues, tables, Key Vault objects and Event Grid topics
+only through a data role such as Storage Blob Data Reader. A storage account
+whose `allowSharedKeyAccess` is `false` refuses its keys.
+[Identity and access](../docs/iam.md#authorization-with-azure-rbac) describes
+the evaluation.
+
 MSAL, `azidentity` and `azure-identity` accept only an HTTPS authority. A
 client that signs in through one of them needs the simulator's TLS listener
 (`SIM_TLS_CERT`, `SIM_TLS_KEY`) or the [HTTPS gateway](#terraform-hashicorpazurerm).

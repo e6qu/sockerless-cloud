@@ -16,7 +16,7 @@ import (
 // topic + subscription CRUD on the Microsoft.ServiceBus surface.
 func TestAzureServiceBus_ARMLifecycle(t *testing.T) {
 	t.Parallel()
-	sub := "00000000-0000-0000-0000-000000000000"
+	sub := subscriptionID
 	rg := "test-rg-cea0"
 	ns := uniquename.New("lifecycle-sb")
 	ensureRGIn(t, sub, rg)
@@ -83,7 +83,7 @@ func TestAzureServiceBus_ARMLifecycle(t *testing.T) {
 // subscription CRUD on the Microsoft.ApiManagement surface.
 func TestAzureAPIM_ARMLifecycle(t *testing.T) {
 	t.Parallel()
-	sub := "00000000-0000-0000-0000-000000000000"
+	sub := subscriptionID
 	rg := "test-rg"
 	name := "lifecycle-apim"
 	ensureRGIn(t, sub, rg)

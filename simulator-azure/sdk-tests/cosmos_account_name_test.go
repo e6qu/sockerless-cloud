@@ -27,7 +27,7 @@ import (
 func TestCosmos_AccountNameIsGlobal(t *testing.T) {
 	t.Parallel()
 	const account = "globalnamecosmos"
-	const subscription = "00000000-0000-0000-0000-000000000000"
+	subscription := subscriptionID
 
 	// The account exists in one resource group, and CheckNameExists says so.
 	cosmosAccountKeys(t, account)

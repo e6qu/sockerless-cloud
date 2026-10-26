@@ -39,7 +39,7 @@ func TestAzurePGFlexibleServer_BackupCapturesDataAndRestoreReturnsToIt(t *testin
 	testContext, cancel := context.WithTimeout(ctx, 15*time.Minute)
 	defer cancel()
 	const (
-		sub           = "00000000-0000-0000-0000-000000000000"
+		sub           = "00000000-0000-0000-0000-000000000001"
 		rg            = "pg-data-rg"
 		serverName    = "pg-data-srv"
 		adminLogin    = "psqladmin"

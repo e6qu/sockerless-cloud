@@ -288,18 +288,27 @@ func TestEventGridRegenerateKeyInvalidatesTheCredentialsItReplaces(t *testing.T)
 // publishes, while a token minted for Azure Resource Manager does not.
 func TestEventGridPublishAcceptsAMicrosoftEntraAccessToken(t *testing.T) {
 	srv := newEventGridTestServer(t)
-	_, endpoint, keys := eventGridCreatePublishTopic(t, srv, "eg-entra", "")
+	registerAuthorization(srv)
+	topicID, endpoint, keys := eventGridCreatePublishTopic(t, srv, "eg-entra", "")
 	host := mustParseHost(t, endpoint)
 
 	now := time.Now().UTC()
-	eventGridToken, err := mintAzureSimJWT("tenant-xyz", eventGridEntraAudience, now, now.Add(time.Hour))
+	eventGridToken, err := mintBootstrapSimJWT(eventGridEntraAudience, now, now.Add(time.Hour))
 	if err != nil {
 		t.Fatalf("mint Event Grid audience token: %v", err)
 	}
-	armToken, err := mintAzureSimJWT("tenant-xyz", defaultAzureTokenAudience, now, now.Add(time.Hour))
+	armToken, err := mintBootstrapSimJWT(defaultAzureTokenAudience, now, now.Add(time.Hour))
 	if err != nil {
 		t.Fatalf("mint Azure Resource Manager audience token: %v", err)
 	}
+
+	// Owner of the subscription holds no data action, so the token does not
+	// publish until EventGrid Data Sender is assigned on the topic.
+	unassigned := eventGridPublishRequest(t, endpoint, eventGridPublishBody("b0"))
+	unassigned.Header.Set("Authorization", eventGridBearerScheme+" "+eventGridToken)
+	status, body := eventGridPublishStatus(t, srv, unassigned)
+	assertEventGridUnauthorized(t, status, body, eventGridNotAuthorizedMessage(host))
+	eventGridAssignDataSender(t, srv, topicID)
 
 	req := eventGridPublishRequest(t, endpoint, eventGridPublishBody("b1"))
 	req.Header.Set("Authorization", eventGridBearerScheme+" "+eventGridToken)
@@ -309,7 +318,7 @@ func TestEventGridPublishAcceptsAMicrosoftEntraAccessToken(t *testing.T) {
 
 	wrongAudience := eventGridPublishRequest(t, endpoint, eventGridPublishBody("b2"))
 	wrongAudience.Header.Set("Authorization", eventGridBearerScheme+" "+armToken)
-	status, body := eventGridPublishStatus(t, srv, wrongAudience)
+	status, body = eventGridPublishStatus(t, srv, wrongAudience)
 	assertEventGridUnauthorized(t, status, body, eventGridNotAuthorizedMessage(host))
 
 	garbage := eventGridPublishRequest(t, endpoint, eventGridPublishBody("b3"))
@@ -331,7 +340,9 @@ func TestEventGridPublishAcceptsAMicrosoftEntraAccessToken(t *testing.T) {
 // only credential the publish accepts.
 func TestEventGridDisableLocalAuthRefusesKeysAndSignatures(t *testing.T) {
 	srv := newEventGridTestServer(t)
-	_, endpoint, keys := eventGridCreatePublishTopic(t, srv, "eg-nolocal", `{"disableLocalAuth":true}`)
+	registerAuthorization(srv)
+	topicID, endpoint, keys := eventGridCreatePublishTopic(t, srv, "eg-nolocal", `{"disableLocalAuth":true}`)
+	eventGridAssignDataSender(t, srv, topicID)
 	host := mustParseHost(t, endpoint)
 
 	keyed := eventGridPublishRequest(t, endpoint, eventGridPublishBody("d1"))
@@ -345,7 +356,7 @@ func TestEventGridDisableLocalAuthRefusesKeysAndSignatures(t *testing.T) {
 	assertEventGridUnauthorized(t, status, body, eventGridNotAuthorizedMessage(host))
 
 	now := time.Now().UTC()
-	token, err := mintAzureSimJWT("tenant-xyz", eventGridEntraAudience, now, now.Add(time.Hour))
+	token, err := mintBootstrapSimJWT(eventGridEntraAudience, now, now.Add(time.Hour))
 	if err != nil {
 		t.Fatalf("mint Event Grid audience token: %v", err)
 	}
@@ -446,4 +457,15 @@ func mustParseHost(t *testing.T, endpoint string) string {
 		t.Fatalf("parse endpoint %q: %v", endpoint, err)
 	}
 	return parsed.Host
+}
+
+// eventGridAssignDataSender assigns the bootstrap service principal EventGrid
+// Data Sender on a topic.
+func eventGridAssignDataSender(t *testing.T, srv *sim.Server, topicID string) {
+	t.Helper()
+	body := `{"properties":{"roleDefinitionId":"/subscriptions/sub/providers/Microsoft.Authorization/roleDefinitions/d5a91429-5739-47e2-a06b-3470a27159e7","principalId":"` +
+		entraBootstrapSPObjectID + `","principalType":"ServicePrincipal"}}`
+	serveEventGridTestRequest(t, srv, eventGridTestRequest(http.MethodPut,
+		"http://localhost:4568"+topicID+"/providers/Microsoft.Authorization/roleAssignments/6b0b3c55-2a4e-4b8e-9d55-0f2f5c1a9e01?api-version=2022-04-01", body),
+		http.StatusCreated)
 }

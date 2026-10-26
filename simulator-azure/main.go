@@ -138,13 +138,6 @@ func buildSimulatorWithUI(cfg sim.Config, includeUI bool) (*sim.Server, error) {
 	// interception, so provider endpoint joins and OAuth/OpenID routes keep
 	// their Azure-compatible behavior.
 	srv.WrapHandler(AzureARMAPIVersionMiddleware)
-	// Bearer verification runs just outside the api-version check so an
-	// unauthenticated ARM request gets ARM's 401 before any 400 for a missing
-	// api-version, and just inside path cleanup so it sees the collapsed
-	// /subscriptions path. AzureAuthMiddleware wraps it, so the OAuth/OpenID
-	// endpoints are handled and returned before reaching it and never need a
-	// bearer.
-	srv.WrapHandler(AzureBearerVerificationMiddleware)
 	// Microsoft Graph authenticates its own routes with a Graph-audience
 	// bearer, beside the ARM check.
 	srv.WrapHandler(graphBearerVerificationMiddleware(srv))
@@ -242,6 +235,10 @@ func buildSimulatorWithUI(cfg sim.Config, includeUI bool) (*sim.Server, error) {
 			return nil, err
 		}
 	}
+
+	// ARM authenticates and authorizes a request before any slice answers it,
+	// including the slices that claim ARM paths through their own wrappers.
+	srv.WrapHandler(AzureBearerVerificationMiddleware)
 
 	// Wrap CORS around every slice's dispatcher: Azure's edge answers a
 	// browser's preflight before the bearer and api-version checks, and every

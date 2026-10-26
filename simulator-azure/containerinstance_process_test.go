@@ -38,14 +38,14 @@ func TestACIProcessRuntimeRejectsWorkloadExecution(t *testing.T) {
 	// it from the token endpoint so the request reaches the container-group
 	// handler and exercises the process-runtime rejection under test.
 	now := time.Now()
-	token, err := mintAzureSimJWT(simTenantID, "https://management.azure.com/", now, now.Add(time.Hour))
+	token, err := mintBootstrapSimJWT("https://management.azure.com/", now, now.Add(time.Hour))
 	if err != nil {
 		t.Fatalf("mint ARM bearer: %v", err)
 	}
 
-	createTestResourceGroup(t, srv, "sub", "rg")
+	createTestResourceGroup(t, srv, azureDefaultSubscriptionID, "rg")
 	request := httptest.NewRequest(http.MethodPut,
-		"/subscriptions/sub/resourceGroups/rg/providers/Microsoft.ContainerInstance/containerGroups/workload?api-version=2021-10-01",
+		"/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg/providers/Microsoft.ContainerInstance/containerGroups/workload?api-version=2021-10-01",
 		bytes.NewBufferString(`{"location":"westeurope","properties":{"containers":[{"name":"workload","properties":{"image":"alpine:3.20"}}],"osType":"Linux"}}`))
 	request.Header.Set("Authorization", "Bearer "+token)
 	recorder := httptest.NewRecorder()
@@ -73,7 +73,7 @@ func TestACIProcessRuntimeRejectsWorkloadExecution(t *testing.T) {
 	// A refused deployment leaves nothing behind: the handler rolls the group
 	// back, so the resource must not be readable afterwards.
 	read := httptest.NewRequest(http.MethodGet,
-		"/subscriptions/sub/resourceGroups/rg/providers/Microsoft.ContainerInstance/containerGroups/workload?api-version=2021-10-01", nil)
+		"/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg/providers/Microsoft.ContainerInstance/containerGroups/workload?api-version=2021-10-01", nil)
 	read.Header.Set("Authorization", "Bearer "+token)
 	readRecorder := httptest.NewRecorder()
 	srv.ServeHTTP(readRecorder, read)

@@ -297,15 +297,11 @@ func keyVaultGrants(v KeyVault, caller kvCaller, op kvDataOp) bool {
 	if caller.oid == "" {
 		return false
 	}
-	principals := append([]string{caller.oid}, entraTransitiveGroupIDs(caller.oid)...)
+	principal := rbacCallerForObject(caller.oid)
 	if v.Properties.EnableRbacAuthorization {
-		for _, principal := range principals {
-			if rbacPrincipalHasDataAction(principal, kvRBACScope(v, op), op.dataAction) {
-				return true
-			}
-		}
-		return false
+		return rbacAllows(principal, kvRBACScope(v, op), op.dataAction, true)
 	}
+	principals := principal.principals
 	for _, pol := range v.Properties.AccessPolicies {
 		if !slices.ContainsFunc(principals, func(p string) bool { return strings.EqualFold(p, pol.ObjectID) }) {
 			continue

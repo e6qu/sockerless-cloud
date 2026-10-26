@@ -37,7 +37,7 @@ func TestVirtualMachineIdentityPatchDetaches(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPatch, vm.ID+"?api-version=2024-07-01", strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
 		now := time.Now()
-		token, err := mintAzureSimJWT(simTenantID, "https://management.azure.com/", now, now.Add(time.Hour))
+		token, err := mintBootstrapSimJWT("https://management.azure.com/", now, now.Add(time.Hour))
 		if err != nil {
 			t.Fatalf("mint ARM bearer: %v", err)
 		}

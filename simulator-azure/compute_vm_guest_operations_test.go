@@ -108,7 +108,7 @@ func vmGuestOpsRequest(t *testing.T, srv interface {
 }, method, path, body string) *httptest.ResponseRecorder {
 	t.Helper()
 	now := time.Now()
-	token, err := mintAzureSimJWT(simTenantID, "https://management.azure.com/", now, now.Add(time.Hour))
+	token, err := mintBootstrapSimJWT("https://management.azure.com/", now, now.Add(time.Hour))
 	if err != nil {
 		t.Fatalf("mint ARM bearer: %v", err)
 	}

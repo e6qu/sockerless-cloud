@@ -29,7 +29,7 @@ func TestVirtualNetworkCreatesItsInlineSubnets(t *testing.T) {
 	t.Cleanup(bg.Await)
 
 	now := time.Now().UTC()
-	token, err := mintAzureSimJWT(simTenantID, "https://management.azure.com/", now, now.Add(time.Hour))
+	token, err := mintBootstrapSimJWT("https://management.azure.com/", now, now.Add(time.Hour))
 	if err != nil {
 		t.Fatalf("mint an ARM token: %v", err)
 	}
@@ -48,7 +48,7 @@ func TestVirtualNetworkCreatesItsInlineSubnets(t *testing.T) {
 		return rec
 	}
 
-	const base = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/inline-subnet-rg"
+	const base = "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/inline-subnet-rg"
 	if rec := arm(http.MethodPut, base+"?api-version=2023-07-01", `{"location":"eastus"}`); rec.Code >= 300 {
 		t.Fatalf("create resource group: status %d: %s", rec.Code, rec.Body.String())
 	}

@@ -115,7 +115,7 @@ func vmLRORequest(t *testing.T, srv *sim.Server, method, rawURL, body string) *h
 		query.Set("api-version", "2022-03-01")
 	}
 	now := time.Now()
-	token, err := mintAzureSimJWT(simTenantID, "https://management.azure.com/", now, now.Add(time.Hour))
+	token, err := mintBootstrapSimJWT("https://management.azure.com/", now, now.Add(time.Hour))
 	if err != nil {
 		t.Fatalf("mint ARM bearer: %v", err)
 	}

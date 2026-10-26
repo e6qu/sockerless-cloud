@@ -10,7 +10,7 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-const retentionWorkspacePath = "/subscriptions/sub/resourceGroups/rg/providers/Microsoft.OperationalInsights/workspaces/retention"
+const retentionWorkspacePath = "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg/providers/Microsoft.OperationalInsights/workspaces/retention"
 
 func retentionWorkspace(t *testing.T, srv scheduleTestSimulator) Workspace {
 	t.Helper()

@@ -680,7 +680,7 @@ func azureIsGreedyWildcard(s string) bool {
 // Request synthesis
 
 const (
-	azureProbeSubscription  = "00000000-0000-0000-0000-000000000000"
+	azureProbeSubscription  = "00000000-0000-0000-0000-000000000001"
 	azureProbeResourceGroup = "sim-coverage-rg"
 	azureProbeLocation      = "eastus"
 )
@@ -980,7 +980,7 @@ func newAzureProber(t *testing.T) *azureProber {
 	// /providers/ request that does not carry a simulator-minted Azure
 	// Resource Manager token. Probing without one would report the entire ARM
 	// surface as "served" by the middleware's 401 and measure nothing.
-	token, err := mintAzureSimJWT(simTenantID, "https://management.azure.com/", now, now.Add(time.Hour))
+	token, err := mintBootstrapSimJWT("https://management.azure.com/", now, now.Add(time.Hour))
 	if err != nil {
 		t.Fatalf("mint Azure Resource Manager token: %v", err)
 	}

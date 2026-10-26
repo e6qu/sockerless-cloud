@@ -103,7 +103,7 @@ const cosmosDataResourceGroup = "cosmos-data-rg"
 // cosmosAccountPath is the Azure Resource Manager path of a Cosmos DB account
 // the data-plane tests provision for themselves.
 func cosmosAccountPath(account string) string {
-	return cosmosAccountPathIn("00000000-0000-0000-0000-000000000000", cosmosDataResourceGroup, account)
+	return cosmosAccountPathIn(subscriptionID, cosmosDataResourceGroup, account)
 }
 
 func cosmosAccountPathIn(subscription, resourceGroup, account string) string {

@@ -470,11 +470,11 @@ func blobAnonymousAllowed(account, container, blob string) bool {
 // request that authenticated with the account key instead: the delegation key
 // exists to delegate an Entra identity, and an account-key caller has no
 // identity to delegate.
-func RequireStorageOAuthBearer(w http.ResponseWriter, r *http.Request) bool {
+func RequireStorageOAuthBearer(w http.ResponseWriter, r *http.Request, service, account string) bool {
 	authorization := strings.TrimSpace(r.Header.Get("Authorization"))
 	if strings.HasPrefix(authorization, "Bearer ") {
 		claims, err := verifyAzureSimJWT(strings.TrimSpace(strings.TrimPrefix(authorization, "Bearer ")))
-		if err == nil && strings.TrimSuffix(azureTokenAudience(claims), "/") == "https://storage.azure.com" {
+		if err == nil && storageAudienceValid(r, service, account, azureTokenAudience(claims)) {
 			return true
 		}
 	}
@@ -524,10 +524,13 @@ func StorageMarkAuthorized(r *http.Request) *http.Request {
 // a different string than the other three and a Shared Access Signature's
 // canonicalized resource carries the service name.
 //
-// It reports true when the request may proceed. An account ARM has never seen
-// has no keys to verify against and no public access level to consult, so a
-// request naming one is refused as the service refuses a request to an account
-// that does not exist.
+// A Microsoft Entra bearer is authorized with Azure RBAC, and an account whose
+// allowSharedKeyAccess is false refuses Shared Key and the signatures its keys
+// made. An account ARM has never seen has no keys to verify against and no
+// public access level to consult, so a request naming one is refused as the
+// service refuses a request to an account that does not exist.
+//
+// It reports true when the request may proceed.
 func AuthorizeStorageDataPlane(w http.ResponseWriter, r *http.Request, service, account, container, blob string) bool {
 	if account == "" {
 		return true // not an account-addressed request; the caller routes it.
@@ -542,9 +545,17 @@ func AuthorizeStorageDataPlane(w http.ResponseWriter, r *http.Request, service, 
 	}
 	authorization := strings.TrimSpace(r.Header.Get("Authorization"))
 	query := r.URL.Query()
+	refuse := func(status int, code, message string) bool {
+		storageAuthorizationError(w, service, status, code, message)
+		return false
+	}
+	const keyBasedRefusal = "Key based authentication is not permitted on this storage account."
 
 	switch {
 	case strings.HasPrefix(authorization, "SharedKey "), strings.HasPrefix(authorization, "SharedKeyLite "):
+		if !storageSharedKeyAllowed(account) {
+			return refuse(http.StatusForbidden, "KeyBasedAuthenticationNotPermitted", keyBasedRefusal)
+		}
 		lite := strings.HasPrefix(authorization, "SharedKeyLite ")
 		_, credential, _ := strings.Cut(authorization, " ")
 		named, signature, ok := strings.Cut(strings.TrimSpace(credential), ":")
@@ -557,46 +568,50 @@ func AuthorizeStorageDataPlane(w http.ResponseWriter, r *http.Request, service, 
 		// the client signed is reconstructed with the client's own spelling,
 		// which is how Azurite verifies the same requests.
 		if !ok || !strings.EqualFold(storageCredentialAccount(named), account) {
-			blobAuthorizationError(w, http.StatusForbidden, "AuthenticationFailed",
+			return refuse(http.StatusForbidden, "AuthenticationFailed",
 				"Server failed to authenticate the request. Make sure the value of Authorization header is formed correctly including the signature.")
-			return false
 		}
 		stringToSign := blobSharedKeyStringToSign(named, r, lite)
 		if service == "table" {
 			stringToSign = tableSharedKeyStringToSign(named, r, lite)
 		}
 		if !blobSignatureVerifies(account, stringToSign, signature) {
-			blobAuthorizationError(w, http.StatusForbidden, "AuthenticationFailed",
+			return refuse(http.StatusForbidden, "AuthenticationFailed",
 				"Server failed to authenticate the request. Make sure the value of Authorization header is formed correctly including the signature.")
-			return false
+		}
+		return true
+
+	case query.Get("sig") != "" && query.Get("skoid") != "":
+		if status, code, message := storageUserDelegationSASAuthorizes(r, service, account, container, blob); status != 0 {
+			return refuse(status, code, message)
 		}
 		return true
 
 	case query.Get("sig") != "":
+		if !storageSharedKeyAllowed(account) {
+			return refuse(http.StatusForbidden, "KeyBasedAuthenticationNotPermitted", keyBasedRefusal)
+		}
 		if ok, reason := blobSASAuthorizes(service, account, container, blob, query, r.Method); !ok {
-			blobAuthorizationError(w, http.StatusForbidden, "AuthenticationFailed", reason)
-			return false
+			return refuse(http.StatusForbidden, "AuthenticationFailed", reason)
 		}
 		return true
 
 	case strings.HasPrefix(authorization, "Bearer "):
-		// A Microsoft Entra token is the third credential the service accepts —
-		// and only one whose audience is Azure Storage. A token minted for
-		// Azure Resource Manager does not authorize a data-plane read on real
-		// Azure, however valid it is, and accepting it here would let every
-		// ARM-authenticated test reach storage it never presented a storage
-		// credential for.
+		// Only a token whose audience is Azure Storage authenticates here: a
+		// token for Azure Resource Manager does not, however valid it is.
 		claims, err := verifyAzureSimJWT(strings.TrimSpace(strings.TrimPrefix(authorization, "Bearer ")))
 		if err != nil {
-			blobAuthorizationError(w, http.StatusUnauthorized, "InvalidAuthenticationInfo",
+			return refuse(http.StatusUnauthorized, "InvalidAuthenticationInfo",
 				"Server failed to authenticate the request. Please refer to the information in the www-authenticate header.")
-			return false
 		}
-		audience := strings.TrimSuffix(azureTokenAudience(claims), "/")
-		if audience != "https://storage.azure.com" {
-			blobAuthorizationError(w, http.StatusForbidden, "AuthenticationFailed",
+		if !storageAudienceValid(r, service, account, azureTokenAudience(claims)) {
+			return refuse(http.StatusForbidden, "AuthenticationFailed",
 				"Server failed to authenticate the request. The access token was not issued for the storage resource.")
-			return false
+		}
+		caller := rbacCallerFromClaims(claims)
+		if !storageBearerAuthorizes(r, service, account, caller) {
+			return refuse(http.StatusForbidden, "AuthorizationPermissionMismatch",
+				"This request is not authorized to perform this operation using this permission.")
 		}
 		return true
 
@@ -604,8 +619,28 @@ func AuthorizeStorageDataPlane(w http.ResponseWriter, r *http.Request, service, 
 		if blobAnonymousAllowed(account, container, blob) {
 			return true
 		}
-		blobAuthorizationError(w, http.StatusForbidden, "AuthenticationFailed",
+		return refuse(http.StatusForbidden, "AuthenticationFailed",
 			"Server failed to authenticate the request. Make sure the value of Authorization header is formed correctly including the signature.")
-		return false
 	}
+}
+
+// storageAuthorizationError writes a refusal in the envelope the service's
+// clients parse: OData JSON for the Table service, XML for the other three.
+func storageAuthorizationError(w http.ResponseWriter, service string, status int, code, message string) {
+	if service == "table" {
+		writeTableODataError(w, code, message, status)
+		return
+	}
+	blobAuthorizationError(w, status, code, message)
+}
+
+// storageAudienceValid reports whether a token's audience is Azure Storage's:
+// the storage resource, or the account's own endpoint for the service, which
+// clients of a cloud other than Azure's public one request.
+func storageAudienceValid(r *http.Request, service, account, audience string) bool {
+	audience = strings.TrimSuffix(audience, "/")
+	if audience == "https://storage.azure.com" {
+		return true
+	}
+	return strings.EqualFold(audience, strings.TrimSuffix(azureStorageEndpointURL(r, account, service), "/"))
 }

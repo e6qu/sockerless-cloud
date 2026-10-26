@@ -1507,6 +1507,11 @@ jobs:
             tf_timeout: 600s
             tf_run: TestTerraformTutorial
             timeout_minutes: 12
+          - suite: azure role assignments
+            cloud: azure
+            tf_timeout: 600s
+            tf_run: TestTerraformRoleAssignmentsGateTheProvider
+            timeout_minutes: 12
           - suite: azure web app key vault references and source control
             cloud: azure
             tf_timeout: 780s

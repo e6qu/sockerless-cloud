@@ -37,7 +37,7 @@ func acrTasksURL(reg Registry, suffix string) string {
 func acrTasksARM(t *testing.T, srv *sim.Server, method, target, body string) (*http.Response, []byte) {
 	t.Helper()
 	now := time.Now()
-	token, err := mintAzureSimJWT(simTenantID, "https://management.azure.com/", now, now.Add(time.Hour))
+	token, err := mintBootstrapSimJWT("https://management.azure.com/", now, now.Add(time.Hour))
 	if err != nil {
 		t.Fatalf("mint ARM bearer: %v", err)
 	}
@@ -54,9 +54,9 @@ func acrTasksPost(t *testing.T, srv *sim.Server, target, body string) (*http.Res
 
 func acrTasksRegistry(t *testing.T, srv *sim.Server, name string) Registry {
 	t.Helper()
-	createTestResourceGroup(t, srv, "sub", "rg")
+	createTestResourceGroup(t, srv, azureDefaultSubscriptionID, "rg")
 	resp, data := acrTasksARM(t, srv, http.MethodPut,
-		fmt.Sprintf("http://%s/subscriptions/sub/resourceGroups/rg/providers/Microsoft.ContainerRegistry/registries/%s?api-version=2023-07-01", acrAuthTestARMHost, name),
+		fmt.Sprintf("http://%s/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg/providers/Microsoft.ContainerRegistry/registries/%s?api-version=2023-07-01", acrAuthTestARMHost, name),
 		`{"location":"eastus","sku":{"name":"Standard"},"properties":{}}`)
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
 		t.Fatalf("create registry %s: status %d: %s", name, resp.StatusCode, data)

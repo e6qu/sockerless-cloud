@@ -25,7 +25,7 @@ import (
 // raw ARM requests and, where the host can run the data plane, through a
 // stock PostgreSQL driver.
 
-const pgReplicaLtrSub = "00000000-0000-0000-0000-000000000000"
+const pgReplicaLtrSub = "00000000-0000-0000-0000-000000000001"
 
 func pgFlexArmBase(rg string) string {
 	return fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.DBforPostgreSQL/flexibleServers", pgReplicaLtrSub, rg)

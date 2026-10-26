@@ -22,34 +22,15 @@ var armTokenAudiences = map[string]bool{
 	"https://management.core.windows.net":  true,
 }
 
-// AzureBearerVerificationMiddleware enforces bearer-token authentication on the
-// Azure Resource Manager plane exactly as real ARM does. Every request under
-// /subscriptions/ or /providers/ (see isAzureARMPath) must carry an
-// `Authorization: Bearer <jwt>` whose token this simulator minted (valid RS256
-// signature against the sim's key, unexpired) and whose `aud` claim identifies
-// the Azure Resource Manager audience. Requests to any other surface pass
-// through untouched, because on real Azure they authenticate with their own
-// scheme rather than an ARM bearer:
-//
-//   - OAuth2/OpenID endpoints (authorize, token, discovery, JWKS, userinfo) —
-//     handled and returned by AzureAuthMiddleware, which wraps this middleware,
-//     so they never reach it; they are also non-ARM paths regardless.
-//   - The ARM cloud-metadata bootstrap /metadata/endpoints and IMDS
-//     (/metadata/instance, /metadata/identity/oauth2/token, /msi/token) — the
-//     provider/SDK fetches these before it holds any token; gated by
-//     Metadata:true / IDENTITY_HEADER, never an ARM bearer.
-//   - The ACR /v2/ registry data plane — its own registry-token scheme.
-//   - Microsoft Graph (/v1.0, /v2.0) and the storage / Key Vault / Service Bus /
-//     Event Grid data planes — reached on their own hostnames/paths with SAS,
-//     shared-key, or a resource-scoped challenge bearer, none of which is the
-//     ARM audience this middleware requires.
-//   - /health and /ui/ — unauthenticated operator surfaces.
-//
-// None of those are ARM paths, so scoping to isAzureARMPath yields exactly the
-// exemption set without any per-endpoint allowlist.
+// AzureBearerVerificationMiddleware authenticates and authorizes every Azure
+// Resource Manager request as ARM does: the bearer must be a token this
+// simulator signed, unexpired, for the management audience and from the
+// subscription's tenant, and Azure RBAC must grant the caller the request's
+// action at its scope (armAuthorizeAndServe). Requests on a data plane's host
+// or path authenticate with that plane's own scheme and pass through.
 func AzureBearerVerificationMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !isAzureARMPath(r.URL.Path) || azureARMPathUsesSessionAuth(r.URL.Path) {
+		if !azureARMRequest(r) {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -61,8 +42,6 @@ func AzureBearerVerificationMiddleware(next http.Handler) http.Handler {
 		}
 		claims, err := verifyAzureSimJWT(strings.TrimSpace(strings.TrimPrefix(auth, "Bearer ")))
 		if err != nil {
-			// verifyAzureSimJWT distinguishes the failure (malformed JWT, bad
-			// signature, expired) so the description is faithful to the cause.
 			azureARMBearerUnauthorized(w, r,
 				fmt.Sprintf("The access token is not valid: %v.", err))
 			return
@@ -74,8 +53,32 @@ func AzureBearerVerificationMiddleware(next http.Handler) http.Handler {
 				aud))
 			return
 		}
-		next.ServeHTTP(w, r)
+		armAuthorizeAndServe(w, r, next, rbacCallerFromClaims(claims))
 	})
+}
+
+// azureARMRequest reports whether a request addresses Azure Resource Manager:
+// an ARM path on a host that is not a data plane's.
+func azureARMRequest(r *http.Request) bool {
+	path := "/" + strings.Join(armPathSegments(r.URL.Path), "/")
+	lower := strings.ToLower(path)
+	if lower != "/subscriptions" && lower != "/tenants" && !strings.HasPrefix(lower, "/tenants/") &&
+		!isAzureARMPath(lower) {
+		return false
+	}
+	if azureARMPathUsesSessionAuth(path) || isContainerAppsStreamPath(path) {
+		return false
+	}
+	hostname := strings.ToLower(r.Host)
+	if i := strings.LastIndex(hostname, ":"); i >= 0 {
+		hostname = hostname[:i]
+	}
+	for _, marker := range []string{".blob.", ".file.", ".queue.", ".table.", ".dfs.", ".web.", ".eventgrid.", ".documents."} {
+		if strings.Contains(hostname, marker) {
+			return false
+		}
+	}
+	return !hasNonStorageAzureSubdomain(hostname)
 }
 
 // azureARMPathUsesSessionAuth reports whether an ARM-shaped path is actually a

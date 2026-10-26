@@ -247,6 +247,9 @@ func handleSubscriptionAliasCreate(w http.ResponseWriter, r *http.Request) {
 			State:          "Enabled",
 			TenantID:       currentTenant,
 		})
+		if callerObjectID != "" {
+			rbacAssignOwner(subscriptionID, sim.NewUUID(), callerObjectID, rbacPrincipalType(callerObjectID))
+		}
 	}
 
 	// Ownership of a directed subscription stays Pending until

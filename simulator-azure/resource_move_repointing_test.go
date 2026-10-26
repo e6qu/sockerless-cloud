@@ -20,7 +20,7 @@ import (
 // stored beneath it follow, the credential the resource ID derives is not
 // rotated, and every reference another resource holds to it is re-pointed.
 
-const moveTestSubscription = "11111111-2222-3333-4444-555555555555"
+const moveTestSubscription = azureDefaultSubscriptionID
 const moveTestARMHost = "127.0.0.1:4581"
 
 // newMoveTestServer builds the whole simulator, which is what registers every
@@ -45,9 +45,7 @@ func newMoveTestServer(t *testing.T) *sim.Server {
 // endpoint issues to a client.
 func moveARMToken(t *testing.T) string {
 	t.Helper()
-	token, err := mintAzureSimJWTForUser(
-		EntraUser{OID: "move-test-oid", Sub: "move-test-sub"},
-		"move-test-tenant", defaultAzureTokenAudience,
+	token, err := mintBootstrapSimJWT(defaultAzureTokenAudience,
 		time.Now().Add(-time.Minute), time.Now().Add(time.Hour))
 	if err != nil {
 		t.Fatalf("mint ARM token: %v", err)

@@ -82,7 +82,7 @@ func waitAzureAsyncOperation(t *testing.T, opURL string) {
 // Microsoft.Cache/Redis ARM surface.
 func TestAzureRedisCache_ARMLifecycle(t *testing.T) {
 	t.Parallel()
-	sub := "00000000-0000-0000-0000-000000000000"
+	sub := subscriptionID
 	rg := "test-rg-d436"
 	name := "lifecycle-redis"
 	ensureRGIn(t, sub, rg)
@@ -127,7 +127,7 @@ func TestAzureRedisCache_ARMLifecycle(t *testing.T) {
 // FlexibleServer + Database + FirewallRule.
 func TestAzurePGFlexibleServer_ARMLifecycle(t *testing.T) {
 	t.Parallel()
-	sub := "00000000-0000-0000-0000-000000000000"
+	sub := subscriptionID
 	rg := "test-rg-96e5"
 	name := "lifecycle-pg"
 	ensureRGIn(t, sub, rg)

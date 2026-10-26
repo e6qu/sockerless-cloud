@@ -27,11 +27,11 @@ func buildScheduleTestSimulator(t *testing.T) scheduleTestSimulator {
 	t.Cleanup(bg.Await)
 	t.Cleanup(srv.StopBackground)
 	now := time.Now()
-	token, err := mintAzureSimJWT(simTenantID, "https://management.azure.com/", now, now.Add(time.Hour))
+	token, err := mintBootstrapSimJWT("https://management.azure.com/", now, now.Add(time.Hour))
 	if err != nil {
 		t.Fatalf("mint Azure Resource Manager token: %v", err)
 	}
-	createTestResourceGroup(t, srv, "sub", "rg")
+	createTestResourceGroup(t, srv, azureDefaultSubscriptionID, "rg")
 	return scheduleTestSimulator{Server: srv, token: token}
 }
 
@@ -51,7 +51,7 @@ func armCall(t *testing.T, srv scheduleTestSimulator, method, path, body string)
 // refused when the job is written.
 func TestContainerAppsScheduledJobStartsExecutions(t *testing.T) {
 	srv := buildScheduleTestSimulator(t)
-	const jobPath = "/subscriptions/sub/resourceGroups/rg/providers/Microsoft.App/jobs/nightly?api-version=2024-03-01"
+	const jobPath = "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg/providers/Microsoft.App/jobs/nightly?api-version=2024-03-01"
 	bad := `{"location":"eastus","properties":{"configuration":{"triggerType":"Schedule","replicaTimeout":60,"scheduleTriggerConfig":{"cronExpression":"0 2 * *"}}}}`
 	if rec := armCall(t, srv, http.MethodPut, jobPath, bad); rec.Code != http.StatusBadRequest {
 		t.Fatalf("a four-field cronExpression was accepted: %d %s", rec.Code, rec.Body.String())
@@ -71,7 +71,7 @@ func TestContainerAppsScheduledJobStartsExecutions(t *testing.T) {
 	ticker.Tick(time.Date(2026, 6, 10, 2, 0, 1, 0, time.UTC))
 	ticker.Tick(time.Date(2026, 6, 10, 2, 0, 2, 0, time.UTC))
 	list := executions.List()
-	if len(list) != 1 || !strings.HasPrefix(list[0].ID, "/subscriptions/sub/resourceGroups/rg/providers/Microsoft.App/jobs/nightly/executions/nightly-") {
+	if len(list) != 1 || !strings.HasPrefix(list[0].ID, "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg/providers/Microsoft.App/jobs/nightly/executions/nightly-") {
 		t.Fatalf("executions after 02:00 = %+v, want one", list)
 	}
 }
@@ -152,7 +152,7 @@ func TestLogicRecurrenceOccurrences(t *testing.T) {
 // disabled workflow does not run.
 func TestLogicRecurrenceTriggerRunsTheWorkflow(t *testing.T) {
 	srv := buildScheduleTestSimulator(t)
-	const path = "/subscriptions/sub/resourceGroups/rg/providers/Microsoft.Logic/workflows/hourly?api-version=2019-05-01"
+	const path = "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg/providers/Microsoft.Logic/workflows/hourly?api-version=2019-05-01"
 	body := `{"location":"eastus","properties":{"definition":{"triggers":{"every-hour":{"type":"Recurrence",` +
 		`"recurrence":{"frequency":"Hour","interval":1,"startTime":"2026-06-10T00:00:00Z"}}},"actions":{}}}}`
 	if rec := armCall(t, srv, http.MethodPut, path, body); rec.Code != http.StatusOK {

@@ -135,7 +135,7 @@ func TestACRScheduleRunRefusesMalformedRequests(t *testing.T) {
 		"file without path":        {`{"type":"FileTaskRunRequest","sourceLocation":"source/x.tar.gz","platform":{"os":"Linux"}}`, http.StatusBadRequest},
 		"task without id":          {`{"type":"TaskRunRequest"}`, http.StatusBadRequest},
 		"task not there":           {fmt.Sprintf(`{"type":"TaskRunRequest","taskId":%q}`, reg.ID+"/tasks/nosuchtask"), http.StatusNotFound},
-		"task of another registry": {`{"type":"TaskRunRequest","taskId":"/subscriptions/sub/resourceGroups/rg/providers/Microsoft.ContainerRegistry/registries/other/tasks/t"}`, http.StatusBadRequest},
+		"task of another registry": {`{"type":"TaskRunRequest","taskId":"/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg/providers/Microsoft.ContainerRegistry/registries/other/tasks/t"}`, http.StatusBadRequest},
 		"agent pool not there":     {`{"type":"EncodedTaskRunRequest","encodedTaskContent":"c3RlcHM6IFtd","agentPoolName":"nopool","platform":{"os":"Linux"}}`, http.StatusNotFound},
 	}
 	for name, tc := range cases {

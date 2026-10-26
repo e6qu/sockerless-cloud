@@ -184,6 +184,12 @@ func handleSubscriptionAcceptOwnership(w http.ResponseWriter, r *http.Request) {
 			rec.DisplayName = displayName
 			rec.TenantID = callerTenant
 		})
+		// A subscription that changes directory loses its role assignments;
+		// the principal that accepted it owns it in the new one.
+		rbacRemoveAssignmentsWithin(armSubscriptionID(sub))
+		if callerObjectID != "" {
+			rbacAssignOwner(sub, sim.NewUUID(), callerObjectID, rbacPrincipalType(callerObjectID))
+		}
 		if record.AliasName != "" {
 			azureSubscriptionAliases.Update(record.AliasName, func(alias *SubscriptionAliasRecord) {
 				alias.AcceptOwnershipState = "Completed"

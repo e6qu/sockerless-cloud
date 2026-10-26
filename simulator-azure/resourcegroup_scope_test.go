@@ -16,7 +16,7 @@ import (
 func createTestResourceGroup(t *testing.T, srv *sim.Server, subscription, group string) {
 	t.Helper()
 	now := time.Now()
-	token, err := mintAzureSimJWT(simTenantID, "https://management.azure.com/", now, now.Add(time.Hour))
+	token, err := mintBootstrapSimJWT("https://management.azure.com/", now, now.Add(time.Hour))
 	if err != nil {
 		t.Fatalf("mint ARM bearer: %v", err)
 	}

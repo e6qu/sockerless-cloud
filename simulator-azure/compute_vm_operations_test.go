@@ -86,7 +86,7 @@ func vmOpsRequest(t *testing.T, srv *sim.Server, method, path string) *httptest.
 	// The ARM plane requires a valid bearer; mint one the way a client acquires
 	// it from the token endpoint so the request reaches the handler under test.
 	now := time.Now()
-	token, err := mintAzureSimJWT(simTenantID, "https://management.azure.com/", now, now.Add(time.Hour))
+	token, err := mintBootstrapSimJWT("https://management.azure.com/", now, now.Add(time.Hour))
 	if err != nil {
 		t.Fatalf("mint ARM bearer: %v", err)
 	}

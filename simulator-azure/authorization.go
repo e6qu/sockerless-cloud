@@ -208,6 +208,171 @@ var builtinRoleDefs = []builtinRoleDef{
 		},
 	},
 	{
+		Name:        "Storage Blob Data Reader",
+		ID:          "2a2b9908-6ea1-4ae2-8e65-a410df84e7d1",
+		Description: "Allows for read access to Azure Storage blob containers and data",
+		Permissions: builtinRolePermission{
+			Actions: []string{
+				"Microsoft.Storage/storageAccounts/blobServices/containers/read",
+				"Microsoft.Storage/storageAccounts/blobServices/generateUserDelegationKey/action",
+			},
+			DataActions: []string{"Microsoft.Storage/storageAccounts/blobServices/containers/blobs/read"},
+		},
+	},
+	{
+		Name:        "Storage Blob Data Owner",
+		ID:          "b7e6dc6d-f1e8-4753-8033-0f276bb0955b",
+		Description: "Allows for full access to Azure Storage blob containers and data, including assigning POSIX access control.",
+		Permissions: builtinRolePermission{
+			Actions: []string{
+				"Microsoft.Storage/storageAccounts/blobServices/containers/*",
+				"Microsoft.Storage/storageAccounts/blobServices/generateUserDelegationKey/action",
+			},
+			DataActions: []string{"Microsoft.Storage/storageAccounts/blobServices/containers/blobs/*"},
+		},
+	},
+	{
+		Name:        "Storage Blob Delegator",
+		ID:          "db58b8e5-c6ad-4a2a-8342-4190687cbf4a",
+		Description: "Allows for generation of a user delegation key which can be used to sign SAS tokens",
+		Permissions: builtinRolePermission{
+			Actions: []string{"Microsoft.Storage/storageAccounts/blobServices/generateUserDelegationKey/action"},
+		},
+	},
+	{
+		Name:        "Storage Queue Data Contributor",
+		ID:          "974c5e8b-45b9-4653-ba55-5f855dd0fb88",
+		Description: "Allows for read, write, and delete access to Azure Storage queues and queue messages",
+		Permissions: builtinRolePermission{
+			Actions: []string{
+				"Microsoft.Storage/storageAccounts/queueServices/queues/delete",
+				"Microsoft.Storage/storageAccounts/queueServices/queues/read",
+				"Microsoft.Storage/storageAccounts/queueServices/queues/write",
+			},
+			DataActions: []string{
+				"Microsoft.Storage/storageAccounts/queueServices/queues/messages/delete",
+				"Microsoft.Storage/storageAccounts/queueServices/queues/messages/read",
+				"Microsoft.Storage/storageAccounts/queueServices/queues/messages/write",
+				"Microsoft.Storage/storageAccounts/queueServices/queues/messages/process/action",
+				"Microsoft.Storage/storageAccounts/queueServices/queues/messages/add/action",
+			},
+		},
+	},
+	{
+		Name:        "Storage Queue Data Reader",
+		ID:          "19e7f393-937e-4f77-808e-94535e297925",
+		Description: "Allows for read access to Azure Storage queues and queue messages",
+		Permissions: builtinRolePermission{
+			Actions:     []string{"Microsoft.Storage/storageAccounts/queueServices/queues/read"},
+			DataActions: []string{"Microsoft.Storage/storageAccounts/queueServices/queues/messages/read"},
+		},
+	},
+	{
+		Name:        "Storage Queue Data Message Sender",
+		ID:          "c6a89b2d-59bc-44d0-9896-0f6e12d7b80a",
+		Description: "Allows for sending of Azure Storage queue messages",
+		Permissions: builtinRolePermission{
+			DataActions: []string{"Microsoft.Storage/storageAccounts/queueServices/queues/messages/add/action"},
+		},
+	},
+	{
+		Name:        "Storage Queue Data Message Processor",
+		ID:          "8a0f0c08-91a1-4084-bc3d-661d67233fed",
+		Description: "Allows for peek, receive, and delete access to Azure Storage queue messages",
+		Permissions: builtinRolePermission{
+			DataActions: []string{
+				"Microsoft.Storage/storageAccounts/queueServices/queues/messages/read",
+				"Microsoft.Storage/storageAccounts/queueServices/queues/messages/process/action",
+			},
+		},
+	},
+	{
+		Name:        "Storage Table Data Contributor",
+		ID:          "0a9a7e1f-b9d0-4cc4-a60d-0319b160aaa3",
+		Description: "Allows for read, write and delete access to Azure Storage tables and entities",
+		Permissions: builtinRolePermission{
+			Actions: []string{
+				"Microsoft.Storage/storageAccounts/tableServices/tables/read",
+				"Microsoft.Storage/storageAccounts/tableServices/tables/write",
+				"Microsoft.Storage/storageAccounts/tableServices/tables/delete",
+			},
+			DataActions: []string{
+				"Microsoft.Storage/storageAccounts/tableServices/tables/entities/read",
+				"Microsoft.Storage/storageAccounts/tableServices/tables/entities/write",
+				"Microsoft.Storage/storageAccounts/tableServices/tables/entities/delete",
+				"Microsoft.Storage/storageAccounts/tableServices/tables/entities/add/action",
+				"Microsoft.Storage/storageAccounts/tableServices/tables/entities/update/action",
+			},
+		},
+	},
+	{
+		Name:        "Storage Table Data Reader",
+		ID:          "76199698-9eea-4c19-bc75-cec21354c6b6",
+		Description: "Allows for read access to Azure Storage tables and entities",
+		Permissions: builtinRolePermission{
+			Actions:     []string{"Microsoft.Storage/storageAccounts/tableServices/tables/read"},
+			DataActions: []string{"Microsoft.Storage/storageAccounts/tableServices/tables/entities/read"},
+		},
+	},
+	{
+		Name:        "Storage File Data Privileged Contributor",
+		ID:          "69566ab7-960f-475b-8e7c-b3118f30c6bd",
+		Description: "Customer has read, write, delete and modify NTFS permission access on Azure Storage file shares.",
+		Permissions: builtinRolePermission{
+			DataActions: []string{
+				"Microsoft.Storage/storageAccounts/fileServices/fileshares/files/read",
+				"Microsoft.Storage/storageAccounts/fileServices/fileshares/files/write",
+				"Microsoft.Storage/storageAccounts/fileServices/fileshares/files/delete",
+				"Microsoft.Storage/storageAccounts/fileServices/fileshares/files/modifypermissions/action",
+				"Microsoft.Storage/storageAccounts/fileServices/readFileBackupSemantics/action",
+				"Microsoft.Storage/storageAccounts/fileServices/writeFileBackupSemantics/action",
+			},
+		},
+	},
+	{
+		Name:        "Storage File Data Privileged Reader",
+		ID:          "b8eda974-7b85-4f76-af95-65846b26df6d",
+		Description: "Customer has read access on Azure Storage file shares.",
+		Permissions: builtinRolePermission{
+			DataActions: []string{
+				"Microsoft.Storage/storageAccounts/fileServices/fileshares/files/read",
+				"Microsoft.Storage/storageAccounts/fileServices/readFileBackupSemantics/action",
+			},
+		},
+	},
+	{
+		Name:        "Storage Account Contributor",
+		ID:          "17d1049b-9a84-46fb-8f53-869881c3d3ab",
+		Description: "Lets you manage storage accounts, including accessing storage account keys which provide full access to storage account data.",
+		Permissions: builtinRolePermission{
+			Actions: []string{
+				"Microsoft.Authorization/*/read",
+				"Microsoft.Insights/diagnosticSettings/*",
+				"Microsoft.Network/virtualNetworks/subnets/joinViaServiceEndpoint/action",
+				"Microsoft.ResourceHealth/availabilityStatuses/read",
+				"Microsoft.Resources/deployments/*",
+				"Microsoft.Resources/subscriptions/resourceGroups/read",
+				"Microsoft.Storage/storageAccounts/*",
+				"Microsoft.Support/*",
+			},
+		},
+	},
+	{
+		Name:        "EventGrid Data Sender",
+		ID:          "d5a91429-5739-47e2-a06b-3470a27159e7",
+		Description: "Allows send access to event grid events.",
+		Permissions: builtinRolePermission{
+			Actions: []string{
+				"Microsoft.Authorization/*/read",
+				"Microsoft.EventGrid/topics/read",
+				"Microsoft.EventGrid/domains/read",
+				"Microsoft.EventGrid/partnerNamespaces/read",
+				"Microsoft.Resources/subscriptions/resourceGroups/read",
+			},
+			DataActions: []string{"Microsoft.EventGrid/events/send/action"},
+		},
+	},
+	{
 		Name:        "Storage File Data SMB Share Contributor",
 		ID:          "0c867c2a-1d8c-454a-a3db-ab2ea1bdc8bb",
 		Description: "Allows for read, write, and delete access in Azure Storage file shares over SMB.",
@@ -522,6 +687,7 @@ func registerAuthorization(srv *sim.Server) {
 	roleAssignments := sim.MakeStore[RoleAssignment](srv.DB(), "role_assignments")
 	azureRoleAssignments = roleAssignments
 	customRoleDefs = sim.MakeStore[CustomRoleDefinition](srv.DB(), "custom_role_definitions")
+	rbacSeedBootstrapOwner()
 
 	// Subscription- and resource-group-scoped role assignments and custom role
 	// definitions are mounted as concrete routes (the mux can express those
@@ -883,13 +1049,30 @@ func handleRoleDefinitionDelete(w http.ResponseWriter, r *http.Request) {
 // applies at requestScope: Azure RBAC assignments inherit downward, so an
 // assignment covers its own scope and every scope beneath it. Comparison is
 // case-insensitive and segment-bounded, matching ARM's resource-ID semantics.
+// A tenant's root management group, whose ID is the tenant ID, holds every
+// management group and every subscription of the tenant.
 func rbacScopeCovers(assignmentScope, requestScope string) bool {
 	a := strings.ToLower(strings.Trim(assignmentScope, "/"))
 	s := strings.ToLower(strings.Trim(requestScope, "/"))
 	if a == "" { // the tenant root scope "/" covers everything
 		return true
 	}
-	return s == a || strings.HasPrefix(s, a+"/")
+	if s == a || strings.HasPrefix(s, a+"/") {
+		return true
+	}
+	const groups = "providers/microsoft.management/managementgroups/"
+	root, ok := strings.CutPrefix(a, groups)
+	if !ok || strings.Contains(root, "/") {
+		return false
+	}
+	segs := strings.Split(s, "/")
+	switch {
+	case len(segs) >= 2 && segs[0] == "subscriptions":
+		return strings.EqualFold(azureSubscriptionTenant(segs[1]), root)
+	case strings.HasPrefix(s, groups):
+		return strings.EqualFold(simTenantID, root)
+	}
+	return false
 }
 
 // customRoleDefPermissions renders a custom role definition's stored
@@ -939,12 +1122,8 @@ func handlePermissionsList(w http.ResponseWriter, r *http.Request, scope string)
 			"The access token is not valid: "+err.Error(), http.StatusUnauthorized)
 		return
 	}
-	oid, _ := claims["oid"].(string)
 	permissions := []map[string]any{}
-	for _, ra := range azureRoleAssignmentsAll.LookupAll(azureRoleAssignments, "all", azureRoleAssignmentAllKeys) {
-		if !strings.EqualFold(ra.Properties.PrincipalId, oid) {
-			continue
-		}
+	for _, ra := range rbacAssignmentsOf(rbacCallerFromClaims(claims)) {
 		if !rbacScopeCovers(ra.Properties.Scope, scope) {
 			continue
 		}
@@ -965,24 +1144,6 @@ func customRoleDefName(c CustomRoleDefinition) string {
 	props, _ := c.Response["properties"].(map[string]any)
 	name, _ := props["roleName"].(string)
 	return name
-}
-
-// rbacPrincipalHasDataAction reports whether the role assignments of
-// principalID grant dataAction at scope: some assigned role's permission set
-// matches it in dataActions and not in notDataActions, as Azure RBAC
-// evaluates a data-plane request.
-func rbacPrincipalHasDataAction(principalID, scope, dataAction string) bool {
-	for _, ra := range azureRoleAssignmentsAll.LookupAll(azureRoleAssignments, "all", azureRoleAssignmentAllKeys) {
-		if !strings.EqualFold(ra.Properties.PrincipalId, principalID) || !rbacScopeCovers(ra.Properties.Scope, scope) {
-			continue
-		}
-		for _, p := range rbacRolePermissions(roleDefinitionGUID(ra.Properties.RoleDefinitionId)) {
-			if rbacActionMatchesAny(p.DataActions, dataAction) && !rbacActionMatchesAny(p.NotDataActions, dataAction) {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 // rbacRolePermissions is the permission sets of a built-in or custom role.

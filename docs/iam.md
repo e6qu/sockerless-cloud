@@ -8,7 +8,7 @@ client starts with are seeded, the way a new account's first credential is:
 |---|---|---|---|
 | AWS | IAM user `sockerless-sim-admin`, access key `test` / `test` | SigV4 | IAM policies: identity, resource and trust policies, permissions boundaries for users |
 | Google Cloud | Service account `sockerless-bootstrap@sockerless.iam.gserviceaccount.com` and its published key | OAuth 2.0 access tokens from the JWT-bearer grant | IAM policies on the resource hierarchy and resources, in the places listed under Enforcement |
-| Azure | Application `test-client-id` with secret `test-client-secret` in tenant `11111111-1111-1111-1111-111111111111` | Microsoft Entra ID access tokens | Azure RBAC for Key Vault data actions; Shared Key and SAS for Storage, Service Bus and Event Hubs |
+| Azure | Application `test-client-id` with secret `test-client-secret` in tenant `11111111-1111-1111-1111-111111111111`, Owner on the tenant root management group | Microsoft Entra ID access tokens | Azure RBAC on every Azure Resource Manager operation and on the Storage, Key Vault and Event Grid data actions; Shared Key and SAS for Storage, Service Bus and Event Hubs |
 
 How far each simulator goes differs, and each section ends with its limits,
 the open bugs among them. Workloads get their credentials through instance
@@ -610,7 +610,7 @@ gcloud auth print-identity-token --audiences=https://hello-abc-uc.a.run.app
 
 ## Azure
 
-The Azure simulator (`simulator-azure/`) serves its own Microsoft Entra ID: a directory, an OAuth 2.0 and OpenID Connect token service, and a slice of Microsoft Graph. Every token the simulator mints is an RS256 JWT signed with one key. Azure Resource Manager and each data plane verify that signature, the expiry and the audience. Only Azure Key Vault then authorizes the caller with Azure role-based access control (Azure RBAC). Every other surface authenticates the caller and stops there, or authorizes it with its own keys.
+The Azure simulator (`simulator-azure/`) serves its own Microsoft Entra ID: a directory, an OAuth 2.0 and OpenID Connect token service, and a slice of Microsoft Graph. Every token the simulator mints is an RS256 JWT signed with one key. Azure Resource Manager and each data plane verify that signature, the expiry and the audience. Azure Resource Manager then checks the token's tenant and authorizes every operation with Azure role-based access control (Azure RBAC); Storage, Key Vault and Event Grid authorize a bearer with Azure RBAC data actions. The other data planes authenticate the caller and stop there, or authorize it with their own keys.
 
 ### Microsoft Entra ID
 
@@ -618,7 +618,7 @@ The Azure simulator (`simulator-azure/`) serves its own Microsoft Entra ID: a di
 
 The simulator presents one directory. Its tenant ID is `11111111-1111-1111-1111-111111111111` (`simTenantID`, `managedidentity.go`). The seeded subscription is `00000000-0000-0000-0000-000000000001` ("Simulator Subscription").
 
-The token endpoint does not check the tenant segment of its path. A token carries whatever tenant the path names in `tid` and `iss`; an AD FS authority (`/adfs/...`) maps to `simTenantID` (`handleAzureToken`, `auth.go`). Azure Resource Manager does not check `tid` either. Key Vault does: the token's `iss` must name the vault's `tenantId`.
+The token endpoint does not check the tenant segment of its path. A token carries whatever tenant the path names in `tid` and `iss`; an AD FS authority (`/adfs/...`) maps to `simTenantID` (`handleAzureToken`, `auth.go`). Azure Resource Manager refuses a token whose `tid` is not the tenant of the subscription the path names, with 401 `InvalidAuthenticationTokenTenant` and a challenge naming the subscription's authority (`armTenantRefusal`, `arm_rbac.go`). A subscription belongs to `simTenantID` until `acceptOwnership` moves it. Key Vault checks the token's `iss` against the vault's `tenantId`.
 
 #### Bootstrap application registration
 
@@ -632,7 +632,7 @@ The token endpoint does not check the tenant segment of its path. A token carrie
 | Service principal object ID (the token's `oid`) | `00000000-0000-0000-0000-0000000000b2` |
 | Display name | `Sockerless Bootstrap`, `signInAudience` `AzureADMyOrg` |
 
-The bootstrap principal holds **no role assignment**. It needs none: Azure Resource Manager does not evaluate Azure RBAC (see "Authorization with Azure RBAC" below). To reach a Key Vault that uses Azure RBAC, assign it a role, as the second example does.
+The bootstrap principal is **Owner on the tenant root management group** (`/providers/Microsoft.Management/managementGroups/11111111-1111-1111-1111-111111111111`), through role assignment `00000000-0000-0000-0000-0000000000b4` that `rbacSeedBootstrapOwner` (`rbac.go`) seeds when the assignment is absent. The role assignments API lists it like any other. The root group holds every subscription of the tenant, so the bootstrap principal manages every resource. Owner grants no data actions: to read a Key Vault that uses Azure RBAC, or a blob with a bearer, assign it a data role, as the second example does.
 
 The seed also registers the first-party service principal "Microsoft Azure App Service" (app ID `abfa0a7c-a6b6-4736-8310-5855508787cd`, object ID `00000000-0000-0000-0000-0000000000a5`). App Service reads Key Vault certificates as that principal.
 
@@ -707,15 +707,15 @@ Every verifier calls `verifyAzureSimJWT`, which checks the RS256 signature again
 
 | Surface | Accepted `aud` | Further checks | Code |
 |---|---|---|---|
-| Azure Resource Manager (`/subscriptions/…`, `/providers/…`) | `https://management.azure.com[/]`, `https://management.core.windows.net[/]`, the simulator's own origin | none; a bad token gets 401 `invalid_token` with a `WWW-Authenticate` challenge | `AzureBearerVerificationMiddleware`, `dataplane_auth.go` |
-| Azure Storage (Blob, Files, Queue, Table) | `https://storage.azure.com[/]` | none | `AuthorizeStorageDataPlane`, `blob_authorization.go` |
+| Azure Resource Manager (`/subscriptions`, `/subscriptions/…`, `/tenants`, `/providers/…`) | `https://management.azure.com[/]`, `https://management.core.windows.net[/]`, the simulator's own origin | `tid` is the subscription's tenant; Azure RBAC actions. A bad token gets 401 `invalid_token` with a `WWW-Authenticate` challenge | `AzureBearerVerificationMiddleware`, `dataplane_auth.go`; `armAuthorizeAndServe`, `arm_rbac.go` |
+| Azure Storage (Blob, Files, Queue, Table) | `https://storage.azure.com[/]`, or the account's own endpoint for the service (`https://<account>.blob.<suffix>[/]`), which azurerm requests outside Azure's public cloud | Azure RBAC actions and data actions | `AuthorizeStorageDataPlane`, `blob_authorization.go`; `storageOperationOf`, `storage_rbac.go` |
 | Azure Key Vault | `https://vault.azure.net[/]`, `cfa8b339-82a2-471a-a3c9-0fc0be7a4093`, `https://<keyVaultDns>` | `iss` names the vault's tenant; network rules; access policies or Azure RBAC | `keyVaultAuthorizeDataPlane`, `keyvault_dataplane_auth.go` |
-| Azure Event Grid publish | `https://eventgrid.azure.net[/]` | none | `eventGridEntraTokenAuthorizes` |
+| Azure Event Grid publish | `https://eventgrid.azure.net[/]` | `Microsoft.EventGrid/events/send/action` on the topic or domain | `eventGridEntraTokenAuthorizes` |
 | Azure Container Registry `/oauth2/exchange` | the registry audience (`acrEntraAudienceValid`) | none; the exchanged token gets every scope it asks for | `acrExchangeIdentity`, `acr.go` |
 | App Service Kudu (SCM site) | an Azure Resource Manager or App Service audience | none | `kuduAuthorize`, `web_kudu.go` |
 | UserInfo | any | `sub` present | `handleAzureUserInfo` |
 
-Two exemptions apply under `/subscriptions/`. Container instance exec and attach sessions (`/execSessions/`, `/attachSessions/`) authenticate with their own session password (`azureARMPathUsesSessionAuth`). Container Apps log streams take the app's `getAuthToken` token (`isContainerAppsStreamPath`).
+Azure Resource Manager's check runs before every slice, including the slices that claim ARM paths through their own wrappers (role assignments at any scope, tags, resource existence checks). It skips requests addressed to a data plane's host (`azureARMRequest`). Two exemptions apply under `/subscriptions/`. Container instance exec and attach sessions (`/execSessions/`, `/attachSessions/`) authenticate with their own session password (`azureARMPathUsesSessionAuth`). Container Apps log streams take the app's `getAuthToken` token (`isContainerAppsStreamPath`).
 
 #### Cloud metadata discovery
 
@@ -738,19 +738,20 @@ The azuread provider fetches `https://<metadata_host>/metadata/endpoints` and ha
 
 #### Role definitions
 
-The built-in catalog is the slice `builtinRoleDefs` in `authorization.go`, with real role GUIDs and permission sets. It is hand-written, not generated: `specs/cloud-api/azure/` vendors only the authorization REST specification (`authorization-arm-authorization-roledefinitionscalls-2022-04-01`, `…-roleassignmentscalls-2022-04-01`), not a built-in role list. The 18 roles are:
+The built-in catalog is the slice `builtinRoleDefs` in `authorization.go`, with real role GUIDs and permission sets. It is hand-written, not generated: `specs/cloud-api/azure/` vendors only the authorization REST specification (`authorization-arm-authorization-roledefinitionscalls-2022-04-01`, `…-roleassignmentscalls-2022-04-01`), not a built-in role list. The 31 roles are:
 
 - Owner, Contributor, Reader, User Access Administrator;
 - AcrPull, AcrPush;
-- Storage Blob Data Contributor, Storage File Data SMB Share Contributor;
+- Storage Account Contributor, Storage Blob Data Owner, Storage Blob Data Contributor, Storage Blob Data Reader, Storage Blob Delegator, Storage Queue Data Contributor, Storage Queue Data Reader, Storage Queue Data Message Sender, Storage Queue Data Message Processor, Storage Table Data Contributor, Storage Table Data Reader, Storage File Data Privileged Contributor, Storage File Data Privileged Reader, Storage File Data SMB Share Contributor;
 - Key Vault Administrator, Key Vault Reader, Key Vault Secrets Officer, Key Vault Secrets User, Key Vault Crypto Officer, Key Vault Crypto User, Key Vault Certificates Officer, Key Vault Certificate User;
+- EventGrid Data Sender;
 - Monitoring Reader, Log Analytics Contributor.
 
-`GET {scope}/providers/Microsoft.Authorization/roleDefinitions[/{id}]` works at any scope, through middleware in `registerAuthorization`, and honours `$filter=roleName eq '…'`. Custom roles (`handleRoleDefinitionPut`, `handleRoleDefinitionDelete`) are created and deleted at subscription scope only. They are stored as written, with `type` defaulting to `CustomRole`. `assignableScopes` is stored but not enforced.
+`GET {scope}/providers/Microsoft.Authorization/roleDefinitions[/{id}]` works at any scope, through middleware in `registerAuthorization`, and honours `$filter=roleName eq '…'`. Custom roles (`handleRoleDefinitionPut`, `handleRoleDefinitionDelete`) are created and deleted at subscription scope only. They are stored as written, with `type` defaulting to `CustomRole`, and evaluated like built-in roles. `assignableScopes` is stored but not enforced.
 
 #### Role assignments
 
-`PUT`, `GET` and `DELETE {scope}/providers/Microsoft.Authorization/roleAssignments/{guid}` work at any scope: management group, subscription, resource group, resource or child resource. Subscription and resource-group scopes have concrete routes; the middleware serves the rest.
+`PUT`, `GET` and `DELETE {scope}/providers/Microsoft.Authorization/roleAssignments/{guid}` work at any scope: management group, subscription, resource group, resource or child resource. Subscription and resource-group scopes have concrete routes; the middleware serves the rest. Writing one needs `Microsoft.Authorization/roleAssignments/write`, which Owner and User Access Administrator hold and Contributor's `notActions` remove.
 
 `doRoleAssignmentPut` makes three checks:
 
@@ -760,37 +761,63 @@ The built-in catalog is the slice `builtinRoleDefs` in `authorization.go`, with 
 
 The handler stores `roleDefinitionId`, `principalId`, `principalType` and `scope`. It drops `condition`, `conditionVersion` and `description`.
 
-The list operation honours `$filter=principalId eq '…'` and `atScope()`. Without `atScope()` it returns every assignment in the store, at whatever scope (`doRoleAssignmentList`). `Permissions_ListForResourceGroup` and `Permissions_ListForResource` (`handlePermissionsList`) return the permission sets of the caller's (`oid`'s) assignments that cover the scope.
+The list operation honours `$filter=principalId eq '…'` and `atScope()`. Without `atScope()` it returns every assignment in the store, at whatever scope (`doRoleAssignmentList`). `Permissions_ListForResourceGroup` and `Permissions_ListForResource` (`handlePermissionsList`) return the permission sets of the caller's and its groups' assignments that cover the scope.
 
-**Inheritance** is a case-insensitive, segment-bounded prefix match on the resource ID (`rbacScopeCovers`). An assignment covers its own scope and everything beneath it, and the root scope `/` covers everything. The simulator models no management-group hierarchy. An assignment at `/providers/Microsoft.Management/managementGroups/{id}` therefore covers only paths under that ID, never a subscription.
+Creating a subscription through `Microsoft.Subscription/aliases` assigns its creator Owner on it. Accepting a subscription's ownership moves it to the caller's tenant, deletes every role assignment at or beneath it and assigns the accepting principal Owner, as a directory transfer does.
+
+**Inheritance** is a case-insensitive, segment-bounded prefix match on the resource ID (`rbacScopeCovers`). An assignment covers its own scope and everything beneath it, and the root scope `/` covers everything. A tenant's root management group, whose ID is the tenant ID, also holds every management group and every subscription of that tenant. No other management group holds anything but the paths under its own ID.
 
 #### Evaluation
 
-`rbacPrincipalHasDataAction` grants a data action when an assignment meets all of these:
+`rbacAllows` (`rbac.go`) grants an action, or a data action, when an assignment meets all of these:
 
-- its principal is the caller's `oid`, or a group the caller belongs to transitively;
+- its principal is the caller's `oid`, or a group the caller belongs to transitively (`entraTransitiveGroupIDs`);
 - its scope covers the request's scope;
-- its role's `dataActions` match the action and its `notDataActions` do not.
+- one permission entry of its role lists the operation in `actions` (`dataActions`) and not in that entry's `notActions` (`notDataActions`).
 
-Matching is case-insensitive, and `*` stands for any run of characters (`rbacActionMatchesAny`, built on `sim.Wildcard{FoldCase: true}`). The simulator never evaluates `actions` or `notActions`. It serves neither conditions (Azure attribute-based access control) nor deny assignments.
+Matching is case-insensitive, and `*` stands for any run of characters (`rbacActionMatchesAny`, built on `sim.Wildcard{FoldCase: true}`). The simulator stores no deny assignments and serves no conditions (Azure attribute-based access control).
+
+**Azure Resource Manager** derives each request's action from its path and verb, as ARM names actions (`armOperationOf`, `arm_rbac.go`): the namespace after the last `/providers/` segment (`Microsoft.Resources` for a path without one), the resource types along the path, and `read` for `GET` and `HEAD`, `write` for `PUT` and `PATCH`, `delete` for `DELETE`. A `POST` to a trailing segment is that segment's action: `POST …/storageAccounts/{a}/listKeys` checks `Microsoft.Storage/storageAccounts/listKeys/action` over the account. A collection read checks the collection's type over its parent: `GET …/resourceGroups/{rg}/providers/Microsoft.Storage/storageAccounts` checks `Microsoft.Storage/storageAccounts/read` over the resource group. `TestARMOperationOfDerivesEveryVendoredOperation` derives the action of every operation in the vendored Swagger documents.
+
+A refusal is ARM's 403:
+
+```text
+{"error":{"code":"AuthorizationFailed","message":"The client '<oid>' with object id '<oid>' does not have authorization to perform action 'Microsoft.ManagedIdentity/userAssignedIdentities/write' over scope '/subscriptions/…/userAssignedIdentities/x' or the scope is invalid. If access was recently granted, please refresh your credentials."}}
+```
+
+The client is the token's `upn` or `unique_name` when it carries one, and its object ID otherwise. Some reads are authorized differently (`armAuthorizationOf`):
+
+| Request | Authorization |
+|---|---|
+| `GET /subscriptions` | Any caller; the answer lists the subscriptions the caller holds an assignment in, above or beneath. |
+| `GET /subscriptions/{s}`, `…/locations`, `…/providers`, `…/providers/{namespace}` | A caller holding any assignment in, above or beneath the subscription. |
+| A collection read the caller may not perform over its parent | Answered with the members the caller may read, when it holds an assignment beneath the parent. Reader on one resource group lists that group alone. |
+| `GET /tenants`, tenant-level provider operations (`/providers/{namespace}/…` other than `Microsoft.Authorization` and management groups) | Any authenticated caller. |
+| Polls of a location's operation status (`…/locations/{l}/…operation…/{id}`, `/subscriptions/{s}/operationresults/{id}`) | Any authenticated caller of the subscription's tenant. |
+
+**Storage** authorizes a bearer with the permission "Authorize with Microsoft Entra ID" lists for the operation (`storageOperationOf`, `storage_rbac.go`), checked at the container, queue, table or share beneath the account's `…/{blob,queue,table,file}Services/default`. Service, container, queue, table and share operations need actions (`…/blobServices/containers/write` creates a container); blob, message, entity and file operations need data actions (`…/blobServices/containers/blobs/read` reads a blob). A refusal is 403 `AuthorizationPermissionMismatch`. Get User Delegation Key needs `…/blobServices/generateUserDelegationKey/action`. A blob batch authorizes each sub-request as the batch's caller.
+
+**Key Vault** in RBAC mode and **Event Grid** publish check their data actions through the same `rbacAllows`.
 
 #### Which surfaces enforce what
 
 | Surface | Credentials accepted | Authorization | Code |
 |---|---|---|---|
-| Azure Resource Manager | Entra bearer | **None.** Any valid ARM-audience token may perform any operation. The required `Microsoft.X/y/write` action is never derived. | `AzureBearerVerificationMiddleware` |
+| Azure Resource Manager | Entra bearer from the subscription's tenant | Azure RBAC actions at the request's scope, as above. Refusal: 403 `AuthorizationFailed`; a token from another tenant: 401 `InvalidAuthenticationTokenTenant`. | `AzureBearerVerificationMiddleware`, `armAuthorizeAndServe` |
 | Microsoft Graph | Entra bearer with Graph's audience (`https://graph.microsoft.com`, its app ID, or the simulator origin `/metadata/endpoints` advertises); 401 `InvalidAuthenticationToken` otherwise | none: any authenticated caller performs any Graph operation | `graph_auth.go`, `entra.go` |
-| Key Vault, `enableRbacAuthorization: true` | Entra bearer | Azure RBAC data actions at the object (`…/vaults/{v}/secrets/{name}`) or the vault, for the caller and its groups. Refusal: 403 `ForbiddenByRbac`. | `keyVaultGrants`, `kvDataPlaneOperation` |
+| Key Vault, `enableRbacAuthorization: true` | Entra bearer | Azure RBAC data actions at the object (`…/vaults/{v}/secrets/{name}`) or above, for the caller and its groups. Refusal: 403 `ForbiddenByRbac`. | `keyVaultGrants`, `kvDataPlaneOperation` |
 | Key Vault, access policies | Entra bearer | An access policy whose `objectId` is the caller or a group of the caller's, whose `tenantId` matches, and whose `applicationId` (for a compound identity) matches `appid`, granting the permission or `all`. Refusal: 403 `AccessDenied`. | `keyVaultGrants` |
 | Key Vault network rules | — | `publicNetworkAccess: Disabled` refuses with `ForbiddenByConnection`. `defaultAction: Deny` admits only IP rules and virtual network rules, and refuses with `ForbiddenByFirewall`. Network rules run before the permission model. | `kvNetworkRefusal` |
-| Blob, Files, Queue, Table | Shared Key and Shared Key Lite (HMAC-SHA256 over the documented string-to-sign, either account key); service SAS and account SAS (signature, window, permissions, resource); Entra bearer with the Storage audience; anonymous where the container's public access allows | Shared Key and SAS by signature and signed permissions. A bearer gets no data-action check. | `AuthorizeStorageDataPlane` |
-| Get User Delegation Key | Entra bearer with the Storage audience only | — | `RequireStorageOAuthBearer`, `blob_service_ops.go` |
+| Blob, Files, Queue, Table | Shared Key and Shared Key Lite (HMAC-SHA256 over the documented string-to-sign, either account key); service SAS and account SAS (signature, window, permissions, resource); user delegation SAS; Entra bearer with the Storage audience; anonymous where the container's public access allows | Shared Key and key-signed SAS by signature and signed permissions, refused with 403 `KeyBasedAuthenticationNotPermitted` when the account's `allowSharedKeyAccess` is `false`. A user delegation SAS by the key it names: one the account issued and has not revoked (`revokeUserDelegationKeys`), within the key's window, whose HMAC the signature is, and whose owner holds the operation's permission when the signature is used. A bearer by Azure RBAC. The Table service answers in OData JSON, the others in XML. | `AuthorizeStorageDataPlane`, `storageUserDelegationSASAuthorizes` |
+| Get User Delegation Key (Blob and Files) | Entra bearer with the Storage audience only | `…/generateUserDelegationKey/action`; the key is bound to the caller's `oid` and `tid` | `storageIssueUserDelegationKey`, `blob_service_ops.go` |
 | Service Bus and Event Hubs | `SharedAccessSignature sr=…&sig=…&se=…&skn=…` over HTTP or AMQP CBS | The signature must come from a key of the named rule at the namespace or the entity. The signed audience must cover the entity. | `verifyMessagingSAS`, `authorizeSBHTTPRequest`, `messaging_sas.go` |
-| Event Grid publish | `aeg-sas-key`, `aeg-sas-token`, Entra bearer | key, signature and resource-prefix match; the bearer's audience | `eventgrid_dataplane_auth.go` |
+| Event Grid publish | `aeg-sas-key`, `aeg-sas-token`, Entra bearer | key, signature and resource-prefix match; a bearer needs `Microsoft.EventGrid/events/send/action` on the topic or domain | `eventgrid_dataplane_auth.go` |
 | Azure Cosmos DB | master-key tokens (the read-only keys authorize reads only) | `type=resource` and `type=aad` are refused with 401 | `cosmosAuthorizeDataPlane` |
 | Azure Container Registry | admin credentials, an Entra token exchanged at `/oauth2/exchange`, anonymous pull | An Entra principal is granted every requested scope; AcrPull and AcrPush are not evaluated. | `acr.go`, `acr_dataplane_auth.go` |
 
-The simulator's own in-process calls on a service's behalf skip Storage and Service Bus authentication (`azureTrustedServiceCall`, `azure_call.go`). Examples are an Event Grid dead letter and an Event Grid delivery to a queue.
+Managed identities act as their own principal: a token from the instance metadata service or the App Service identity endpoint carries the identity's `principalId` as `oid`, so a workload reaches what the identity's role assignments grant. A system-assigned identity holds none until one is assigned.
+
+The simulator's own in-process calls on a service's behalf are made as that first-party service, not as a tenant principal: Event Grid writes a dead letter and delivers to a queue as `Microsoft.EventGrid` (`sim.Caller`), which a storage account admits as a trusted Microsoft service (`azureTrustedServiceCall`, `azure_call.go`). Other in-process calls carry a credential of their own, as the KEDA queue scaler presents its rule's account key or managed identity token.
 
 ### Managed identities for Azure resources
 
@@ -892,11 +919,11 @@ The vault's `vaultUri` reads `https://iamdemokv.vault.localhost:4568/`. Without 
 
 ### Limits
 
-- **Azure Resource Manager has no Azure RBAC.** Any valid token with the ARM audience performs any operation, from any tenant. `actions` and `notActions` are stored and listed but never evaluated ([3736](../BUGS.md)).
-- **Storage bearers get no data-action check.** Storage Blob Data Contributor and the other Storage roles have no effect. `allowSharedKeyAccess: false` is stored but does not refuse Shared Key. The simulator does not verify a user delegation SAS against the delegation key ([3736](../BUGS.md)).
+- **Azure Resource Manager authorization has gaps.** Location-scoped operation-status polls and tenant-level provider operations are open to any authenticated caller; `Microsoft.Subscription` aliases and ownership are not authorized by billing roles; the vendored specifications carry no `Microsoft.Authorization/providerOperations` catalog to check derived actions against ([3776](../BUGS.md)).
+- **Storage authorization has gaps.** The Files service does not require `x-ms-file-request-intent: backup` or the backup-semantics data actions of a bearer; Put Blob of a new blob does not accept `…/blobs/add/action` alone; Copy Blob does not authorize its source; the Queue service verifies no user delegation SAS ([3777](../BUGS.md)).
 - **Microsoft Graph authorizes nothing.** Graph requires a token with its audience, but tokens carry no `roles` or `scp`, so app roles and delegated permissions are not modelled, and any authenticated caller performs any Graph operation ([3745](../BUGS.md)).
 - **Credentials are partial.** There are no certificate credentials (`keyCredentials` is dropped) and no federated credentials on application registrations. The `authorization_code` grant does not check a client secret ([3745](../BUGS.md)).
-- **Role assignments:** no conditions (ABAC), no deny assignments, no management-group hierarchy for inheritance. `principalId` is not checked against the directory. Custom roles work at subscription scope only, with `assignableScopes` unenforced. The unfiltered list returns assignments from every scope ([3746](../BUGS.md)).
+- **Role assignments:** no conditions (ABAC), no deny assignments, no management-group hierarchy below the tenant root group. `principalId` is not checked against the directory. Custom roles work at subscription scope only, with `assignableScopes` unenforced. The unfiltered list returns assignments from every scope ([3746](../BUGS.md)).
 - **Service Bus and Event Hubs:** an authorization rule's `rights` (`Listen`, `Send`, `Manage`) are not checked against the operation. Entra-authenticated access to the data plane is not served; `BUGS.md` row 3540 covers its scale-rule side.
 - **Azure Cosmos DB:** RBAC (`type=aad`) and resource tokens are refused, not modelled.
 - **Azure Container Registry:** an Entra principal gets every scope; AcrPull and AcrPush are not evaluated ([3747](../BUGS.md), which also covers Service Bus rights and Cosmos DB tokens).
