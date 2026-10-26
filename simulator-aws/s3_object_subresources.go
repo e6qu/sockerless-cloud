@@ -46,6 +46,9 @@ func handleS3PutObjectAcl(w http.ResponseWriter, r *http.Request) {
 			key, sim.RequestID(r.Context()), http.StatusBadRequest)
 		return
 	}
+	if body, ok = s3RequestACL(w, r, body); !ok {
+		return
+	}
 	if !s3UpdateVersion(s3ObjectKey(bucket, key), version.Object.VersionID, func(obj *S3Object, _ *map[string]string) { obj.ACL = body }) {
 		S3ErrorXML(w, "NoSuchKey", "The specified key does not exist.",
 			key, sim.RequestID(r.Context()), http.StatusNotFound)

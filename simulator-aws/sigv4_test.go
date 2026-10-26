@@ -55,6 +55,10 @@ func TestSigV4_KnownVector(t *testing.T) {
 // signForTest signs r with the given credential using the production canonical
 // builders and installs the Authorization header, mirroring what an SDK does.
 func signForTest(r *http.Request, cred credScope, secret string, sessionToken string) {
+	signForTestEncoding(r, cred, secret, sessionToken, true)
+}
+
+func signForTestEncoding(r *http.Request, cred credScope, secret string, sessionToken string, doubleEncodePath bool) {
 	amzDate := cred.date + "T000000Z"
 	r.Header.Set("X-Amz-Date", amzDate)
 	var body []byte
@@ -71,7 +75,7 @@ func signForTest(r *http.Request, cred credScope, secret string, sessionToken st
 	if sessionToken != "" {
 		signed = append(signed, "x-amz-security-token")
 	}
-	canonReq := sigv4CanonicalRequest(r, signed, sigv4CanonicalQuery(r.URL.Query(), false), payloadHash, true)
+	canonReq := sigv4CanonicalRequest(r, signed, sigv4CanonicalQuery(r.URL.Query(), false), payloadHash, doubleEncodePath)
 	sig := sigv4Signature(secret, cred, amzDate, canonReq)
 	scope := cred.accessKeyID + "/" + cred.date + "/" + cred.region + "/" + cred.service + "/aws4_request"
 	r.Header.Set("Authorization", "AWS4-HMAC-SHA256 Credential="+scope+
@@ -84,6 +88,12 @@ func signForTest(r *http.Request, cred credScope, secret string, sessionToken st
 // authenticate through the SigV4 gate.
 func signSeedControlPlane(r *http.Request) {
 	signForTest(r, credScope{accessKeyID: seedAdminAccessKey, date: "20250101", region: "us-east-1", service: "aws"}, seedAdminSecretKey, "")
+}
+
+// signSeedS3 signs an Amazon S3 request with the seeded administrator
+// credential over the once-encoded path S3's signers use.
+func signSeedS3(r *http.Request) {
+	signForTestEncoding(r, credScope{accessKeyID: seedAdminAccessKey, date: "20250101", region: "us-east-1", service: "s3"}, seedAdminSecretKey, "", false)
 }
 
 func TestSigV4_ValidLongTermKey(t *testing.T) {

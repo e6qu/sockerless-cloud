@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"encoding/base64"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -50,12 +51,12 @@ func TestIAMResourcePolicy_S3BucketPolicyMirror(t *testing.T) {
 	arn := s3BucketARN(bucket)
 
 	// Create the bucket.
-	if rr := doReq(t, srv, httptest.NewRequest("PUT", "/"+bucket, nil)); rr.Code != http.StatusOK {
+	if rr := doReq(t, srv, s3SeedReq("PUT", "/"+bucket, nil)); rr.Code != http.StatusOK {
 		t.Fatalf("CreateBucket: status %d body %s", rr.Code, rr.Body.String())
 	}
 
 	policy := `{"Version":"2012-10-17","Statement":[{"Sid":"S1","Effect":"Allow","Principal":{"AWS":"*"},"Action":"s3:GetObject","Resource":"arn:aws:s3:::policy-bucket/*"}]}`
-	if rr := doReq(t, srv, httptest.NewRequest("PUT", "/"+bucket+"?policy", strings.NewReader(policy))); rr.Code != http.StatusNoContent {
+	if rr := doReq(t, srv, s3SeedReq("PUT", "/"+bucket+"?policy", strings.NewReader(policy))); rr.Code != http.StatusNoContent {
 		t.Fatalf("PutBucketPolicy: status %d body %s", rr.Code, rr.Body.String())
 	}
 
@@ -65,18 +66,18 @@ func TestIAMResourcePolicy_S3BucketPolicyMirror(t *testing.T) {
 	}
 
 	// GetBucketPolicy round-trips.
-	if rr := doReq(t, srv, httptest.NewRequest("GET", "/"+bucket+"?policy", nil)); rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), "s3:GetObject") {
+	if rr := doReq(t, srv, s3SeedReq("GET", "/"+bucket+"?policy", nil)); rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), "s3:GetObject") {
 		t.Fatalf("GetBucketPolicy: status %d body %s", rr.Code, rr.Body.String())
 	}
 
 	// DeleteBucketPolicy clears the mirror, and a subsequent GET 404s.
-	if rr := doReq(t, srv, httptest.NewRequest("DELETE", "/"+bucket+"?policy", nil)); rr.Code != http.StatusNoContent {
+	if rr := doReq(t, srv, s3SeedReq("DELETE", "/"+bucket+"?policy", nil)); rr.Code != http.StatusNoContent {
 		t.Fatalf("DeleteBucketPolicy: status %d body %s", rr.Code, rr.Body.String())
 	}
 	if docs := iamResourcePolicyDocsForARN(arn); docs != nil {
 		t.Fatalf("resolver still returns a policy after delete: %+v", docs)
 	}
-	if rr := doReq(t, srv, httptest.NewRequest("GET", "/"+bucket+"?policy", nil)); rr.Code != http.StatusNotFound || !strings.Contains(rr.Body.String(), "NoSuchBucketPolicy") {
+	if rr := doReq(t, srv, s3SeedReq("GET", "/"+bucket+"?policy", nil)); rr.Code != http.StatusNotFound || !strings.Contains(rr.Body.String(), "NoSuchBucketPolicy") {
 		t.Fatalf("GetBucketPolicy after delete: status %d body %s", rr.Code, rr.Body.String())
 	}
 }
@@ -141,6 +142,14 @@ func TestIAMResourcePolicy_LambdaPolicyMirror(t *testing.T) {
 	if rr := doReq(t, srv, lambdaReq("GET", "/2015-03-31/functions/"+fn+"/policy", "")); rr.Code != http.StatusNotFound {
 		t.Fatalf("GetPolicy after remove: status %d body %s", rr.Code, rr.Body.String())
 	}
+}
+
+// s3SeedReq is an Amazon S3 request signed with the seeded administrator
+// credential.
+func s3SeedReq(method, target string, body io.Reader) *http.Request {
+	req := httptest.NewRequest(method, target, body)
+	signSeedS3(req)
+	return req
 }
 
 func queryReq(action string, form url.Values) *http.Request {

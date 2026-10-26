@@ -97,8 +97,9 @@ test.describe("Console shell", () => {
   test("keeps the AWS S3 root protocol surface separate from /ui/", async ({ page }) => {
     const response = await page.goto("/");
     expect(page.url()).toBe("http://localhost:19310/");
-    expect(response?.status()).toBe(200);
-    await expect(page.locator("body")).toContainText("ListAllMyBucketsResult");
+    // An unsigned browser GET is an anonymous ListBuckets, which Amazon S3 refuses.
+    expect(response?.status()).toBe(403);
+    await expect(page.locator("body")).toContainText("AccessDenied");
   });
 
   test("exposes a skip link ahead of the console content", async ({ page }) => {

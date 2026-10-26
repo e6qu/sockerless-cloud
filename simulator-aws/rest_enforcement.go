@@ -1,11 +1,14 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"io"
 	"net/http"
 	"net/url"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
 )
@@ -33,25 +36,104 @@ type awsRESTGate struct {
 	models  []string
 	service string
 	deny    func(http.ResponseWriter, *http.Request, string, string)
+	// refuse answers a request the front end cannot authenticate with the
+	// failure's code and message, in the service's protocol.
+	refuse  func(http.ResponseWriter, *http.Request, string, string)
+	restXML bool
 }
 
 // awsRESTGates maps a CloudTrail event source to the gate on its routes.
 // Amazon API Gateway's two APIs share one event source and one IAM prefix.
 var awsRESTGates = map[string]awsRESTGate{
-	"amplify.amazonaws.com":           {models: []string{"amplify"}, service: "amplify", deny: amplifyWriteIAMDeny},
-	"apigateway.amazonaws.com":        {models: []string{"apigateway", "apigatewayv2"}, service: "apigateway", deny: apigatewayWriteIAMDeny},
-	"batch.amazonaws.com":             {models: []string{"batch"}, service: "batch", deny: restWriteJSONDeny("batch")},
-	"elasticfilesystem.amazonaws.com": {models: []string{"efs"}, service: "elasticfilesystem", deny: restWriteJSONDeny("efs")},
-	"scheduler.amazonaws.com":         {models: []string{"scheduler"}, service: "scheduler", deny: restWriteJSONDeny("scheduler")},
-	"cloudfront.amazonaws.com":        {models: []string{"cloudfront"}, service: "cloudfront", deny: cloudfrontWriteIAMDeny},
-	"route53.amazonaws.com":           {models: []string{"route53"}, service: "route53", deny: route53WriteIAMDeny},
+	"amplify.amazonaws.com":           {models: []string{"amplify"}, service: "amplify", deny: amplifyWriteIAMDeny, refuse: restRefuseJSON("amplify")},
+	"apigateway.amazonaws.com":        {models: []string{"apigateway", "apigatewayv2"}, service: "apigateway", deny: apigatewayWriteIAMDeny, refuse: apigatewayRefuse},
+	"batch.amazonaws.com":             {models: []string{"batch"}, service: "batch", deny: restWriteJSONDeny("batch"), refuse: restRefuseJSON("batch")},
+	"elasticfilesystem.amazonaws.com": {models: []string{"efs"}, service: "elasticfilesystem", deny: restWriteJSONDeny("efs"), refuse: restRefuseJSON("efs")},
+	"scheduler.amazonaws.com":         {models: []string{"scheduler"}, service: "scheduler", deny: restWriteJSONDeny("scheduler"), refuse: restRefuseJSON("scheduler")},
+	"cloudfront.amazonaws.com":        {models: []string{"cloudfront"}, service: "cloudfront", deny: cloudfrontWriteIAMDeny, refuse: cloudfrontRefuse, restXML: true},
+	"route53.amazonaws.com":           {models: []string{"route53"}, service: "route53", deny: route53WriteIAMDeny, refuse: route53Refuse, restXML: true},
 }
 
-// iamEnforceRESTRoute authorizes a request to a REST route of the service
-// source names, and reports whether the handler should run. It admits an
-// unsigned request as every gate does, and a signed one whose credential is a
-// registered principal only when that principal holds the operation's actions
-// on the resources the request names.
+// awsRESTAuthenticate verifies the SigV4 signature on a request to a REST
+// route of the service source names, in the header or the presigned-query
+// form, and reports whether the request may go on to authorization. Every
+// route these services serve is a management operation, so the front end
+// refuses an unsigned request; the one unsigned caller it admits is an AWS
+// service calling in-process as its own principal, which authorization then
+// holds to the target's resource policy. body is the whole request body, whose
+// digest the signature covers.
+func awsRESTAuthenticate(w http.ResponseWriter, r *http.Request, source string, body []byte) bool {
+	gate, gated := awsRESTGates[source]
+	if !gated {
+		return true
+	}
+	result, serr := sigv4Verify(r, body)
+	if serr == nil && result == sigv4Verified && sigv4PresignedExpired(r.URL.Query(), time.Now()) {
+		serr = &sigv4Error{sigErrRequestExpired, "Request has expired"}
+	}
+	if serr != nil {
+		code, message := awsRESTAuthenticationError(gate.restXML, serr)
+		gate.refuse(w, r, code, message)
+		return false
+	}
+	if result == sigv4NoCredential && (!sim.InProcess(r) || iamDeliverySource(r) == nil) {
+		gate.refuseUnsigned(w, r)
+		return false
+	}
+	return true
+}
+
+// awsRESTAuthenticateBody is awsRESTAuthenticate for a handler that has not
+// buffered the request body: it holds the body for the handler to read again.
+func awsRESTAuthenticateBody(w http.ResponseWriter, r *http.Request, source string) bool {
+	var body []byte
+	if r.Body != nil {
+		var err error
+		if body, err = io.ReadAll(r.Body); err != nil {
+			restWriteJSONError(w, "", "SerializationException", http.StatusBadRequest, "Failed to read the request body: "+err.Error())
+			return false
+		}
+		_ = r.Body.Close()
+		r.Body = io.NopCloser(bytes.NewReader(body))
+	}
+	return awsRESTAuthenticate(w, r, source, body)
+}
+
+func (gate awsRESTGate) refuseUnsigned(w http.ResponseWriter, r *http.Request) {
+	if gate.restXML {
+		gate.refuse(w, r, "MissingAuthenticationToken", "Request is missing Authentication Token")
+		return
+	}
+	gate.refuse(w, r, "MissingAuthenticationTokenException", "Missing Authentication Token")
+}
+
+// awsRESTAuthenticationError is the code AWS's front end answers an
+// authentication failure with: the JSON services' exception names, and the
+// REST-XML services' codes, which they share with the Query protocol.
+func awsRESTAuthenticationError(restXML bool, serr *sigv4Error) (string, string) {
+	switch serr.kind {
+	case sigErrInvalidClientToken:
+		if restXML {
+			return "InvalidClientTokenId", serr.message
+		}
+		return "UnrecognizedClientException", serr.message
+	case sigErrExpiredToken:
+		if restXML {
+			return "ExpiredToken", serr.message
+		}
+		return "ExpiredTokenException", serr.message
+	}
+	if restXML {
+		return "SignatureDoesNotMatch", serr.message
+	}
+	return "InvalidSignatureException", serr.message
+}
+
+// iamEnforceRESTRoute authorizes a request awsRESTAuthenticate admitted to a
+// REST route of the service source names, and reports whether the handler
+// should run: a signed request when its principal holds the operation's
+// actions on the resources the request names, and an AWS service's unsigned
+// in-process call when the target's resource policy admits the service.
 func iamEnforceRESTRoute(w http.ResponseWriter, r *http.Request, source string) bool {
 	gate, gated := awsRESTGates[source]
 	if !gated {
@@ -66,11 +148,14 @@ func iamEnforceRESTRoute(w http.ResponseWriter, r *http.Request, source string) 
 	// body the handler reads from r.
 	defer func() { r.Body = routed.Body }()
 	if iamAccessKeyIDFromRequest(routed) == "" {
-		if src := iamDeliverySource(routed); src != nil && sim.InProcess(routed) {
-			if denied, allowed := iamServicePrincipalAllowed(*src, iamRESTAuthorizationTargets(routed, gate.service, operation, labels)); !allowed {
-				gate.deny(w, routed, src.Service, denied)
-				return false
-			}
+		src := iamDeliverySource(routed)
+		if src == nil || !sim.InProcess(routed) {
+			gate.refuseUnsigned(w, routed)
+			return false
+		}
+		if denied, allowed := iamServicePrincipalAllowed(*src, iamRESTAuthorizationTargets(routed, gate.service, operation, labels)); !allowed {
+			gate.deny(w, routed, src.Service, denied)
+			return false
 		}
 		return true
 	}
@@ -419,4 +504,26 @@ func cloudfrontWriteIAMDeny(w http.ResponseWriter, _ *http.Request, principalArn
 
 func route53WriteIAMDeny(w http.ResponseWriter, _ *http.Request, principalArn, action string) {
 	r53WriteError(w, http.StatusForbidden, "AccessDenied", iamRESTDenyMessage(principalArn, action))
+}
+
+func restRefuseJSON(model string) func(http.ResponseWriter, *http.Request, string, string) {
+	return func(w http.ResponseWriter, _ *http.Request, code, message string) {
+		restWriteJSONError(w, model, code, http.StatusForbidden, message)
+	}
+}
+
+func apigatewayRefuse(w http.ResponseWriter, r *http.Request, code, message string) {
+	model := "api-gateway"
+	if strings.HasPrefix(r.URL.Path, "/v2/") {
+		model = "apigatewayv2"
+	}
+	restWriteJSONError(w, model, code, http.StatusForbidden, message)
+}
+
+func cloudfrontRefuse(w http.ResponseWriter, _ *http.Request, code, message string) {
+	cfWriteError(w, http.StatusForbidden, code, message)
+}
+
+func route53Refuse(w http.ResponseWriter, _ *http.Request, code, message string) {
+	r53WriteError(w, http.StatusForbidden, code, message)
 }

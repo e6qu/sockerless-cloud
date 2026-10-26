@@ -59,8 +59,6 @@ var modelDriftExemptions = map[string]string{
 	// in s3_bucket_subresources.go. The names are listed rather than the
 	// files skipped, so a *new* S3 operation still trips the gate.
 	"DeleteBucketAnalyticsConfiguration":          "s3 ?analytics subresource",
-	"GetBucketAcl":                                "s3 ?acl subresource",
-	"PutBucketAcl":                                "s3 ?acl subresource",
 	"PutBucketEncryption":                         "s3 ?encryption subresource",
 	"PutBucketNotificationConfiguration":          "s3 ?notification subresource",
 	"DeleteBucketCors":                            "s3 ?cors subresource",
