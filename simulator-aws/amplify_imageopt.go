@@ -27,28 +27,19 @@ import (
 	_ "golang.org/x/image/webp"
 )
 
-// Amplify Hosting image optimization primitive. Deploy manifests route
-// Next.js-style `/_next/image`-shaped endpoints to the ImageOptimization
-// target kind; the service validates the request against the manifest's
-// imageSettings, fetches the source image (the app's own static artifacts
-// for relative URLs, a real HTTP fetch for allowed remote URLs), resizes it
-// to the requested width, and re-encodes it in the Accept-negotiated output
-// format. Amplify runs the Next.js image optimizer for this primitive, so
-// query parameters (url, w, q), validation error strings, passthrough rules
-// for SVG/animated/bypass types, and response headers mirror the Next.js
-// image optimizer contract.
+// AWS Amplify Hosting runs the Next.js image optimizer behind the
+// ImageOptimization target kind, so query parameters (url, w, q), error
+// strings, passthrough rules and response headers follow the Next.js
+// contract.
 
-// amplifyImageSettings mirrors the deployment specification's ImageSettings
-// object (deploy-manifest.json `imageSettings`).
 type amplifyImageSettings struct {
 	Sizes          []int                  `json:"sizes"`
 	Domains        []string               `json:"domains"`
 	RemotePatterns []amplifyRemotePattern `json:"remotePatterns"`
 	Formats        []string               `json:"formats"`
-	// AWS's deployment-specification document spells the cache-TTL key
-	// `minimumCacheTTL` in its property table but `minumumCacheTTL` in its
-	// type definition and example manifest; both spellings are honored, the
-	// property-table spelling taking precedence.
+	// The deployment specification spells the key `minimumCacheTTL` in its
+	// property table but `minumumCacheTTL` in its type definition and example;
+	// accept both, the property-table spelling winning.
 	MinimumCacheTTL     *int `json:"minimumCacheTTL"`
 	MinumumCacheTTL     *int `json:"minumumCacheTTL"`
 	DangerouslyAllowSVG bool `json:"dangerouslyAllowSVG"`
@@ -64,9 +55,7 @@ func (s *amplifyImageSettings) minimumCacheTTL() int {
 	return 0
 }
 
-// amplifyRemotePattern mirrors the deployment specification's RemotePattern
-// object. Hostname wildcards follow the documented contract: `*` matches a
-// single subdomain label, `**` matches any number of subdomains.
+// In hostname patterns `*` matches one subdomain label and `**` any number.
 type amplifyRemotePattern struct {
 	Protocol string `json:"protocol"`
 	Hostname string `json:"hostname"`
@@ -101,8 +90,6 @@ func (p amplifyRemotePattern) matches(u *url.URL) bool {
 	return true
 }
 
-// amplifyWildcardMatch matches a remote-pattern component: `**` matches any
-// number of separator-delimited segments, `*` matches within one segment.
 func amplifyWildcardMatch(pattern, value, separator string) bool {
 	var b strings.Builder
 	b.WriteString("^")
@@ -141,10 +128,8 @@ func (s *amplifyImageSettings) remoteAllowed(u *url.URL) bool {
 	return false
 }
 
-// amplifyEncodableImageFormats are the output formats the optimizer can
-// produce. AVIF is a valid imageSettings entry but has no trustworthy pure-Go
-// encoder, so it never wins negotiation — the client is served the next
-// format it accepts, and Content-Type always matches the actual bytes.
+// AVIF has no trustworthy pure-Go encoder, so it never wins negotiation; the
+// client gets the next format it accepts.
 var amplifyEncodableImageFormats = map[string]bool{
 	"image/jpeg": true,
 	"image/png":  true,
@@ -152,12 +137,9 @@ var amplifyEncodableImageFormats = map[string]bool{
 	"image/webp": true,
 }
 
-// amplifyNegotiateImageFormat picks the output format the way the Next.js
-// image optimizer does: the client's Accept media ranges in preference order
-// (q-value descending, then listed order) intersected with the manifest's
-// formats. Only media types spelled out literally in the Accept header count
-// (the optimizer discards wildcard-derived matches); no match keeps the
-// source format.
+// Follow the Next.js optimizer: Accept ranges by q-value then listed order,
+// intersected with the manifest's formats, counting only literally named
+// types; with no match keep the source format.
 func amplifyNegotiateImageFormat(formats []string, accept string) string {
 	type mediaRange struct {
 		mime  string
@@ -195,9 +177,7 @@ func amplifyNegotiateImageFormat(formats []string, accept string) string {
 	return ""
 }
 
-// amplifyDetectImageType sniffs the source's real content type from magic
-// bytes (the optimizer's detectContentType), never trusting extensions or
-// upstream headers.
+// Sniff magic bytes; never trust extensions or upstream headers.
 func amplifyDetectImageType(data []byte) string {
 	switch {
 	case len(data) >= 3 && data[0] == 0xff && data[1] == 0xd8 && data[2] == 0xff:
@@ -226,9 +206,7 @@ func amplifyDetectImageType(data []byte) string {
 	return ""
 }
 
-// amplifyImagePassthroughType reports whether the optimizer serves this type
-// unmodified (the optimizer's BYPASS_TYPES; SVG reaches here only when
-// dangerouslyAllowSVG admitted it).
+// SVG reaches here only when dangerouslyAllowSVG admitted it.
 func amplifyImagePassthroughType(contentType string) bool {
 	switch contentType {
 	case "image/svg+xml", "image/x-icon", "image/x-icns", "image/bmp", "image/tiff", "image/avif":
@@ -237,8 +215,7 @@ func amplifyImagePassthroughType(contentType string) bool {
 	return false
 }
 
-// amplifyImageIsAnimated reports whether an animatable source (GIF, APNG,
-// animated WebP) actually animates — animated sources are served unmodified.
+// The optimizer serves animated sources unmodified.
 func amplifyImageIsAnimated(contentType string, data []byte) bool {
 	switch contentType {
 	case "image/gif":
@@ -259,15 +236,13 @@ func amplifyImageIsAnimated(contentType string, data []byte) bool {
 		}
 		return false
 	case "image/webp":
-		// The VP8X extended-format chunk's animation flag.
 		return len(data) >= 21 && bytes.Equal(data[12:16], []byte("VP8X")) && data[20]&0x02 != 0
 	}
 	return false
 }
 
-// amplifyStoredOptimizedImage is one cached transform, keyed by (deployment,
-// source URL, width, quality, negotiated format) so a new deployment or a
-// different negotiation never serves stale bytes.
+// The key includes deployment and negotiated format so a new deployment or
+// negotiation never serves stale bytes.
 type amplifyStoredOptimizedImage struct {
 	Key         string
 	AppId       string
@@ -276,9 +251,8 @@ type amplifyStoredOptimizedImage struct {
 	ContentType string
 	ETag        string
 	MaxAge      int
-	// ExpiresAt bounds remote-source entries by their max-age (the remote
-	// may change); zero marks deployment-artifact entries, immutable for the
-	// job they are keyed to.
+	// ExpiresAt bounds remote-source entries by their max-age; zero marks an
+	// entry from deployment artifacts, immutable for its job.
 	ExpiresAt int64
 }
 
@@ -302,11 +276,8 @@ func amplifyImageOptError(w http.ResponseWriter, status int, message string) {
 	http.Error(w, message, status)
 }
 
-// amplifyServeImageOptimization serves one ImageOptimization-routed request:
-// validate → cache lookup → fetch source → transform → respond + cache.
-// Reports whether the request was handled: with interceptNotFound, a source
-// that would produce a 404 writes nothing so the route's fallback target
-// applies.
+// With interceptNotFound, a source that would answer 404 writes nothing so the
+// route's fallback target applies.
 func amplifyServeImageOptimization(w http.ResponseWriter, r *http.Request, app AmplifyApp, br AmplifyBranch, content *amplifyHostedContent, target *amplifyManifestTarget, interceptNotFound bool) bool {
 	settings, err := amplifyParseImageSettings(content.Manifest.ImageSettings)
 	if err != nil {
@@ -368,9 +339,7 @@ func amplifyServeImageOptimization(w http.ResponseWriter, r *http.Request, app A
 		if transformed, transformedType, err := amplifyTransformImage(source, sourceType, width, quality, format); err == nil {
 			output, outputType = transformed, transformedType
 		}
-		// A source that decodes as none of the transformable formats falls
-		// back to the unmodified upstream bytes, the optimizer's own
-		// fallback when it cannot optimize.
+		// Like the optimizer, serve undecodable sources unmodified.
 	}
 
 	hash := sha256.Sum256(output)
@@ -391,8 +360,6 @@ func amplifyServeImageOptimization(w http.ResponseWriter, r *http.Request, app A
 	return true
 }
 
-// amplifyValidateImageURL validates the url parameter and reports the source
-// URL, or the optimizer's 400 error string.
 func amplifyValidateImageURL(values []string, manifest *amplifyDeployManifest, settings *amplifyImageSettings) (string, string) {
 	if len(values) == 0 || values[0] == "" {
 		return "", `"url" parameter is required`
@@ -473,10 +440,8 @@ func amplifyValidateImageQuality(values []string) (int, string) {
 	return quality, ""
 }
 
-// amplifyFetchImageSource resolves the source bytes: relative URLs from the
-// deployment's own static artifacts, absolute URLs by real HTTP fetch. The
-// remote's Cache-Control (s-maxage, then max-age) rides back so the response
-// honors the larger of it and minimumCacheTTL.
+// The remote's Cache-Control rides back so the response honours the larger of
+// it and minimumCacheTTL.
 func amplifyFetchImageSource(content *amplifyHostedContent, srcURL string) (data []byte, upstreamMaxAge, errStatus int, errMessage string) {
 	if strings.HasPrefix(srcURL, "http://") || strings.HasPrefix(srcURL, "https://") {
 		client := http.Client{Timeout: 30 * time.Second}
@@ -505,8 +470,6 @@ func amplifyFetchImageSource(content *amplifyHostedContent, srcURL string) (data
 	return content.Files[key], 0, 0, ""
 }
 
-// amplifyCacheControlMaxAge extracts s-maxage (preferred) or max-age from an
-// upstream Cache-Control header; absent or unparsable directives are 0.
 func amplifyCacheControlMaxAge(header string) int {
 	values := map[string]string{}
 	for _, directive := range strings.Split(header, ",") {
@@ -521,10 +484,7 @@ func amplifyCacheControlMaxAge(header string) int {
 	return 0
 }
 
-// amplifyTransformImage decodes the source, resizes it to the target width
-// preserving aspect ratio (never enlarging beyond the source width), and
-// re-encodes it in the negotiated format — the source's own format when
-// negotiation picked none.
+// Never enlarge beyond the source width.
 func amplifyTransformImage(source []byte, sourceType string, width, quality int, format string) ([]byte, string, error) {
 	src, _, err := image.Decode(bytes.NewReader(source))
 	if err != nil {
@@ -577,12 +537,8 @@ var amplifyImageExtensions = map[string]string{
 	"image/tiff":    "tiff",
 }
 
-// amplifyWriteOptimizedImage emits one optimized-image response: negotiated
-// Content-Type, Cache-Control (the route target's cacheControl for 200s when
-// the manifest sets one, otherwise the optimizer's
-// `public, max-age=…, must-revalidate` with the minimumCacheTTL floor),
-// Vary: Accept, ETag with If-None-Match revalidation, and the optimizer's
-// standing security headers.
+// Use the route target's cacheControl for a 200 when the manifest sets one,
+// otherwise the optimizer's `public, max-age=…, must-revalidate`.
 func amplifyWriteOptimizedImage(w http.ResponseWriter, r *http.Request, target *amplifyManifestTarget, srcURL string, entry amplifyStoredOptimizedImage) {
 	header := w.Header()
 	header.Set("Vary", "Accept")

@@ -70,8 +70,8 @@ func TestLogRetentionDeletesExpiredEventsAndKeepsStreams(t *testing.T) {
 	}
 }
 
-// A stream stored before its first event timestamp was recorded still has its
-// expired events removed.
+// A stream stored without a first event timestamp still has its expired
+// events removed.
 func TestLogRetentionReadsAStreamWithNoFirstTimestamp(t *testing.T) {
 	useLogMemoryStores(t)
 	now := time.Now()

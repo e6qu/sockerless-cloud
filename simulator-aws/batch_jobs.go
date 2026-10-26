@@ -34,8 +34,7 @@ var batchJobStatuses = []string{
 }
 
 const (
-	// batchContainerStopTimeout is how long Batch waits after the SIGTERM that
-	// stops a job's container before it sends SIGKILL.
+	// The grace between SIGTERM and SIGKILL when AWS Batch stops a job container.
 	batchContainerStopTimeout = 30 * time.Second
 	batchDefaultLogGroup      = "/aws/batch/job"
 
@@ -57,7 +56,6 @@ type BatchJobDependency struct {
 	Type  string `json:"type,omitempty"`
 }
 
-// BatchRetryStrategy is the parsed form of a job's retryStrategy.
 type BatchRetryStrategy struct {
 	Attempts       int                   `json:"attempts,omitempty"`
 	EvaluateOnExit []BatchEvaluateOnExit `json:"evaluateOnExit,omitempty"`
@@ -91,8 +89,6 @@ type BatchAttemptContainer struct {
 	LogStreamName        string `json:"logStreamName,omitempty"`
 }
 
-// batchRunningAttempt is the attempt a job has in flight between the scheduler
-// placing it on a compute environment and its container exiting.
 type batchRunningAttempt struct {
 	Number             int    `json:"number"`
 	TaskID             string `json:"taskId"`
@@ -122,11 +118,8 @@ func batchRunnableEntryFor(job BatchJob) batchRunnableEntry {
 }
 
 // The scheduler's working set, guarded by batchMu and rebuilt from the job
-// store at startup: the RUNNABLE jobs in arrival order, the vCPUs each
-// compute environment has placed, the timeout armed on each running attempt,
-// the PENDING jobs waiting on each unfinished dependency, and the jobs that
-// finished since their dependents were last released. batchJobHandles, under
-// the same lock, holds each attempt's container.
+// store at startup. batchJobHandles, under the same lock, holds each
+// attempt's container.
 var (
 	batchRunnable      []batchRunnableEntry
 	batchCEInUse       = map[string]float64{}
@@ -177,8 +170,7 @@ func batchParseRetryStrategy(raw map[string]any) (BatchRetryStrategy, error) {
 	return strategy, nil
 }
 
-// batchGlobMatch applies an evaluateOnExit pattern, which matches exactly or,
-// ending in an asterisk, by prefix.
+// A pattern matches exactly or, ending in an asterisk, by prefix.
 func batchGlobMatch(pattern, value string) bool {
 	if prefix, ok := strings.CutSuffix(pattern, "*"); ok {
 		return strings.HasPrefix(value, prefix)
@@ -205,9 +197,8 @@ func (rule BatchEvaluateOnExit) matches(attempt BatchAttempt) bool {
 	return true
 }
 
-// batchRetryAfter decides whether a failed attempt goes back to RUNNABLE: the
-// first evaluateOnExit condition that matches decides, and with none matching
-// Batch retries while attempts remain.
+// The first matching evaluateOnExit condition decides; with none matching,
+// retry while attempts remain.
 func batchRetryAfter(strategy BatchRetryStrategy, attemptsMade int, last BatchAttempt) bool {
 	limit := max(strategy.Attempts, 1)
 	if attemptsMade >= limit {
@@ -232,8 +223,7 @@ func batchNumber(v any) (float64, bool) {
 	return 0, false
 }
 
-// batchVCPUs reads the vCPUs a job reserves from its container properties and
-// overrides, through either vcpus or a VCPU resource requirement.
+// Either vcpus or a VCPU resource requirement sets the reservation.
 func batchVCPUs(properties ...map[string]any) float64 {
 	vcpus := 1.0
 	for _, props := range properties {
@@ -262,8 +252,7 @@ type batchPlacement struct {
 	maxVCPUs float64
 }
 
-// batchQueuePlacements lists the compute environments a queue can place jobs
-// on, in the queue's order: those that exist, are ENABLED and are VALID.
+// In queue order, only environments that exist, are ENABLED and are VALID.
 func batchQueuePlacements(queueName string) []batchPlacement {
 	queue, ok := batchJobQueues.Get(queueName)
 	if !ok {
@@ -291,9 +280,8 @@ func batchQueuePlacements(queueName string) []batchPlacement {
 	return placements
 }
 
-// batchSetStatus moves a job to status and, for an array child, keeps its
-// parent's statusSummary in step and settles the parent once every child has.
-// The caller holds batchMu and stores job.
+// An array child keeps its parent's statusSummary in step and settles the
+// parent once every child has. The caller holds batchMu and stores job.
 func batchSetStatus(job *BatchJob, status string) {
 	previous := job.Status
 	job.Status = status
@@ -352,9 +340,8 @@ func batchDequeueLocked(jobID string) {
 	batchRunnable = kept
 }
 
-// batchScheduleJob is the scheduler's evaluation of a SUBMITTED job: a job
-// waits in PENDING until its dependencies finish and is RUNNABLE otherwise,
-// and an array job spawns its children and waits on them in PENDING.
+// A job waits in PENDING until its dependencies finish; an array job spawns
+// its children and waits on them in PENDING.
 func batchScheduleJob(jobID string) {
 	batchMu.Lock()
 	defer batchMu.Unlock()
@@ -378,9 +365,8 @@ func batchScheduleJobLocked(jobID string) {
 	for _, status := range batchJobStatuses {
 		summary[status] = 0
 	}
-	// A child enters PENDING when its parent spawns it and moves on once the
-	// scheduler has evaluated its dependencies; both happen under this one
-	// lock hold, so a child with none never shows the PENDING step.
+	// Spawn and dependency evaluation share this lock hold, so a child with no
+	// dependencies never shows PENDING.
 	for index := range size {
 		childIndex := index
 		childID := batchChildJobID(jobID, index)
@@ -430,9 +416,8 @@ func batchScheduleJobLocked(jobID string) {
 	batchJobs.Put(jobID, job)
 }
 
-// batchChildDependencies gives array child index the dependencies it waits
-// on: every dependency of its parent without a type, the same index of each
-// N_TO_N dependency, and, under SEQUENTIAL, the child before it.
+// A child waits on its parent's untyped dependencies, the same index of each
+// N_TO_N dependency, and under SEQUENTIAL the child before it.
 func batchChildDependencies(parent BatchJob, index int) []BatchJobDependency {
 	var deps []BatchJobDependency
 	for _, dep := range parent.DependsOn {
@@ -450,8 +435,6 @@ func batchChildDependencies(parent BatchJob, index int) []BatchJobDependency {
 	return deps
 }
 
-// batchDependencyStateLocked reports whether one of a job's dependencies
-// failed, and otherwise which have yet to finish.
 func batchDependencyStateLocked(job BatchJob) (failed bool, waitingOn []string) {
 	for _, dep := range job.DependsOn {
 		dependency, ok := batchJobs.Get(dep.JobID)
@@ -475,10 +458,8 @@ func batchWaitOnLocked(jobID string, dependencies []string) {
 	}
 }
 
-// batchAdvanceDependentLocked moves a SUBMITTED or PENDING job on once its
-// dependencies allow: to FAILED when one failed, to PENDING while one has yet
-// to finish, and otherwise to RUNNABLE, or to FAILED when CancelJob or
-// TerminateJob stopped it while it waited. The caller stores job.
+// A job stopped by CancelJob or TerminateJob while it waited goes to FAILED.
+// The caller stores job.
 func batchAdvanceDependentLocked(job *BatchJob) {
 	failed, waitingOn := batchDependencyStateLocked(*job)
 	stopped := job.IsCancelled || job.IsTerminated
@@ -499,8 +480,7 @@ func batchAdvanceDependentLocked(job *BatchJob) {
 	}
 }
 
-// batchReleaseDependentsLocked re-evaluates the PENDING jobs that wait on a
-// job that has finished, until no release finishes another job.
+// Repeat until no release finishes another job.
 func batchReleaseDependentsLocked() {
 	for len(batchFinished) > 0 {
 		finished := batchFinished[0]
@@ -518,12 +498,9 @@ func batchReleaseDependentsLocked() {
 	}
 }
 
-// batchDispatchLocked places RUNNABLE jobs on the first compute environment
-// of their queue with the vCPUs to spare, and starts their attempts. Queues go
-// by priority, highest first; a FIFO queue offers its jobs oldest first and a
-// fair-share queue in the order its scheduling policy gives. Jobs no
-// environment can take stay RUNNABLE until an attempt frees capacity or an
-// environment or queue changes.
+// Queues go by priority; a FIFO queue offers oldest first, a fair-share queue
+// in its policy's order. Jobs no environment can take stay RUNNABLE until
+// capacity frees or an environment or queue changes.
 func batchDispatchLocked() {
 	batchReleaseDependentsLocked()
 	byQueue := map[string][]batchRunnableEntry{}
@@ -572,9 +549,8 @@ func batchDispatchLocked() {
 	batchRunnable = kept
 }
 
-// batchPlaceLocked starts an attempt of entry's job on the first candidate
-// with room for it under limit, which caps a compute environment's maxVCPUs;
-// it reports false when the job must stay queued.
+// limit caps a compute environment's maxVCPUs; false means the job stays
+// queued.
 func batchPlaceLocked(entry batchRunnableEntry, candidates []batchPlacement, limit func(float64) float64) bool {
 	placed := ""
 	for _, candidate := range candidates {
@@ -609,8 +585,7 @@ func batchPlaceLocked(entry batchRunnableEntry, candidates []batchPlacement, lim
 	return true
 }
 
-// batchCheckDependencies validates SubmitJob's dependsOn for a job of
-// arraySize children (0 for a single job).
+// arraySize is 0 for a single job.
 func batchCheckDependencies(deps []BatchJobDependency, arraySize int) error {
 	if len(deps) > batchMaxDependencies {
 		return fmt.Errorf("dependsOn takes at most %d jobs, got %d", batchMaxDependencies, len(deps))
@@ -669,7 +644,7 @@ func batchAttemptConfig(job BatchJob) sim.ContainerConfig {
 		env["AWS_BATCH_JOB_ARRAY_INDEX"] = strconv.Itoa(*job.ArrayProperties.Index)
 	}
 	cfg.Env = env
-	// Docker container names admit no colon, which array child job IDs carry.
+	// Docker container names admit no colon; array child job IDs carry one.
 	cfg.Name = "sockerless-batch-" + strings.ReplaceAll(job.JobID, ":", "-") + "-" + strconv.Itoa(job.Running.Number)
 	cfg.Labels = batchAttemptLabels(job.JobID, job.Running.Number)
 	return cfg
@@ -679,10 +654,9 @@ func batchAttemptLabels(jobID string, number int) map[string]string {
 	return map[string]string{"aws-batch-job-id": jobID, "aws-batch-job-attempt": strconv.Itoa(number)}
 }
 
-// batchAttemptLogTarget names the CloudWatch Logs stream an attempt's awslogs
-// driver writes, `<job definition name>/default/<task id>` in /aws/batch/job
-// unless the job definition configures its own; ok is false when the job
-// definition names another log driver.
+// The awslogs driver writes `<job definition name>/default/<task id>` in
+// /aws/batch/job unless the job definition configures its own; ok is false
+// for another log driver.
 func batchAttemptLogTarget(job BatchJob) (group, stream string, createGroup, ok bool) {
 	driver := "awslogs"
 	options := map[string]string{}
@@ -740,9 +714,8 @@ func batchAttemptSink(running batchRunningAttempt) sim.LogSink {
 	return &cwLogSink{logGroup: running.LogGroup, logStream: running.LogStream}
 }
 
-// batchLaunchAttempt starts the container of an attempt the scheduler placed:
-// STARTING covers the image pull and container creation, RUNNING begins once
-// the container has started.
+// STARTING covers the image pull and container creation; RUNNING begins once
+// the container starts.
 func batchLaunchAttempt(jobID string, number int) {
 	batchMu.Lock()
 	job, ok := batchJobs.Get(jobID)
@@ -806,8 +779,6 @@ func batchMarkRunningLocked(job *BatchJob) {
 	}
 }
 
-// batchJobRoleArn is the role the job's container runs under, which its job
-// definition names.
 func batchJobRoleArn(job BatchJob) string {
 	jd, ok := batchLookupJobDefinition(job.JobDefinition)
 	if !ok {
@@ -816,9 +787,9 @@ func batchJobRoleArn(job BatchJob) string {
 	return batchString(jd.ContainerProperties["jobRoleArn"])
 }
 
-// batchPlaceAttempt places an attempt's container on the platform network,
-// resolving names through its sidecar and reading the job role's sessions
-// from the container credentials endpoint, as an Amazon ECS task does.
+// Like an Amazon ECS task, the container resolves through the platform
+// sidecar and reads the job role's sessions from the container credentials
+// endpoint.
 func batchPlaceAttempt(ctx context.Context, cfg sim.ContainerConfig, sink sim.LogSink, jobID, jobRole, sessionName string) (placement.Handle, error) {
 	network, err := awsPlatformNetwork(ctx)
 	if err != nil {
@@ -842,8 +813,7 @@ func batchWatchAttempt(jobID string, number int, handle placement.Handle) {
 	})
 }
 
-// batchArmAttemptTimeoutLocked enforces the job's attemptDurationSeconds on the
-// running attempt: Batch terminates an attempt that outlives it.
+// AWS Batch terminates an attempt that outlives attemptDurationSeconds.
 func batchArmAttemptTimeoutLocked(job BatchJob, remaining time.Duration) {
 	if batchTimeout(job.Timeout) == 0 {
 		return
@@ -874,9 +844,7 @@ func batchTruncate(s string, limit int) string {
 	return s
 }
 
-// batchAttemptEnded records a finished attempt and moves the job on: to
-// SUCCEEDED on exit code 0, back to RUNNABLE when its retry strategy retries,
-// and to FAILED otherwise. A terminated or timed-out attempt is never retried.
+// A terminated or timed-out attempt is never retried.
 func batchAttemptEnded(jobID string, number int, result sim.ProcessResult, startErr error) {
 	batchMu.Lock()
 	defer batchMu.Unlock()
@@ -957,10 +925,9 @@ func batchAttemptEnded(jobID string, number int, result sim.ProcessResult, start
 	batchDispatchLocked()
 }
 
-// batchCancelJobLocked applies CancelJob: a job not yet STARTING fails, once
-// its dependencies have finished when it waits on them in PENDING; a STARTING
-// or RUNNING one is left alone; and an array parent cancels its children and
-// fails once they have all finished.
+// A job not yet STARTING fails, after its dependencies finish if it waits on
+// them; a STARTING or RUNNING job is left alone; an array parent cancels its
+// children and fails once they all finish.
 func batchCancelJobLocked(jobID, reason string) {
 	job, ok := batchJobs.Get(jobID)
 	if !ok || batchTerminal(job.Status) {
@@ -992,9 +959,8 @@ func batchCancelJobLocked(jobID, reason string) {
 	}
 }
 
-// batchTerminateJobLocked applies TerminateJob: a job not yet STARTING is
-// cancelled as CancelJob cancels it, a STARTING or RUNNING one has its
-// container stopped and fails when it exits, and an array parent terminates
+// A job not yet STARTING is cancelled as by CancelJob; a STARTING or RUNNING
+// one has its container stopped and fails on exit; an array parent terminates
 // every child.
 func batchTerminateJobLocked(jobID, reason string) {
 	job, ok := batchJobs.Get(jobID)
@@ -1033,11 +999,8 @@ func batchStopBeforeStart(job *BatchJob, reason string) {
 	batchSetStatus(job, batchStatusFailed)
 }
 
-// recoverBatchJobs rebuilds the scheduler from the job store after a restart:
-// RUNNABLE jobs queue again, a SUBMITTED job is scheduled, a PENDING job
-// waits on its dependencies again, and an attempt in
-// flight adopts its container, or returns to RUNNABLE when its container never
-// started.
+// An attempt in flight adopts its container, or returns to RUNNABLE when the
+// container never started.
 func recoverBatchJobs() error {
 	batchMu.Lock()
 	defer batchMu.Unlock()
@@ -1081,9 +1044,8 @@ func recoverBatchJobs() error {
 	return nil
 }
 
-// batchRecoverDependentLocked rebuilds a PENDING job's place in the
-// dependency index, releasing it when its dependencies finished while the
-// simulator was down.
+// Release the job when its dependencies finished while the simulator was
+// down.
 func batchRecoverDependentLocked(job BatchJob) {
 	failed, waitingOn := batchDependencyStateLocked(job)
 	if !failed && len(waitingOn) > 0 {

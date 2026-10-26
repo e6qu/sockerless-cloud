@@ -26,9 +26,6 @@ func appScalingTestStores(t *testing.T) {
 	t.Cleanup(bg.Await)
 }
 
-// appScalingTrackedService registers an Amazon ECS service as a scalable
-// target and puts a target tracking policy on it, tracking CPU unless the
-// configuration names another metric, returning the policy.
 func appScalingTrackedService(t *testing.T, service string, desired int, configuration map[string]any) AppScalingPolicy {
 	t.Helper()
 	ecsServices.Put(ecsServiceKey("tracking", service), ECSService{ServiceName: service, DesiredCount: desired})
@@ -54,7 +51,6 @@ func appScalingTrackedService(t *testing.T, service string, desired int, configu
 	return policy
 }
 
-// appScalingPutCPU records one CPU datapoint per minute over the last minutes.
 func appScalingPutCPU(service string, value float64, minutes int, now time.Time) {
 	dims := []CWDimension{{Name: "ClusterName", Value: "tracking"}, {Name: "ServiceName", Value: service}}
 	key := metricsKey("AWS/ECS", "CPUUtilization", dims)

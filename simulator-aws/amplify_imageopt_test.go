@@ -12,10 +12,6 @@ import (
 	"testing"
 )
 
-// Docker-free image-optimization tests: format negotiation, remote-pattern
-// matching, parameter validation, source-type detection, and the full
-// hosted-request transform path served from in-memory stores.
-
 func TestAmplifyNegotiateImageFormat(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -248,8 +244,7 @@ func TestAmplifyHostingImageOptimizationServing(t *testing.T) {
 		t.Errorf("revisit: status %d body %d bytes", rec.Code, rec.Body.Len())
 	}
 
-	// Never upscale: w=64 on a 100px-wide source is fine, but a 16px request
-	// upscaled is not a thing — request w=64 against a 16px-wide source.
+	// Never upscale: request w=64 against a 16px-wide source.
 	amplifySeedDeployment(t, "imgapp1", "main", "job-img-2", map[string]string{
 		"deploy-manifest.json": amplifyImageOptManifest(""),
 		"static/img/tiny.png":  string(amplifyTestPNG(t, 16, 16)),
@@ -266,7 +261,7 @@ func TestAmplifyHostingImageOptimizationServing(t *testing.T) {
 		t.Errorf("upscaled to %dx%d, want 16x16", decoded.Bounds().Dx(), decoded.Bounds().Dy())
 	}
 
-	// Webp negotiation via Accept (avif has no encoder, webp is next).
+	// Accept negotiates WebP, since AVIF has no encoder.
 	amplifySeedDeployment(t, "imgapp1", "main", "job-img-3", map[string]string{
 		"deploy-manifest.json": amplifyImageOptManifest(""),
 		"static/img/photo.png": string(pngBytes),
@@ -292,7 +287,7 @@ func TestAmplifyHostingImageOptimizationServing(t *testing.T) {
 		t.Errorf("quality: status %d body %q", rec.Code, rec.Body.String())
 	}
 
-	// Disallowed remote domain — rejected before any fetch.
+	// Reject a disallowed remote domain before any fetch.
 	rec = amplifyHostingGet(t, host, "/_next/image?url="+url.QueryEscape("https://evil.example.com/a.png")+"&w=64&q=75", nil)
 	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), `"url" parameter is not allowed`) {
 		t.Errorf("remote: status %d body %q", rec.Code, rec.Body.String())
@@ -325,8 +320,7 @@ func TestAmplifyHostingImageOptimizationServing(t *testing.T) {
 }
 
 func TestAmplifyImageSettingsTTLSpellings(t *testing.T) {
-	// The deployment-specification document uses both spellings of the
-	// cache-TTL key; both parse, the property-table spelling winning.
+	// Both spellings of the cache-TTL key parse; the property-table one wins.
 	for _, tc := range []struct {
 		raw  string
 		want int
@@ -392,14 +386,13 @@ func TestAmplifyHostingImageOptimizationFallback(t *testing.T) {
 	})
 	host := "main.imgfall1.amplifyapp.com"
 
-	// The optimizer's 404 (missing source artifact) falls back to the
-	// route's declared fallback target.
+	// The optimizer's 404 falls back to the route's fallback target.
 	rec := amplifyHostingGet(t, host, "/_next/image?url=%2Fmissing.png&w=64&q=75", nil)
 	if rec.Code != http.StatusOK || rec.Body.String() != "fallback static body" {
 		t.Errorf("fallback: status %d body %q", rec.Code, rec.Body.String())
 	}
 
-	// Without a fallback the optimizer's own 404 error surface is served.
+	// Without a fallback the optimizer's own 404 is served.
 	amplifySeedDeployment(t, "imgfall1", "main", "job-imgfall-2", map[string]string{
 		"deploy-manifest.json": strings.Replace(manifest, `, "fallback": {"kind": "Static"}`, "", 1),
 		"static/_next/image":   "fallback static body",

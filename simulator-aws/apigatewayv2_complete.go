@@ -9,24 +9,12 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// API Gateway v2 — developer-portal, portal-product, product-page,
-// routing-rule, and API/api-mapping update slices that complete the
-// restJson1 ApiGatewayV2 service surface. restJson1 serializes v2
-// members in lowerCamelCase (the smithy jsonName trait); list wrappers
-// use `items` (portals/products/pages) or `routingRules`.
-//
-// Nested objects whose request and response shapes coincide
-// (authorization, portalContent, displayContent, routing-rule actions
-// and conditions, restEndpointIdentifier) are stored as the raw decoded
-// JSON the client sent and echoed back verbatim, so the round-trip stays
-// faithful to whatever the client serialized. Where request and response
-// shapes diverge (endpointConfiguration is EndpointConfigurationRequest
-// inbound but EndpointConfigurationResponse outbound) the response shape
-// is built explicitly.
+// Store nested objects whose request and response shapes coincide as the raw
+// JSON the client sent and echo them verbatim. Build endpointConfiguration
+// explicitly: it is EndpointConfigurationRequest inbound but
+// EndpointConfigurationResponse outbound.
 
-// APIGWv2Portal models a developer portal (CreatePortal / GetPortal).
-// Stored by PortalId. The nested authorization / portalContent objects are
-// kept verbatim; endpointConfiguration is synthesized on read.
+// Keyed by PortalId; endpointConfiguration is built on read.
 type APIGWv2Portal struct {
 	PortalId                  string                       `json:"portalId"`
 	PortalArn                 string                       `json:"portalArn"`
@@ -42,7 +30,6 @@ type APIGWv2Portal struct {
 	Tags                      map[string]string            `json:"tags,omitempty"`
 }
 
-// APIGWv2PortalEndpointConfig mirrors EndpointConfigurationResponse.
 type APIGWv2PortalEndpointConfig struct {
 	CertificateArn           string `json:"certificateArn,omitempty"`
 	DomainName               string `json:"domainName,omitempty"`
@@ -50,7 +37,6 @@ type APIGWv2PortalEndpointConfig struct {
 	PortalDomainHostedZoneId string `json:"portalDomainHostedZoneId,omitempty"`
 }
 
-// APIGWv2PortalProduct models a portal product (top-level resource keyed by id).
 type APIGWv2PortalProduct struct {
 	PortalProductId  string            `json:"portalProductId"`
 	PortalProductArn string            `json:"portalProductArn"`
@@ -58,13 +44,10 @@ type APIGWv2PortalProduct struct {
 	Description      string            `json:"description,omitempty"`
 	LastModified     string            `json:"lastModified,omitempty"`
 	Tags             map[string]string `json:"tags,omitempty"`
-	// SharingPolicy is the product's sharing-policy document
-	// (PutPortalProductSharingPolicy). Held off the wire — emitted only by
-	// GetPortalProductSharingPolicy.
+	// Only GetPortalProductSharingPolicy emits the policy.
 	SharingPolicy string `json:"-"`
 }
 
-// APIGWv2ProductPage models a product page (child of a portal product).
 // Keyed by `<portalProductId>/<productPageId>`.
 type APIGWv2ProductPage struct {
 	ProductPageId   string          `json:"productPageId"`
@@ -74,8 +57,7 @@ type APIGWv2ProductPage struct {
 	LastModified    string          `json:"lastModified,omitempty"`
 }
 
-// APIGWv2ProductRestEndpointPage models a product REST-endpoint page (child of
-// a portal product). Keyed by `<portalProductId>/<productRestEndpointPageId>`.
+// Keyed by `<portalProductId>/<productRestEndpointPageId>`.
 type APIGWv2ProductRestEndpointPage struct {
 	ProductRestEndpointPageId  string          `json:"productRestEndpointPageId"`
 	ProductRestEndpointPageArn string          `json:"productRestEndpointPageArn"`
@@ -87,8 +69,7 @@ type APIGWv2ProductRestEndpointPage struct {
 	LastModified               string          `json:"lastModified,omitempty"`
 }
 
-// APIGWv2RoutingRule models a routing rule under a domain name. Keyed by
-// `<domainName>/<routingRuleId>`.
+// Keyed by `<domainName>/<routingRuleId>`.
 type APIGWv2RoutingRule struct {
 	RoutingRuleId  string          `json:"routingRuleId"`
 	RoutingRuleArn string          `json:"routingRuleArn"`
@@ -119,7 +100,6 @@ func registerAPIGatewayV2Complete(srv *sim.Server) {
 	portalResource := cloudTrailRESTResource("AWS::ApiGatewayV2::Portal", "portalId")
 	productResource := cloudTrailRESTResource("AWS::ApiGatewayV2::PortalProduct", "portalProductId")
 
-	// Developer portals.
 	mux.HandleFunc("POST /v2/portals", cloudTrailRecordedREST("CreatePortal", "apigateway.amazonaws.com", nil, handleAPIGWv2CreatePortal))
 	mux.HandleFunc("GET /v2/portals", cloudTrailRecordedREST("ListPortals", "apigateway.amazonaws.com", nil, handleAPIGWv2ListPortals))
 	mux.HandleFunc("GET /v2/portals/{portalId}", cloudTrailRecordedREST("GetPortal", "apigateway.amazonaws.com", portalResource, handleAPIGWv2GetPortal))
@@ -129,44 +109,37 @@ func registerAPIGatewayV2Complete(srv *sim.Server) {
 	mux.HandleFunc("POST /v2/portals/{portalId}/publish", cloudTrailRecordedREST("PublishPortal", "apigateway.amazonaws.com", portalResource, handleAPIGWv2PublishPortal))
 	mux.HandleFunc("DELETE /v2/portals/{portalId}/publish", cloudTrailRecordedREST("DisablePortal", "apigateway.amazonaws.com", portalResource, handleAPIGWv2DisablePortal))
 
-	// Portal products.
 	mux.HandleFunc("POST /v2/portalproducts", cloudTrailRecordedREST("CreatePortalProduct", "apigateway.amazonaws.com", nil, handleAPIGWv2CreatePortalProduct))
 	mux.HandleFunc("GET /v2/portalproducts", cloudTrailRecordedREST("ListPortalProducts", "apigateway.amazonaws.com", nil, handleAPIGWv2ListPortalProducts))
 	mux.HandleFunc("GET /v2/portalproducts/{portalProductId}", cloudTrailRecordedREST("GetPortalProduct", "apigateway.amazonaws.com", productResource, handleAPIGWv2GetPortalProduct))
 	mux.HandleFunc("PATCH /v2/portalproducts/{portalProductId}", cloudTrailRecordedREST("UpdatePortalProduct", "apigateway.amazonaws.com", productResource, handleAPIGWv2UpdatePortalProduct))
 	mux.HandleFunc("DELETE /v2/portalproducts/{portalProductId}", cloudTrailRecordedREST("DeletePortalProduct", "apigateway.amazonaws.com", productResource, handleAPIGWv2DeletePortalProduct))
 
-	// Portal product sharing policy.
 	mux.HandleFunc("GET /v2/portalproducts/{portalProductId}/sharingpolicy", cloudTrailRecordedREST("GetPortalProductSharingPolicy", "apigateway.amazonaws.com", productResource, handleAPIGWv2GetPortalProductSharingPolicy))
 	mux.HandleFunc("PUT /v2/portalproducts/{portalProductId}/sharingpolicy", cloudTrailRecordedREST("PutPortalProductSharingPolicy", "apigateway.amazonaws.com", productResource, handleAPIGWv2PutPortalProductSharingPolicy))
 	mux.HandleFunc("DELETE /v2/portalproducts/{portalProductId}/sharingpolicy", cloudTrailRecordedREST("DeletePortalProductSharingPolicy", "apigateway.amazonaws.com", productResource, handleAPIGWv2DeletePortalProductSharingPolicy))
 
-	// Product pages.
 	mux.HandleFunc("POST /v2/portalproducts/{portalProductId}/productpages", cloudTrailRecordedREST("CreateProductPage", "apigateway.amazonaws.com", productResource, handleAPIGWv2CreateProductPage))
 	mux.HandleFunc("GET /v2/portalproducts/{portalProductId}/productpages", cloudTrailRecordedREST("ListProductPages", "apigateway.amazonaws.com", productResource, handleAPIGWv2ListProductPages))
 	mux.HandleFunc("GET /v2/portalproducts/{portalProductId}/productpages/{productPageId}", cloudTrailRecordedREST("GetProductPage", "apigateway.amazonaws.com", productResource, handleAPIGWv2GetProductPage))
 	mux.HandleFunc("PATCH /v2/portalproducts/{portalProductId}/productpages/{productPageId}", cloudTrailRecordedREST("UpdateProductPage", "apigateway.amazonaws.com", productResource, handleAPIGWv2UpdateProductPage))
 	mux.HandleFunc("DELETE /v2/portalproducts/{portalProductId}/productpages/{productPageId}", cloudTrailRecordedREST("DeleteProductPage", "apigateway.amazonaws.com", productResource, handleAPIGWv2DeleteProductPage))
 
-	// Product REST-endpoint pages.
 	mux.HandleFunc("POST /v2/portalproducts/{portalProductId}/productrestendpointpages", cloudTrailRecordedREST("CreateProductRestEndpointPage", "apigateway.amazonaws.com", productResource, handleAPIGWv2CreateProductRestEndpointPage))
 	mux.HandleFunc("GET /v2/portalproducts/{portalProductId}/productrestendpointpages", cloudTrailRecordedREST("ListProductRestEndpointPages", "apigateway.amazonaws.com", productResource, handleAPIGWv2ListProductRestEndpointPages))
 	mux.HandleFunc("GET /v2/portalproducts/{portalProductId}/productrestendpointpages/{productRestEndpointPageId}", cloudTrailRecordedREST("GetProductRestEndpointPage", "apigateway.amazonaws.com", productResource, handleAPIGWv2GetProductRestEndpointPage))
 	mux.HandleFunc("PATCH /v2/portalproducts/{portalProductId}/productrestendpointpages/{productRestEndpointPageId}", cloudTrailRecordedREST("UpdateProductRestEndpointPage", "apigateway.amazonaws.com", productResource, handleAPIGWv2UpdateProductRestEndpointPage))
 	mux.HandleFunc("DELETE /v2/portalproducts/{portalProductId}/productrestendpointpages/{productRestEndpointPageId}", cloudTrailRecordedREST("DeleteProductRestEndpointPage", "apigateway.amazonaws.com", productResource, handleAPIGWv2DeleteProductRestEndpointPage))
 
-	// Routing rules — children of a domain name.
 	mux.HandleFunc("POST /v2/domainnames/{domainName}/routingrules", cloudTrailRecordedREST("CreateRoutingRule", "apigateway.amazonaws.com", domainResource, handleAPIGWv2CreateRoutingRule))
 	mux.HandleFunc("GET /v2/domainnames/{domainName}/routingrules", cloudTrailRecordedREST("ListRoutingRules", "apigateway.amazonaws.com", domainResource, handleAPIGWv2ListRoutingRules))
 	mux.HandleFunc("GET /v2/domainnames/{domainName}/routingrules/{routingRuleId}", cloudTrailRecordedREST("GetRoutingRule", "apigateway.amazonaws.com", domainResource, handleAPIGWv2GetRoutingRule))
 	mux.HandleFunc("PUT /v2/domainnames/{domainName}/routingrules/{routingRuleId}", cloudTrailRecordedREST("PutRoutingRule", "apigateway.amazonaws.com", domainResource, handleAPIGWv2PutRoutingRule))
 	mux.HandleFunc("DELETE /v2/domainnames/{domainName}/routingrules/{routingRuleId}", cloudTrailRecordedREST("DeleteRoutingRule", "apigateway.amazonaws.com", domainResource, handleAPIGWv2DeleteRoutingRule))
 
-	// API + api-mapping updates (PATCH the existing v2 stores).
 	mux.HandleFunc("PATCH /v2/apis/{apiId}", cloudTrailRecordedREST("UpdateApi", "apigateway.amazonaws.com", apiResource, handleAPIGWv2UpdateApi))
 	mux.HandleFunc("PATCH /v2/domainnames/{domainName}/apimappings/{apiMappingId}", cloudTrailRecordedREST("UpdateApiMapping", "apigateway.amazonaws.com", domainResource, handleAPIGWv2UpdateApiMapping))
 
-	// Reset a stage's authorizer cache.
 	mux.HandleFunc("DELETE /v2/apis/{apiId}/stages/{stageName}/cache/authorizers", cloudTrailRecordedREST("ResetAuthorizersCache", "apigateway.amazonaws.com", apiResource, handleAPIGWv2ResetAuthorizersCache))
 }
 
@@ -271,7 +244,7 @@ func handleAPIGWv2PreviewPortal(w http.ResponseWriter, r *http.Request) {
 		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid Portal identifier specified")
 		return
 	}
-	// PreviewPortalResponse has zero modeled members — empty body, 202.
+	// PreviewPortalResponse has no members: empty 202.
 	w.WriteHeader(http.StatusAccepted)
 }
 
@@ -285,7 +258,7 @@ func handleAPIGWv2PublishPortal(w http.ResponseWriter, r *http.Request) {
 	p.PublishStatus = "PUBLISHED"
 	p.LastPublished = time.Now().UTC().Format(time.RFC3339)
 	apigwv2Portals.Put(portalID, p)
-	// PublishPortalResponse has zero modeled members — empty body, 202.
+	// PublishPortalResponse has no members: empty 202.
 	w.WriteHeader(http.StatusAccepted)
 }
 
@@ -373,7 +346,6 @@ func handleAPIGWv2DeletePortalProduct(w http.ResponseWriter, r *http.Request) {
 		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid PortalProduct identifier specified")
 		return
 	}
-	// Cascade-delete the product's pages.
 	for _, pg := range apigwv2ProductPages.List() {
 		if pg.PortalProductId == productID {
 			apigwv2ProductPages.Delete(apigwv2ChildKey(productID, pg.ProductPageId))
@@ -417,7 +389,6 @@ func handleAPIGWv2PutPortalProductSharingPolicy(w http.ResponseWriter, r *http.R
 	}
 	p.SharingPolicy = req.PolicyDocument
 	apigwv2PortalProducts.Put(productID, p)
-	// PutPortalProductSharingPolicyResponse has zero modeled members.
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
@@ -464,7 +435,6 @@ func handleAPIGWv2ListProductPages(w http.ResponseWriter, r *http.Request) {
 		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid PortalProduct identifier specified")
 		return
 	}
-	// ProductPageSummaryNoBody: lastModified, pageTitle, productPageArn, productPageId.
 	type summary struct {
 		LastModified   string `json:"lastModified,omitempty"`
 		PageTitle      string `json:"pageTitle,omitempty"`
@@ -486,8 +456,6 @@ func handleAPIGWv2ListProductPages(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"items": out})
 }
 
-// apigwv2DisplayContentTitle extracts the `title` field of a stored
-// DisplayContent object, used to surface the summary `pageTitle`.
 func apigwv2DisplayContentTitle(raw json.RawMessage) string {
 	if len(raw) == 0 {
 		return ""
@@ -575,10 +543,8 @@ func handleAPIGWv2CreateProductRestEndpointPage(w http.ResponseWriter, r *http.R
 	sim.WriteJSON(w, http.StatusCreated, pg)
 }
 
-// apigwv2RestEndpointDisplayResponse maps an inbound EndpointDisplayContent
-// (a None/Overrides union) onto the EndpointDisplayContentResponse shape
-// (body/endpoint/operationName). The request union carries no body verbatim,
-// so the response display content is built from the overrides when present.
+// The request union carries no body, so build the response display content
+// from the overrides when present.
 func apigwv2RestEndpointDisplayResponse(raw json.RawMessage) json.RawMessage {
 	if len(raw) == 0 {
 		return nil
@@ -619,7 +585,6 @@ func handleAPIGWv2ListProductRestEndpointPages(w http.ResponseWriter, r *http.Re
 		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid PortalProduct identifier specified")
 		return
 	}
-	// ProductRestEndpointPageSummaryNoBody.
 	type summary struct {
 		Endpoint                   string          `json:"endpoint,omitempty"`
 		LastModified               string          `json:"lastModified,omitempty"`
@@ -858,7 +823,6 @@ func handleAPIGWv2ResetAuthorizersCache(w http.ResponseWriter, r *http.Request) 
 			"Invalid Stage identifier specified %s", stageName)
 		return
 	}
-	// Clearing the (empty) per-stage authorizer cache is a no-op against the
-	// sim's metadata store. ResetAuthorizersCache has no modeled output — 204.
+	// ResetAuthorizersCache has no output: 204.
 	w.WriteHeader(http.StatusNoContent)
 }

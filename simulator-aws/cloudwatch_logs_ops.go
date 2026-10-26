@@ -12,13 +12,6 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// Additional CloudWatch Logs control-plane operations: log-stream deletion,
-// metric filters, subscription filters, retention deletion, the legacy
-// log-group tag verbs, UntagResource, export tasks, and data-protection
-// policies. These complement the core log-group/stream/event handlers in
-// cloudwatch.go. All operate on real stores at CloudWatch Logs API fidelity.
-
-// CWMetricTransformation mirrors the SDK MetricTransformation shape.
 type CWMetricTransformation struct {
 	MetricName      string            `json:"metricName"`
 	MetricNamespace string            `json:"metricNamespace"`
@@ -28,7 +21,6 @@ type CWMetricTransformation struct {
 	Dimensions      map[string]string `json:"dimensions,omitempty"`
 }
 
-// CWMetricFilter mirrors the SDK MetricFilter shape.
 type CWMetricFilter struct {
 	FilterName            string                   `json:"filterName"`
 	FilterPattern         string                   `json:"filterPattern"`
@@ -37,7 +29,6 @@ type CWMetricFilter struct {
 	MetricTransformations []CWMetricTransformation `json:"metricTransformations"`
 }
 
-// CWSubscriptionFilter mirrors the SDK SubscriptionFilter shape.
 type CWSubscriptionFilter struct {
 	FilterName     string `json:"filterName"`
 	FilterPattern  string `json:"filterPattern"`
@@ -48,7 +39,6 @@ type CWSubscriptionFilter struct {
 	CreationTime   int64  `json:"creationTime"`
 }
 
-// CWExportTask mirrors the SDK ExportTask shape.
 type CWExportTask struct {
 	TaskId            string                    `json:"taskId"`
 	TaskName          string                    `json:"taskName,omitempty"`
@@ -71,7 +61,6 @@ type CWExportTaskExecutionInfo struct {
 	CompletionTime int64 `json:"completionTime,omitempty"`
 }
 
-// CWDataProtectionPolicy holds a log group's data-protection policy document.
 type CWDataProtectionPolicy struct {
 	LogGroupName    string `json:"-"`
 	PolicyDocument  string `json:"policyDocument"`
@@ -112,8 +101,7 @@ func registerCloudWatchLogsOps(r *AWSRouter, srv *sim.Server) {
 	r.Register("Logs_20140328.DeleteDataProtectionPolicy", handleCWDeleteDataProtectionPolicy)
 }
 
-// cwFilterKey scopes a per-group named filter (metric/subscription) so two
-// groups may share a filter name, matching real CloudWatch Logs.
+// Two groups may share a filter name.
 func cwFilterKey(group, name string) string {
 	return group + ":" + name
 }
@@ -607,8 +595,7 @@ func handleCWCancelExportTask(w http.ResponseWriter, r *http.Request) {
 			"The specified export task does not exist: %s", req.TaskId)
 		return
 	}
-	// Real CloudWatch Logs rejects cancelling a task that already reached a
-	// terminal state (COMPLETED/FAILED/CANCELLED) with InvalidOperationException.
+	// Cancelling a terminal task is an InvalidOperationException.
 	switch task.Status.Code {
 	case "COMPLETED", "FAILED", "CANCELLED":
 		AWSError(w, "InvalidOperationException",
@@ -698,9 +685,7 @@ func handleCWDeleteDataProtectionPolicy(w http.ResponseWriter, r *http.Request) 
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
-// cwResolveLogGroupIdentifier accepts either a bare log-group name or a
-// log-group ARN (the data-protection APIs take logGroupIdentifier, which may be
-// either) and returns the canonical group name if it exists.
+// The data-protection APIs take a name or an ARN.
 func cwResolveLogGroupIdentifier(id string) (string, bool) {
 	if strings.HasPrefix(id, "arn:") {
 		return cwLogGroupByArn(id)
@@ -711,15 +696,10 @@ func cwResolveLogGroupIdentifier(id string) (string, bool) {
 	return "", false
 }
 
-// cwEvaluateMetricFilters applies every metric filter whose LogGroupName
-// matches to the freshly ingested events, publishing each transformation's
-// metric datum into the shared metric store — the path by which a
-// filter-pattern match turns into a queryable CloudWatch metric and a fired
-// alarm. Real CloudWatch evaluates filters asynchronously after PutLogEvents;
-// the simulator evaluates inline so a follow-up GetMetricStatistics observes
-// the new datapoints deterministically. It takes stored events so every
-// producer — PutLogEvents and the container log drivers alike — reaches the
-// filters through one signature.
+// CloudWatch evaluates filters asynchronously after PutLogEvents; the
+// simulator evaluates inline so a following GetMetricStatistics sees the
+// datapoints. Every producer, PutLogEvents and the container log drivers,
+// calls this.
 func cwEvaluateMetricFilters(logGroupName string, events []CWLogEvent) {
 	filters := cwMetricFilters.Filter(func(f CWMetricFilter) bool {
 		return f.LogGroupName == logGroupName
@@ -740,12 +720,8 @@ func cwEvaluateMetricFilters(logGroupName string, events []CWLogEvent) {
 	}
 }
 
-// cwPublishFilterMetric emits a single metric datum derived from a matched
-// event under the transformation's namespace/metric. MetricValue resolves to a
-// literal number, a "$." JSON-path token (summed across the event), or falls
-// back to DefaultValue when neither yields a number. Dimensions declared on the
-// transformation resolve literal values verbatim and "$." tokens against the
-// event JSON.
+// MetricValue is a literal, a "$." JSON path summed across the event, or else
+// DefaultValue. Dimension "$." tokens resolve against the event JSON.
 func cwPublishFilterMetric(t CWMetricTransformation, message string, tsMillis int64) {
 	value, ok := cwResolveMetricValue(t.MetricValue, message)
 	if !ok && t.DefaultValue != nil {
@@ -769,10 +745,6 @@ func cwPublishFilterMetric(t CWMetricTransformation, message string, tsMillis in
 	})
 }
 
-// cwResolveMetricValue parses a MetricTransformation value token: a literal
-// float ("1", "2.5"), or a "$.path" JSON selector that extracts a numeric field
-// from the matched event. Returns false when the token is neither a number nor
-// a resolvable numeric JSON field.
 func cwResolveMetricValue(token, message string) (float64, bool) {
 	token = strings.TrimSpace(token)
 	if v, err := strconv.ParseFloat(token, 64); err == nil {
@@ -794,8 +766,6 @@ func cwResolveMetricValue(token, message string) (float64, bool) {
 	return 0, false
 }
 
-// cwResolveDimValue resolves a dimension value, treating "$." tokens as JSON
-// selectors into the event and everything else as a literal.
 func cwResolveDimValue(token, message string) string {
 	if !strings.HasPrefix(token, "$") {
 		return token

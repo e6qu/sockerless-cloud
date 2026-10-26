@@ -11,12 +11,8 @@ import (
 	"github.com/fxamacker/cbor/v2"
 )
 
-// CloudWatch dashboards (PutDashboard / GetDashboard / ListDashboards /
-// DeleteDashboards). A dashboard is just a name → JSON-body record; the API
-// validates the body and returns an (empty) DashboardValidationMessages list.
-// Reachable over all three CloudWatch wire protocols, like the metric + alarm
-// surfaces: query (older botocore), awsJson1.0 (newer CLI), rpc-v2-cbor (Go SDK
-// / terraform's aws_cloudwatch_dashboard).
+// A dashboard is a name and a JSON body; the API validates the body and
+// returns an empty DashboardValidationMessages list.
 
 type CWDashboard struct {
 	Name         string `json:"DashboardName" cbor:"DashboardName"`
@@ -27,7 +23,7 @@ type CWDashboard struct {
 var cwDashboards sim.Store[CWDashboard]
 
 func cwDashboardArn(name string) string {
-	// Dashboard ARNs are region-less.
+	// Dashboard ARNs carry no Region.
 	return fmt.Sprintf("arn:aws:cloudwatch::%s:dashboard/%s", awsAccountID(), name)
 }
 
@@ -46,8 +42,7 @@ func cwListDashboardEntries(prefix string) []map[string]any {
 	out := make([]map[string]any, 0, len(names))
 	for _, n := range names {
 		d, _ := cwDashboards.Get(n)
-		// LastModified must encode as a timestamp (cbor tag-1 / RFC3339 JSON),
-		// not a bare string, or the SDK's *time.Time field fails to decode.
+		// The SDK's *time.Time field needs a timestamp, not a bare string.
 		lm, err := time.Parse(time.RFC3339, d.LastModified)
 		if err != nil {
 			lm = time.Now().UTC()
@@ -61,8 +56,6 @@ func cwListDashboardEntries(prefix string) []map[string]any {
 	}
 	return out
 }
-
-// ── awsJson1.0 (aws CLI) ────────────────────────────────────────────────────
 
 func registerCloudWatchDashboardsJSON(r *AWSRouter) {
 	r.Register("GraniteServiceVersion20100801.PutDashboard", handleCWJSONPutDashboard)
@@ -138,8 +131,6 @@ func handleCWJSONDeleteDashboards(w http.ResponseWriter, r *http.Request) {
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
-
-// ── rpc-v2-cbor (Go SDK / terraform) ────────────────────────────────────────
 
 func registerCloudWatchDashboardsCBOR(srv *sim.Server) {
 	cwCBOR(srv, "PutDashboard", handleCWCBORPutDashboard)
@@ -235,8 +226,6 @@ func handleCWCBORDeleteDashboards(w http.ResponseWriter, r *http.Request) {
 	}
 	cwWriteCBOR(w, map[string]any{})
 }
-
-// ── query (botocore / older aws CLI) ────────────────────────────────────────
 
 func registerCloudWatchDashboardsQuery(r *AWSQueryRouter) {
 	r.Register("PutDashboard", handleCWQueryPutDashboard)

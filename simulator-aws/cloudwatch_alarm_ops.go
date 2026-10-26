@@ -12,20 +12,11 @@ import (
 	"github.com/fxamacker/cbor/v2"
 )
 
-// CloudWatch alarm management beyond create/describe/delete: action toggles,
-// manual state, history, the metric→alarm reverse lookup, and composite alarms.
-//
-// These share cwAlarms (metric alarms) and add cwCompositeAlarms +
-// cwAlarmHistory. As with the rest of the CloudWatch surface, every operation
-// is served on all three protocols a real client uses: awsJson1.0 (current aws
-// CLI / botocore), rpc-v2-cbor (the Go SDK), and the legacy query protocol
-// (older aws CLI). A change made through one protocol is visible through the
-// others because they share the same stores.
+// Every operation is served on awsJson1.0 (current AWS CLI), rpc-v2-cbor (the
+// Go SDK) and the query protocol (older AWS CLI) over shared stores.
 
-// CWCompositeAlarm holds a composite alarm's configuration. Its StateValue is
-// stored (manual via SetAlarmState) rather than evaluated — composite alarms
-// combine other alarms through an AlarmRule expression the sim does not
-// evaluate, so an unset state reports INSUFFICIENT_DATA.
+// The simulator does not evaluate AlarmRule, so StateValue is only what
+// SetAlarmState set, else INSUFFICIENT_DATA.
 type CWCompositeAlarm struct {
 	AlarmName               string                 `json:"AlarmName"`
 	AlarmArn                string                 `json:"AlarmArn"`
@@ -42,9 +33,7 @@ type CWCompositeAlarm struct {
 	ActionConfiguration     *cwActionConfiguration `json:"ActionConfiguration,omitempty"`
 }
 
-// CWAlarmHistoryItem is one entry in an alarm's history (state change,
-// configuration update, or action). Stored newest-last; describe returns by
-// ScanBy order.
+// Stored newest-last; describe orders by ScanBy.
 type CWAlarmHistoryItem struct {
 	AlarmName       string `json:"AlarmName"`
 	AlarmType       string `json:"AlarmType"`
@@ -82,9 +71,7 @@ func cwCompositeAlarmByArn(arn string) (CWCompositeAlarm, bool) {
 	return CWCompositeAlarm{}, false
 }
 
-// cwSetAlarmActionsEnabled toggles ActionsEnabled on a set of metric and/or
-// composite alarms (the Enable/DisableAlarmActions operations). Unknown names
-// are silently ignored, matching real CloudWatch.
+// Unknown names are ignored, as in CloudWatch.
 func cwSetAlarmActionsEnabled(names []string, enabled bool) {
 	for _, n := range names {
 		if cwAlarms.Update(n, func(a *CWAlarm) { a.ActionsEnabled = enabled }) {
@@ -97,9 +84,8 @@ func cwSetAlarmActionsEnabled(names []string, enabled bool) {
 	}
 }
 
-// cwSetAlarmState applies a manual StateValue to a metric or composite alarm
-// (SetAlarmState). A metric alarm's manual state is held until the next
-// evaluation re-derives it, matching real CloudWatch's temporary override.
+// A metric alarm's manual state holds until the next evaluation, as
+// CloudWatch's temporary override does.
 func cwSetAlarmState(name, state, reason, reasonData string) bool {
 	if cwAlarms.Update(name, func(a *CWAlarm) {
 		a.ManualState = state
@@ -120,9 +106,7 @@ func cwSetAlarmState(name, state, reason, reasonData string) bool {
 	return false
 }
 
-// cwAlarmsForMetric returns the metric alarms watching a given metric (the
-// DescribeAlarmsForMetric reverse lookup). Dimensions, when supplied, must match
-// exactly.
+// Supplied dimensions must match exactly.
 func cwAlarmsForMetric(namespace, metricName string, dims []CWDimension) []CWAlarm {
 	out := make([]CWAlarm, 0)
 	for _, a := range cwAlarms.List() {
@@ -138,8 +122,7 @@ func cwAlarmsForMetric(namespace, metricName string, dims []CWDimension) []CWAla
 	return out
 }
 
-// cwAlarmHistoryFor returns an alarm's history filtered by item type, ordered by
-// ScanBy (TIMESTAMP_DESCENDING default).
+// TIMESTAMP_DESCENDING is the default.
 func cwAlarmHistoryFor(name, itemType, scanBy string) []CWAlarmHistoryItem {
 	var items []CWAlarmHistoryItem
 	collect := func(h []CWAlarmHistoryItem) {
@@ -168,8 +151,6 @@ func cwAlarmHistoryFor(name, itemType, scanBy string) []CWAlarmHistoryItem {
 	})
 	return items
 }
-
-// ── awsJson1.0 surface ──────────────────────────────────────────────────────
 
 func registerCloudWatchAlarmOpsJSON(r *AWSRouter) {
 	r.Register("GraniteServiceVersion20100801.EnableAlarmActions", handleCWJSONEnableAlarmActions)
@@ -306,8 +287,6 @@ func handleCWJSONPutCompositeAlarm(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
-// cwJSONMetricAlarm renders a metric alarm as the awsJson MetricAlarm shape,
-// deriving its state from the live metric data (or honouring a manual override).
 func cwJSONMetricAlarm(a CWAlarm, now time.Time) map[string]any {
 	state, reason := cwAlarmEffectiveState(a)
 	dims := make([]map[string]string, 0, len(a.Dimensions))
@@ -377,24 +356,15 @@ func cwPutCompositeAlarm(name, rule, desc string, actionsEnabled *bool, alarmAct
 	cwRecordAlarmHistory(name, "CompositeAlarm", "ConfigurationUpdate", "Composite alarm updated", "")
 }
 
-// cwAlarmEffectiveState returns a metric alarm's state, preferring a manual
-// SetAlarmState override over the metric-derived evaluation.
-//
-// The read derives the state rather than reporting the one the evaluator
-// recorded, and both go through cwEvaluateAlarmState, so the two never disagree
-// about what the metric data means. What the evaluator's recorded state adds is
-// transition detection: it is the previous state a dispatch is decided against,
-// which is why it is written only there. Evaluating from the read path instead
-// would put action dispatch — and the ECS reconciliation that follows it — on
-// every DescribeAlarms, which is work a read has no business doing.
+// A manual SetAlarmState override wins. A read derives the state through the
+// same cwEvaluateAlarmState the evaluator uses; only the evaluator records it,
+// since the recorded state exists to detect transitions for dispatch.
 func cwAlarmEffectiveState(a CWAlarm) (state, reason string) {
 	if a.ManualState != "" {
 		return a.ManualState, a.ManualStateReason
 	}
 	return cwEvaluateAlarmState(a)
 }
-
-// ── rpc-v2-cbor surface (Go SDK) ────────────────────────────────────────────
 
 func registerCloudWatchAlarmOpsCBOR(srv *sim.Server) {
 	cwCBOR(srv, "EnableAlarmActions", handleCWCBOREnableAlarmActions)
@@ -405,19 +375,14 @@ func registerCloudWatchAlarmOpsCBOR(srv *sim.Server) {
 	cwCBOR(srv, "PutCompositeAlarm", handleCWCBORPutCompositeAlarm)
 }
 
-// cwCBOR mounts a CloudWatch rpc-v2-cbor operation under the shared
-// GraniteServiceVersion20100801 service path, wrapped in CloudTrail recording
-// like the existing alarm/metric cbor routes.
+// Mount under GraniteServiceVersion20100801 with CloudTrail recording.
 func cwCBOR(srv *sim.Server, op string, h http.HandlerFunc) {
 	cwCBORRecordRoute(srv, op)
 	srv.HandleFunc("POST /service/GraniteServiceVersion20100801/operation/"+op,
 		cloudTrailRecordedREST(op, "monitoring.amazonaws.com", nil, cloudWatchCBORAuthorized(op, h)))
 }
 
-// cloudWatchCBORAuthorized applies the same SigV4 and call-time IAM contract
-// as the query-protocol Amazon CloudWatch endpoint. RPCv2-CBOR is path-routed
-// rather than Action-routed, so the operation name comes from the modeled
-// route.
+// RPCv2-CBOR routes by path, so the operation name comes from the route.
 func cloudWatchCBORAuthorized(op string, h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var body []byte
@@ -427,10 +392,8 @@ func cloudWatchCBORAuthorized(op string, h http.HandlerFunc) http.HandlerFunc {
 			r.Body = io.NopCloser(bytes.NewReader(body))
 		}
 
-		// Preserve the established unsigned-request passthrough for direct
-		// in-process consumers. Official SDK and CLI requests are signed;
-		// signed requests are authenticated and registered principals are
-		// authorized exactly as on the query-protocol route.
+		// Unsigned in-process requests pass through; signed SDK and CLI requests are
+		// authenticated and authorized as on the query-protocol route.
 		if iamAccessKeyIDFromRequest(r) != "" {
 			if _, serr := sigv4Verify(r, body); serr != nil {
 				jsonCode, _ := sigv4ErrorCodes(serr.kind)
@@ -451,9 +414,7 @@ func cloudWatchCBORAuthorized(op string, h http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-// cloudWatchCBORTargets is what an RPC v2 CBOR request is authorized as: the
-// operation its path names on the resources its body names, and
-// cloudwatch:TagResource as well when a create carries tags.
+// cloudwatch:TagResource is also required when a create carries tags.
 func cloudWatchCBORTargets(r *http.Request, op string) []iamAuthorizationTarget {
 	region := iamRequestedRegion(r)
 	if region == "" {
@@ -471,8 +432,6 @@ func cloudWatchCBORTargets(r *http.Request, op string) []iamAuthorizationTarget 
 	return append(targets, iamCloudWatchTagsPropagationTargets(r, op, resources)...)
 }
 
-// cwReadCBOR reads and CBOR-decodes a request body into v, writing the protocol
-// error and returning false on failure.
 func cwReadCBOR(w http.ResponseWriter, r *http.Request, v any) bool {
 	raw, err := cwReadBody(r)
 	if err != nil {
@@ -615,8 +574,6 @@ func handleCWCBORPutCompositeAlarm(w http.ResponseWriter, r *http.Request) {
 		req.AlarmActions, req.OKActions, req.InsufficientDataActions, req.Tags, req.ActionConfiguration)
 	cwWriteCBOR(w, map[string]any{})
 }
-
-// ── query surface (older aws CLI) ───────────────────────────────────────────
 
 func registerCloudWatchAlarmOpsQuery(r *AWSQueryRouter) {
 	r.Register("EnableAlarmActions", handleCWQueryEnableAlarmActions)

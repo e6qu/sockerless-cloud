@@ -13,14 +13,9 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/blobstore"
 )
 
-// Handler-level tests for the Amplify sim: explicit-maxResults pagination,
-// the DeleteApp cascade, presence-based updates, job/stop state rules, and
-// the wire/store splits (webhook appId hydration, deployment rows).
-
 func amplifyResetStores(t *testing.T) {
 	t.Helper()
-	// Work started by whatever ran before this must finish before the
-	// stores it is reading are replaced.
+	// Let earlier background work finish before replacing its stores.
 	bg.Await()
 	amplifyApps = sim.MakeStore[amplifyStoredApp](nil, "amplify_apps")
 	amplifyWebhooks = sim.MakeStore[amplifyStoredWebhook](nil, "amplify_webhooks")
@@ -37,8 +32,7 @@ func amplifyResetStores(t *testing.T) {
 	s3ObjectTags = sim.MakeStore[map[string]string](nil, "s3_object_tags")
 	s3BucketConfigs = sim.MakeStore[S3BucketConfig](nil, "s3_bucket_configs")
 	dir := t.TempDir()
-	// Background work this test starts must finish before its payload
-	// directory goes.
+	// Let this test's background work finish before its payload directory goes.
 	t.Cleanup(bg.Await)
 	var err error
 	if s3Bodies, err = blobstore.OpenPayloads(dir); err != nil {
@@ -84,8 +78,6 @@ func amplifyDoJSON(t *testing.T, handler http.HandlerFunc, method, target, body 
 	return rec, decoded
 }
 
-// amplifyWalkPages walks a list handler with maxResults=1 until the
-// nextToken disappears and returns the per-page item counts.
 func amplifyWalkPages(t *testing.T, handler http.HandlerFunc, path, key string, pathVals map[string]string) []int {
 	t.Helper()
 	var pages []int
@@ -179,7 +171,7 @@ func TestAmplifyListPaginationExplicitOnly(t *testing.T) {
 			if _, present := body["nextToken"]; present {
 				t.Fatalf("full list must not carry nextToken: %s", rec.Body.String())
 			}
-			// Malformed pagination params are rejected.
+			// Reject malformed pagination parameters.
 			rec, _ = amplifyDoJSON(t, tc.handler, http.MethodGet, tc.path+"?maxResults=bogus", "", tc.vals)
 			if rec.Code != http.StatusBadRequest {
 				t.Fatalf("bogus maxResults: expected 400, got %d", rec.Code)
@@ -433,8 +425,7 @@ func TestAmplifyCreateDeploymentPendingRow(t *testing.T) {
 		t.Fatalf("pending deployment row missing or incomplete: %+v", dep)
 	}
 
-	// Unknown app/branch surface as BadRequestException (the model carries
-	// no NotFoundException for CreateDeployment).
+	// The model has no NotFoundException for CreateDeployment.
 	rec, body = amplifyDoJSON(t, handleAmplifyCreateDeployment, http.MethodPost, "/apps/nosuch/branches/main/deployments", "",
 		map[string]string{"appId": "nosuch", "name": "main"})
 	if rec.Code != http.StatusBadRequest || body["__type"] != "BadRequestException" {
@@ -443,8 +434,7 @@ func TestAmplifyCreateDeploymentPendingRow(t *testing.T) {
 }
 
 func TestAmplifyWebhookWireStoreSplit(t *testing.T) {
-	// A row persisted before appId joined the wire shape carries the
-	// linkage only on the store struct; the wire view must hydrate it.
+	// An older persisted row carries appId only on the store struct.
 	row := `{"Webhook":{"webhookArn":"arn:aws:amplify:us-east-1:123456789012:webhooks/w1","webhookId":"w1","webhookUrl":"https://webhooks.amplify.us-east-1.amazonaws.com/prod/webhooks?id=w1","branchName":"main","createTime":1,"updateTime":1},"AppId":"oldapp"}`
 	var stored amplifyStoredWebhook
 	if err := json.Unmarshal([]byte(row), &stored); err != nil {

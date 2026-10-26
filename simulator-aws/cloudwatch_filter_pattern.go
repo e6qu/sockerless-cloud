@@ -12,27 +12,21 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// CloudWatch Logs metric-filter pattern language (FilterLogEvents filterPattern),
-// replacing the naive substring match. Two grammars, per the AWS docs:
+// The CloudWatch Logs filter pattern language has two grammars:
 //
-//   - Unstructured (plain-text events): space-separated terms — all required
-//     (AND); `?term` makes a term optional (OR group); `-term` excludes; quoted
-//     "phrases" match as a substring of the raw message; %regex% matches the
-//     message against a regular expression.
-//   - Structured (pattern wrapped in {…}, JSON events): a boolean expression over
-//     JSON selectors — `$.field`, nested `$.a.b`, array `$.a[0]` — with the
-//     comparison operators = != < <= > >= (string equality supports a trailing
-//     `*` wildcard) and the tests IS NULL, NOT EXISTS, IS TRUE and IS FALSE,
-//     combined with && / || and parentheses.
+//   - Unstructured: space-separated terms, all required; `?term` joins an OR
+//     group, `-term` excludes, "phrases" match as substrings, %regex% as a
+//     regular expression.
+//   - Structured ({…}, JSON events): JSON selectors (`$.a.b`, `$.a[0]`) with
+//     = != < <= > >= (string equality takes a trailing `*`), IS NULL, NOT
+//     EXISTS, IS TRUE and IS FALSE, combined with && / || and parentheses.
 //
-// A malformed structured pattern is a loud error (the FilterLogEvents handler
-// surfaces it as InvalidParameterException, exactly as real CloudWatch Logs),
-// never a silent "matches nothing".
+// A malformed structured pattern is an InvalidParameterException, never a
+// silent non-match.
 //
 // https://docs.aws.amazon.com/AmazonCloudWatch/latest/logs/FilterAndPatternSyntax.html
 
-// cwCompiledPattern is a parsed, validated filter pattern ready to test against
-// many log events. A nil *cwCompiledPattern matches every event (empty pattern).
+// A nil *cwCompiledPattern (empty pattern) matches every event.
 type cwCompiledPattern struct {
 	structured listq.Node // non-nil for a {…} JSON pattern
 	terms      []cwPatternTerm
@@ -79,9 +73,7 @@ func cwCompilePatternTerms(pattern string) ([]cwPatternTerm, error) {
 	return terms, nil
 }
 
-// cwCompileLogPattern parses a filterPattern. A malformed structured pattern
-// returns an error; an unstructured pattern (space-separated terms) is always
-// well-formed.
+// An unstructured pattern is always well-formed.
 func cwCompileLogPattern(pattern string) (*cwCompiledPattern, error) {
 	pattern = strings.TrimSpace(pattern)
 	if pattern == "" {
@@ -104,8 +96,6 @@ func cwCompileLogPattern(pattern string) (*cwCompiledPattern, error) {
 	return &cwCompiledPattern{terms: terms}, nil
 }
 
-// match reports whether the compiled pattern matches the event message. A nil
-// receiver (empty pattern) matches every event.
 func (c *cwCompiledPattern) match(message string) bool {
 	if c == nil {
 		return true
@@ -113,7 +103,7 @@ func (c *cwCompiledPattern) match(message string) bool {
 	if c.structured != nil {
 		var doc any
 		if err := json.Unmarshal([]byte(message), &doc); err != nil {
-			return false // a structured pattern only matches JSON events
+			return false // A structured pattern matches only JSON events.
 		}
 		return c.structured.Eval(listq.Doc{cwPatRoot: doc})
 	}
@@ -146,8 +136,7 @@ func cwMatchUnstructuredTerms(message string, terms []cwPatternTerm) bool {
 	return true
 }
 
-// cwSplitPatternTerms splits on whitespace, keeping "quoted phrases" and
-// %regular expressions% together.
+// Keep "quoted phrases" and %regular expressions% together.
 func cwSplitPatternTerms(s string) []string {
 	var terms []string
 	var cur strings.Builder
@@ -177,10 +166,8 @@ func cwSplitPatternTerms(s string) []string {
 	return terms
 }
 
-// cwParseStructuredPattern parses the body of a {…} structured pattern into an
-// evaluable node, returning an error for a malformed pattern (unbalanced
-// parentheses, a comparison missing its operator/value, trailing garbage, or
-// nesting too deep) instead of silently matching nothing.
+// Reject unbalanced parentheses, a comparison missing its operator or value,
+// trailing input or excessive nesting.
 func cwParseStructuredPattern(expr string) (listq.Node, error) {
 	p := &cwPatParser{toks: cwPatTokenize(expr), guard: sim.NewParseGuard(maxExprParseDepth, 1<<62)}
 	node := p.parseOr()
@@ -193,8 +180,7 @@ func cwParseStructuredPattern(expr string) (listq.Node, error) {
 	return node, nil
 }
 
-// cwPatRoot keys the decoded event in the document a structured pattern
-// evaluates, so a selector can address a top-level array as well as an object.
+// Key the event under a root so a selector can address a top-level array.
 const cwPatRoot = "$"
 
 type cwPatCmp struct{ selector, op, value string }
@@ -222,9 +208,8 @@ func (n cwPatCmp) Eval(d listq.Doc) bool {
 	return false
 }
 
-// cwPatTest is a structured pattern's keyword test on a selector: IS NULL
-// matches a property whose value is null, NOT EXISTS one the event lacks, and
-// IS TRUE / IS FALSE a Boolean property.
+// IS NULL matches a null property, NOT EXISTS an absent one, IS TRUE and IS
+// FALSE a Boolean.
 type cwPatTest struct{ selector, test string }
 
 func (n cwPatTest) Eval(d listq.Doc) bool {
@@ -310,10 +295,8 @@ func cwPatTokenize(s string) []cwPatTok {
 				sc.Next()
 			}
 			if sc.Pos() == start {
-				// A lone '&' / '|' (not doubled into && / ||) reaches here: it is
-				// a delimiter for the word scanner but matches no operator case, so
-				// it would be consumed zero times — an infinite loop. Emit the stray
-				// byte as a word token and advance to guarantee forward progress.
+				// A lone '&' or '|' matches no operator and would loop forever; emit it as a
+				// word to make progress.
 				toks = append(toks, cwPatTok{cwPatWord, sc.Slice(start, start+1)})
 				sc.Next()
 				continue
@@ -412,7 +395,6 @@ func (p *cwPatParser) parseTerm() listq.Node {
 	return cwPatCmp{selector: selector, op: op, value: p.next().text}
 }
 
-// cwSelectJSON resolves a "$.a.b[0]" selector into a decoded JSON document.
 func cwSelectJSON(doc any, selector string) (any, bool) {
 	sel := strings.TrimPrefix(selector, "$")
 	sel = strings.TrimPrefix(sel, ".")

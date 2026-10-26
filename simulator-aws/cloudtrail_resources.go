@@ -6,14 +6,8 @@ import (
 	"strings"
 )
 
-// cloudTrailResources extracts the resources[] a recorded API call acted on, so
-// the ResourceName / ResourceType LookupEvents attributes can filter on them.
-// Real CloudTrail records the resource(s) an operation touches; the resource
-// identifier is carried in the request, so we read it from the buffered awsJson
-// body (or, for query-protocol services, the parsed form) and pair it with the
-// resource's AWS::Service::Type. Operations that act on no named resource (or
-// whose identifier is not in the request) record none — never a fabricated
-// resource.
+// The request carries the identifier of the resource an operation touches;
+// operations naming none record none.
 func cloudTrailResources(source, eventName string, reqBody []byte, r *http.Request) []CloudTrailResource {
 	get := cloudTrailFieldGetter(reqBody, r)
 	add := func(typ, name string) []CloudTrailResource {
@@ -108,10 +102,8 @@ func cloudTrailResources(source, eventName string, reqBody []byte, r *http.Reque
 	return nil
 }
 
-// cloudTrailFieldGetter returns a case-insensitive lookup over the request's
-// top-level string fields — the awsJson body (PascalCase for some services,
-// camelCase for others) or the query-protocol form. Case-insensitivity avoids
-// guessing each service's wire casing wrong.
+// Match case-insensitively: awsJson services differ in PascalCase versus
+// camelCase.
 func cloudTrailFieldGetter(reqBody []byte, r *http.Request) func(keys ...string) string {
 	fields := map[string]string{}
 	if len(reqBody) > 0 {
@@ -137,10 +129,7 @@ func cloudTrailFieldGetter(reqBody []byte, r *http.Request) func(keys ...string)
 	}
 }
 
-// cloudTrailShortName returns the last path/colon segment of an ARN or path-like
-// identifier (e.g. "arn:aws:ecs:…:cluster/probe" -> "probe"), or the input
-// unchanged when it carries no separator. Matches the resource name a caller
-// filters LookupEvents by.
+// Returns the input unchanged when it has no separator.
 func cloudTrailShortName(id string) string {
 	if id == "" {
 		return ""
@@ -154,7 +143,6 @@ func cloudTrailShortName(id string) string {
 	return id
 }
 
-// cloudTrailLastSegment returns the final '/'-delimited segment of a URL.
 func cloudTrailLastSegment(u string) string {
 	if i := strings.LastIndex(u, "/"); i >= 0 {
 		return u[i+1:]

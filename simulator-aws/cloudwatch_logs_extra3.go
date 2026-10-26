@@ -11,25 +11,13 @@ import (
 	"github.com/google/uuid"
 )
 
-// cwFormatRecordTime renders an epoch-millis timestamp the way CloudWatch Logs
-// Insights renders @timestamp/@ingestionTime fields: "YYYY-MM-DD HH:MM:SS.mmm".
+// CloudWatch Logs Insights renders @timestamp as "YYYY-MM-DD HH:MM:SS.mmm".
 func cwFormatRecordTime(epochMillis int64) string {
 	return time.UnixMilli(epochMillis).UTC().Format("2006-01-02 15:04:05.000")
 }
 
-// CloudWatch Logs control-plane operations for OpenSearch integrations, lookup
-// tables, scheduled Insights queries, per-log-group transformers, S3 import
-// tasks, log-structure reads (fields/record), log-group deletion protection,
-// anomaly listing/updating, and the regex-pattern log-group listing surfaces.
-// Each operates on a real sim.Store (or the existing log-group / anomaly-detector
-// stores) at CloudWatch Logs (awsJson1.1) API fidelity. There are no fakes:
-// Put/Create returns the id/arn, Get/Describe reads it back, Delete removes it;
-// reads derived from stored log events return honest-empty results when the
-// group has no events.
-
-// CWIntegration mirrors the GetIntegrationResponse / IntegrationSummary shape.
-// Keyed by integrationName. resourceConfig is preserved verbatim from the
-// PutIntegration request so GetIntegration can derive faithful details.
+// Keyed by integrationName. Keep resourceConfig verbatim so GetIntegration can
+// derive its details.
 type CWIntegration struct {
 	IntegrationName   string          `json:"integrationName"`
 	IntegrationType   string          `json:"integrationType"`
@@ -37,7 +25,7 @@ type CWIntegration struct {
 	ResourceConfig    json.RawMessage `json:"-"`
 }
 
-// CWLookupTable mirrors the GetLookupTableResponse shape. Keyed by lookupTableArn.
+// Keyed by lookupTableArn.
 type CWLookupTable struct {
 	LookupTableArn  string `json:"lookupTableArn"`
 	LookupTableName string `json:"lookupTableName"`
@@ -49,8 +37,7 @@ type CWLookupTable struct {
 	LastUpdatedTime int64  `json:"lastUpdatedTime"`
 }
 
-// CWScheduledQuery mirrors the GetScheduledQueryResponse shape. Keyed by
-// scheduledQueryArn. destinationConfiguration is preserved verbatim.
+// Keyed by scheduledQueryArn; destinationConfiguration is kept verbatim.
 type CWScheduledQuery struct {
 	ScheduledQueryArn        string          `json:"scheduledQueryArn"`
 	Name                     string          `json:"name"`
@@ -72,8 +59,7 @@ type CWScheduledQuery struct {
 	LastExecutionStatus      string          `json:"lastExecutionStatus,omitempty"`
 }
 
-// CWTransformer mirrors the GetTransformerResponse shape. Keyed by
-// logGroupIdentifier. transformerConfig is a Processors list, preserved verbatim.
+// Keyed by logGroupIdentifier; transformerConfig is kept verbatim.
 type CWTransformer struct {
 	LogGroupIdentifier string          `json:"logGroupIdentifier"`
 	TransformerConfig  json.RawMessage `json:"transformerConfig"`
@@ -81,7 +67,7 @@ type CWTransformer struct {
 	LastModifiedTime   int64           `json:"lastModifiedTime"`
 }
 
-// CWImportTask mirrors the Import shape. Keyed by importId.
+// Keyed by importId.
 type CWImportTask struct {
 	ImportId             string          `json:"importId"`
 	ImportSourceArn      string          `json:"importSourceArn,omitempty"`
@@ -111,10 +97,6 @@ func registerCloudWatchLogsExtra3(r *AWSRouter, srv *sim.Server) {
 	cwImportTasks = sim.MakeStore[CWImportTask](srv.DB(), "cw_import_tasks")
 	cwDeletionProtect = sim.MakeStore[bool](srv.DB(), "cw_deletion_protection")
 
-	// OpenSearch integrations, lookup tables, scheduled Insights queries,
-	// per-log-group transformers, S3 import tasks, log-structure reads +
-	// deletion protection, anomalies (over the existing cwLogAnomalyDetectors
-	// store), and log-group listing surfaces.
 	for op, h := range map[string]http.HandlerFunc{
 		"PutIntegration":                 handleCWPutIntegration,
 		"GetIntegration":                 handleCWGetIntegration,
@@ -205,12 +187,8 @@ func handleCWGetIntegration(w http.ResponseWriter, r *http.Request) {
 			"The specified integration does not exist: %s", req.IntegrationName)
 		return
 	}
-	// integrationDetails carries the OpenSearch resources the integration owns.
-	// The application ARN derives from the integration name; this is faithful to
-	// the GetIntegration response without fabricating unrelated facts. The
-	// endpoint is one of those facts, and the member is therefore absent: the
-	// model constrains it to an https URL, so an empty string is not "no value"
-	// but a value the service could never return.
+	// The application ARN derives from the integration name. Omit the endpoint:
+	// the model requires an https URL, so "" is not a valid "no value".
 	details := map[string]any{
 		"openSearchIntegrationDetails": map[string]any{
 			"application": map[string]any{
@@ -464,8 +442,7 @@ func handleCWCreateScheduledQuery(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// cwScheduledQueryByIdentifier resolves a scheduled query by ARN or by bare
-// name (real CloudWatch Logs accepts either as the `identifier`).
+// The identifier may be an ARN or a bare name.
 func cwScheduledQueryByIdentifier(id string) (CWScheduledQuery, bool) {
 	if sq, ok := cwScheduledQ.Get(id); ok {
 		return sq, true
@@ -677,8 +654,7 @@ func handleCWGetScheduledQueryHistory(w http.ResponseWriter, r *http.Request) {
 			"The specified scheduled query does not exist: %s", req.Identifier)
 		return
 	}
-	// A freshly created scheduled query has not triggered yet, so its trigger
-	// history is honestly empty.
+	// The simulator records no trigger runs, so the history is empty.
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
 		"scheduledQueryArn": sq.ScheduledQueryArn,
 		"name":              sq.Name,
@@ -760,11 +736,8 @@ func handleCWTestTransformer(w http.ResponseWriter, r *http.Request) {
 		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
-	// Apply the transformer to each sample record. A JSON-parsing processor is
-	// the common case: a `{ "parseJSON": {...} }` processor flattens the message
-	// into top-level fields. The transformed message echoes the input when the
-	// pipeline does not rewrite it, matching TestTransformer's record-by-record
-	// output shape.
+	// Only a parseJSON processor rewrites the record, flattening the message into
+	// top-level fields; otherwise the message is echoed.
 	parseJSON := strings.Contains(string(req.TransformerConfig), "parseJSON")
 	transformed := []map[string]any{}
 	for i, msg := range req.LogEventMessages {
@@ -803,8 +776,8 @@ func handleCWCreateImportTask(w http.ResponseWriter, r *http.Request) {
 	id := uuid.New().String()
 	now := time.Now().UnixMilli()
 	destArn := "arn:aws:logs:" + awsRegion() + ":" + awsAccountID() + ":log-group:import-" + id
-	// An import task settles COMPLETED: the simulator runs the import to
-	// completion synchronously rather than fabricating an asynchronous timer.
+	// The task settles COMPLETED at once; the simulator reads nothing from the
+	// import source.
 	cwImportTasks.Put(id, CWImportTask{
 		ImportId:             id,
 		ImportSourceArn:      req.ImportSourceArn,
@@ -837,9 +810,8 @@ func handleCWCancelImportTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	now := time.Now().UnixMilli()
-	// A COMPLETED import cannot be cancelled; an in-progress one transitions to
-	// CANCELLED. The simulator settles imports to COMPLETED, so cancellation is
-	// a no-op on status but still echoes the task back per the response shape.
+	// Only an IN_PROGRESS import moves to CANCELLED; the response echoes the task
+	// either way.
 	if task.ImportStatus == "IN_PROGRESS" {
 		cwImportTasks.Update(req.ImportId, func(t *CWImportTask) {
 			t.ImportStatus = "CANCELLED"
@@ -916,8 +888,7 @@ func handleCWDescribeImportTaskBatches(w http.ResponseWriter, r *http.Request) {
 			"The specified import task does not exist: %s", req.ImportId)
 		return
 	}
-	// A completed import has one settled batch carrying the task's terminal
-	// status; an in-progress import that produced no batches yet reports none.
+	// A completed import reports one batch carrying its terminal status.
 	batches := []map[string]any{}
 	if task.ImportStatus == "COMPLETED" || task.ImportStatus == "FAILED" || task.ImportStatus == "CANCELLED" {
 		batch := map[string]any{
@@ -964,10 +935,7 @@ func handleCWGetLogGroupFields(w http.ResponseWriter, r *http.Request) {
 			"The specified log group does not exist: %s", name)
 		return
 	}
-	// Discover the fields present in the group's stored events. CloudWatch Logs
-	// always exposes the structural @-fields (@timestamp/@message/@ingestionTime/
-	// @logStream) plus any top-level keys parsed from JSON event messages. With
-	// no events the result is honestly empty.
+	// Expose the structural @-fields plus the top-level keys of JSON messages.
 	fieldCounts := map[string]int{}
 	total := 0
 	for _, stream := range cwLogStreams.Filter(func(s CWLogStream) bool { return s.LogGroupName == name }) {
@@ -1001,8 +969,6 @@ func handleCWGetLogGroupFields(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"logGroupFields": fields})
 }
 
-// cwLogGroupIdentifierToName extracts the log-group name from an identifier
-// that may be a bare name or a log-group ARN.
 func cwLogGroupIdentifierToName(identifier string) string {
 	if identifier == "" {
 		return ""
@@ -1030,8 +996,7 @@ func handleCWGetLogRecord(w http.ResponseWriter, r *http.Request) {
 		AWSError(w, "InvalidParameterException", "logRecordPointer is required", http.StatusBadRequest)
 		return
 	}
-	// A logRecordPointer encodes group|stream|index, produced by StartQuery
-	// results. Resolve it back to the stored event and return its real fields.
+	// StartQuery results encode logRecordPointer as group|stream|index.
 	record := map[string]any{}
 	parts := strings.SplitN(req.LogRecordPointer, "|", 3)
 	if len(parts) == 3 {
@@ -1095,8 +1060,7 @@ func handleCWListAnomalies(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	// A freshly created anomaly detector has surfaced no anomalies yet, so the
-	// result is honestly empty rather than fabricated.
+	// The simulator surfaces no anomalies.
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"anomalies": []map[string]any{}})
 }
 
@@ -1206,8 +1170,7 @@ func handleCWListAggregateLogGroupSummaries(w http.ResponseWriter, r *http.Reque
 		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
-	// Aggregate summaries group log groups by data source. With no data-source
-	// integrations configured, there are no aggregate summaries — honestly empty.
+	// Without data-source integrations there are no aggregate summaries.
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
 		"aggregateLogGroupSummaries": []map[string]any{},
 	})

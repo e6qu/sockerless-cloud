@@ -20,10 +20,9 @@ import (
 )
 
 // The Amazon CloudWatch model declares rpc-v2-cbor for every operation, and
-// the Go SDK speaks only that. An operation whose CBOR route is not written by
-// hand is served from its awsJson1_0 handler, converting the request and the
-// answer by the model's shapes (cloudwatch_cbor_shapes_gen.go): the two
-// protocols differ in how they carry timestamps, blobs and numbers.
+// the Go SDK speaks only that. Serve an operation without a hand-written CBOR
+// route from its awsJson1_0 handler, converting by the model's shapes: the
+// protocols differ in timestamps, blobs and numbers.
 
 type cwCBORKind uint8
 
@@ -48,8 +47,8 @@ type cwCBORShape struct {
 	Members map[string]string
 }
 
-// cwCBORRoutes records, per server, the operations cwCBOR mounted, so the
-// bridge serves the rest and never mounts a route twice.
+// Record the operations cwCBOR mounted so the bridge serves the rest and never
+// mounts a route twice.
 var (
 	cwCBORRoutesMu sync.Mutex
 	cwCBORRoutes   = map[*sim.Server]map[string]bool{}
@@ -70,8 +69,7 @@ func cwCBORRouted(srv *sim.Server, op string) bool {
 	return cwCBORRoutes[srv][op]
 }
 
-// cwCBORUnimplemented lists the model's operations that have no handler on any
-// protocol; each answers UnknownOperationException.
+// Each answers UnknownOperationException.
 var cwCBORUnimplemented []string
 
 var cwCBORDecMode, _ = cbor.DecOptions{DefaultMapType: reflect.TypeOf(map[string]any(nil))}.DecMode()
@@ -160,8 +158,7 @@ func cwCBORBridge(op string, handler http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-// cwCBORToJSON turns a decoded CBOR request value into the awsJson1_0 form of
-// the same shape: epoch-second numbers for timestamps, base64 for blobs.
+// awsJson1_0 carries timestamps as epoch seconds and blobs as base64.
 func cwCBORToJSON(shapeName string, value any) any {
 	shape := cwCBORShapes[shapeName]
 	switch shape.Kind {
@@ -201,8 +198,7 @@ func cwCBORToJSON(shapeName string, value any) any {
 	return value
 }
 
-// cwJSONToCBOR turns an awsJson1_0 answer into the rpc-v2-cbor form of the
-// same shape. A value the shape does not admit is an error, never passed on.
+// A value the shape does not admit is an error, never passed on.
 func cwJSONToCBOR(shapeName string, value any) (any, error) {
 	shape := cwCBORShapes[shapeName]
 	switch shape.Kind {

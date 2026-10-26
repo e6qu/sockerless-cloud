@@ -7,9 +7,7 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// CloudFront KeyGroup + PublicKey — used to sign signed-URL / signed-
-// cookie verification. PublicKey wraps an Encoded PEM; KeyGroup
-// references a list of PublicKey IDs.
+// A KeyGroup lists PublicKey IDs that verify signed URLs and cookies.
 
 type CFPublicKeyConfig struct {
 	XMLName         xml.Name `xml:"PublicKeyConfig"`
@@ -97,7 +95,6 @@ func registerCloudFrontKeys(srv *sim.Server) {
 
 	publicKeyResource := cloudTrailRESTResource("AWS::CloudFront::PublicKey", "id")
 	keyGroupResource := cloudTrailRESTResource("AWS::CloudFront::KeyGroup", "id")
-	// PublicKey
 	mux.HandleFunc("POST /"+cfAPIVersion+"/public-key", cloudTrailRecordedREST("CreatePublicKey", "cloudfront.amazonaws.com", nil, handleCFCreatePublicKey))
 	mux.HandleFunc("GET /"+cfAPIVersion+"/public-key", cloudTrailRecordedREST("ListPublicKeys", "cloudfront.amazonaws.com", nil, handleCFListPublicKeys))
 	mux.HandleFunc("GET /"+cfAPIVersion+"/public-key/{id}", cloudTrailRecordedREST("GetPublicKey", "cloudfront.amazonaws.com", publicKeyResource, handleCFGetPublicKey))
@@ -105,7 +102,6 @@ func registerCloudFrontKeys(srv *sim.Server) {
 	mux.HandleFunc("PUT /"+cfAPIVersion+"/public-key/{id}/config", cloudTrailRecordedREST("UpdatePublicKey", "cloudfront.amazonaws.com", publicKeyResource, handleCFUpdatePublicKey))
 	mux.HandleFunc("DELETE /"+cfAPIVersion+"/public-key/{id}", cloudTrailRecordedREST("DeletePublicKey", "cloudfront.amazonaws.com", publicKeyResource, handleCFDeletePublicKey))
 
-	// KeyGroup
 	mux.HandleFunc("POST /"+cfAPIVersion+"/key-group", cloudTrailRecordedREST("CreateKeyGroup", "cloudfront.amazonaws.com", nil, handleCFCreateKeyGroup))
 	mux.HandleFunc("GET /"+cfAPIVersion+"/key-group", cloudTrailRecordedREST("ListKeyGroups", "cloudfront.amazonaws.com", nil, handleCFListKeyGroups))
 	mux.HandleFunc("GET /"+cfAPIVersion+"/key-group/{id}", cloudTrailRecordedREST("GetKeyGroup", "cloudfront.amazonaws.com", keyGroupResource, handleCFGetKeyGroup))

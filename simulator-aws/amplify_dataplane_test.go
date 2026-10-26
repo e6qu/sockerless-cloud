@@ -13,15 +13,10 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
-// Docker-free hosting data-plane tests: host matcher, custom-rule matcher,
-// static content resolution, and basic auth — all served from in-memory
-// stores.
-
 func amplifyResetHostingState(t *testing.T) {
 	t.Helper()
 	amplifyResetStores(t)
-	// Background work from an earlier test must finish before the stores
-	// it is reading are replaced.
+	// Let an earlier test's background work finish before replacing its stores.
 	bg.Await()
 	r53Zones = sim.MakeStore[r53StoredZone](nil, "route53_zones")
 	wafAssociations = sim.MakeStore[wafAssociation](nil, "wafv2_associations")
@@ -49,8 +44,6 @@ func amplifyZipOf(t *testing.T, files map[string]string) []byte {
 	return buf.Bytes()
 }
 
-// amplifySeedDeployment stores a SUCCEED job whose artifact is a zip of the
-// given files, making it the branch's active deployment.
 func amplifySeedDeployment(t *testing.T, appID, branch, jobID string, files map[string]string) {
 	t.Helper()
 	key := "artifacts/" + appID + "/" + branch + "/" + jobID + "/artifacts.zip"
@@ -94,7 +87,7 @@ func TestAmplifyHostingTargetTable(t *testing.T) {
 	amplifyResetHostingState(t)
 	amplifySeedApp("dhost1", "main", "dev")
 	amplifySeedApp("dhost2", "main")
-	// dhost2 has a production branch → its cloudfront host routes there.
+	// dhost2's cloudfront host routes to its production branch.
 	st, _ := amplifyApps.Get("dhost2")
 	st.App.ProductionBranch = &AmplifyProductionBranch{BranchName: "main"}
 	amplifyApps.Put("dhost2", st)
@@ -194,7 +187,6 @@ func TestAmplifyHostingStaticServing(t *testing.T) {
 	})
 	host := "main.dserve.amplifyapp.com"
 
-	// Exact file.
 	rec := amplifyHostingGet(t, host, "/app.css", nil)
 	if rec.Code != http.StatusOK || rec.Body.String() != "body{}" {
 		t.Fatalf("exact file: %d %q", rec.Code, rec.Body.String())
@@ -202,17 +194,14 @@ func TestAmplifyHostingStaticServing(t *testing.T) {
 	if ct := rec.Header().Get("Content-Type"); ct != "text/css; charset=utf-8" {
 		t.Fatalf("css content type: %q", ct)
 	}
-	// Root → index.html.
 	rec = amplifyHostingGet(t, host, "/", nil)
 	if rec.Code != http.StatusOK || rec.Body.String() != "<html>home</html>" {
 		t.Fatalf("root index: %d %q", rec.Code, rec.Body.String())
 	}
-	// Directory → its index.html.
 	rec = amplifyHostingGet(t, host, "/about", nil)
 	if rec.Code != http.StatusOK || rec.Body.String() != "<html>about</html>" {
 		t.Fatalf("directory index: %d %q", rec.Code, rec.Body.String())
 	}
-	// Redirects.
 	rec = amplifyHostingGet(t, host, "/old", nil)
 	if rec.Code != http.StatusMovedPermanently || rec.Header().Get("Location") != "/about/" {
 		t.Fatalf("301 rule: %d %q", rec.Code, rec.Header().Get("Location"))
@@ -221,7 +210,7 @@ func TestAmplifyHostingStaticServing(t *testing.T) {
 	if rec.Code != http.StatusFound {
 		t.Fatalf("302 rule: %d", rec.Code)
 	}
-	// SPA fallback for unknown extensionless route.
+	// SPA fallback for an unknown extensionless route.
 	rec = amplifyHostingGet(t, host, "/client/route", nil)
 	if rec.Code != http.StatusOK || rec.Body.String() != "<html>home</html>" {
 		t.Fatalf("SPA fallback: %d %q", rec.Code, rec.Body.String())
@@ -449,21 +438,21 @@ func TestAmplifyDomainVerificationEvaluation(t *testing.T) {
 	}
 	amplifyDomains.Put(amplifyDomainKey("dverify", "shop.example.net"), pending)
 
-	// No hosted zone → honestly stays PENDING_VERIFICATION.
+	// Without a hosted zone the association stays PENDING_VERIFICATION.
 	got := amplifyEvaluateDomainVerification(pending)
 	if got.Domain.DomainStatus != AmplifyDomainStatusPendingVerification {
 		t.Fatalf("no zone: status %s", got.Domain.DomainStatus)
 	}
 
-	// Zone exists but no verification record → still pending.
+	// A zone without the verification record keeps it pending.
 	r53Zones.Put("Z1", r53StoredZone{Zone: R53HostedZone{Id: "/hostedzone/Z1", Name: "example.net."}})
 	got = amplifyEvaluateDomainVerification(pending)
 	if got.Domain.DomainStatus != AmplifyDomainStatusPendingVerification {
 		t.Fatalf("zone without record: status %s", got.Domain.DomainStatus)
 	}
 
-	// Verification CNAME lands in the covering zone → AVAILABLE, subdomains
-	// verified, settled state persisted.
+	// The verification CNAME in the covering zone makes it AVAILABLE and persists
+	// the settled state.
 	zone, _ := r53Zones.Get("Z1")
 	zone.Records = append(zone.Records, R53ResourceRecordSet{
 		Name: name,
@@ -488,7 +477,7 @@ func TestAmplifyDomainVerificationEvaluation(t *testing.T) {
 		t.Fatal("settled state must persist")
 	}
 
-	// CUSTOM certificates have no DNS challenge: they settle immediately.
+	// A CUSTOM certificate has no DNS challenge and settles immediately.
 	custom := amplifyStoredDomain{
 		AppId: "dverify",
 		Domain: AmplifyDomainAssociation{
@@ -510,10 +499,8 @@ func TestAmplifyHostingCorruptStoredManifestServesNothing(t *testing.T) {
 		"index.html":           "<html>root content</html>",
 	}
 
-	// A manifest-consuming platform whose stored manifest no longer parses
-	// has no servable content — never the SSR bundle served statically.
-	// (New deployments with an invalid manifest fail at deploy time; this
-	// covers corrupt stored state.)
+	// A stored manifest that no longer parses on a manifest-consuming platform
+	// serves nothing, never the SSR bundle as static files.
 	amplifySeedApp("badmanifest1", "main")
 	amplifyApps.Update("badmanifest1", func(a *amplifyStoredApp) { a.App.Platform = "WEB_COMPUTE" })
 	amplifySeedDeployment(t, "badmanifest1", "main", "job-badman-1", files)

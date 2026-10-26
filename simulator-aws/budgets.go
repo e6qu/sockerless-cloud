@@ -10,9 +10,7 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/listq"
 )
 
-// Budgets shapes. AWS Budgets speaks awsJson1.1 over POST / with the
-// X-Amz-Target header prefix AWSBudgetServiceGateway. Field names mirror
-// the Budgets Smithy model verbatim.
+// AWS Budgets speaks AWS-JSON 1.1 with target prefix AWSBudgetServiceGateway.
 type budgetsSpend struct {
 	Amount string
 	Unit   string
@@ -225,10 +223,8 @@ func budgetsSubscriberToWire(s budgetsSubscriber) map[string]any {
 	}
 }
 
-// budgetsNotificationKey produces the stable string key under which a
-// notification's subscribers are stored. The Budgets data model treats a
-// notification as identified by its full shape (type, operator, threshold,
-// threshold type), not by any server-assigned id.
+// AWS Budgets identifies a notification by its full shape, not by an
+// assigned id.
 func budgetsNotificationKey(n budgetsNotification) string {
 	return strings.Join([]string{
 		n.NotificationType,
@@ -255,9 +251,8 @@ func handleBudgetsCreateBudget(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.AccountId == "" {
-		// Real AWS derives the AccountId from the caller's signing credentials
-		// when the request omits it. terraform-provider-aws with
-		// skip_requesting_account_id = true relies on this behavior.
+		// AWS derives AccountId from the credentials when the request omits it;
+		// terraform-provider-aws with skip_requesting_account_id relies on that.
 		req.AccountId = awsAccountID()
 	}
 	if req.Budget == nil || req.Budget.BudgetName == "" {
@@ -678,8 +673,7 @@ func handleBudgetsUntagResource(w http.ResponseWriter, r *http.Request) {
 	writeAWSJSON(w, http.StatusOK, map[string]any{})
 }
 
-// budgetsNameFromARN extracts the budget name from the ARN the Budgets API
-// uses for tagging. The provider builds "arn:aws:budgets::<account>:budget/<name>".
+// The provider builds "arn:aws:budgets::<account>:budget/<name>".
 func budgetsNameFromARN(arn string) string {
 	if i := strings.LastIndex(arn, "/"); i >= 0 {
 		return arn[i+1:]
@@ -690,7 +684,6 @@ func budgetsNameFromARN(arn string) string {
 	return arn
 }
 
-// budgetsTags is the tag store keyed by budget name.
 var budgetsTags sim.Store[map[string]string]
 
 func budgetTagsSet(name string, tags []struct {

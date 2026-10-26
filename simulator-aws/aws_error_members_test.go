@@ -10,10 +10,9 @@ import (
 	"testing"
 )
 
-// TestAWSErrorMessageMembersMatchTheVendoredModels holds the generated tables
-// to the models they were generated from: a re-vendored model that renames an
-// error's message member, adds an error, or renames its service or signing
-// name fails here until scripts/gen-aws-error-message-members.go is run again.
+// A re-vendored model that renames a message member, adds an error, or renames
+// its service fails here until scripts/gen-aws-error-message-members.go runs
+// again.
 func TestAWSErrorMessageMembersMatchTheVendoredModels(t *testing.T) {
 	models, err := filepath.Glob(filepath.Join("..", "specs", "cloud-api", "aws", "*.smithy.json.gz"))
 	if err != nil || len(models) == 0 {
@@ -109,10 +108,8 @@ func TestAWSErrorMessageMembersMatchTheVendoredModels(t *testing.T) {
 	}
 }
 
-// TestAWSErrorBodySpellsTheMessageAsTheModelDoes checks the three cases: a
-// declared error takes its own member, an undeclared one takes a uniform
-// model's spelling, and only in a mixed model does an undeclared error carry
-// both.
+// A declared error takes its own member, an undeclared one a uniform model's
+// spelling, and only in a mixed model does an undeclared error carry both.
 func TestAWSErrorBodySpellsTheMessageAsTheModelDoes(t *testing.T) {
 	for _, c := range []struct {
 		model, code string

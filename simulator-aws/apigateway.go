@@ -9,33 +9,25 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// API Gateway v1 (REST API) — restJson1 protocol, REST path routing
-// under /restapis. Surface scoped to the resources / methods /
-// integrations / stages / deployments CRUD that
-// `terraform-provider-aws::aws_api_gateway_rest_api` exercises.
+// Amazon API Gateway REST APIs speak restJson1 under /restapis.
 
 type APIGWRestApi struct {
 	Id          string `json:"id"`
 	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`
 	CreatedDate int64  `json:"createdDate"`
-	// ApiStatus is how a caller knows the API can be used: a client that
-	// creates one waits for AVAILABLE before it deploys to it, and reads an
-	// absent status as a state it has never seen. The simulator's REST API is
-	// usable as soon as the create returns, so that is the status it reports
-	// from creation onward.
+	// A client waits for AVAILABLE before deploying and treats an absent status
+	// as unknown. The simulator's API is usable once created, so it reports
+	// AVAILABLE from creation on.
 	ApiStatus      string            `json:"apiStatus,omitempty"`
 	RootResourceId string            `json:"rootResourceId,omitempty"`
 	Tags           map[string]string `json:"tags,omitempty"`
 }
 
-// apigwStatusAvailable is the ApiStatus of a REST API that can serve requests.
 const apigwStatusAvailable = "AVAILABLE"
 
-// Inner fields use the `restApiIdRef` tag (or similar non-canonical
-// names) instead of `json:"-"` so they survive Store persistence
-// round-trips. Real AWS doesn't emit these on per-resource GETs but
-// the SDK ignores unknown fields, so the leak is harmless.
+// Store linkage fields under non-wire tag names instead of `json:"-"` so they
+// survive Store persistence; the SDK ignores the unknown fields.
 type APIGWResource struct {
 	Id        string `json:"id"`
 	RestApiId string `json:"restApiIdRef,omitempty"`
@@ -61,7 +53,7 @@ type APIGWIntegration struct {
 	ResourceId            string            `json:"resourceIdRef,omitempty"`
 	RestApiId             string            `json:"restApiIdRef,omitempty"`
 	Type                  string            `json:"type"`
-	Uri                   string            `json:"uri,omitempty"` // external (operator-supplied): integration target — Lambda ARN, HTTP backend, or VPC link target
+	Uri                   string            `json:"uri,omitempty"`
 	IntegrationHttpMethod string            `json:"httpMethod,omitempty"`
 	RequestTemplates      map[string]string `json:"requestTemplates,omitempty"`
 	RequestParameters     map[string]string `json:"requestParameters,omitempty"`
@@ -71,16 +63,14 @@ type APIGWIntegration struct {
 	ContentHandling       string            `json:"contentHandling,omitempty"`
 }
 
-// APIGWMethodResponse mirrors aws_api_gateway_method_response. Per-
-// (method, statusCode) row keyed by `<restApiId>/<resourceId>/<httpMethod>/<statusCode>`.
+// Keyed by `<restApiId>/<resourceId>/<httpMethod>/<statusCode>`.
 type APIGWMethodResponse struct {
 	StatusCode         string            `json:"statusCode"`
 	ResponseModels     map[string]string `json:"responseModels,omitempty"`
 	ResponseParameters map[string]bool   `json:"responseParameters,omitempty"`
 }
 
-// APIGWIntegrationResponse mirrors aws_api_gateway_integration_response.
-// Per-(integration, statusCode) row keyed the same as APIGWMethodResponse.
+// Keyed like APIGWMethodResponse.
 type APIGWIntegrationResponse struct {
 	StatusCode         string            `json:"statusCode"`
 	SelectionPattern   string            `json:"selectionPattern,omitempty"`
@@ -103,7 +93,6 @@ type APIGWStage struct {
 	CreatedDate  int64  `json:"createdDate"`
 }
 
-// APIGWApiKey mirrors aws_api_gateway_api_key. Keyed by its own id.
 type APIGWApiKey struct {
 	Id              string            `json:"id"`
 	Value           string            `json:"value,omitempty"`
@@ -117,8 +106,6 @@ type APIGWApiKey struct {
 	Tags            map[string]string `json:"tags,omitempty"`
 }
 
-// APIGWThrottleSettings / APIGWQuotaSettings / APIGWApiStage mirror the
-// nested usage-plan shapes the SDK serializes.
 type APIGWThrottleSettings struct {
 	BurstLimit int     `json:"burstLimit,omitempty"`
 	RateLimit  float64 `json:"rateLimit,omitempty"`
@@ -135,7 +122,6 @@ type APIGWApiStage struct {
 	Stage string `json:"stage,omitempty"`
 }
 
-// APIGWUsagePlan mirrors aws_api_gateway_usage_plan. Keyed by its own id.
 type APIGWUsagePlan struct {
 	Id          string                 `json:"id"`
 	Name        string                 `json:"name,omitempty"`
@@ -147,8 +133,7 @@ type APIGWUsagePlan struct {
 	Tags        map[string]string      `json:"tags,omitempty"`
 }
 
-// APIGWUsagePlanKey mirrors aws_api_gateway_usage_plan_key. Keyed by
-// `<usagePlanId>/<keyId>`; the parent ref rides `usagePlanIdRef`.
+// Keyed by `<usagePlanId>/<keyId>`.
 type APIGWUsagePlanKey struct {
 	Id          string `json:"id"`
 	Type        string `json:"type,omitempty"`
@@ -157,7 +142,7 @@ type APIGWUsagePlanKey struct {
 	UsagePlanId string `json:"usagePlanIdRef,omitempty"`
 }
 
-// APIGWModel mirrors aws_api_gateway_model. Keyed by `<restApiId>/<name>`.
+// Keyed by `<restApiId>/<name>`.
 type APIGWModel struct {
 	Id          string `json:"id"`
 	Name        string `json:"name,omitempty"`
@@ -167,8 +152,7 @@ type APIGWModel struct {
 	RestApiId   string `json:"restApiIdRef,omitempty"`
 }
 
-// APIGWRequestValidator mirrors aws_api_gateway_request_validator. Keyed
-// by `<restApiId>/<id>`.
+// Keyed by `<restApiId>/<id>`.
 type APIGWRequestValidator struct {
 	Id                        string `json:"id"`
 	Name                      string `json:"name,omitempty"`
@@ -177,8 +161,7 @@ type APIGWRequestValidator struct {
 	RestApiId                 string `json:"restApiIdRef,omitempty"`
 }
 
-// APIGWAuthorizer mirrors aws_api_gateway_authorizer. Keyed by
-// `<restApiId>/<id>`.
+// Keyed by `<restApiId>/<id>`.
 type APIGWAuthorizer struct {
 	Id                           string   `json:"id"`
 	Name                         string   `json:"name,omitempty"`
@@ -251,11 +234,8 @@ func registerAPIGateway(srv *sim.Server) {
 	mux.HandleFunc("GET /restapis/{restApiId}/stages/{stageName}", cloudTrailRecordedREST("GetStage", "apigateway.amazonaws.com", apiResource, handleAPIGWGetStage))
 	mux.HandleFunc("DELETE /restapis/{restApiId}/stages/{stageName}", cloudTrailRecordedREST("DeleteStage", "apigateway.amazonaws.com", apiResource, handleAPIGWDeleteStage))
 
-	// Method + integration response CRUD per status code.
-	// terraform-provider-aws's `aws_api_gateway_method_response` +
-	// `aws_api_gateway_integration_response` resources read/write
-	// these on every plan; without them the canonical method-create
-	// flow never gets past response wiring.
+	// terraform-provider-aws reads method and integration responses on every
+	// plan.
 	mux.HandleFunc("PUT /restapis/{restApiId}/resources/{resourceId}/methods/{httpMethod}/responses/{statusCode}", cloudTrailRecordedREST("PutMethodResponse", "apigateway.amazonaws.com", apiResource, handleAPIGWPutMethodResponse))
 	mux.HandleFunc("GET /restapis/{restApiId}/resources/{resourceId}/methods/{httpMethod}/responses/{statusCode}", cloudTrailRecordedREST("GetMethodResponse", "apigateway.amazonaws.com", apiResource, handleAPIGWGetMethodResponse))
 	mux.HandleFunc("DELETE /restapis/{restApiId}/resources/{resourceId}/methods/{httpMethod}/responses/{statusCode}", cloudTrailRecordedREST("DeleteMethodResponse", "apigateway.amazonaws.com", apiResource, handleAPIGWDeleteMethodResponse))
@@ -263,7 +243,6 @@ func registerAPIGateway(srv *sim.Server) {
 	mux.HandleFunc("GET /restapis/{restApiId}/resources/{resourceId}/methods/{httpMethod}/integration/responses/{statusCode}", cloudTrailRecordedREST("GetIntegrationResponse", "apigateway.amazonaws.com", apiResource, handleAPIGWGetIntegrationResponse))
 	mux.HandleFunc("DELETE /restapis/{restApiId}/resources/{resourceId}/methods/{httpMethod}/integration/responses/{statusCode}", cloudTrailRecordedREST("DeleteIntegrationResponse", "apigateway.amazonaws.com", apiResource, handleAPIGWDeleteIntegrationResponse))
 
-	// API keys — top-level resources keyed by their own id.
 	keyResource := cloudTrailRESTResource("AWS::ApiGateway::ApiKey", "apiKey")
 	mux.HandleFunc("POST /apikeys", cloudTrailRecordedREST("CreateApiKey", "apigateway.amazonaws.com", nil, handleAPIGWCreateApiKey))
 	mux.HandleFunc("GET /apikeys", cloudTrailRecordedREST("GetApiKeys", "apigateway.amazonaws.com", nil, handleAPIGWListApiKeys))
@@ -271,7 +250,6 @@ func registerAPIGateway(srv *sim.Server) {
 	mux.HandleFunc("PATCH /apikeys/{apiKey}", cloudTrailRecordedREST("UpdateApiKey", "apigateway.amazonaws.com", keyResource, handleAPIGWUpdateApiKey))
 	mux.HandleFunc("DELETE /apikeys/{apiKey}", cloudTrailRecordedREST("DeleteApiKey", "apigateway.amazonaws.com", keyResource, handleAPIGWDeleteApiKey))
 
-	// Usage plans + usage-plan keys.
 	upResource := cloudTrailRESTResource("AWS::ApiGateway::UsagePlan", "usagePlanId")
 	mux.HandleFunc("POST /usageplans", cloudTrailRecordedREST("CreateUsagePlan", "apigateway.amazonaws.com", nil, handleAPIGWCreateUsagePlan))
 	mux.HandleFunc("GET /usageplans", cloudTrailRecordedREST("GetUsagePlans", "apigateway.amazonaws.com", nil, handleAPIGWListUsagePlans))
@@ -283,7 +261,6 @@ func registerAPIGateway(srv *sim.Server) {
 	mux.HandleFunc("GET /usageplans/{usagePlanId}/keys/{keyId}", cloudTrailRecordedREST("GetUsagePlanKey", "apigateway.amazonaws.com", upResource, handleAPIGWGetUsagePlanKey))
 	mux.HandleFunc("DELETE /usageplans/{usagePlanId}/keys/{keyId}", cloudTrailRecordedREST("DeleteUsagePlanKey", "apigateway.amazonaws.com", upResource, handleAPIGWDeleteUsagePlanKey))
 
-	// Models, request validators, authorizers — all scoped to a REST API.
 	mux.HandleFunc("POST /restapis/{restApiId}/models", cloudTrailRecordedREST("CreateModel", "apigateway.amazonaws.com", apiResource, handleAPIGWCreateModel))
 	mux.HandleFunc("GET /restapis/{restApiId}/models", cloudTrailRecordedREST("GetModels", "apigateway.amazonaws.com", apiResource, handleAPIGWListModels))
 	mux.HandleFunc("GET /restapis/{restApiId}/models/{modelName}", cloudTrailRecordedREST("GetModel", "apigateway.amazonaws.com", apiResource, handleAPIGWGetModel))
@@ -318,8 +295,7 @@ func handleAPIGWCreateRestApi(w http.ResponseWriter, r *http.Request) {
 		ApiStatus:   apigwStatusAvailable,
 		Tags:        req.Tags,
 	}
-	// Real API Gateway auto-creates the root "/" resource on Create and
-	// surfaces its id as rootResourceId.
+	// Amazon API Gateway creates the root "/" resource with the API.
 	root := APIGWResource{
 		Id:        sim.NewUUID()[:10],
 		RestApiId: api.Id,
@@ -781,9 +757,8 @@ func handleAPIGWDeleteIntegrationResponse(w http.ResponseWriter, r *http.Request
 	w.WriteHeader(http.StatusAccepted)
 }
 
-// apigwPatchOp is one JSON-Patch-style operation an API Gateway PATCH
-// (Update*) request carries. Only "replace"/"add" on a "/<field>" path
-// is honored — the shape the canonical SDK + CLI update flows produce.
+// Honour only "replace" and "add" on a "/<field>" path, the shape the SDK and
+// CLI update flows produce.
 type apigwPatchOp struct {
 	Op    string `json:"op"`
 	Path  string `json:"path"`

@@ -9,8 +9,6 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// Cloud Map types
-
 type CMNamespace struct {
 	Id               string                 `json:"Id"`
 	Arn              string                 `json:"Arn"`
@@ -59,9 +57,8 @@ type CMHealthCheckConfig struct {
 	FailureThreshold int    `json:"FailureThreshold,omitempty"`
 }
 
-// CMHealthCheckCustomConfig is the HealthCheckCustomConfig shape: a service
-// whose instance health is reported by the caller through
-// UpdateInstanceCustomHealthStatus rather than by a Route 53 health check.
+// The caller reports instance health through UpdateInstanceCustomHealthStatus
+// instead of a Route 53 health check.
 type CMHealthCheckCustomConfig struct {
 	FailureThreshold int `json:"FailureThreshold,omitempty"`
 }
@@ -80,17 +77,14 @@ type CMDnsRecord struct {
 type CMInstance struct {
 	Id         string            `json:"Id"`
 	Attributes map[string]string `json:"Attributes,omitempty"`
-	// CustomHealthStatus, when set, overrides the registered health for an
-	// instance whose service uses a HealthCheckCustomConfig (the value
-	// UpdateInstanceCustomHealthStatus writes: HEALTHY or UNHEALTHY).
+	// CustomHealthStatus, when set, overrides the registered health.
 	CustomHealthStatus string `json:"CustomHealthStatus,omitempty"`
-	// PendingHealthStatus is the status the first UpdateInstanceCustomHealthStatus
-	// request still waiting out Cloud Map's 30 seconds asked for, at
-	// PendingHealthSince (Unix milliseconds).
+	// PendingHealthStatus is a requested status still waiting out AWS Cloud Map's
+	// 30 seconds since PendingHealthSince (Unix milliseconds).
 	PendingHealthStatus string `json:"PendingHealthStatus,omitempty"`
 	PendingHealthSince  int64  `json:"PendingHealthSince,omitempty"`
-	// HealthCheckId is the Route 53 health check Cloud Map created for the
-	// instance of a service with a HealthCheckConfig.
+	// HealthCheckId names the Route 53 health check AWS Cloud Map created for the
+	// instance.
 	HealthCheckId    string `json:"HealthCheckId,omitempty"`
 	CreatorRequestId string `json:"CreatorRequestId,omitempty"`
 }
@@ -106,28 +100,21 @@ type CMOperation struct {
 	UpdateDate  int64             `json:"UpdateDate,omitempty"`
 }
 
-// State stores
 var (
-	cmNamespaces    sim.Store[CMNamespace]
-	cmNamespaceVPCs sim.Store[string]
-	cmServices      sim.Store[CMService]
-	cmInstances     sim.Store[CMInstance]
-	cmOperations    sim.Store[CMOperation]
-	// cmServiceAttributes holds the per-service key/value attribute map
-	// exposed by Get/Update/DeleteServiceAttributes, keyed by service ID.
+	cmNamespaces        sim.Store[CMNamespace]
+	cmNamespaceVPCs     sim.Store[string]
+	cmServices          sim.Store[CMService]
+	cmInstances         sim.Store[CMInstance]
+	cmOperations        sim.Store[CMOperation]
 	cmServiceAttributes sim.Store[map[string]string]
-	// cmServiceRevisions tracks each service's instance-list revision,
-	// incremented on every RegisterInstance/DeregisterInstance and returned
-	// by DiscoverInstancesRevision. Keyed by service ID.
+	// RegisterInstance and DeregisterInstance bump the revision
+	// DiscoverInstancesRevision returns.
 	cmServiceRevisions sim.Store[int64]
-	// cmTags holds the tags of every taggable Cloud Map resource, keyed by the
-	// resource ARN — the key TagResource/UntagResource/ListTagsForResource
-	// address a resource by.
+	// Keyed by resource ARN, as the tagging operations address resources.
 	cmTags sim.Store[map[string]string]
 )
 
-// cmMaxTagsPerResource is the Cloud Map per-resource tag limit; exceeding it is
-// a TooManyTagsException.
+// Exceeding the limit is a TooManyTagsException.
 const cmMaxTagsPerResource = 50
 
 func cmArn(resourceType, id string) string {
@@ -138,17 +125,13 @@ func cmInstanceKey(serviceId, instanceId string) string {
 	return serviceId + ":" + instanceId
 }
 
-// cmTag is the wire Tag shape carried by the Create* requests and the tagging
-// operations.
 type cmTag struct {
 	Key   string `json:"Key"`
 	Value string `json:"Value"`
 }
 
-// cmPutResourceTags stores the tags a Create* request carried for a new
-// resource. Cloud Map tags every namespace and service by ARN, and
-// ListTagsForResource reads them back — the same tags an operator (or the ECS
-// backend's network-state recovery) filters on.
+// Operators, and the Amazon ECS backend's network-state recovery, filter on
+// these tags.
 func cmPutResourceTags(arn string, tags []cmTag) {
 	if len(tags) == 0 {
 		return
@@ -160,8 +143,7 @@ func cmPutResourceTags(arn string, tags []cmTag) {
 	cmTags.Put(arn, m)
 }
 
-// cmResourceExists reports whether an ARN addresses a live namespace or
-// service — the two taggable Cloud Map resource types.
+// Namespaces and services are the taggable resource types.
 func cmResourceExists(arn string) bool {
 	for _, ns := range cmNamespaces.List() {
 		if ns.Arn == arn {
@@ -176,8 +158,6 @@ func cmResourceExists(arn string) bool {
 	return false
 }
 
-// cmNamespaceServiceCount counts the services in a namespace — the
-// ServiceCount member of the Namespace and NamespaceSummary shapes.
 func cmNamespaceServiceCount(namespaceId string) int {
 	n := 0
 	for _, svc := range cmServices.List() {
@@ -188,8 +168,6 @@ func cmNamespaceServiceCount(namespaceId string) int {
 	return n
 }
 
-// cmNamespaceSummary projects a stored namespace onto the NamespaceSummary
-// shape returned by ListNamespaces.
 func cmNamespaceSummary(ns CMNamespace) map[string]any {
 	out := map[string]any{
 		"Id":           ns.Id,
@@ -208,8 +186,7 @@ func cmNamespaceSummary(ns CMNamespace) map[string]any {
 	return out
 }
 
-// cmNamespaceView projects a stored namespace onto the Namespace shape
-// returned by GetNamespace — the summary plus CreatorRequestId.
+// GetNamespace adds CreatorRequestId to the summary.
 func cmNamespaceView(ns CMNamespace) map[string]any {
 	out := cmNamespaceSummary(ns)
 	if ns.CreatorRequestId != "" {
@@ -218,10 +195,8 @@ func cmNamespaceView(ns CMNamespace) map[string]any {
 	return out
 }
 
-// cmInstanceSummary projects a stored instance onto the InstanceSummary shape
-// ListInstances returns: the registered ID and attributes only. The custom
-// health status and the owning service ID are simulator bookkeeping, not wire
-// members, and InstanceSummary has no CreatorRequestId member.
+// Custom health and the owning service are bookkeeping, not wire members;
+// InstanceSummary has no CreatorRequestId.
 func cmInstanceSummary(inst CMInstance) map[string]any {
 	attrs := inst.Attributes
 	if attrs == nil {
@@ -233,8 +208,6 @@ func cmInstanceSummary(inst CMInstance) map[string]any {
 	}
 }
 
-// cmInstanceView projects a stored instance onto the Instance shape GetInstance
-// returns — the summary members plus the CreatorRequestId of the registration.
 func cmInstanceView(inst CMInstance) map[string]any {
 	out := cmInstanceSummary(inst)
 	if inst.CreatorRequestId != "" {
@@ -243,10 +216,8 @@ func cmInstanceView(inst CMInstance) map[string]any {
 	return out
 }
 
-// cmServiceInstances returns every instance registered under a service, sorted
-// by instance ID so pagination is stable. Registrations are keyed by
-// service+instance, so the record returned is the one this service registered:
-// the same instance ID may back several services with different attributes.
+// Sort by ID for stable pagination. Registrations key on service+instance, so
+// one instance ID may back several services with different attributes.
 func cmServiceInstances(serviceId string) []CMInstance {
 	seen := make(map[string]struct{})
 	var out []CMInstance
@@ -264,10 +235,8 @@ func cmServiceInstances(serviceId string) []CMInstance {
 	return sortBy(out, func(inst CMInstance) string { return inst.Id })
 }
 
-// cmFilterMatch applies one Cloud Map list filter to a resource's actual value.
-// EQ (the default) and IN both match any of the filter's values; BEGINS_WITH
-// matches a prefix. BETWEEN is only meaningful for the UPDATE_DATE operation
-// filter, which the operation-filter path handles separately.
+// EQ (the default) and IN match any value; BEGINS_WITH a prefix. BETWEEN
+// applies only to UPDATE_DATE, which the operation-filter path handles.
 func cmFilterMatch(condition string, values []string, actual string) bool {
 	switch condition {
 	case "BEGINS_WITH":
@@ -277,7 +246,7 @@ func cmFilterMatch(condition string, values []string, actual string) bool {
 			}
 		}
 		return false
-	default: // EQ, IN, or unset
+	default:
 		for _, v := range values {
 			if actual == v {
 				return true
@@ -329,8 +298,6 @@ func registerCloudMap(r *AWSRouter, srv *sim.Server) {
 	r.Register("Route53AutoNaming_v20170314.UntagResource", handleCMUntagResource)
 }
 
-// cmSOAProperties is the SOA carried by the Create*Namespace Properties member
-// (PrivateDnsNamespaceProperties / PublicDnsNamespaceProperties).
 type cmSOAProperties struct {
 	DnsProperties *struct {
 		SOA *struct {
@@ -339,8 +306,7 @@ type cmSOAProperties struct {
 	} `json:"DnsProperties"`
 }
 
-// cmNamespaceNameTaken reports whether a namespace with this name already
-// exists — Cloud Map namespace names are unique per account and region.
+// Namespace names are unique per account and Region.
 func cmNamespaceNameTaken(name string) bool {
 	for _, ns := range cmNamespaces.List() {
 		if ns.Name == name {
@@ -350,9 +316,7 @@ func cmNamespaceNameTaken(name string) bool {
 	return false
 }
 
-// cmCreateNamespace stores a new namespace, its tags and the SUCCESS
-// CREATE_NAMESPACE operation, then writes the OperationId response the three
-// Create*Namespace operations share.
+// The three Create*Namespace operations share the OperationId response.
 func cmCreateNamespace(w http.ResponseWriter, ns CMNamespace, tags []cmTag) {
 	cmNamespaces.Put(ns.Id, ns)
 	cmPutResourceTags(ns.Arn, tags)
@@ -415,9 +379,7 @@ func handleCMCreatePrivateDnsNamespace(w http.ResponseWriter, r *http.Request) {
 	cmCreateNamespace(w, ns, req.Tags)
 }
 
-// handleCMCreatePublicDnsNamespace creates a DNS_PUBLIC namespace. Public DNS
-// namespaces back internet-routable DNS records; the control-plane resource is
-// modeled identically to a private one minus the VPC association.
+// A public namespace is a private one without the VPC association.
 func handleCMCreatePublicDnsNamespace(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name             string           `json:"Name"`
@@ -454,9 +416,8 @@ func handleCMCreatePublicDnsNamespace(w http.ResponseWriter, r *http.Request) {
 	cmCreateNamespace(w, ns, req.Tags)
 }
 
-// handleCMCreateHttpNamespace creates an HTTP namespace. HTTP namespaces have
-// no DNS records — discovery is via the DiscoverInstances API only — and carry
-// an HttpProperties.HttpName (defaulting to the namespace name).
+// An HTTP namespace has no DNS records; HttpName defaults to the namespace
+// name.
 func handleCMCreateHttpNamespace(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name             string  `json:"Name"`
@@ -564,8 +525,6 @@ func handleCMDeleteNamespace(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// cmUpdateNamespaceOp records a successful UPDATE_NAMESPACE operation and writes
-// the OperationId response shared by all three Update*Namespace ops.
 func cmUpdateNamespaceOp(w http.ResponseWriter, nsId string) {
 	operationId := sim.NewUUID()
 	now := time.Now().Unix()
@@ -611,14 +570,10 @@ func handleCMUpdateHttpNamespace(w http.ResponseWriter, r *http.Request) {
 	cmUpdateNamespaceOp(w, req.Id)
 }
 
-// handleCMUpdatePrivateDnsNamespace updates a DNS_PRIVATE namespace's mutable
-// fields: Description and the DNS SOA TTL.
 func handleCMUpdatePrivateDnsNamespace(w http.ResponseWriter, r *http.Request) {
 	handleCMUpdateDnsNamespace(w, r)
 }
 
-// handleCMUpdatePublicDnsNamespace updates a DNS_PUBLIC namespace's mutable
-// fields: Description and the DNS SOA TTL.
 func handleCMUpdatePublicDnsNamespace(w http.ResponseWriter, r *http.Request) {
 	handleCMUpdateDnsNamespace(w, r)
 }
@@ -713,8 +668,8 @@ func handleCMCreateService(w http.ResponseWriter, r *http.Request) {
 
 	svcId := "srv-" + sim.NewUUID()[:16]
 	if req.HealthCheckCustomConfig != nil {
-		// AWS Cloud Map always uses a failure threshold of one for custom
-		// health checks, regardless of the value supplied by the caller.
+		// AWS Cloud Map always uses a failure threshold of one for custom health
+		// checks.
 		req.HealthCheckCustomConfig.FailureThreshold = 1
 	}
 	svc := CMService{
@@ -763,11 +718,8 @@ func handleCMGetService(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// cmServiceType derives a service's discovery Type from the explicit request
-// value (if any), the owning namespace, and whether the service has DNS records
-// — mirroring how Cloud Map labels a service DNS / DNS_HTTP / HTTP. A service in
-// an HTTP namespace, or one without DNS records, is HTTP; a service in a DNS
-// namespace with DNS records is DNS (DNS_HTTP when discoverable both ways).
+// A service in an HTTP namespace or without DNS records is HTTP; one in a DNS
+// namespace with DNS records is DNS, or DNS_HTTP when discoverable both ways.
 func cmServiceType(explicit, namespaceId string, dnsConfig *CMDnsConfig) string {
 	if explicit != "" {
 		return explicit
@@ -975,11 +927,8 @@ func handleCMRegisterInstance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Store the instance BEFORE realizing DNS so the realization below sees
-	// this registration. Real Cloud Map registers an instance per service
-	// (ServiceId+InstanceId), so one container (instance ID) may back several
-	// services — i.e. resolve under several DNS names that all point at its IP.
-	// The realization paths gather the full set of names for the container.
+	// Store the instance before realizing DNS so the realization sees it. One
+	// instance ID may back several services, resolving under each name.
 	instance := CMInstance{
 		Id:               req.InstanceId,
 		Attributes:       req.Attributes,
@@ -1002,9 +951,7 @@ func handleCMRegisterInstance(w http.ResponseWriter, r *http.Request) {
 	cmWriteInstanceOperation(w, "REGISTER_INSTANCE", svc, req.InstanceId)
 }
 
-// cmWriteInstanceOperation records the SUCCESS instance operation
-// (REGISTER_INSTANCE / DEREGISTER_INSTANCE) a caller polls with GetOperation
-// and writes the OperationId response.
+// A caller polls the operation with GetOperation.
 func cmWriteInstanceOperation(w http.ResponseWriter, opType string, svc CMService, instanceId string) {
 	operationId := sim.NewUUID()
 	now := time.Now().Unix()
@@ -1059,7 +1006,6 @@ func handleCMDeregisterInstance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Update service instance count
 	cmServices.Update(req.ServiceId, func(svc *CMService) {
 		if svc.InstanceCount > 0 {
 			svc.InstanceCount--
@@ -1235,10 +1181,7 @@ func handleCMListServices(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, out)
 }
 
-// cmServiceSummary projects a stored service onto the ServiceSummary
-// shape. NamespaceId is a Service (GetService/CreateService) member kept
-// in the store for namespace filtering and DNS wiring; ServiceSummary
-// has no such member.
+// ServiceSummary has no NamespaceId member.
 func cmServiceSummary(svc CMService) map[string]any {
 	out := map[string]any{
 		"Id":            svc.Id,
@@ -1473,7 +1416,6 @@ func handleCMDiscoverInstances(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Find the namespace by name
 	var targetNs *CMNamespace
 	for _, ns := range cmNamespaces.List() {
 		if ns.Name == req.NamespaceName {
@@ -1488,7 +1430,6 @@ func handleCMDiscoverInstances(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Find the service by name in this namespace
 	var targetSvc *CMService
 	for _, svc := range cmServices.List() {
 		if svc.Name == req.ServiceName && svc.NamespaceId == targetNs.Id {
@@ -1503,18 +1444,15 @@ func handleCMDiscoverInstances(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Collect the service's instances. Each reports its effective health — the
-	// custom health status a caller set, else the AWS_INIT_HEALTH_STATUS
-	// attribute it registered with, defaulting to HEALTHY — and the
-	// HealthStatus request filter scopes the result the way real Cloud Map does.
+	// Report effective health: the custom status, else AWS_INIT_HEALTH_STATUS,
+	// else HEALTHY.
 	type discovered struct {
 		entry  map[string]any
 		health string
 	}
 	var all []discovered
 	for _, inst := range cmServiceInstances(targetSvc.Id) {
-		// QueryParameters restrict discovery to instances carrying every
-		// listed attribute with the listed value.
+		// QueryParameters keep instances carrying every listed attribute value.
 		if !cmInstanceMatchesParams(inst, req.QueryParameters) {
 			continue
 		}
@@ -1534,8 +1472,7 @@ func handleCMDiscoverInstances(w http.ResponseWriter, r *http.Request) {
 			health: health,
 		})
 	}
-	// OptionalParameters narrow the result only when at least one instance
-	// matches them; otherwise the unnarrowed set is returned.
+	// OptionalParameters narrow the result only when some instance matches them.
 	if len(req.OptionalParameters) > 0 {
 		var preferred []discovered
 		for _, d := range all {
@@ -1565,7 +1502,7 @@ func handleCMDiscoverInstances(w http.ResponseWriter, r *http.Request) {
 		httpInstances = pick(func(h string) bool { return h == "UNHEALTHY" })
 	case "ALL":
 		httpInstances = pick(func(string) bool { return true })
-	default: // omitted / HEALTHY_OR_ELSE_ALL: healthy, or all if none are healthy
+	default:
 		httpInstances = pick(func(h string) bool { return h == "HEALTHY" })
 		if len(httpInstances) == 0 {
 			httpInstances = pick(func(string) bool { return true })
@@ -1582,9 +1519,6 @@ func handleCMDiscoverInstances(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// cmInstanceMatchesParams reports whether an instance carries every attribute
-// in params with the same value — the DiscoverInstances QueryParameters /
-// OptionalParameters matching rule.
 func cmInstanceMatchesParams(inst CMInstance, params map[string]string) bool {
 	return cmAttributesMatchParams(inst.Attributes, params)
 }
@@ -1598,23 +1532,17 @@ func cmAttributesMatchParams(attrs, params map[string]string) bool {
 	return true
 }
 
-// cmBumpServiceRevision increments a service's instance-list revision. The
-// revision starts at 0 and increases on every RegisterInstance and
-// DeregisterInstance, matching the Cloud Map InstancesRevision contract
-// (health-status updates do NOT bump it).
+// Health-status updates do not bump the revision.
 func cmBumpServiceRevision(serviceId string) {
 	cur, _ := cmServiceRevisions.Get(serviceId)
 	cmServiceRevisions.Put(serviceId, cur+1)
 }
 
-// cmCustomHealthDelay is how long Cloud Map waits after an
-// UpdateInstanceCustomHealthStatus request before it changes the instance's
-// status.
+// AWS Cloud Map waits this long before applying a custom health status.
 const cmCustomHealthDelay = 30 * time.Second
 
-// cmRequestCustomHealth records a requested custom status. A request matching
-// the status in force cancels a change still waiting, and one repeating the
-// waiting change keeps the time of the first.
+// A request matching the status in force cancels a waiting change; one
+// repeating the waiting change keeps the first's time.
 func cmRequestCustomHealth(inst *CMInstance, status string, now time.Time) {
 	current := cmInstanceHealth(*inst)
 	if inst.PendingHealthStatus != "" && current == inst.PendingHealthStatus {
@@ -1629,9 +1557,6 @@ func cmRequestCustomHealth(inst *CMInstance, status string, now time.Time) {
 	}
 }
 
-// cmInstanceHealth returns an instance's effective health: the custom health
-// status when set (HealthCheckCustomConfig services), otherwise the registered
-// AWS_INIT_HEALTH_STATUS attribute, defaulting to HEALTHY.
 func cmInstanceHealth(inst CMInstance) string {
 	if inst.HealthCheckId != "" {
 		if r53HealthCheckHealthy(inst.HealthCheckId) {
@@ -1710,8 +1635,7 @@ func handleCMUpdateInstanceCustomHealthStatus(w http.ResponseWriter, r *http.Req
 			"Instance '%s' not found", req.InstanceId)
 		return
 	}
-	// Only a service configured with HealthCheckCustomConfig reports health
-	// through this operation.
+	// Only a HealthCheckCustomConfig service reports health this way.
 	if svc.HealthCheckCustomConfig == nil {
 		AWSErrorf(w, "CustomHealthNotFound", http.StatusBadRequest,
 			"Service '%s' does not have a custom health check", req.ServiceId)
@@ -1720,7 +1644,7 @@ func handleCMUpdateInstanceCustomHealthStatus(w http.ResponseWriter, r *http.Req
 	cmInstances.Update(key, func(inst *CMInstance) {
 		cmRequestCustomHealth(inst, req.Status, time.Now())
 	})
-	// UpdateInstanceCustomHealthStatus has an empty (Unit) response body.
+	// The response is Unit.
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
@@ -1755,8 +1679,7 @@ func handleCMGetInstancesHealthStatus(w http.ResponseWriter, r *http.Request) {
 		}
 		selected = append(selected, inst)
 	}
-	// A named instance that isn't registered under the service is an error,
-	// not a silently missing map entry.
+	// A named instance not registered under the service is an error.
 	if len(want) > 0 && len(selected) != len(want) {
 		found := map[string]bool{}
 		for _, inst := range selected {
@@ -1859,8 +1782,8 @@ func handleCMListOperations(w http.ResponseWriter, r *http.Request) {
 			case "TYPE":
 				actual = op.Type
 			case "UPDATE_DATE":
-				// Date-range filtering is not modeled; treat as a match so a
-				// client narrowing by date still sees the synchronous ops.
+				// The simulator does not model UPDATE_DATE filtering; it matches every
+				// operation.
 				continue
 			default:
 				continue

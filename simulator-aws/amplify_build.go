@@ -26,21 +26,11 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Real Amplify build pipeline. A job runs a real build when the app has a
-// clonable HTTP(S) git repository. A branch/app buildSpec wins when configured;
-// otherwise the build host reads amplify.yml from the checked-out repository,
-// matching Amplify Hosting's source-controlled build settings. The sim host clones the repository in-process
-// (go-git — the host prepares the workspace the way Amplify's build host
-// does), then executes the buildSpec's frontend phases inside a node
-// container on the host Docker daemon, collects the artifact baseDirectory
-// into a zip stored in the sim's S3, and reports SUCCEED/FAILED from the
-// container exit code. A source that cannot be cloned is rejected by StartJob;
-// it never produces a successful job without executing work.
+// A job builds when the app has a clonable HTTP(S) Git repository. A
+// configured buildSpec wins over the repository's amplify.yml. The simulator
+// clones with go-git, runs the phases in a container, and reports the result
+// from the container's exit code.
 
-// amplifyBuildSpec is one executable application from an Amplify build
-// specification. It covers the backend, frontend, and test phase sequences,
-// monorepo roots/build paths, build-spec environment variables, cache paths,
-// and the frontend artifact collection rule.
 type amplifyBuildSpec struct {
 	Version            string
 	AppRoot            string
@@ -107,10 +97,8 @@ type amplifyBuildSpecYAML struct {
 	Applications []amplifyBuildApplicationYAML `yaml:"applications"`
 }
 
-// amplifyParseBuildSpec parses an amplify.yml buildSpec. It requires at
-// least one frontend build-phase command — a spec with nothing to execute
-// is a configuration error the build surfaces as FAILED, not a silent
-// success.
+// amplifyParseBuildSpec requires at least one frontend build command; a spec
+// with nothing to run fails the build.
 func amplifyParseBuildSpec(text string, monorepoRoot ...string) (amplifyBuildSpec, error) {
 	var raw amplifyBuildSpecYAML
 	if err := yaml.Unmarshal([]byte(text), &raw); err != nil {
@@ -170,10 +158,9 @@ func amplifyBuildPhaseCommands(phases map[string]amplifyBuildPhaseYAML, names ..
 	return commands
 }
 
-// amplifyRealBuildPlan resolves the source and optional configured buildSpec.
-// An empty spec is valid at this stage: the provision phase reads amplify.yml
-// from the cloned repository. ok is false only when the source cannot be
-// cloned through the supported HTTPS Git transport.
+// amplifyRealBuildPlan accepts an empty spec, since provisioning reads
+// amplify.yml from the clone; ok is false when HTTPS Git cannot clone the
+// source.
 func amplifyRealBuildPlan(app AmplifyApp, br AmplifyBranch) (spec string, repo string, ok bool) {
 	repo = app.Repository
 	if !strings.HasPrefix(repo, "http://") && !strings.HasPrefix(repo, "https://") {
@@ -186,13 +173,11 @@ func amplifyRealBuildPlan(app AmplifyApp, br AmplifyBranch) (spec string, repo s
 	return spec, repo, true
 }
 
-// amplifyBuildBackend places build containers, which write the build's
-// artifacts back into the host workspace bound into them.
 var amplifyBuildBackend placement.Backend = placement.ContainerBackend{}
 
 var (
 	amplifyBuildMu      sync.Mutex
-	amplifyBuildCancels = map[string]func(){} // jobID → cancel running build container
+	amplifyBuildCancels = map[string]func(){}
 )
 
 func amplifyRegisterBuildCancel(jobID string, cancel func()) {
@@ -207,8 +192,7 @@ func amplifyUnregisterBuildCancel(jobID string) {
 	delete(amplifyBuildCancels, jobID)
 }
 
-// amplifyCancelRunningBuild stops the build container of an in-flight real
-// build, if any. Called by StopJob after it marks the job CANCELLED.
+// StopJob calls amplifyCancelRunningBuild after marking the job CANCELLED.
 func amplifyCancelRunningBuild(jobID string) {
 	amplifyBuildMu.Lock()
 	cancel := amplifyBuildCancels[jobID]
@@ -218,16 +202,12 @@ func amplifyCancelRunningBuild(jobID string) {
 	}
 }
 
-// amplifyBuildImage is the managed build image used by this Amazon Amplify
-// Hosting runtime generation. AWS selects its build image service-side; it is
-// therefore fixed by the cloud implementation rather than caller-configurable
-// simulator state.
+// AWS selects the build image service-side; callers cannot configure it.
 func amplifyBuildImage() string {
 	return "mirror.gcr.io/library/node:22-bookworm"
 }
 
-// amplifyStepLog accumulates one job step's log lines and lands them in the
-// sim's S3 so the step's logUrl resolves (sim-emitted-url-roundtrip).
+// amplifyStepLog lands in Amazon S3 so the step's logUrl resolves.
 type amplifyStepLog struct {
 	mu    sync.Mutex
 	lines []string
@@ -251,8 +231,6 @@ func (l *amplifyStepLog) Text() string {
 	return strings.Join(l.lines, "\n") + "\n"
 }
 
-// amplifyStoreStepLog writes a step's log to the sim's S3 and returns the
-// presigned URL that becomes the step's logUrl.
 func amplifyStoreStepLog(urlBase, appID, branch, jobID, step string, log *amplifyStepLog) (string, error) {
 	key := "logs/" + appID + "/" + branch + "/" + jobID + "/" + step + ".log"
 	if err := amplifyPutS3Object(key, "text/plain", []byte(log.Text())); err != nil {
@@ -261,10 +239,8 @@ func amplifyStoreStepLog(urlBase, appID, branch, jobID, step string, log *amplif
 	return amplifyPresignedS3URLBase(urlBase, key, http.MethodGet), nil
 }
 
-// amplifyUpdateJobStep mutates one step of a stored job. Steps that already
-// reached a terminal state are left alone — StopJob marks every step
-// CANCELLED, and the build goroutine's late completion must not rewrite
-// that to FAILED.
+// Leave terminal steps alone: StopJob marks every step CANCELLED and the
+// build's late completion must not overwrite that.
 func amplifyUpdateJobStep(jobID, stepName string, mutate func(*AmplifyJobStep)) {
 	amplifyJobs.Update(jobID, func(j *amplifyStoredJob) {
 		for i := range j.Job.Steps {
@@ -298,9 +274,8 @@ func amplifyStartJobSummary(jobID string, recovering bool) bool {
 	return started
 }
 
-// amplifyFinishJob lands a real-build job in a terminal state, refusing to
-// clobber a job that already left RUNNING (StopJob marked it CANCELLED).
-// Remaining non-terminal steps land in the same state.
+// amplifyFinishJob refuses to overwrite a job StopJob already moved out of
+// RUNNING, and lands the remaining steps in the same state.
 func amplifyFinishJob(jobID string, to AmplifyJobStatus) bool {
 	finished := false
 	amplifyJobs.Update(jobID, func(j *amplifyStoredJob) {
@@ -323,9 +298,6 @@ func amplifyFinishJob(jobID string, to AmplifyJobStatus) bool {
 
 const amplifyBuildTimeout = 15 * time.Minute
 
-// amplifyScheduleRealBuild runs a real build for a StartJob whose app has a
-// clonable repository + buildSpec. Job state machine: PENDING → RUNNING at
-// clone start → SUCCEED/FAILED honestly from the build container's exit.
 func amplifyScheduleRealBuild(appID, branch, jobID, urlBase, repo, specText string, env map[string]string, commitID string) {
 	amplifyScheduleRealBuildMode(appID, branch, jobID, urlBase, repo, specText, env, commitID, false)
 }
@@ -333,7 +305,7 @@ func amplifyScheduleRealBuild(appID, branch, jobID, urlBase, repo, specText stri
 func amplifyScheduleRealBuildMode(appID, branch, jobID, urlBase, repo, specText string, env map[string]string, commitID string, recovering bool) {
 	bg.Go(func() {
 		if !amplifyStartJobSummary(jobID, recovering) {
-			return // stopped before it started
+			return
 		}
 		status := amplifyRunRealBuild(appID, branch, jobID, urlBase, repo, specText, env, commitID)
 		if amplifyFinishJob(jobID, status) && status == AmplifyJobStatusSucceed {
@@ -364,7 +336,6 @@ func amplifyRunRealBuild(appID, branch, jobID, urlBase, repo, specText string, e
 		return AmplifyJobStatusFailed
 	}
 
-	// PROVISION: workspace + clone.
 	workDir, err := os.MkdirTemp("", "sockerless-amplify-build-*")
 	if err != nil {
 		return failProvision("workspace: %v", err)
@@ -423,8 +394,7 @@ func amplifyRunRealBuild(appID, branch, jobID, urlBase, repo, specText string, e
 	provisionLog.Printf("# Build image: %s", amplifyBuildImage())
 	finishStep("PROVISION", provisionLog, AmplifyJobStatusSucceed)
 
-	// BUILD: preBuild + build commands in one shell (env exports persist
-	// across phases, the way Amplify's build container runs them).
+	// Run preBuild and build in one shell so exports persist across phases.
 	buildLog := &amplifyStepLog{}
 	amplifyStartJobStep(jobID, "BUILD")
 	var script strings.Builder
@@ -446,9 +416,8 @@ func amplifyRunRealBuild(appID, branch, jobID, urlBase, repo, specText string, e
 		Architecture: "linux/amd64",
 		Command:      []string{"/bin/sh", "-c", script.String()},
 		WorkingDir:   path.Join("/workspace", filepath.ToSlash(projectRelative)),
-		// The build writes real artifacts back into this workspace. A shared
-		// SELinux relabel gives the confined build container that access on
-		// enforcing hosts and is accepted as a no-op by Docker elsewhere.
+		// The `:z` relabel lets an SELinux-confined container write the workspace;
+		// Docker ignores it elsewhere.
 		Binds:      []string{workDir + ":/workspace:z"},
 		Env:        env,
 		Network:    network.Name,
@@ -490,7 +459,6 @@ func amplifyRunRealBuild(appID, branch, jobID, urlBase, repo, specText string, e
 	}
 	finishStep("BUILD", buildLog, AmplifyJobStatusSucceed)
 
-	// DEPLOY: collect baseDirectory into the job's artifact zip.
 	deployLog := &amplifyStepLog{}
 	amplifyStartJobStep(jobID, "DEPLOY")
 	zipBytes, fileCount, err := amplifyZipArtifacts(filepath.Join(projectDir, spec.BaseDirectory), spec.Files, deployLog)
@@ -590,13 +558,8 @@ func amplifyCollectEndToEndTestArtifacts(
 	return nil
 }
 
-// amplifyZipArtifacts zips baseDir's contents filtered by the buildSpec's
-// files patterns ('**/*' or empty = everything; otherwise path.Match against
-// the slash-separated relative path).
-// amplifyBuildOutputManifestError reports why the build output's
-// deploy-manifest.json is invalid for a manifest-consuming platform; nil
-// when the platform doesn't consume the manifest, the output carries none,
-// or the manifest parses.
+// amplifyBuildOutputManifestError returns nil when the platform does not
+// consume deploy-manifest.json or the output carries none.
 func amplifyBuildOutputManifestError(appID string, zipBytes []byte) error {
 	stored, ok := amplifyApps.Get(appID)
 	if !ok || !amplifyPlatformUsesManifest(stored.App.Platform) {
@@ -625,6 +588,8 @@ func amplifyBuildOutputManifestError(appID string, zipBytes []byte) error {
 	return nil
 }
 
+// amplifyZipArtifacts treats '**/*' or no pattern as everything and otherwise
+// path.Matches the slash-separated relative path.
 func amplifyZipArtifacts(baseDir string, patterns []string, log *amplifyStepLog) ([]byte, int, error) {
 	info, err := os.Stat(baseDir)
 	if err != nil || !info.IsDir() {
@@ -714,11 +679,8 @@ func amplifyBuildProjectDirectory(workDir, appRoot, buildPath string) (string, e
 	return clean, nil
 }
 
-// amplifyBuildCacheRoot returns the on-disk root for AWS Amplify Hosting
-// build caches. Real Amplify persists the build cache across builds, so the
-// cache lives under <SIM_DATA_DIR>/amplify-cache when SIM_DATA_DIR — the
-// persistence coordinate the shared server config reads — is set, and a temp
-// directory otherwise.
+// AWS Amplify keeps the build cache across builds, so store it under
+// SIM_DATA_DIR when set.
 func amplifyBuildCacheRoot() string {
 	return sim.ScopedDataDir("", "amplify-cache", "sockerless-amplify-cache")
 }
@@ -852,9 +814,7 @@ func amplifyRemoveBuildCache(appID, branch string) {
 	_ = os.RemoveAll(target)
 }
 
-// amplifyBuildEnv merges the app- and branch-level environment variables
-// (branch wins) plus the standard variables real Amplify injects into every
-// build.
+// Branch variables override app variables.
 func amplifyBuildEnv(app AmplifyApp, br AmplifyBranch, jobID string) map[string]string {
 	env := map[string]string{}
 	for k, v := range app.EnvironmentVariables {

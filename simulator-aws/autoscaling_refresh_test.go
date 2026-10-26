@@ -20,8 +20,7 @@ func asRefreshBoots(t *testing.T) (booting chan string, results chan error) {
 	booting = make(chan string, 8)
 	results = make(chan error)
 	done := make(chan struct{})
-	// A test that fails midway leaves boots unanswered; ending them lets the
-	// drain its cleanup runs finish.
+	// End boots a failed test left unanswered so the cleanup drain finishes.
 	t.Cleanup(func() { close(done) })
 	ec2BootInstance = func(_ context.Context, inst EC2Instance) error {
 		booting <- inst.InstanceId
@@ -35,9 +34,8 @@ func asRefreshBoots(t *testing.T) (booting chan string, results chan error) {
 	return booting, results
 }
 
-// asRefreshWatch follows the statuses stored for each refresh, so a test waits
-// for the status that ends a chain of launches, warmups and steps instead of
-// draining, which would drop the chain's later links.
+// Wait for the status that ends a chain of launches, warmups and steps;
+// draining would drop the chain's later links.
 type asRefreshWatch struct {
 	mu     sync.Mutex
 	cond   *sync.Cond
@@ -112,8 +110,8 @@ func asStartRefresh(t *testing.T, form url.Values) string {
 	return body[start:strings.Index(body, "</InstanceRefreshId>")]
 }
 
-// asRefreshNow reads a refresh under the lock every change to it holds, so it
-// sees the change a boot it just observed was started by.
+// Read under the refresh lock to see the change that started the boot just
+// observed.
 func asRefreshNow(t *testing.T, id string) (ASInstanceRefresh, AutoScalingGroup) {
 	t.Helper()
 	asRefreshMu.Lock()
@@ -225,8 +223,7 @@ func TestAutoScalingInstanceRefreshWaitsOutTheInstanceWarmup(t *testing.T) {
 	})
 	replacement := <-booting
 	results <- nil
-	// The drain cancels the hour-long warmup timer rather than waiting it out,
-	// leaving the refresh as the timer found it.
+	// The drain cancels the hour-long warmup timer, leaving the refresh as it was.
 	bg.Await()
 
 	ref := asWantRefresh(t, id, asRefreshInProgress, 0, 2)

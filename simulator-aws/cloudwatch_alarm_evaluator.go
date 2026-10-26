@@ -9,26 +9,14 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// CloudWatch continuously re-evaluates each metric alarm against incoming
-// datapoints and, on a state transition, invokes the configured action
-// topics (AlarmActions / OKActions / InsufficientDataActions) with the
-// canonical alarm notification JSON. The simulator mirrors that with a
-// background evaluator started once during CloudWatch registration: every
-// tick it re-derives every alarm's state from the live metric store, and
-// when the derived state differs from the last dispatched state it fans
-// the notification out through the real SNS publish path (snsFanout), so
-// SQS / Lambda subscribers receive it exactly as a client-side Publish
-// would deliver.
+// Amazon CloudWatch re-evaluates each metric alarm against incoming datapoints
+// and, on a transition, publishes the alarm notification to the action topics.
+// The evaluator re-derives every alarm's state each tick and publishes through
+// the real Amazon SNS path (snsFanout).
 
-// The last dispatched state is stored on each alarm's StateValue field.
-// PutMetricAlarm replaces the alarm record, so a new or updated alarm
-// naturally starts with an empty StateValue that the evaluator treats as
-// INSUFFICIENT_DATA. This is more robust than a separate map that must be
-// manually reset on every PutMetricAlarm path.
+// PutMetricAlarm replaces the alarm record, so a new or updated alarm starts
+// with an empty StateValue, which the evaluator treats as INSUFFICIENT_DATA.
 
-// startCWAlarmEvaluator launches the background goroutine that re-derives
-// every metric alarm's state every cwAlarmEvalInterval and dispatches the
-// configured action topics on state transitions.
 func startCWAlarmEvaluator(srv *sim.Server) {
 	srv.StartBackground("CloudWatch alarm evaluator", func(ctx context.Context) {
 		ticker := time.NewTicker(cwAlarmEvalInterval)
@@ -44,30 +32,21 @@ func startCWAlarmEvaluator(srv *sim.Server) {
 	})
 }
 
-// How often the evaluator re-derives every alarm and dispatches the transitions
-// it finds. A read does not wait on this — it derives the state itself — so the
-// cadence governs only how promptly actions fire.
+// A read derives state itself, so this cadence governs only how promptly
+// actions fire.
 const cwAlarmEvalInterval = 250 * time.Millisecond
 
-// cwEvaluateAlarmsOnce is one evaluator pass: snapshot every metric alarm,
-// re-derive its state, and on a transition dispatch actions, record history,
-// and persist the dispatched state. Manual SetAlarmState overrides do not
-// dispatch actions here — SetAlarmState is a testing/admin knob that real
-// CloudWatch does not route through AlarmActions.
-//
-// A panic while evaluating or dispatching a single alarm is recovered so
-// one misbehaving alarm/resource cannot kill the background evaluator and
-// silently break action delivery for all other alarms.
+// A manual SetAlarmState does not dispatch actions here. Recover a panic per
+// alarm so one bad alarm cannot stop delivery for the rest.
 func cwEvaluateAlarmsOnce() {
 	for _, a := range cwAlarms.List() {
 		cwEvaluateAlarm(a)
 	}
 }
 
-// cwEvaluateAlarm re-derives one alarm's state and, on a transition, dispatches
-// its actions and records the new state. Only the background sweep calls it:
-// dispatching from a read path would make every DescribeAlarms capable of
-// firing alarm actions and the ECS reconciliation behind them.
+// Only the background sweep calls this: dispatching from a read would let
+// every DescribeAlarms fire alarm actions and the Amazon ECS reconciliation
+// behind them.
 func cwEvaluateAlarm(a CWAlarm) {
 	func(alarm CWAlarm) {
 		defer func() {
@@ -75,11 +54,8 @@ func cwEvaluateAlarm(a CWAlarm) {
 				cwEvalLogger.Error().Str("alarmName", alarm.AlarmName).Interface("recover", r).Msg("CloudWatch alarm evaluator panic recovered")
 			}
 		}()
-		// Evaluate and dispatch under the alarm store lock so a
-		// concurrent PutMetricAlarm replacement cannot race the
-		// state read / dispatch / state write. Without this, a
-		// freshly-recreated alarm could inherit a stale StateValue
-		// from an in-flight evaluator tick and never dispatch.
+		// Hold the alarm store lock so a concurrent PutMetricAlarm cannot leave a
+		// recreated alarm with a stale StateValue that never dispatches.
 		var prev, newState, reason string
 		dispatched := false
 		updated := cwAlarms.Update(alarm.AlarmName, func(x *CWAlarm) {
@@ -112,10 +88,8 @@ func cwEvaluateAlarm(a CWAlarm) {
 	}(a)
 }
 
-// cwDispatchAlarmActions fans the alarm notification out to each configured
-// action topic for the new state via the real SNS publish path. A topic
-// ARN that doesn't resolve to a known SNS topic is skipped, matching real
-// CloudWatch silently dropping a deleted action target.
+// Skip a topic ARN that no longer resolves, as CloudWatch drops a deleted
+// action target.
 func cwDispatchAlarmActions(a CWAlarm, oldState, newState, reason string) {
 	if !a.ActionsEnabled {
 		cwEvalLogger.Info().Str("alarmName", a.AlarmName).Str("newState", newState).Msg("CloudWatch alarm actions disabled")
@@ -147,9 +121,7 @@ func cwDispatchAlarmActions(a CWAlarm, oldState, newState, reason string) {
 	}
 }
 
-// cwAlarmNotificationMessage renders the canonical CloudWatch alarm
-// notification JSON delivered as the SNS Message field — the shape an SQS
-// subscriber parses to react to a threshold breach.
+// The SNS Message an Amazon SQS subscriber parses.
 func cwAlarmNotificationMessage(a CWAlarm, oldState, newState, reason string) string {
 	trigger := map[string]any{
 		"Period":             a.Period,
@@ -198,9 +170,7 @@ func cwAlarmNotificationMessage(a CWAlarm, oldState, newState, reason string) st
 	return string(b)
 }
 
-// cwAlarmNotificationSubject renders the SNS Subject for an alarm
-// notification — "<STATE>: \"<AlarmName>\" in <Region>" — matching the real
-// CloudWatch subject line so topic subscribers can filter on it.
+// "<STATE>: \"<AlarmName>\" in <Region>", as CloudWatch words it.
 func cwAlarmNotificationSubject(state, name string) string {
 	return fmt.Sprintf("%s: %q in %s", state, name, awsRegion())
 }

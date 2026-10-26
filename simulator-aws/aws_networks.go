@@ -11,29 +11,26 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// awsWorkloadNetwork is an engine network a workload lands on and the sidecar
-// that answers the cloud's resolver and metadata addresses inside it.
+// The sidecar answers the cloud's resolver and metadata addresses on the
+// network.
 type awsWorkloadNetwork struct {
 	Name    string
 	Sidecar netip.Addr
 }
 
-// DNS is the resolver list a workload on the network gets.
 func (n awsWorkloadNetwork) DNS() []string { return []string{n.Sidecar.String()} }
 
-// MetadataOrigin is the HTTP origin the sidecar forwards to the simulator.
 func (n awsWorkloadNetwork) MetadataOrigin() string { return "http://" + n.Sidecar.String() }
 
 var errNoNetworkSidecars = errors.New("the Route 53 Resolver is not running, so no network sidecar can start")
 
-// awsPlatformNetworkName names the engine network carrying every workload that
-// is on no VPC. The scope keeps a concurrent simulator's platform network apart.
+// The platform network carries workloads on no VPC; the scope separates
+// concurrent simulators.
 func awsPlatformNetworkName() string {
 	return "sockerless-sim-aws-platform-" + sim.WorkloadScope()
 }
 
-// awsPlatformNetwork ensures the platform network and its sidecar at the
-// network's second host address.
+// The sidecar sits at the network's second host address.
 func awsPlatformNetwork(ctx context.Context) (awsWorkloadNetwork, error) {
 	sidecars, err := awsNetworkSidecars()
 	if err != nil {
@@ -50,7 +47,6 @@ func awsPlatformNetwork(ctx context.Context) (awsWorkloadNetwork, error) {
 	return awsWorkloadNetwork{Name: name, Sidecar: running.Address}, nil
 }
 
-// awsNetworkSubnet is the IPv4 range an engine network holds.
 func awsNetworkSubnet(ctx context.Context, network string) (netip.Prefix, error) {
 	cli := sim.DockerClient()
 	if err := sim.RequireContainerRuntime("inspecting a network"); err != nil {

@@ -14,14 +14,11 @@ import (
 	"github.com/rs/zerolog"
 )
 
-// cwEncMode emits time.Time values as CBOR tag-1 (epoch), which is what the
-// smithy rpc-v2-cbor protocol expects for timestamps (a bare integer is
-// rejected by the SDK).
+// rpc-v2-cbor timestamps are CBOR tag 1 (epoch); the SDK rejects a bare
+// integer.
 var cwEncMode, _ = cbor.EncOptions{Time: cbor.TimeUnixDynamic, TimeTag: cbor.EncTagRequired}.EncMode()
 
-// cwReadBody reads the request body, transparently decompressing it when the
-// SDK sends gzip — aws-sdk-go-v2 request-compresses PutMetricData (and may
-// compress GetMetricData), so the CBOR lives behind a gzip wrapper.
+// The SDK gzip-compresses PutMetricData and may compress GetMetricData.
 func cwReadBody(r *http.Request) ([]byte, error) {
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
@@ -30,8 +27,6 @@ func cwReadBody(r *http.Request) ([]byte, error) {
 	return cwDecompress(body)
 }
 
-// cwDecompress unwraps a request body the SDK gzip-compressed, leaving an
-// uncompressed body untouched.
 func cwDecompress(body []byte) ([]byte, error) {
 	if len(body) >= 2 && body[0] == 0x1f && body[1] == 0x8b {
 		gz, err := gzip.NewReader(bytes.NewReader(body))
@@ -43,8 +38,6 @@ func cwDecompress(body []byte) ([]byte, error) {
 	}
 	return body, nil
 }
-
-// CloudWatch Metrics types
 
 type CWMetricDatum struct {
 	Namespace  string        `json:"namespace" cbor:"Namespace"`
@@ -60,7 +53,6 @@ type CWDimension struct {
 	Value string `json:"Value" cbor:"Value"`
 }
 
-// State store for metrics
 var (
 	cwMetrics    sim.Store[[]CWMetricDatum]
 	cwEvalLogger zerolog.Logger
@@ -79,7 +71,7 @@ func registerCloudWatchMetrics(srv *sim.Server, startBackgroundEvaluator bool) {
 	cwDashboards = sim.MakeStore[CWDashboard](srv.DB(), "cw_dashboards")
 	cwLogAlarms = sim.MakeStore[CWLogAlarm](srv.DB(), "cw_log_alarms")
 
-	// Smithy RPCv2 CBOR uses URL path routing
+	// Smithy RPCv2 CBOR routes by URL path.
 	cwCBOR(srv, "GetMetricData", handleCWGetMetricData)
 	cwCBOR(srv, "PutMetricData", handleCWPutMetricData)
 	registerCloudWatchAlarmsCBOR(srv)
@@ -95,7 +87,6 @@ func registerCloudWatchMetrics(srv *sim.Server, startBackgroundEvaluator bool) {
 	}
 }
 
-// GetMetricData request/response types (CBOR)
 type getMetricDataRequest struct {
 	StartTime         time.Time         `cbor:"StartTime"`
 	EndTime           time.Time         `cbor:"EndTime"`
@@ -151,12 +142,8 @@ func handleCWGetMetricData(w http.ResponseWriter, r *http.Request) {
 		}
 		if q.MetricStat != nil && q.MetricStat.Metric != nil {
 			m := q.MetricStat.Metric
-			// Serve the actual datapoints recorded via PutMetricData, bucketed by
-			// Period and reduced by the requested statistic — the real CloudWatch
-			// behaviour, for every namespace (ECS/ContainerInsights included). If
-			// nothing was pushed there are no datapoints: the API-only sim does
-			// not measure live container utilization, so it reports none rather
-			// than fabricating a value.
+			// Serve only the datapoints PutMetricData recorded, for every namespace; the
+			// simulator measures no live container utilization.
 			if data, ok := cwMetrics.Get(metricsKey(m.Namespace, m.MetricName, m.Dimensions)); ok {
 				result.Values, result.Timestamps = cwAggregate(data,
 					float64(req.StartTime.Unix()), float64(req.EndTime.Unix()), q.MetricStat.Period, q.MetricStat.Stat)
@@ -178,10 +165,8 @@ func handleCWGetMetricData(w http.ResponseWriter, r *http.Request) {
 	w.Write(data)
 }
 
-// cwAggregate buckets datapoints into Period-second windows within
-// [startSec, endSec) and reduces each bucket with the requested statistic,
-// returning one value per bucket. Buckets are ordered newest-first to match
-// CloudWatch's default ScanBy=TimestampDescending.
+// Buckets cover [startSec, endSec), newest first, as CloudWatch's default
+// TimestampDescending.
 func cwAggregate(data []CWMetricDatum, startSec, endSec float64, period int32, stat string) (values []float64, timestamps []time.Time) {
 	if period <= 0 {
 		period = 60
@@ -207,7 +192,6 @@ func cwAggregate(data []CWMetricDatum, startSec, endSec float64, period int32, s
 	return values, timestamps
 }
 
-// cwApplyStat reduces a bucket of datapoints by a CloudWatch statistic.
 func cwApplyStat(stat string, vals []float64) float64 {
 	if len(vals) == 0 {
 		return 0
@@ -237,7 +221,7 @@ func cwApplyStat(stat string, vals []float64) float64 {
 		return m
 	case "SampleCount":
 		return float64(len(vals))
-	default: // Average
+	default:
 		sum := 0.0
 		for _, v := range vals {
 			sum += v
@@ -246,7 +230,6 @@ func cwApplyStat(stat string, vals []float64) float64 {
 	}
 }
 
-// PutMetricData request type
 type putMetricDataRequest struct {
 	Namespace  string          `cbor:"Namespace"`
 	MetricData []putMetricItem `cbor:"MetricData"`
@@ -275,7 +258,7 @@ func handleCWPutMetricData(w http.ResponseWriter, r *http.Request) {
 	for _, item := range req.MetricData {
 		ts := item.Timestamp
 		if ts.IsZero() {
-			ts = time.Now().UTC() // real CloudWatch defaults an omitted timestamp to now
+			ts = time.Now().UTC() // CloudWatch defaults an omitted timestamp to now.
 		}
 		datum := CWMetricDatum{
 			Namespace:  req.Namespace,
@@ -288,7 +271,6 @@ func handleCWPutMetricData(w http.ResponseWriter, r *http.Request) {
 		cwStoreDatum(datum)
 	}
 
-	// Empty CBOR response
 	data, _ := cbor.Marshal(map[string]any{})
 	w.Header().Set("Content-Type", "application/cbor")
 	w.Header().Set("Smithy-Protocol", "rpc-v2-cbor")

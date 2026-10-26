@@ -75,8 +75,7 @@ func TestCWInsightsQuery(t *testing.T) {
 	}
 }
 
-// An Insights filter comparison without a value is a malformed query, not a
-// comparison against the empty string.
+// A comparison without a value is malformed, not a comparison against "".
 func TestCWInsightsFilterRejectsMissingValue(t *testing.T) {
 	for _, f := range []string{"status =", "level = ERROR and code >"} {
 		if _, err := cwParseInsightsFilter(f); err == nil {

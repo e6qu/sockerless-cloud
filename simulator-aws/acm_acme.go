@@ -26,10 +26,9 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// Amazon Certificate Manager ACME consists of an AWS control plane and an
-// RFC 8555 certificate-authority data plane. The stores below are the service
-// state shared by both planes: accounts only arise from authenticated ACME
-// registration, and issued certificates only arise from finalized CSRs.
+// AWS Certificate Manager ACME pairs a control plane with an RFC 8555 CA data
+// plane. Accounts arise only from authenticated ACME registration and
+// certificates only from finalized CSRs.
 
 type acmAcmeCertificateAuthority struct {
 	PublicCertificateAuthority *struct {
@@ -1029,11 +1028,7 @@ func acmJWKThumbprint(raw json.RawMessage) (string, error) {
 	return base64.RawURLEncoding.EncodeToString(sum[:]), nil
 }
 
-// The ACME data plane answers per-request lookups from generation-keyed
-// indexes rather than decoding whole stores: accounts by their key
-// thumbprint, external bindings by their key identifier, prevalidated
-// domains by their base name, certificates by their ACME identifier. Each
-// key carries the endpoint so one directory cannot answer for another.
+// Key each index by endpoint so one directory never answers for another.
 var (
 	acmAcmeAccountsByThumbprint    sim.GenerationIndex[acmAcmeAccount]
 	acmAcmeBindingsByKeyID         sim.GenerationIndex[acmAcmeExternalAccountBinding]
@@ -1239,11 +1234,8 @@ func acmACMENewOrder(w http.ResponseWriter, r *http.Request, endpoint acmAcmeEnd
 func acmFindAcmeValidation(endpointArn, domain string) (acmAcmeDomainValidation, bool) {
 	wildcard := strings.HasPrefix(domain, "*.")
 	plain := strings.TrimPrefix(strings.ToLower(domain), "*.")
-	// A validation answers on its base domain, so the queried name and each
-	// of its parent suffixes are the only keys that can hold a match — the
-	// same question the scan asked, in as many lookups as the name has
-	// labels. Reconciliation still happens on read, on the rows the key
-	// narrowed to rather than on every row the store holds.
+	// A validation answers on its base domain, so look up the name and each of
+	// its parent suffixes.
 	keysOf := func(candidate acmAcmeDomainValidation) []string {
 		return []string{acmAcmeValidationBaseDomainKey(candidate.AcmeEndpointArn,
 			strings.TrimPrefix(strings.ToLower(candidate.DomainName), "*."))}
@@ -1604,8 +1596,7 @@ func acmACMEKeyChange(w http.ResponseWriter, r *http.Request, account acmAcmeAcc
 	acmWriteJSON(w, http.StatusOK, struct{}{})
 }
 
-// acmCertificateDERKey names a certificate by the digest of its leaf DER —
-// the identity a revocation request presents.
+// A revocation request identifies a certificate by its leaf DER.
 func acmCertificateDERKey(der []byte) string {
 	digest := sha256.Sum256(der)
 	return base64.RawURLEncoding.EncodeToString(digest[:])
@@ -1619,8 +1610,6 @@ func acmCertificateDERKeys(stored acmStoredCert) []string {
 	return []string{acmCertificateDERKey(block.Bytes)}
 }
 
-// acmListForEndpoint answers a List call with the resources of store that
-// belong to the ACME endpoint the request names, a NextToken page at a time.
 func acmListForEndpoint[T any](w http.ResponseWriter, r *http.Request, store sim.Store[T], endpoint, key func(T) string, field string) {
 	var req struct {
 		AcmeEndpointArn string `json:"AcmeEndpointArn"`

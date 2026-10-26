@@ -13,32 +13,24 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// One AWS service reaches another through that service's API, as Amazon
-// EventBridge, EventBridge Scheduler and AWS Step Functions do: the request
-// takes the same path a client's does, so the receiving service authorizes
-// it, records it in AWS CloudTrail and answers in its own shapes.
+// One AWS service reaches another through its API, as Amazon EventBridge,
+// EventBridge Scheduler and AWS Step Functions do: the receiving service
+// authorizes the call, records it in AWS CloudTrail and answers in its own
+// shapes.
 
-// awsActor is who a call is made as: an AWS service acting for one of its
-// resources, either as its own principal (Role empty), which the target's
-// resource policy must admit, or as a session of a role the service is
-// trusted to assume, whose identity policies the target evaluates.
+// A service acts either as its own principal (Role empty), which the target's
+// resource policy must admit, or as a session of a role it may assume, whose
+// identity policies the target evaluates.
 type awsActor struct {
-	// Service is the calling service's principal, such as
-	// events.amazonaws.com.
 	Service string
-	// Source is the resource the service acts for, such as a rule's ARN.
-	Source string
-	// Role is the ARN of the role the call is made as.
-	Role string
-	// Session names the role session, as the service names it.
+	Source  string
+	Role    string
 	Session string
 }
 
-// awsCallHost is the host an in-process request names; the signature covers
-// it like any other header.
+// The signature covers the host like any other header.
 const awsCallHost = "aws.simulator.internal"
 
-// awsCallError is a call the target service refused, in its own error code.
 type awsCallError struct {
 	Status  int
 	Code    string
@@ -47,9 +39,7 @@ type awsCallError struct {
 
 func (e *awsCallError) Error() string { return e.Code + ": " + e.Message }
 
-// awsCall sends a request to the service signing as signingService and
-// returns the status and body it answered. A role the service cannot assume
-// fails before anything is sent, as AWS fails the assumption.
+// A role the service cannot assume fails before anything is sent, as on AWS.
 func awsCall(ctx context.Context, actor awsActor, signingService, method, path string, header http.Header, body []byte) (int, []byte, error) {
 	response, err := awsCallResponse(ctx, actor, signingService, method, path, header, body)
 	if err != nil {
@@ -62,8 +52,7 @@ func awsCall(ctx context.Context, actor awsActor, signingService, method, path s
 	return response.StatusCode, response.Body.Bytes(), nil
 }
 
-// awsCallResponse is awsCall for a caller that reads the response's headers
-// too, as a REST protocol's output bindings do.
+// awsCallResponse also returns headers, for REST protocols' output bindings.
 func awsCallResponse(ctx context.Context, actor awsActor, signingService, method, path string, header http.Header, body []byte) (*sim.CallResponse, error) {
 	if body == nil {
 		body = []byte{}
@@ -86,8 +75,6 @@ func awsCallResponse(ctx context.Context, actor awsActor, signingService, method
 	return sfnAWSServer.Call(req), nil
 }
 
-// awsAssumeServiceRole returns the session of actor.Role the service holds,
-// once the role's trust policy lets the service assume it.
 func awsAssumeServiceRole(actor awsActor) (IAMTempCred, error) {
 	role, err := iamServiceTrustedRole(actor.Role, actor.Service, actor.Source)
 	if err != nil {
@@ -100,8 +87,7 @@ func awsAssumeServiceRole(actor awsActor) (IAMTempCred, error) {
 	return roleSessionCredential(roleHolder("service", actor.Service+"|"+actor.Role), role.RoleName, session, time.Now().UTC()), nil
 }
 
-// awsCallJSON calls an operation of a JSON-protocol service, named by its
-// target (AmazonSQS.SendMessage), with input as the request.
+// target names the operation, e.g. AmazonSQS.SendMessage.
 func awsCallJSON(ctx context.Context, actor awsActor, signingService, target, contentType string, input any) (int, []byte, error) {
 	body, err := json.Marshal(input)
 	if err != nil {
@@ -111,7 +97,6 @@ func awsCallJSON(ctx context.Context, actor awsActor, signingService, target, co
 	return awsCall(ctx, actor, signingService, http.MethodPost, "/", header, body)
 }
 
-// awsCallQuery calls an operation of a query-protocol service.
 func awsCallQuery(ctx context.Context, actor awsActor, signingService, action, version string, form url.Values) (int, []byte, error) {
 	form.Set("Action", action)
 	form.Set("Version", version)

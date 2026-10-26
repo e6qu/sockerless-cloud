@@ -4,10 +4,8 @@ import (
 	"net/http"
 )
 
-// AWSRouter routes AWS API requests based on the X-Amz-Target header.
-// AWS JSON services use POST with X-Amz-Target: ServiceName.ActionName.
+// AWS JSON services POST with X-Amz-Target: ServiceName.ActionName.
 type AWSRouter struct {
-	// handlers maps X-Amz-Target values to handler functions.
 	handlers map[string]http.HandlerFunc
 }
 
@@ -17,15 +15,13 @@ func NewAWSRouter() *AWSRouter {
 	}
 }
 
-// Register adds a handler for an X-Amz-Target value.
-// Example target: "AmazonEC2ContainerServiceV20141113.RunTask"
+// target reads e.g. "AmazonEC2ContainerServiceV20141113.RunTask".
 func (r *AWSRouter) Register(target string, handler http.HandlerFunc) {
 	r.handlers[target] = handler
 }
 
-// Targets returns every registered X-Amz-Target value. The
-// spec-conformance tests validate this table against the vendored
-// Smithy models (specs/cloud-api/aws/).
+// The spec-conformance tests check this table against the vendored Smithy
+// models.
 func (r *AWSRouter) Targets() []string {
 	targets := make([]string, 0, len(r.handlers))
 	for t := range r.handlers {
@@ -34,23 +30,21 @@ func (r *AWSRouter) Targets() []string {
 	return targets
 }
 
-// Handler returns the handler registered for an X-Amz-Target value. Internal
-// AWS service integrations use this to enter the same service implementation
-// as an external SDK request without making a loopback HTTP call.
+// Handler lets one service enter another's implementation without a loopback
+// HTTP call.
 func (r *AWSRouter) Handler(target string) (http.HandlerFunc, bool) {
 	handler, ok := r.handlers[target]
 	if !ok {
 		return nil, false
 	}
-	// An in-process caller serves the handler on its own writer, which no
-	// request middleware saw, so scope that writer to the target's service.
+	// No request middleware saw an in-process caller's writer, so scope it to the
+	// target's service here.
 	model := awsErrorModelForTarget(target)
 	return func(w http.ResponseWriter, req *http.Request) {
 		awsErrorModelScope(w, model, func() { handler(w, req) })
 	}, true
 }
 
-// ServeHTTP dispatches to the handler matching the X-Amz-Target header.
 func (r *AWSRouter) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	target := req.Header.Get("X-Amz-Target")
 	if target == "" {
@@ -68,50 +62,28 @@ func (r *AWSRouter) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	handler(w, req)
 }
 
-// AWSQueryRouter routes AWS Query Protocol requests based on the
-// (Version, Action) form parameter pair. Multiple AWS services
-// define an Action with the same name (`ListTagsForResource` exists
-// on RDS, SNS, ElastiCache, CloudWatchLogs at minimum); the
-// canonical disambiguator is the per-service `Version` form field
-// (RDS=2014-10-31, ElastiCache=2015-02-02, SNS=2010-03-31, etc.).
-//
-// Services with collision-prone Action names register via
-// `RegisterVersioned(version, action, handler)`. Services whose
-// action names are globally unique (EC2's `CreateVpc`, STS's
-// `GetCallerIdentity`) keep using the legacy `Register(action,
-// handler)` form; those handlers live under the empty-string
-// version bucket and act as a fallback when no versioned match.
+// Several services share Action names (ListTagsForResource exists on Amazon
+// RDS, Amazon SNS, Amazon ElastiCache and more); the Version form field tells
+// them apart. Services with globally unique actions register without a
+// version, and that bucket answers when no versioned handler matches.
 type AWSQueryRouter struct {
-	// versioned[version][action] → handler. Empty-string version is
-	// the legacy bucket used by Register(action, handler).
+	// versioned[version][action]; "" holds unversioned registrations.
 	versioned map[string]map[string]http.HandlerFunc
 }
 
-// NewAWSQueryRouter creates a new AWS Query Protocol request router.
 func NewAWSQueryRouter() *AWSQueryRouter {
 	return &AWSQueryRouter{
 		versioned: make(map[string]map[string]http.HandlerFunc),
 	}
 }
 
-// Register adds a handler for an Action value with no Version
-// constraint. Used by services whose Action names don't collide
-// across AWS — EC2 / IAM / STS / IAM SLR+OIDC.
-//
-// Example action: "CreateVpc", "GetCallerIdentity"
+// Register files action under no version, for services whose actions are
+// globally unique.
 func (r *AWSQueryRouter) Register(action string, handler http.HandlerFunc) {
 	r.RegisterVersioned("", action, handler)
 }
 
-// RegisterVersioned adds a handler for an (Action, Version) pair.
-// Required when the same Action name is defined by multiple AWS
-// services — the Version form parameter selects which service the
-// caller is targeting.
-//
-// Example: r.RegisterVersioned("2014-10-31", "ListTagsForResource",
-// handleRDSListTags) so RDS's ListTagsForResource doesn't shadow
-// (or get shadowed by) ElastiCache's ListTagsForResource at the
-// router level.
+// RegisterVersioned is required when several services define the action.
 func (r *AWSQueryRouter) RegisterVersioned(version, action string, handler http.HandlerFunc) {
 	if r.versioned[version] == nil {
 		r.versioned[version] = make(map[string]http.HandlerFunc)
@@ -119,10 +91,8 @@ func (r *AWSQueryRouter) RegisterVersioned(version, action string, handler http.
 	r.versioned[version][action] = handler
 }
 
-// VersionedActions returns every registered (version, action) pair;
-// actions registered through the legacy Register form appear under
-// the empty-string version. The spec-conformance tests validate this
-// table against the vendored Smithy models (specs/cloud-api/aws/).
+// Unversioned actions appear under "". The spec-conformance tests check this
+// table against the vendored Smithy models.
 func (r *AWSQueryRouter) VersionedActions() map[string][]string {
 	out := make(map[string][]string, len(r.versioned))
 	for version, actions := range r.versioned {
@@ -133,10 +103,8 @@ func (r *AWSQueryRouter) VersionedActions() map[string][]string {
 	return out
 }
 
-// Handler returns the handler registered for a (Version, Action) pair using
-// the same versioned-first lookup as ServeHTTP. Internal AWS service
-// integrations use it to enter the real Query service implementation without
-// creating a signed loopback request.
+// Handler lets one service enter a Query service without a signed loopback
+// request.
 func (r *AWSQueryRouter) Handler(version, action string) (http.HandlerFunc, bool) {
 	if version != "" {
 		if actions, ok := r.versioned[version]; ok {
@@ -152,9 +120,7 @@ func (r *AWSQueryRouter) Handler(version, action string) (http.HandlerFunc, bool
 	return nil, false
 }
 
-// ServeHTTP dispatches by (Version, Action). When Version is set
-// and a versioned handler exists, it wins. Otherwise the legacy
-// bucket (version="") is consulted as a fallback.
+// A matching versioned handler wins; otherwise the unversioned one answers.
 func (r *AWSQueryRouter) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	if err := req.ParseForm(); err != nil {
 		awsWriteError(w, awsErrorEnvelope{Protocol: awsEC2Query}, http.StatusBadRequest, "MalformedInput", "Could not parse form body", "")

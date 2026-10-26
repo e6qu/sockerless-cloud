@@ -12,10 +12,8 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// cwJSONStat renders a statistic value as a JSON number that always carries a
-// decimal point. The awsJson deserializer (unlike the query XML one) trusts the
-// literal JSON number type, so a bare 42 reads back as an int — real CloudWatch
-// returns the Double-typed statistics as 42.0.
+// The awsJson deserializer trusts the JSON number type, so a bare 42 reads
+// back as an int; CloudWatch returns Double statistics as 42.0.
 func cwJSONStat(f float64) json.Number {
 	s := strconv.FormatFloat(f, 'f', -1, 64)
 	if !strings.Contains(s, ".") {
@@ -24,16 +22,8 @@ func cwJSONStat(f float64) json.Number {
 	return json.Number(s)
 }
 
-// CloudWatch metrics — awsJson1.0 surface.
-//
-// Current botocore / aws CLI send CloudWatch over awsJson1.0 (POST /,
-// X-Amz-Target: GraniteServiceVersion20100801.<Op>, Content-Type
-// application/x-amz-json-1.0, x-amzn-query-mode: true) — the same awsQuery→
-// awsJson migration SQS went through. Older CLIs still use the legacy query
-// protocol (cloudwatch_metrics_query.go) and the Go SDK uses rpc-v2-cbor
-// (cloudwatch_metrics.go). All three serve the SAME `cwMetrics` store +
-// period-bucketing + statistic helpers, so data pushed via any protocol reads
-// back through any other.
+// Current botocore sends CloudWatch over awsJson1.0 with x-amzn-query-mode:
+// true. All three protocols share the cwMetrics store and helpers.
 
 func registerCloudWatchMetricsJSON(r *AWSRouter) {
 	r.Register("GraniteServiceVersion20100801.PutMetricData", handleCWJSONPutMetricData)

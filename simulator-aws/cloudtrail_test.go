@@ -71,7 +71,7 @@ func TestCloudTrailEventMatchesAllKeys(t *testing.T) {
 			t.Errorf("filter %s=%q: got %v want %v", c.key, c.val, got, c.want)
 		}
 	}
-	// An unknown attribute key must never silently match-all (the #496 defect).
+	// An unknown attribute key must never match everything.
 	if cloudTrailEventMatches(ev, []cloudTrailLookupAttribute{{AttributeKey: "Bogus", AttributeValue: "x"}}) {
 		t.Error("unknown attribute key must not match")
 	}
@@ -122,7 +122,7 @@ func TestCloudTrailResourcesExtraction(t *testing.T) {
 	if len(res) != 1 || res[0].ResourceName != "probe" || res[0].ResourceType != "AWS::ECS::Cluster" {
 		t.Fatalf("ecs create-cluster resources = %+v", res)
 	}
-	// PascalCase wire key resolved case-insensitively.
+	// The PascalCase key resolves case-insensitively.
 	res = cloudTrailResources("dynamodb.amazonaws.com", "PutItem", []byte(`{"TableName":"orders"}`), jsonReq)
 	if len(res) != 1 || res[0].ResourceName != "orders" || res[0].ResourceType != "AWS::DynamoDB::Table" {
 		t.Fatalf("dynamodb resources = %+v", res)
@@ -135,21 +135,17 @@ func TestCloudTrailResourcesExtraction(t *testing.T) {
 	if len(res) != 1 || res[0].ResourceName != "i-0abc" || res[0].ResourceType != "AWS::EC2::Instance" {
 		t.Fatalf("ec2 resources = %+v", res)
 	}
-	// An operation acting on no named resource records none — never fabricated.
+	// An operation acting on no named resource records none.
 	res = cloudTrailResources("sts.amazonaws.com", "GetCallerIdentity", nil, formReq)
 	if len(res) != 0 {
 		t.Fatalf("sts GetCallerIdentity should record no resource, got %+v", res)
 	}
 }
 
-// TestAWSEventSourceCoversAllServiceSlices pins the CloudTrail eventSource the
-// sim records for every awsJson and query-protocol service slice it implements.
-// Real CloudTrail labels each management event with the service's
-// `<service>.amazonaws.com` endpoint; LookupEvents supports filtering by
-// EventSource, so a wrong/generic source makes those filters silently miss.
+// LookupEvents filters by EventSource, so a wrong or generic source silently
+// misses.
 func TestAWSEventSourceCoversAllServiceSlices(t *testing.T) {
 	jsonCases := map[string]string{
-		// X-Amz-Target service prefix -> eventSource
 		"DynamoDB_20120810.PutItem":                           "dynamodb.amazonaws.com",
 		"AmazonSQS.SendMessage":                               "sqs.amazonaws.com",
 		"AmazonSSM.GetParameter":                              "ssm.amazonaws.com",
@@ -203,8 +199,7 @@ func TestAWSEventSourceCoversAllServiceSlices(t *testing.T) {
 		}
 	}
 
-	// No fabrication: an unmapped service slice must report ok=false rather than
-	// fall back to a generic source (the defect a default would reintroduce).
+	// An unmapped service must report ok=false, never a generic source.
 	unknownTarget := httptest.NewRequest("POST", "/", nil)
 	unknownTarget.Header.Set("X-Amz-Target", "SomeNewServiceV2.DoThing")
 	if src, ok := awsEventSource(unknownTarget); ok {

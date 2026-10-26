@@ -9,16 +9,8 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// AWS Budgets actions: the operations a budget takes when a threshold is
-// crossed, and the operator-driven execution of them.
-//
-// An action's definition is applied through this simulator's own services —
-// an IAM definition attaches the policy through the same stores
-// AttachRolePolicy/AttachUserPolicy/AttachGroupPolicy write, an SCP definition
-// attaches the organizations policy the way AttachPolicy does, and an SSM
-// definition stops the named EC2 instances through the same halt the
-// StopInstances handler uses. Nothing is marked EXECUTION_SUCCESS without the
-// simulator having performed the operation the definition describes.
+// Apply an action's definition through the simulator's own services, so
+// nothing reaches EXECUTION_SUCCESS without the operation happening.
 
 type budgetsAction struct {
 	ActionId         string               `json:"actionId"`
@@ -52,7 +44,6 @@ type budgetsActionDef struct {
 	} `json:"SsmActionDefinition,omitempty"`
 }
 
-// budgetsActionEvent is one row of an action's history.
 type budgetsActionEvent struct {
 	Timestamp   float64 `json:"timestamp"`
 	Status      string  `json:"status"`
@@ -364,9 +355,7 @@ func handleBudgetsExecuteBudgetAction(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// budgetsApplyActionDefinition performs the operation the definition
-// describes, through the simulator's own services, and returns a failure
-// description when it cannot. An empty return means the operation happened.
+// An empty return means the operation happened.
 func budgetsApplyActionDefinition(r *http.Request, definition budgetsActionDef) string {
 	switch {
 	case definition.IamActionDefinition != nil:
@@ -417,9 +406,7 @@ func budgetsApplyActionDefinition(r *http.Request, definition budgetsActionDef) 
 	case definition.SsmActionDefinition != nil:
 		def := definition.SsmActionDefinition
 		if !strings.EqualFold(def.ActionSubType, "STOP_EC2_INSTANCES") {
-			// STOP_RDS_INSTANCES names the one Amazon RDS control this
-			// simulator's budgets cannot reach: its RDS slice runs data
-			// planes, not instance lifecycles this action could halt.
+			// The simulator's Amazon RDS slice has no instance lifecycle to stop.
 			return "this simulator applies STOP_EC2_INSTANCES; " + def.ActionSubType + " is not implemented"
 		}
 		for _, instanceID := range def.InstanceIds {
@@ -432,9 +419,8 @@ func budgetsApplyActionDefinition(r *http.Request, definition budgetsActionDef) 
 	return "the action carries no definition"
 }
 
-// budgetsReverseActionDefinition undoes what an apply did: attachments are
-// removed, and stopped instances are left stopped, which is what real AWS
-// Budgets does — reversing an SSM action does not restart instances.
+// Reversing removes attachments but leaves stopped instances stopped, as AWS
+// Budgets does.
 func budgetsReverseActionDefinition(definition budgetsActionDef) string {
 	switch {
 	case definition.IamActionDefinition != nil:
@@ -475,10 +461,8 @@ func registerBudgetsNotificationExtras(r *AWSRouter) {
 	r.Register("AWSBudgetServiceGateway.DescribeBudgetPerformanceHistory", handleBudgetsDescribeBudgetPerformanceHistory)
 }
 
-// handleBudgetsUpdateNotification replaces one notification with another. The
-// notification's identity is its own field tuple, so the subscribers recorded
-// under the old tuple move to the new one — dropping them would orphan every
-// subscriber each time a threshold is tuned.
+// Move the subscribers to the new identity tuple so tuning a threshold keeps
+// them.
 func handleBudgetsUpdateNotification(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		budgetsRequestEnvelope
@@ -522,7 +506,6 @@ func handleBudgetsUpdateNotification(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
-// handleBudgetsUpdateSubscriber replaces one subscriber of a notification.
 func handleBudgetsUpdateSubscriber(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		budgetsRequestEnvelope
@@ -561,8 +544,6 @@ func handleBudgetsUpdateSubscriber(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
-// handleBudgetsDescribeBudgetNotificationsForAccount lists every budget's
-// notifications, keyed by the budget that carries them.
 func handleBudgetsDescribeBudgetNotificationsForAccount(w http.ResponseWriter, r *http.Request) {
 	var req struct{ budgetsRequestEnvelope }
 	if !budgetsRead(w, r, &req) {
@@ -579,10 +560,8 @@ func handleBudgetsDescribeBudgetNotificationsForAccount(w http.ResponseWriter, r
 	for _, name := range names {
 		notifications := make([]map[string]any, 0)
 		for _, notification := range entries[name].Notifications {
-			// ThresholdType and NotificationState are optional and have no
-			// default, so a notification that carries neither is answered
-			// without them. Sending "" put a value in a field whose enum does
-			// not declare one — the absence is the honest answer.
+			// Both are optional with no default and no empty enum value, so omit them
+			// when unset.
 			entry := map[string]any{
 				"NotificationType":   notification.NotificationType,
 				"ComparisonOperator": notification.ComparisonOperator,
@@ -604,11 +583,7 @@ func handleBudgetsDescribeBudgetNotificationsForAccount(w http.ResponseWriter, r
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"BudgetNotificationsForAccount": out})
 }
 
-// handleBudgetsDescribeBudgetPerformanceHistory reports the budget's limit
-// against its actual spend. This simulator accrues no cost for the resources
-// it runs, so the actual amount genuinely is zero — the simulator's own truth,
-// not a placeholder — and the history carries the budgeted amount beside it
-// for the budget's own time unit.
+// The simulator accrues no cost, so actual spend is zero.
 func handleBudgetsDescribeBudgetPerformanceHistory(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		budgetsRequestEnvelope

@@ -5,20 +5,12 @@ import (
 	"strconv"
 )
 
-// CloudWatch Embedded Metric Format (EMF) extraction.
+// CloudWatch extracts metrics from Embedded Metric Format log events written
+// to any log group, with no PutMetricData call: the `_aws.CloudWatchMetrics`
+// block declares metrics whose values and dimension values are sibling fields.
 //
-// Real CloudWatch automatically extracts metrics from EMF-formatted log events
-// written to ANY log group: a log event whose JSON message carries an
-// `_aws.CloudWatchMetrics` block declares one or more metrics whose values +
-// dimension values live as sibling fields in the same root object. The
-// extracted metrics become queryable through the ordinary metric APIs
-// (ListMetrics / GetMetricStatistics / GetMetricData) and alarmable — with no
-// PutMetricData call. This is the standard ECS/Fargate EMF-over-stdout →
-// awslogs → CloudWatch Logs path.
-//
-// Spec: https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/CloudWatch_Embedded_Metric_Format_Specification.html
+// https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/CloudWatch_Embedded_Metric_Format_Specification.html
 
-// emfMetricDirective is one entry of the EMF `_aws.CloudWatchMetrics` array.
 type emfMetricDirective struct {
 	Namespace  string     `json:"Namespace"`
 	Dimensions [][]string `json:"Dimensions"`
@@ -28,11 +20,8 @@ type emfMetricDirective struct {
 	} `json:"Metrics"`
 }
 
-// extractEMFMetrics parses a CloudWatch EMF log message and returns the metrics
-// it declares, resolving each metric's value and each dimension's value from the
-// same root JSON object. A non-EMF message (not JSON, or no
-// `_aws.CloudWatchMetrics` block) yields nothing. fallbackTSMillis (the log
-// event timestamp) is used when the EMF metadata omits its own `Timestamp`.
+// A non-EMF message yields nothing. fallbackTSMillis applies when the metadata
+// omits Timestamp.
 func extractEMFMetrics(message string, fallbackTSMillis int64) []CWMetricDatum {
 	var root map[string]json.RawMessage
 	if err := json.Unmarshal([]byte(message), &root); err != nil {
@@ -55,8 +44,7 @@ func extractEMFMetrics(message string, fallbackTSMillis int64) []CWMetricDatum {
 	}
 	tsSec := float64(tsMillis) / 1000.0
 
-	// rootString resolves a root field to a string dimension value (EMF allows
-	// numeric dimension values, which CloudWatch stringifies).
+	// CloudWatch stringifies numeric dimension values.
 	rootString := func(key string) (string, bool) {
 		raw, ok := root[key]
 		if !ok {
@@ -72,8 +60,7 @@ func extractEMFMetrics(message string, fallbackTSMillis int64) []CWMetricDatum {
 		}
 		return "", false
 	}
-	// rootValues resolves a root field to one or more numeric values — EMF
-	// permits a scalar or an array of samples for a single metric name.
+	// A metric value may be a scalar or an array of samples.
 	rootValues := func(key string) []float64 {
 		raw, ok := root[key]
 		if !ok {
@@ -97,7 +84,7 @@ func extractEMFMetrics(message string, fallbackTSMillis int64) []CWMetricDatum {
 		}
 		dimSets := dir.Dimensions
 		if len(dimSets) == 0 {
-			// No dimension sets declared → a single no-dimension series.
+			// No declared dimension sets means one series without dimensions.
 			dimSets = [][]string{{}}
 		}
 		for _, m := range dir.Metrics {
@@ -114,8 +101,7 @@ func extractEMFMetrics(message string, fallbackTSMillis int64) []CWMetricDatum {
 				for _, dk := range dimKeys {
 					dv, ok := rootString(dk)
 					if !ok {
-						// A dimension key with no sibling value can't form a
-						// valid series — skip this dimension set, as CloudWatch does.
+						// CloudWatch skips a dimension set with a key that has no value.
 						complete = false
 						break
 					}

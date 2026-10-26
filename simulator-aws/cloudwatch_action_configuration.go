@@ -7,8 +7,7 @@ import (
 	"strings"
 )
 
-// cwActionConfiguration is an alarm's ActionConfiguration, stored on metric,
-// composite and log alarms alike and returned on each of their describe shapes.
+// Metric, composite and log alarms all store and describe it.
 type cwActionConfiguration struct {
 	AlarmTagsPropagation *cwAlarmTagsPropagation `json:"AlarmTagsPropagation,omitempty" cbor:"AlarmTagsPropagation,omitempty"`
 }
@@ -19,9 +18,8 @@ type cwAlarmTagsPropagation struct {
 	ExcludedTagKeys []string `json:"ExcludedTagKeys,omitempty" cbor:"ExcludedTagKeys,omitempty"`
 }
 
-// cwQueryActionConfiguration reads ActionConfiguration from awsQuery form
-// parameters; nil means the request carried none, and a non-empty message
-// means Enabled is not a boolean.
+// nil means the request carried none; a non-empty message means Enabled is
+// not a boolean.
 func cwQueryActionConfiguration(r *http.Request) (*cwActionConfiguration, string) {
 	const prefix = "ActionConfiguration.AlarmTagsPropagation."
 	present := false
@@ -48,9 +46,9 @@ func cwQueryActionConfiguration(r *http.Request) (*cwActionConfiguration, string
 	return &cwActionConfiguration{AlarmTagsPropagation: tp}, ""
 }
 
-// cwValidateActionConfiguration applies the model's constraints on
-// AlarmTagsPropagation: Enabled is required, the two key lists exclude each
-// other, and each list holds 1 to 50 keys of 1 to 128 characters.
+// The model's AlarmTagsPropagation constraints: Enabled is required, the two
+// key lists exclude each other, and each holds 1 to 50 keys of 1 to 128
+// characters.
 func cwValidateActionConfiguration(ac *cwActionConfiguration) (code, msg string, ok bool) {
 	if ac == nil || ac.AlarmTagsPropagation == nil {
 		return "", "", true
@@ -78,8 +76,7 @@ func cwValidateActionConfiguration(ac *cwActionConfiguration) (code, msg string,
 	return "", "", true
 }
 
-// cwActionConfigurationXML renders ActionConfiguration as the awsQuery
-// DescribeAlarms member, empty when the alarm has none.
+// Empty when the alarm has none.
 func cwActionConfigurationXML(ac *cwActionConfiguration) string {
 	if ac == nil || ac.AlarmTagsPropagation == nil {
 		return ""

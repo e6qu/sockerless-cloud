@@ -99,8 +99,7 @@ func asLaunchTestStores(t *testing.T) {
 		ec2Images = sim.MakeStore[EC2Image](nil, "ec2_images")
 	}
 	{
-		// The launch state machine under test supplies no machine: a boot
-		// completes at once unless a test replaces it.
+		// No machine backs the boot: it completes at once unless a test replaces it.
 		prev := ec2BootInstance
 		swap(func() { ec2BootInstance = prev })
 		ec2BootInstance = func(context.Context, EC2Instance) error { return nil }

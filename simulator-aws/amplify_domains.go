@@ -10,18 +10,10 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// AWS Amplify domain associations + backend environments. Same wire
-// pattern as amplify.go (REST + JSON, versionless paths under /apps/).
-
-// AmplifyDomainStatus / AmplifyDomainUpdateStatus are the DomainStatus and
-// UpdateStatus enum subsets the sim assigns. Domain verification is REAL
-// against the sim's own Route 53: an AMPLIFY_MANAGED association starts
-// PENDING_VERIFICATION and becomes AVAILABLE only once the
-// certificate-verification CNAME exists in a hosted zone covering the
-// domain. Verification is evaluated at READ time (Get/List/Update and the
-// hosting data plane) — terraform's wait_for_verification polls
-// GetDomainAssociation, so read-triggered evaluation converges, and a
-// domain with no hosted zone honestly stays PENDING_VERIFICATION forever.
+// An AMPLIFY_MANAGED association stays PENDING_VERIFICATION until its
+// certificate-verification CNAME exists in a Route 53 hosted zone covering the
+// domain. Reads evaluate verification, so terraform's wait_for_verification,
+// which polls GetDomainAssociation, converges.
 type AmplifyDomainStatus string
 
 const (
@@ -56,8 +48,6 @@ type AmplifyCertificate struct {
 	CertificateVerificationDNSRecord string `json:"certificateVerificationDNSRecord,omitempty"`
 }
 
-// AmplifyCertificateSettings is the CertificateSettings request shape
-// (create/update input for the read-only Certificate member).
 type AmplifyCertificateSettings struct {
 	Type                 string `json:"type"`
 	CustomCertificateArn string `json:"customCertificateArn,omitempty"`
@@ -106,7 +96,6 @@ func amplifyBackendARN(appID, name string) string {
 }
 func amplifyDomainKey(appID, name string) string { return appID + "/" + name }
 
-// registerAmplifyDomains is invoked from registerAmplify in amplify.go.
 func registerAmplifyDomains(srv *sim.Server) {
 	amplifyDomains = sim.MakeStore[amplifyStoredDomain](srv.DB(), "amplify_domains")
 	amplifyBackends = sim.MakeStore[amplifyStoredBackend](srv.DB(), "amplify_backends")
@@ -114,13 +103,11 @@ func registerAmplifyDomains(srv *sim.Server) {
 	mux := srv
 	domainResource := cloudTrailRESTResource("AWS::Amplify::Domain", "domainName")
 	backendResource := cloudTrailRESTResource("AWS::Amplify::BackendEnvironment", "environmentName")
-	// Domains
 	mux.HandleFunc("POST /apps/{appId}/domains", cloudTrailRecordedREST("CreateDomainAssociation", "amplify.amazonaws.com", cloudTrailRESTResource("AWS::Amplify::App", "appId"), handleAmplifyCreateDomain))
 	mux.HandleFunc("GET /apps/{appId}/domains", cloudTrailRecordedREST("ListDomainAssociations", "amplify.amazonaws.com", cloudTrailRESTResource("AWS::Amplify::App", "appId"), handleAmplifyListDomains))
 	mux.HandleFunc("GET /apps/{appId}/domains/{domainName}", cloudTrailRecordedREST("GetDomainAssociation", "amplify.amazonaws.com", domainResource, handleAmplifyGetDomain))
 	mux.HandleFunc("POST /apps/{appId}/domains/{domainName}", cloudTrailRecordedREST("UpdateDomainAssociation", "amplify.amazonaws.com", domainResource, handleAmplifyUpdateDomain))
 	mux.HandleFunc("DELETE /apps/{appId}/domains/{domainName}", cloudTrailRecordedREST("DeleteDomainAssociation", "amplify.amazonaws.com", domainResource, handleAmplifyDeleteDomain))
-	// BackendEnvironments
 	mux.HandleFunc("POST /apps/{appId}/backendenvironments", cloudTrailRecordedREST("CreateBackendEnvironment", "amplify.amazonaws.com", cloudTrailRESTResource("AWS::Amplify::App", "appId"), handleAmplifyCreateBackend))
 	mux.HandleFunc("GET /apps/{appId}/backendenvironments", cloudTrailRecordedREST("ListBackendEnvironments", "amplify.amazonaws.com", cloudTrailRESTResource("AWS::Amplify::App", "appId"), handleAmplifyListBackends))
 	mux.HandleFunc("GET /apps/{appId}/backendenvironments/{environmentName}", cloudTrailRecordedREST("GetBackendEnvironment", "amplify.amazonaws.com", backendResource, handleAmplifyGetBackend))
@@ -136,10 +123,8 @@ type amplifyCreateDomainReq struct {
 	CertificateSettings           *AmplifyCertificateSettings `json:"certificateSettings,omitempty"`
 }
 
-// amplifyCertificateFromSettings materializes the read-only Certificate
-// member from the client's CertificateSettings: nil settings mean an
-// Amplify-managed certificate, and managed certificates carry the
-// verification DNS record that custom certificates don't need.
+// Nil settings mean an Amplify-managed certificate, which carries the
+// verification record a CUSTOM one does not need.
 func amplifyCertificateFromSettings(settings *AmplifyCertificateSettings, appID, domainName string) *AmplifyCertificate {
 	cert := &AmplifyCertificate{Type: "AMPLIFY_MANAGED"}
 	if settings != nil && settings.Type != "" {
@@ -152,10 +137,8 @@ func amplifyCertificateFromSettings(settings *AmplifyCertificateSettings, appID,
 	return cert
 }
 
-// amplifyCertVerificationRecord is the ACM-style verification CNAME the
-// association advertises: "_<hash>.<domain>. CNAME _<hash>.acm-validations.aws."
-// The hash is deterministic per app + domain so read-time verification can
-// recompute exactly what was advertised.
+// amplifyCertVerificationRecord derives the hash from app and domain so a read
+// recomputes exactly the advertised record.
 func amplifyCertVerificationRecord(appID, domainName string) string {
 	name, value := amplifyCertVerificationParts(appID, domainName)
 	return name + " CNAME " + value
@@ -179,11 +162,8 @@ func amplifySubDomainsFromSettings(appID, domainName string, settings []AmplifyS
 	return subs
 }
 
-// amplifyEvaluateDomainVerification settles a pending association against
-// the sim's own Route 53: AMPLIFY_MANAGED certificates verify when the
-// advertised certificate-verification CNAME exists in a hosted zone for the
-// domain; CUSTOM certificates have no DNS challenge to wait on and settle
-// immediately. The settled state is persisted so the flip is observed once.
+// A CUSTOM certificate has no DNS challenge and settles immediately. Persist
+// the settled state so the transition happens once.
 func amplifyEvaluateDomainVerification(stored amplifyStoredDomain) amplifyStoredDomain {
 	if stored.Domain.DomainStatus == AmplifyDomainStatusAvailable {
 		return stored
@@ -207,14 +187,11 @@ func amplifyEvaluateDomainVerification(stored amplifyStoredDomain) amplifyStored
 	return stored
 }
 
-// amplifyRoute53HasCNAME reports whether any sim hosted zone covering
-// domainName carries the CNAME recordName → recordValue.
 func amplifyRoute53HasCNAME(domainName, recordName, recordValue string) bool {
 	normalize := r53DNSName
 	wantName, wantValue := normalize(recordName), normalize(recordValue)
 	domain := normalize(domainName)
-	// Only a zone carrying the record can answer, and the zone must also cover
-	// the domain, which the loop still decides.
+	// The loop still checks that the zone covers the domain.
 	for _, zone := range r53ZonesWithCNAME(wantName) {
 		zoneName := normalize(zone.Zone.Name)
 		if zoneName == "" || (domain != zoneName && !strings.HasSuffix(domain, "."+zoneName)) {
@@ -263,8 +240,7 @@ func handleAmplifyCreateDomain(w http.ResponseWriter, r *http.Request) {
 	}
 	stored := amplifyStoredDomain{Domain: domain, AppId: appID}
 	amplifyDomains.Put(amplifyDomainKey(appID, req.DomainName), stored)
-	// The verification CNAME may already exist (re-association of a domain
-	// whose records were kept); settle immediately in that case.
+	// A re-associated domain may already have its verification CNAME.
 	stored = amplifyEvaluateDomainVerification(stored)
 	amplifyWriteJSON(w, http.StatusOK, map[string]AmplifyDomainAssociation{"domainAssociation": stored.Domain})
 }
@@ -419,7 +395,6 @@ func handleAmplifyListBackends(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	// ListBackendEnvironments additionally filters by ?environmentName=.
 	nameFilter := r.URL.Query().Get("environmentName")
 	items := []AmplifyBackendEnvironment{}
 	for _, s := range amplifyBackends.List() {

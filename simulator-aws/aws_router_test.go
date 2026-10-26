@@ -8,9 +8,7 @@ import (
 	"testing"
 )
 
-// TestAWSQueryRouterInvalidActionEscaped verifies the InvalidAction error body
-// XML-escapes the reflected Action value, so a value containing XML
-// metacharacters can't produce malformed or attacker-shaped XML.
+// A reflected Action with XML metacharacters must not shape the error XML.
 func TestAWSQueryRouterInvalidActionEscaped(t *testing.T) {
 	r := NewAWSQueryRouter()
 
@@ -28,14 +26,11 @@ func TestAWSQueryRouterInvalidActionEscaped(t *testing.T) {
 	if strings.Contains(body, "<inject>") {
 		t.Errorf("raw '<inject>' leaked unescaped into the XML body: %q", body)
 	}
-	// The escaped form must be present instead.
 	if !strings.Contains(body, "&lt;inject&gt;") {
 		t.Errorf("expected escaped action in body, got %q", body)
 	}
 }
 
-// TestAWSQueryRouterDispatchesVersioned verifies the (Version, Action) routing:
-// a versioned handler wins over the legacy bucket for the same Action.
 func TestAWSQueryRouterDispatchesVersioned(t *testing.T) {
 	r := NewAWSQueryRouter()
 	got := ""
@@ -50,7 +45,7 @@ func TestAWSQueryRouterDispatchesVersioned(t *testing.T) {
 		t.Errorf("versioned handler should win, got %q", got)
 	}
 
-	// No Version → legacy bucket.
+	// No Version uses the unversioned bucket.
 	got = ""
 	form2 := url.Values{"Action": {"ListTagsForResource"}}
 	req2 := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(form2.Encode()))

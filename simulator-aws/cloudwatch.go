@@ -16,8 +16,6 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/logstore"
 )
 
-// CloudWatch Logs types
-
 type CWLogGroup struct {
 	LogGroupName    string            `json:"logGroupName"`
 	Arn             string            `json:"arn"`
@@ -35,9 +33,8 @@ type CWLogStream struct {
 	FirstEventTimestamp int64  `json:"firstEventTimestamp,omitempty"`
 	LastEventTimestamp  int64  `json:"lastEventTimestamp,omitempty"`
 	LastIngestionTime   int64  `json:"lastIngestionTime,omitempty"`
-	// CompressedBytes is the stream's share of its group's storedBytes, as of
-	// CompressedThrough, the LastIngestionTime it was measured at (-1 once
-	// retention has removed events since).
+	// CompressedBytes is the stream's share of storedBytes, measured at
+	// CompressedThrough (-1 once retention has removed events since).
 	CompressedBytes     int64  `json:"-"`
 	CompressedThrough   int64  `json:"-"`
 	Arn                 string `json:"arn"`
@@ -50,7 +47,6 @@ type CWLogEvent struct {
 	IngestionTime int64  `json:"ingestionTime"`
 }
 
-// State stores
 var (
 	cwLogGroups  sim.Store[CWLogGroup]
 	cwLogStreams sim.Store[CWLogStream]
@@ -76,8 +72,7 @@ func cwNewLogEvents(db *sql.DB) *logstore.Log[CWLogEvent] {
 		sim.MakeStore[logstore.Head](db, "cw_log_stream_heads"))
 }
 
-// cwStreamEvents returns the events a stream retains, in the order they
-// arrived, and whether the stream exists.
+// Returns the retained events in arrival order.
 func cwStreamEvents(key string) ([]CWLogEvent, bool) {
 	if !cwLogEvents.Exists(key) {
 		return nil, false
@@ -85,18 +80,10 @@ func cwStreamEvents(key string) ([]CWLogEvent, bool) {
 	return cwLogEvents.Values(key), true
 }
 
-// cwIngestWorkloadLogLine records one line a workload wrote to stdout/stderr
-// through the same ingestion path PutLogEvents uses. In real AWS a container
-// log driver is an ordinary CloudWatch producer: the stream's event timestamps
-// advance, embedded-metric documents are extracted, and the group's metric
-// filters fire. Appending straight into the event slice left an actively
-// logging stream reporting the instant it was created, so an operator ordering
-// a service's streams by LastEventTime could not tell a task that is still
-// writing from one that has said nothing since it started.
-// cwIngestWorkloadLogLine records one workload log line. writtenAt is when the
-// container wrote it; the event carries that as its timestamp and the ingestion
-// time separately, as CloudWatch does. A zero writtenAt means the caller has no
-// container time, and the line is dated on arrival.
+// A container log driver is an ordinary CloudWatch producer: timestamps
+// advance, EMF documents are extracted and metric filters fire. writtenAt
+// becomes the event timestamp, apart from the ingestion time; zero dates the
+// line on arrival.
 func cwIngestWorkloadLogLine(logGroup, logStream, message string, writtenAt time.Time) {
 	key := cwEventsKey(logGroup, logStream)
 	nowMs := time.Now().UnixMilli()
@@ -115,9 +102,8 @@ func cwIngestWorkloadLogLine(logGroup, logStream, message string, writtenAt time
 	cwEvaluateMetricFilters(logGroup, []CWLogEvent{event})
 }
 
-// cwEnsureLogStream creates group and its stream the way a service that writes
-// a workload's logs does before the workload starts, so the stream exists even
-// when the workload prints nothing.
+// Create the stream before the workload starts, as the writing service does,
+// so it exists even when the workload prints nothing.
 func cwEnsureLogStream(group, stream string) {
 	nowMs := time.Now().UnixMilli()
 	if _, exists := cwLogGroups.Get(group); !exists {
@@ -140,10 +126,8 @@ func cwEnsureLogStream(group, stream string) {
 	}
 }
 
-// cwAppendLogEvents appends events to a stream and keeps the stream's own
-// record of them in step -- its first and last event timestamps and its last
-// ingestion time -- whichever path delivered them. touch, when set, updates
-// the stream in the same write.
+// Keep the stream's first and last event timestamps and last ingestion time in
+// step, whichever path delivered; touch updates the stream in the same write.
 func cwAppendLogEvents(key string, events []CWLogEvent, touch func(*CWLogStream)) {
 	if len(events) == 0 {
 		return
@@ -172,22 +156,18 @@ func cwAppendLogEvents(key string, events []CWLogEvent, touch func(*CWLogStream)
 	})
 }
 
-// cwRetentionSweepInterval is how often expired log events are deleted.
-// CloudWatch Logs deletes an event within about 72 hours of it reaching its
-// group's retention, so an hourly pass sits well inside that.
+// CloudWatch Logs deletes an event within about 72 hours of expiry, so an
+// hourly pass is well inside that.
 const cwRetentionSweepInterval = time.Hour
 
-// cwSweepLogs applies each group's retention, then refreshes its storedBytes.
 func cwSweepLogs(now time.Time) int {
 	deleted := cwSweepExpiredLogEvents(now)
 	cwRefreshStoredBytes()
 	return deleted
 }
 
-// cwRefreshStoredBytes sets each log group's storedBytes to the compressed size
-// of the events its streams hold, which is what CloudWatch Logs reports. A
-// stream is compressed again only when it has taken or lost events since it
-// was last measured, so the figure lags ingestion the way the service's does.
+// Recompress only streams that changed since last measured, so the figure
+// lags ingestion as the service's does.
 func cwRefreshStoredBytes() {
 	totals := map[string]int64{}
 	for _, stream := range cwLogStreams.List() {
@@ -231,9 +211,7 @@ func (c *byteCounter) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-// cwSweepExpiredLogEvents deletes the events older than their log group's
-// retention and returns how many it deleted. Retention removes events, not
-// the streams that held them.
+// Retention removes events, not streams.
 func cwSweepExpiredLogEvents(now time.Time) int {
 	cutoffs := map[string]int64{}
 	for _, group := range cwLogGroups.List() {
@@ -247,8 +225,8 @@ func cwSweepExpiredLogEvents(now time.Time) int {
 	deleted := 0
 	for _, stream := range cwLogStreams.List() {
 		cutoff, ok := cutoffs[stream.LogGroupName]
-		// A stream written before its first timestamp was kept records none;
-		// it is read rather than trusted to be young.
+		// A stream stored without a first timestamp is read rather than assumed
+		// young.
 		if !ok || (stream.FirstEventTimestamp != 0 && stream.FirstEventTimestamp >= cutoff) {
 			continue
 		}
@@ -305,8 +283,8 @@ func cwNextSequenceToken() string {
 	return fmt.Sprintf("%016d", sequence)
 }
 
-// handleCWAssociateKmsKey sets the KMS key on an existing log group (the path
-// for aws_cloudwatch_log_group when kms_key_id is changed after create).
+// aws_cloudwatch_log_group takes this path when kms_key_id changes after
+// create.
 func handleCWAssociateKmsKey(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		LogGroupName string `json:"logGroupName"`
@@ -428,7 +406,6 @@ func handleCWDeleteLogGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Clean up streams and events for this group
 	streams := cwLogStreams.Filter(func(s CWLogStream) bool {
 		return s.LogGroupName == req.LogGroupName
 	})
@@ -498,8 +475,7 @@ func handleCWDescribeLogStreams(w http.ResponseWriter, r *http.Request) {
 		AWSError(w, "InvalidParameterException", "logGroupName is required", http.StatusBadRequest)
 		return
 	}
-	// Real DescribeLogStreams returns ResourceNotFoundException for a missing
-	// group rather than an empty list (RNFE is a declared error for the op).
+	// A missing group is a ResourceNotFoundException, not an empty list.
 	if _, ok := cwLogGroups.Get(req.LogGroupName); !ok {
 		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"The specified log group does not exist: %s", req.LogGroupName)
@@ -583,8 +559,7 @@ func handleCWPutLogEvents(w http.ResponseWriter, r *http.Request) {
 		s.UploadSequenceToken = nextSequenceToken
 	})
 
-	// CloudWatch auto-extracts metrics from any EMF-formatted event into the
-	// metric store, queryable through the metric APIs with no PutMetricData call.
+	// CloudWatch extracts metrics from any EMF event.
 	for _, e := range req.LogEvents {
 		for _, datum := range extractEMFMetrics(e.Message, e.Timestamp) {
 			cwStoreDatum(datum)
@@ -598,19 +573,15 @@ func handleCWPutLogEvents(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// The bounds GetLogEvents applies when the caller names no limit: at most
-// 10,000 events, and at most 1 MB of payload, where each event costs its
-// message's bytes plus the 26-byte per-event overhead CloudWatch Logs counts.
+// GetLogEvents' default bounds: 10,000 events and 1 MB, each event costing
+// its message bytes plus 26 bytes of overhead.
 const (
 	cwGetLogEventsMaxEvents = 10000
 	cwGetLogEventsMaxBytes  = 1024 * 1024
 	cwLogEventOverheadBytes = 26
 )
 
-// cwGetLogEventsDefaultPage returns how many of the newest events fit in a
-// default page. It measures from the tail because that is the end the default
-// page is anchored at, so the count answers "how many of the latest events are
-// returned", not "how many of the oldest".
+// Measure from the tail, where the default page is anchored.
 func cwGetLogEventsDefaultPage(events []CWLogEvent) int {
 	total, count := 0, 0
 	for i := len(events) - 1; i >= 0 && count < cwGetLogEventsMaxEvents; i-- {
@@ -621,7 +592,7 @@ func cwGetLogEventsDefaultPage(events []CWLogEvent) int {
 		count++
 	}
 	if count == 0 {
-		count = 1 // a single event larger than the cap is still returned
+		count = 1 // A single event larger than the cap is still returned.
 	}
 	return count
 }
@@ -644,8 +615,7 @@ func handleCWGetLogEvents(w http.ResponseWriter, r *http.Request) {
 		AWSError(w, "InvalidParameterException", "logGroupName and logStreamName are required", http.StatusBadRequest)
 		return
 	}
-	// Real GetLogEvents checks the group before the stream, so a missing group
-	// reports "log group does not exist", not "log stream does not exist".
+	// Check the group before the stream, as GetLogEvents does.
 	if _, ok := cwLogGroups.Get(req.LogGroupName); !ok {
 		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"The specified log group does not exist: %s", req.LogGroupName)
@@ -660,7 +630,6 @@ func handleCWGetLogEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Apply time range filter
 	var filtered []CWLogEvent
 	for _, e := range events {
 		if req.StartTime > 0 && e.Timestamp < req.StartTime {
@@ -679,23 +648,16 @@ func handleCWGetLogEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// A page is bounded whether or not the caller asked for a limit: AWS
-	// returns "as many log events as can fit in a response size of 1 MB, up to
-	// 10,000 log events" by default. An unbounded page is not a harmless
-	// superset — with startFromHead unset the page is anchored at the tail, so
-	// serving every event from the oldest is how a reader of a busy stream sees
-	// the beginning of history where the service would have shown them the
-	// latest lines.
+	// AWS returns "as many log events as can fit in a response size of 1 MB, up
+	// to 10,000 log events" when no limit is given.
 	page := req.Limit
 	if page == 0 {
 		page = cwGetLogEventsDefaultPage(filtered)
 	}
 
-	// Parse offset from NextToken (format: "f/{offset}" or "b/{offset}").
-	// On the first call (no token), startFromHead chooses the window: true →
-	// earliest events first (offset 0); false/unset (the documented default) →
-	// the latest events first, i.e. the tail of the stream. Within-page order is
-	// always ascending by timestamp either way.
+	// NextToken is "f/{offset}" or "b/{offset}". Without a token, startFromHead
+	// picks the head; unset, the documented default, picks the tail. Within a page
+	// events ascend by timestamp.
 	offset := 0
 	if req.NextToken != "" {
 		parts := strings.SplitN(req.NextToken, "/", 2)
@@ -711,7 +673,6 @@ func handleCWGetLogEvents(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Apply offset — skip events already consumed
 	if offset > 0 && offset <= len(filtered) {
 		filtered = filtered[offset:]
 	} else if offset > len(filtered) {
@@ -725,7 +686,6 @@ func handleCWGetLogEvents(w http.ResponseWriter, r *http.Request) {
 		filtered = []CWLogEvent{}
 	}
 
-	// New forward token = offset + events returned
 	newForwardOffset := offset + len(filtered)
 
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
@@ -753,32 +713,26 @@ func handleCWFilterLogEvents(w http.ResponseWriter, r *http.Request) {
 		AWSError(w, "InvalidParameterException", "logGroupName is required", http.StatusBadRequest)
 		return
 	}
-	// logStreamNames and logStreamNamePrefix are mutually exclusive, exactly as
-	// real CloudWatch Logs rejects them.
+	// logStreamNames and logStreamNamePrefix are mutually exclusive.
 	if len(req.LogStreamNames) > 0 && req.LogStreamNamePrefix != "" {
 		AWSError(w, "InvalidParameterException",
 			"LogStreamNames and LogStreamNamePrefix are mutually exclusive.", http.StatusBadRequest)
 		return
 	}
-	// Real CloudWatch Logs FilterLogEvents validates the group exists first
-	// (ResourceNotFoundException is a declared error for the op); without this
-	// a missing group returns an empty event list, masking misconfiguration.
+	// A missing group is a ResourceNotFoundException, not an empty result.
 	if _, ok := cwLogGroups.Get(req.LogGroupName); !ok {
 		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"The specified log group does not exist: %s", req.LogGroupName)
 		return
 	}
 
-	// Compile the filter pattern once. A malformed pattern is an
-	// InvalidParameterException (as real CloudWatch Logs returns), not a silent
-	// empty result set.
+	// A malformed pattern is an InvalidParameterException.
 	pattern, err := cwCompileLogPattern(req.FilterPattern)
 	if err != nil {
 		AWSError(w, "InvalidParameterException", err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	// Find all streams for this group
 	streams := cwLogStreams.Filter(func(s CWLogStream) bool {
 		if s.LogGroupName != req.LogGroupName {
 			return false
@@ -865,9 +819,7 @@ func handleCWPutRetentionPolicy(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
-// cwLogGroupByArn resolves a log-group ARN to its stored name. Real log-group
-// ARNs may carry a trailing ":*" (stream wildcard); the provider tags by the
-// bare group ARN, so accept both.
+// A log-group ARN may end in ":*"; the provider tags by the bare ARN.
 func cwLogGroupByArn(arn string) (string, bool) {
 	const sep = ":log-group:"
 	idx := strings.Index(arn, sep)

@@ -8,11 +8,7 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// API Gateway v2 (HTTP API + WebSocket) — restJson1 protocol, REST
-// path routing under /v2/. Surface scoped to the routes-+-stages
-// CRUD that terraform-provider-aws + aws-sdk-go-v2's `apigatewayv2`
-// client + the `aws apigatewayv2` CLI exercise for the 90th-
-// percentile "deploy an HTTP API + integration + stage" flow.
+// Amazon API Gateway HTTP and WebSocket APIs speak restJson1 under /v2/.
 
 type APIGWv2Api struct {
 	ApiId                     string            `json:"apiId"`
@@ -20,16 +16,13 @@ type APIGWv2Api struct {
 	Name                      string            `json:"name"`
 	ProtocolType              string            `json:"protocolType"`
 	RouteKey                  string            `json:"routeSelectionExpression,omitempty"`
-	ApiEndpoint               string            `json:"apiEndpoint,omitempty"` // external: the HTTP API invoke URL (<api-id>.execute-api.<region>.amazonaws.com) — a canonical AWS host the sim does not serve as a data plane (like ECR repositoryUri / Amplify WebhookUrl)
+	ApiEndpoint               string            `json:"apiEndpoint,omitempty"` // external: the execute-api invoke host, which the simulator does not serve
 	CreatedDate               string            `json:"createdDate"`
 	Tags                      map[string]string `json:"tags,omitempty"`
 }
 
-// Inner fields whose JSON tag is `apiIdRef` (custom, non-public)
-// hold the parent reference for cascade-delete + per-api filtering.
-// The SDK ignores unknown fields, so leaking the parent ID on the
-// response is harmless and avoids stripping the field during Store
-// persistence.
+// `apiIdRef` holds the parent for cascade delete and per-API filtering; it
+// survives Store persistence and the SDK ignores it.
 type APIGWv2Route struct {
 	RouteId           string `json:"routeId"`
 	ApiId             string `json:"apiIdRef,omitempty"`
@@ -45,7 +38,7 @@ type APIGWv2Integration struct {
 	ApiId                string `json:"apiIdRef,omitempty"`
 	ConnectionType       string `json:"connectionType,omitempty"`
 	IntegrationType      string `json:"integrationType"`
-	IntegrationUri       string `json:"integrationUri,omitempty"` // external (operator-supplied): integration target — Lambda ARN, HTTP backend, or VPC link target
+	IntegrationUri       string `json:"integrationUri,omitempty"`
 	IntegrationMethod    string `json:"integrationMethod,omitempty"`
 	PayloadFormatVersion string `json:"payloadFormatVersion,omitempty"`
 	TimeoutInMillis      int    `json:"timeoutInMillis,omitempty"`
@@ -61,29 +54,22 @@ type APIGWv2Stage struct {
 	Tags         map[string]string `json:"tags,omitempty"`
 }
 
-// APIGWv2Deployment models the snapshot of an HTTP API's routes +
-// integrations + stages at a point in time. terraform-provider-aws
-// emits `POST /v2/apis/{apiId}/deployments` on `aws_apigatewayv2_deployment`
-// — without this route registered the request used to fall through
-// to the S3 wildcard dispatcher and 400 with an InvalidRequest envelope.
 type APIGWv2Deployment struct {
 	DeploymentId     string `json:"deploymentId"`
 	ApiId            string `json:"apiIdRef,omitempty"`
 	Description      string `json:"description,omitempty"`
-	DeploymentStatus string `json:"deploymentStatus"` // DEPLOYED | PENDING | FAILED
+	DeploymentStatus string `json:"deploymentStatus"`
 	CreatedDate      string `json:"createdDate"`
 }
 
-// APIGWv2JWTConfig mirrors the JWTConfiguration shape on a JWT authorizer.
-// restJson1 serializes v2 members in camelCase (the smithy jsonName trait),
-// so every response tag is the lower-camel wire name.
+// restJson1 serializes v2 members in lowerCamelCase (the Smithy jsonName
+// trait).
 type APIGWv2JWTConfig struct {
 	Audience []string `json:"audience,omitempty"`
 	Issuer   string   `json:"issuer,omitempty"`
 }
 
-// APIGWv2Authorizer mirrors aws_apigatewayv2_authorizer. Keyed by
-// `<apiId>/<authorizerId>`.
+// Keyed by `<apiId>/<authorizerId>`.
 type APIGWv2Authorizer struct {
 	AuthorizerId                   string            `json:"authorizerId"`
 	ApiId                          string            `json:"apiIdRef,omitempty"`
@@ -99,7 +85,7 @@ type APIGWv2Authorizer struct {
 	JwtConfiguration               *APIGWv2JWTConfig `json:"jwtConfiguration,omitempty"`
 }
 
-// APIGWv2Model mirrors aws_apigatewayv2_model. Keyed by `<apiId>/<modelId>`.
+// Keyed by `<apiId>/<modelId>`.
 type APIGWv2Model struct {
 	ModelId     string `json:"modelId"`
 	ApiId       string `json:"apiIdRef,omitempty"`
@@ -109,17 +95,15 @@ type APIGWv2Model struct {
 	ContentType string `json:"contentType,omitempty"`
 }
 
-// APIGWv2DomainName mirrors aws_apigatewayv2_domain_name. Keyed by the
-// domain name itself.
+// Keyed by domain name.
 type APIGWv2DomainName struct {
 	DomainName                    string                    `json:"domainName"`
-	DomainNameArn                 string                    `json:"domainNameArn,omitempty"` // external: synthesized domain-name ARN
+	DomainNameArn                 string                    `json:"domainNameArn,omitempty"`
 	ApiMappingSelectionExpression string                    `json:"apiMappingSelectionExpression,omitempty"`
 	DomainNameConfigurations      []APIGWv2DomainNameConfig `json:"domainNameConfigurations,omitempty"`
 	Tags                          map[string]string         `json:"tags,omitempty"`
 }
 
-// APIGWv2DomainNameConfig mirrors the DomainNameConfiguration shape.
 type APIGWv2DomainNameConfig struct {
 	ApiGatewayDomainName string `json:"apiGatewayDomainName,omitempty"`
 	CertificateArn       string `json:"certificateArn,omitempty"`
@@ -130,8 +114,7 @@ type APIGWv2DomainNameConfig struct {
 	SecurityPolicy       string `json:"securityPolicy,omitempty"`
 }
 
-// APIGWv2ApiMapping mirrors aws_apigatewayv2_api_mapping. Keyed by
-// `<domainName>/<apiMappingId>`; the parent domain rides `domainNameRef`.
+// Keyed by `<domainName>/<apiMappingId>`.
 type APIGWv2ApiMapping struct {
 	ApiMappingId  string `json:"apiMappingId"`
 	ApiId         string `json:"apiId,omitempty"`
@@ -140,7 +123,6 @@ type APIGWv2ApiMapping struct {
 	DomainName    string `json:"domainNameRef,omitempty"`
 }
 
-// APIGWv2VpcLink mirrors aws_apigatewayv2_vpc_link. Keyed by its own id.
 type APIGWv2VpcLink struct {
 	VpcLinkId        string            `json:"vpcLinkId"`
 	Name             string            `json:"name,omitempty"`
@@ -203,20 +185,17 @@ func registerAPIGatewayV2(srv *sim.Server) {
 	mux.HandleFunc("GET /v2/apis/{apiId}/deployments/{deploymentId}", cloudTrailRecordedREST("GetDeployment", "apigateway.amazonaws.com", apiResource, handleAPIGWv2GetDeployment))
 	mux.HandleFunc("DELETE /v2/apis/{apiId}/deployments/{deploymentId}", cloudTrailRecordedREST("DeleteDeployment", "apigateway.amazonaws.com", apiResource, handleAPIGWv2DeleteDeployment))
 
-	// Authorizers — scoped to an API.
 	mux.HandleFunc("POST /v2/apis/{apiId}/authorizers", cloudTrailRecordedREST("CreateAuthorizer", "apigateway.amazonaws.com", apiResource, handleAPIGWv2CreateAuthorizer))
 	mux.HandleFunc("GET /v2/apis/{apiId}/authorizers", cloudTrailRecordedREST("GetAuthorizers", "apigateway.amazonaws.com", apiResource, handleAPIGWv2ListAuthorizers))
 	mux.HandleFunc("GET /v2/apis/{apiId}/authorizers/{authorizerId}", cloudTrailRecordedREST("GetAuthorizer", "apigateway.amazonaws.com", apiResource, handleAPIGWv2GetAuthorizer))
 	mux.HandleFunc("PATCH /v2/apis/{apiId}/authorizers/{authorizerId}", cloudTrailRecordedREST("UpdateAuthorizer", "apigateway.amazonaws.com", apiResource, handleAPIGWv2UpdateAuthorizer))
 	mux.HandleFunc("DELETE /v2/apis/{apiId}/authorizers/{authorizerId}", cloudTrailRecordedREST("DeleteAuthorizer", "apigateway.amazonaws.com", apiResource, handleAPIGWv2DeleteAuthorizer))
 
-	// Models — scoped to an API.
 	mux.HandleFunc("POST /v2/apis/{apiId}/models", cloudTrailRecordedREST("CreateModel", "apigateway.amazonaws.com", apiResource, handleAPIGWv2CreateModel))
 	mux.HandleFunc("GET /v2/apis/{apiId}/models", cloudTrailRecordedREST("GetModels", "apigateway.amazonaws.com", apiResource, handleAPIGWv2ListModels))
 	mux.HandleFunc("GET /v2/apis/{apiId}/models/{modelId}", cloudTrailRecordedREST("GetModel", "apigateway.amazonaws.com", apiResource, handleAPIGWv2GetModel))
 	mux.HandleFunc("DELETE /v2/apis/{apiId}/models/{modelId}", cloudTrailRecordedREST("DeleteModel", "apigateway.amazonaws.com", apiResource, handleAPIGWv2DeleteModel))
 
-	// Domain names + API mappings.
 	domainResource := cloudTrailRESTResource("AWS::ApiGatewayV2::DomainName", "domainName")
 	mux.HandleFunc("POST /v2/domainnames", cloudTrailRecordedREST("CreateDomainName", "apigateway.amazonaws.com", nil, handleAPIGWv2CreateDomainName))
 	mux.HandleFunc("GET /v2/domainnames", cloudTrailRecordedREST("GetDomainNames", "apigateway.amazonaws.com", nil, handleAPIGWv2ListDomainNames))
@@ -227,7 +206,6 @@ func registerAPIGatewayV2(srv *sim.Server) {
 	mux.HandleFunc("GET /v2/domainnames/{domainName}/apimappings/{apiMappingId}", cloudTrailRecordedREST("GetApiMapping", "apigateway.amazonaws.com", domainResource, handleAPIGWv2GetApiMapping))
 	mux.HandleFunc("DELETE /v2/domainnames/{domainName}/apimappings/{apiMappingId}", cloudTrailRecordedREST("DeleteApiMapping", "apigateway.amazonaws.com", domainResource, handleAPIGWv2DeleteApiMapping))
 
-	// VPC links — top-level resources keyed by their own id.
 	vpcLinkResource := cloudTrailRESTResource("AWS::ApiGatewayV2::VpcLink", "vpcLinkId")
 	mux.HandleFunc("POST /v2/vpclinks", cloudTrailRecordedREST("CreateVpcLink", "apigateway.amazonaws.com", nil, handleAPIGWv2CreateVpcLink))
 	mux.HandleFunc("GET /v2/vpclinks", cloudTrailRecordedREST("GetVpcLinks", "apigateway.amazonaws.com", nil, handleAPIGWv2ListVpcLinks))
@@ -262,11 +240,9 @@ func handleAPIGWv2CreateApi(w http.ResponseWriter, r *http.Request) {
 		Name:                      req.Name,
 		ProtocolType:              req.ProtocolType,
 		RouteKey:                  req.RouteSelectionExpression,
-		// external: canonical HTTP API invoke host; the sim does not serve the
-		// execute-api data plane (see the ApiEndpoint field comment).
-		ApiEndpoint: fmt.Sprintf("https://%s.execute-api.%s.amazonaws.com", apiID, awsRegion()),
-		CreatedDate: time.Now().UTC().Format(time.RFC3339),
-		Tags:        req.Tags,
+		ApiEndpoint:               fmt.Sprintf("https://%s.execute-api.%s.amazonaws.com", apiID, awsRegion()),
+		CreatedDate:               time.Now().UTC().Format(time.RFC3339),
+		Tags:                      req.Tags,
 	}
 	apigwv2Apis.Put(api.ApiId, api)
 	sim.WriteJSON(w, http.StatusCreated, api)
@@ -296,7 +272,6 @@ func handleAPIGWv2DeleteApi(w http.ResponseWriter, r *http.Request) {
 		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid API identifier")
 		return
 	}
-	// Cascade-delete children.
 	for _, rt := range apigwv2Routes.List() {
 		if rt.ApiId == apiId {
 			apigwv2Routes.Delete(apigwv2StoreKey(apiId, rt.RouteId))
@@ -385,8 +360,7 @@ func handleAPIGWv2UpdateRoute(w http.ResponseWriter, r *http.Request) {
 			"Invalid Route identifier specified %s", routeId)
 		return
 	}
-	// PATCH is a partial update: pointer fields distinguish absent from empty,
-	// so an omitted field leaves the stored value unchanged.
+	// Pointer fields tell absent from empty, so an omitted field keeps its value.
 	var req struct {
 		RouteKey          *string `json:"RouteKey"`
 		Target            *string `json:"Target"`
@@ -778,7 +752,6 @@ func handleAPIGWv2UpdateAuthorizer(w http.ResponseWriter, r *http.Request) {
 			"Invalid Authorizer identifier specified %s", authorizerId)
 		return
 	}
-	// PATCH is a partial update: pointer fields distinguish absent from empty.
 	var req struct {
 		Name                           *string           `json:"Name"`
 		AuthorizerType                 *string           `json:"AuthorizerType"`

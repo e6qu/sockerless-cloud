@@ -133,7 +133,7 @@ func TestAmplifyRealBuildPlanBoundary(t *testing.T) {
 	if !ok || spec != "app-spec" || repo != "https://github.com/acme/site" {
 		t.Fatalf("app-level spec: %q %q %v", spec, repo, ok)
 	}
-	// Branch-level buildSpec wins (real precedence).
+	// The branch buildSpec wins.
 	spec, _, ok = amplifyRealBuildPlan(app("http://repos.local/site.git", "app-spec"), br("branch-spec"))
 	if !ok || spec != "branch-spec" {
 		t.Fatalf("branch-level spec must win: %q %v", spec, ok)
@@ -190,7 +190,7 @@ func TestAmplifyBuildOutputManifestError(t *testing.T) {
 	amplifyResetHostingState(t)
 	amplifySeedApp("buildman1", "main")
 	amplifyApps.Update("buildman1", func(a *amplifyStoredApp) { a.App.Platform = "WEB_COMPUTE" })
-	amplifySeedApp("buildman2", "main") // static WEB platform
+	amplifySeedApp("buildman2", "main")
 
 	invalidZip := amplifyZipOf(t, map[string]string{"deploy-manifest.json": `{"version": 2}`})
 	validZip := amplifyZipOf(t, map[string]string{

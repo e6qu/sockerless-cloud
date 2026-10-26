@@ -6,11 +6,8 @@ import (
 	"testing"
 )
 
-// FuzzEC2FormFlatten drives the AWS query-protocol form flatteners
-// (parseLaunchTemplateData, ec2Filters, ec2ParamList, snsPublishBatchEntries)
-// with an arbitrary url-encoded form body. These flatteners walk
-// attacker-supplied `.N.` / `.member.N.` indexed keys; none may panic, hang,
-// or OOM on a malformed, sparse, or huge-index key set.
+// The flatteners walk attacker-supplied `.N.` / `.member.N.` keys; none may
+// panic, hang or exhaust memory on a sparse or huge index.
 func FuzzEC2FormFlatten(f *testing.F) {
 	seeds := []string{
 		"",
@@ -40,7 +37,7 @@ func FuzzEC2FormFlatten(f *testing.F) {
 			return
 		}
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-		// Each of these forces ParseForm internally and walks indexed keys.
+		// Each forces ParseForm and walks indexed keys.
 		_ = parseLaunchTemplateData(req, "LaunchTemplateData")
 		_ = ec2Filters(req)
 		_ = ec2ParamList(req, "LaunchTemplateData.SecurityGroupId")

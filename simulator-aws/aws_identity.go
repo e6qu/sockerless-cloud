@@ -5,13 +5,9 @@ import (
 	"os"
 )
 
-// AWS identity helpers. Real AWS reads the region from the endpoint
-// host (`<service>.<region>.amazonaws.com`) and the account from
-// caller credentials (`sts:GetCallerIdentity`). The simulator listens
-// on a single port for every region+service, so the region and account
-// are operator-configurable via env vars; defaults match the
-// long-standing sim placeholders so existing test fixtures keep
-// working without explicit override.
+// AWS reads the Region from the endpoint host and the account from the
+// credentials. The simulator serves every Region on one port, so both come
+// from configuration.
 func awsRegion() string {
 	if r := os.Getenv("SOCKERLESS_AWS_REGION"); r != "" {
 		return r
@@ -26,9 +22,7 @@ func awsAccountID() string {
 	return "123456789012"
 }
 
-// awsCallerArn is the principal a service records as a resource's creator or
-// modifier: the identity that signed the request, or the account root for the
-// simulator's own service credential.
+// The simulator's own service credential maps to the account root.
 func awsCallerArn(r *http.Request) string {
 	if arn, _, ok := stsCallerIdentity(r); ok {
 		return arn
@@ -36,14 +30,12 @@ func awsCallerArn(r *http.Request) string {
 	return "arn:aws:iam::" + awsAccountID() + ":root"
 }
 
-// awsAvailabilityZones lists the configured Region's Availability Zones.
 func awsAvailabilityZones() []string {
 	region := awsRegion()
 	return []string{region + "a", region + "b", region + "c"}
 }
 
-// awsAvailabilityZone returns the Region's first Availability Zone, where a
-// resource lands when its request names none.
+// A resource whose request names no Availability Zone lands in the first.
 func awsAvailabilityZone() string {
 	return awsAvailabilityZones()[0]
 }

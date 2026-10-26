@@ -11,29 +11,20 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// CloudWatch Logs event-stream operations.
-//
-// StartLiveTail and GetLogObject are awsJson1.1 requests (dispatched off the
-// X-Amz-Target header through the shared AWSRouter) whose *responses* are AWS
-// event streams (Content-Type application/vnd.amazon.eventstream). The handler
-// takes over the raw http.ResponseWriter and writes one framed event per
-// member of the response-stream union, using the same awsEventStreamMessage
-// framing Lambda's InvokeWithResponseStream uses, so aws-sdk-go-v2's
-// eventstream decoder reassembles them natively.
+// StartLiveTail and GetLogObject arrive as awsJson1.1 requests but answer with
+// AWS event streams; the handler writes one framed event per union member with
+// the awsEventStreamMessage framing AWS Lambda's InvokeWithResponseStream
+// uses.
 func registerCloudWatchLogsExtra5(r *AWSRouter, srv *sim.Server) {
 	_ = srv
 	r.Register("Logs_20140328.StartLiveTail", handleCWStartLiveTail)
 	r.Register("Logs_20140328.GetLogObject", handleCWGetLogObject)
 }
 
-// cwResolveLogGroupName maps a logGroupIdentifier — which may be a log-group
-// ARN or a bare log-group name — to the stored log-group name. StartLiveTail's
-// request requires ARNs, but the sim accepts either so a caller that passes a
-// name still resolves.
+// StartLiveTail requires ARNs, but the simulator also resolves a bare name.
 func cwResolveLogGroupName(identifier string) (string, bool) {
 	name := identifier
 	if strings.HasPrefix(identifier, "arn:") {
-		// arn:aws:logs:<region>:<acct>:log-group:<name>[:*]
 		if idx := strings.Index(identifier, ":log-group:"); idx >= 0 {
 			name = identifier[idx+len(":log-group:"):]
 			name = strings.TrimSuffix(name, ":*")
@@ -45,11 +36,9 @@ func cwResolveLogGroupName(identifier string) (string, bool) {
 	return name, false
 }
 
-// handleCWStartLiveTail opens a Live Tail session over the AWS event stream.
-// After the sessionStart frame the session streams the log events ingested
-// into the requested log groups from then on, one sessionUpdate a second, until
-// the client closes the stream or the session reaches its three-hour limit, as
-// CloudWatch Logs does. Events already stored are not replayed.
+// After sessionStart, stream events ingested from then on, one sessionUpdate a
+// second, until the client closes or three hours pass, as CloudWatch Logs
+// does. Stored events are not replayed.
 func handleCWStartLiveTail(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		LogGroupIdentifiers   []string `json:"logGroupIdentifiers"`
@@ -67,8 +56,7 @@ func handleCWStartLiveTail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// An unknown identifier is refused before the stream opens, with the
-	// ResourceNotFoundException the real operation returns.
+	// Refuse an unknown identifier before the stream opens.
 	groupARNs := make(map[string]string, len(req.LogGroupIdentifiers))
 	echoedIdentifiers := make([]string, 0, len(req.LogGroupIdentifiers))
 	for _, id := range req.LogGroupIdentifiers {
@@ -98,8 +86,8 @@ func handleCWStartLiveTail(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/vnd.amazon.eventstream")
 	w.WriteHeader(http.StatusOK)
-	// The controller reaches the connection through the middleware writers
-	// that wrap w, so each frame leaves as it is written.
+	// The controller reaches the connection through the wrapping middleware
+	// writers, so each frame leaves as it is written.
 	controller := http.NewResponseController(w)
 	send := func(frame []byte) bool {
 		if _, err := w.Write(frame); err != nil {
@@ -108,11 +96,8 @@ func handleCWStartLiveTail(w http.ResponseWriter, r *http.Request) {
 		return controller.Flush() == nil
 	}
 
-	// The aws-sdk-go-v2 eventstream deserializer blocks the StartLiveTail call
-	// until it reads the initial-response message (StartLiveTailResponse has no
-	// non-event members, so its payload is an empty document). It must precede
-	// any data event, or the reader goroutine deadlocks pushing the first event
-	// before a consumer attaches.
+	// The SDK's eventstream deserializer blocks until the initial-response
+	// message; sending a data event first deadlocks its reader goroutine.
 	if !send(awsEventStreamInitialResponse([]byte("{}"))) {
 		return
 	}
@@ -157,9 +142,8 @@ func handleCWStartLiveTail(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// CloudWatch Logs sends a Live Tail session one update a second, carries at
-// most 500 events in it (sampling the rest), and ends a session after three
-// hours.
+// One update a second, at most 500 events each (sampling the rest), three
+// hours per session.
 const (
 	cwLiveTailUpdateInterval  = time.Second
 	cwLiveTailMaxUpdateEvents = 500
@@ -202,8 +186,6 @@ func cwLiveTailUnsubscribe(s *cwLiveTailSession) {
 	delete(cwLiveTails.sessions, s)
 }
 
-// cwLiveTailPublish hands newly ingested events to every open Live Tail
-// session that covers their log group and stream.
 func cwLiveTailPublish(logGroup, logStream string, events []CWLogEvent) {
 	cwLiveTails.mu.Lock()
 	sessions := make([]*cwLiveTailSession, 0, len(cwLiveTails.sessions))
@@ -262,10 +244,8 @@ func (s *cwLiveTailSession) drain() ([]cwLiveTailEvent, bool) {
 	return results, sampled
 }
 
-// handleCWGetLogObject streams a large logging object back over the AWS event
-// stream. The GetLogObjectResponseStream union carries a single `fields` event
-// member (FieldsData{ data }); the sim derives that data honestly from the
-// stored log event the logObjectPointer references.
+// The response union carries a single `fields` event taken from the stored log
+// event the pointer names.
 func handleCWGetLogObject(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Unmask           bool   `json:"unmask"`
@@ -281,10 +261,8 @@ func handleCWGetLogObject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// The logObjectPointer the sim honors is "<logGroupName>:<logStreamName>" —
-	// the same key the event store uses — optionally followed by ":<index>" to
-	// select a specific stored event. This is the deterministic pointer a prior
-	// FilterLogEvents/Live Tail result over the sim would carry.
+	// The simulator's logObjectPointer is "<logGroupName>:<logStreamName>",
+	// optionally followed by ":<index>".
 	data, ok := cwResolveLogObject(req.LogObjectPointer)
 	if !ok {
 		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
@@ -296,17 +274,13 @@ func handleCWGetLogObject(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	flusher, _ := w.(http.Flusher)
 
-	// The aws-sdk-go-v2 eventstream deserializer blocks the GetLogObject call
-	// until it reads the initial-response message (GetLogObjectResponse has no
-	// non-event members, so its payload is an empty document). It must precede
-	// the data event, or the reader goroutine deadlocks pushing it before a
-	// consumer attaches.
+	// The SDK's eventstream deserializer blocks until the initial-response
+	// message; sending the data event first deadlocks its reader goroutine.
 	_, _ = w.Write(awsEventStreamInitialResponse([]byte("{}")))
 	if flusher != nil {
 		flusher.Flush()
 	}
 
-	// A single `fields` event carrying the object's data, then the stream ends.
 	_, _ = w.Write(cwEventStreamFrame("fields", map[string]any{
 		"data": data,
 	}))
@@ -315,10 +289,7 @@ func handleCWGetLogObject(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// cwResolveLogObject maps a logObjectPointer of the form
-// "<logGroupName>:<logStreamName>[:<index>]" to the stored log event's message
-// bytes. Without a trailing index, the most recent event in the stream is
-// returned. The returned bytes are the FieldsData `data` blob.
+// Without an index, return the stream's newest event.
 func cwResolveLogObject(pointer string) ([]byte, bool) {
 	parts := strings.Split(pointer, ":")
 	if len(parts) < 2 {
@@ -328,7 +299,6 @@ func cwResolveLogObject(pointer string) ([]byte, bool) {
 	stream := parts[1]
 	index := -1
 	if len(parts) >= 3 {
-		// A trailing numeric segment selects a specific event index.
 		if n, err := parsePositiveInt(parts[2]); err == nil {
 			index = n
 		}
@@ -349,8 +319,6 @@ func cwResolveLogObject(pointer string) ([]byte, bool) {
 	return []byte(events[index].Message), true
 }
 
-// parsePositiveInt parses a non-negative base-10 integer, rejecting any
-// non-digit input.
 func parsePositiveInt(s string) (int, error) {
 	if s == "" {
 		return 0, errNotAnInt
@@ -371,11 +339,8 @@ type cwParseError struct{}
 
 func (*cwParseError) Error() string { return "not an integer" }
 
-// cwEventStreamFrame encodes one event-stream frame for the given union member
-// name and JSON payload, using the shared awsEventStreamMessage framing. The
-// :event-type header carries the union member name exactly as the smithy model
-// spells it, which is how aws-sdk-go-v2's eventstream decoder dispatches to the
-// matching response-stream member type.
+// The :event-type header carries the union member name as the Smithy model
+// spells it; the SDK's decoder dispatches on it.
 func cwEventStreamException(exceptionType string, payload any) []byte {
 	body, err := json.Marshal(payload)
 	if err != nil {
@@ -391,9 +356,8 @@ func cwEventStreamException(exceptionType string, payload any) []byte {
 func cwEventStreamFrame(eventType string, payload any) []byte {
 	body, err := json.Marshal(payload)
 	if err != nil {
-		// A response-stream payload assembled from sim-owned types must always
-		// marshal; an error here is a sim bug, so surface an honest empty frame
-		// body rather than silently corrupting the wire shape.
+		// A marshal failure here is a simulator bug; send an empty body rather than a
+		// corrupt frame.
 		body = []byte("{}")
 	}
 	return awsEventStreamMessage(map[string]string{

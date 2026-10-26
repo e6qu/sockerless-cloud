@@ -56,9 +56,7 @@ func TestCWLogPatternMatches(t *testing.T) {
 	}
 }
 
-// TestCWLogPatternFailsLoud asserts a malformed structured pattern is a loud
-// error (the handler turns it into InvalidParameterException), never a silent
-// "matches nothing".
+// The handler turns this error into InvalidParameterException.
 func TestCWLogPatternFailsLoud(t *testing.T) {
 	bad := []string{
 		`{ $.a = }`,      // comparison missing its value

@@ -11,21 +11,14 @@ import (
 	"github.com/fxamacker/cbor/v2"
 )
 
-// Amazon CloudWatch log alarms. A log alarm evaluates the results of an Amazon
-// CloudWatch Logs scheduled query against a threshold: PutLogAlarm creates the
-// alarm *and* the service-managed scheduled query that backs it, and the alarm
-// is read back through DescribeAlarms under the LogAlarm alarm type.
+// PutLogAlarm creates the alarm and the service-managed CloudWatch Logs
+// scheduled query behind it; DescribeAlarms reads it back as a LogAlarm.
 //
-// The state is derived at read time from the log data actually present, exactly
-// as the metric-alarm evaluator derives state from recorded datapoints: each of
-// the most recent QueryResultsToEvaluate schedule windows is materialised by
-// running the configured query — with the AggregationExpression appended as its
-// `stats` stage — through the same CloudWatch Logs Insights engine StartQuery
-// uses, and the aggregated value is compared against Threshold. M-out-of-N: the
-// alarm is in ALARM when QueryResultsToAlarm of those windows breach.
+// A read derives the state from the log data present: each of the latest
+// QueryResultsToEvaluate schedule windows runs the query, with the
+// AggregationExpression appended as its `stats` stage, through the Insights
+// engine, and the alarm is in ALARM when QueryResultsToAlarm windows breach.
 
-// CWLogAlarm holds a log alarm and the identity of the scheduled query
-// PutLogAlarm provisioned for it.
 type CWLogAlarm struct {
 	AlarmName               string                 `json:"AlarmName"`
 	AlarmArn                string                 `json:"AlarmArn"`
@@ -57,9 +50,7 @@ type CWLogAlarm struct {
 
 var cwLogAlarms sim.Store[CWLogAlarm]
 
-// cwLogAlarmScheduledQueryName is the name of the service-managed CloudWatch
-// Logs scheduled query PutLogAlarm creates for an alarm. Real CloudWatch names
-// the managed resource after the alarm it serves.
+// CloudWatch names the managed query after the alarm it serves.
 func cwLogAlarmScheduledQueryName(alarmName string) string {
 	return "AlarmManagedQuery-" + alarmName
 }
@@ -72,8 +63,7 @@ func registerCloudWatchLogAlarmsCBOR(srv *sim.Server) {
 	cwCBOR(srv, "PutLogAlarm", handleCWCBORPutLogAlarm)
 }
 
-// cwPutLogAlarmInput is the wire shape of PutLogAlarmInput, shared by the
-// awsJson1.0 and rpc-v2-cbor surfaces (the two protocols CloudWatch serves).
+// Shared by the awsJson1.0 and rpc-v2-cbor surfaces.
 type cwPutLogAlarmInput struct {
 	AlarmName                   string `json:"AlarmName" cbor:"AlarmName"`
 	AlarmDescription            string `json:"AlarmDescription" cbor:"AlarmDescription"`
@@ -105,9 +95,7 @@ type cwPutLogAlarmInput struct {
 	ActionConfiguration     *cwActionConfiguration `json:"ActionConfiguration" cbor:"ActionConfiguration"`
 }
 
-// cwValidateLogAlarm applies PutLogAlarm's modeled constraints. It returns the
-// error code, the message and the HTTP status the operation must answer with;
-// ok=false means the request is rejected.
+// ok=false means the request is rejected with code, msg and status.
 func cwValidateLogAlarm(req *cwPutLogAlarmInput) (code, msg string, status int, ok bool) {
 	switch {
 	case req.AlarmName == "":
@@ -142,8 +130,7 @@ func cwValidateLogAlarm(req *cwPutLogAlarmInput) (code, msg string, status int, 
 	if sc.EndTimeOffset < 0 || sc.EndTimeOffset >= sc.StartTimeOffset {
 		return "InvalidParameterValue", "EndTimeOffset must be non-negative and less than StartTimeOffset.", http.StatusBadRequest, false
 	}
-	// Alarm names are unique across alarm types: a name already taken by a
-	// metric or composite alarm conflicts with the alarm's current state.
+	// Alarm names are unique across alarm types.
 	if _, taken := cwAlarms.Get(req.AlarmName); taken {
 		return "ResourceConflict", "A metric alarm named " + req.AlarmName + " already exists.", http.StatusConflict, false
 	}
@@ -156,8 +143,6 @@ func cwValidateLogAlarm(req *cwPutLogAlarmInput) (code, msg string, status int, 
 	return "", "", 0, true
 }
 
-// cwApplyPutLogAlarm stores the alarm and provisions the service-managed
-// CloudWatch Logs scheduled query that executes its query on the schedule.
 func cwApplyPutLogAlarm(req *cwPutLogAlarmInput) CWLogAlarm {
 	sq := req.ScheduledQueryConfiguration
 	sc := sq.ScheduleConfiguration
@@ -264,8 +249,6 @@ func handleCWCBORPutLogAlarm(w http.ResponseWriter, r *http.Request) {
 	cwWriteCBOR(w, map[string]any{})
 }
 
-// cwListLogAlarms returns log alarms filtered by an optional name set, sorted
-// by name.
 func cwListLogAlarms(names []string) []CWLogAlarm {
 	want := map[string]bool{}
 	for _, n := range names {
@@ -282,9 +265,8 @@ func cwListLogAlarms(names []string) []CWLogAlarm {
 	return out
 }
 
-// cwScheduleIntervalSeconds parses a scheduled-query rate() expression into its
-// interval in seconds. An expression the sim cannot parse yields 0, which the
-// evaluator reports as an evaluation failure rather than guessing a period.
+// An unparsable expression yields 0, which the evaluator reports as an
+// evaluation failure rather than guessing a period.
 func cwScheduleIntervalSeconds(expr string) int64 {
 	s := strings.TrimSpace(expr)
 	if !strings.HasPrefix(strings.ToLower(s), "rate(") || !strings.HasSuffix(s, ")") {
@@ -308,14 +290,11 @@ func cwScheduleIntervalSeconds(expr string) int64 {
 	}
 }
 
-// cwLogAlarmWindowValue runs the alarm's query over one schedule window and
-// returns the aggregated scalar the window produced. found=false means the
-// window produced no result row — a missing datapoint.
+// found=false means the window produced no row: a missing datapoint.
 func cwLogAlarmWindowValue(a CWLogAlarm, startSec, endSec int64) (value float64, found bool) {
 	records, _ := cwGatherRecords(a.LogGroupIdentifiers, startSec, endSec)
-	// The AggregationExpression is the query's aggregation stage: appending it
-	// as `stats` is exactly what the scheduled query executes to reduce the
-	// window's rows to the scalar(s) the alarm evaluates.
+	// The scheduled query reduces a window's rows by appending the
+	// AggregationExpression as `stats`.
 	query := a.QueryString + " | stats " + a.AggregationExpression
 	rows, err := cwRunInsightsQuery(query, records, 0)
 	if err != nil || len(rows) == 0 {
@@ -336,8 +315,6 @@ func cwLogAlarmWindowValue(a CWLogAlarm, startSec, endSec int64) (value float64,
 	return 0, false
 }
 
-// cwEvaluateLogAlarmState derives a log alarm's StateValue, its reason and the
-// EvaluationState from the most recent QueryResultsToEvaluate schedule windows.
 func cwEvaluateLogAlarmState(a CWLogAlarm) (state, reason, evaluationState string) {
 	interval := cwScheduleIntervalSeconds(a.ScheduleExpression)
 	if interval <= 0 {
@@ -368,7 +345,7 @@ func cwEvaluateLogAlarmState(a CWLogAlarm) (state, reason, evaluationState strin
 			return "OK", "Threshold not crossed: missing data treated as not breaching", ""
 		case "breaching":
 			return "ALARM", "Threshold crossed: missing data treated as breaching", ""
-		default: // "missing" (the default) and "ignore"
+		default:
 			return "INSUFFICIENT_DATA", "Insufficient Data: the scheduled query returned no results", ""
 		}
 	}
@@ -381,8 +358,7 @@ func cwEvaluateLogAlarmState(a CWLogAlarm) (state, reason, evaluationState strin
 	return "OK", "Threshold not crossed", cwLogAlarmPartial(missing)
 }
 
-// cwLogAlarmPartial reports PARTIAL_DATA when some of the evaluated windows
-// produced no query result, matching the modeled EvaluationState.
+// PARTIAL_DATA when some evaluated windows produced no result.
 func cwLogAlarmPartial(missing int) string {
 	if missing > 0 {
 		return "PARTIAL_DATA"
@@ -390,8 +366,6 @@ func cwLogAlarmPartial(missing int) string {
 	return ""
 }
 
-// cwLogAlarmScheduledQueryConfig renders the ScheduledQueryConfiguration
-// member shared by both DescribeAlarms surfaces.
 func cwLogAlarmScheduledQueryConfig(a CWLogAlarm) map[string]any {
 	cfg := map[string]any{
 		"QueryString":           a.QueryString,
@@ -410,8 +384,7 @@ func cwLogAlarmScheduledQueryConfig(a CWLogAlarm) map[string]any {
 	return cfg
 }
 
-// cwJSONLogAlarm renders a log alarm as the awsJson1.0 LogAlarm shape, whose
-// timestamps are epoch-second numbers.
+// awsJson1.0 timestamps are epoch-second numbers.
 func cwJSONLogAlarm(a CWLogAlarm, now time.Time) map[string]any {
 	state, reason, evalState := cwEvaluateLogAlarmState(a)
 	out := map[string]any{
@@ -451,8 +424,7 @@ func cwJSONLogAlarm(a CWLogAlarm, now time.Time) map[string]any {
 	return out
 }
 
-// cborLogAlarm is the DescribeAlarms LogAlarm response shape on the
-// rpc-v2-cbor surface, whose timestamps are CBOR times.
+// rpc-v2-cbor timestamps are CBOR times.
 type cborLogAlarm struct {
 	AlarmName                          string                 `cbor:"AlarmName"`
 	AlarmArn                           string                 `cbor:"AlarmArn"`
@@ -506,8 +478,6 @@ func cborLogAlarmOf(a CWLogAlarm, now time.Time) cborLogAlarm {
 	}
 }
 
-// cwDeleteLogAlarm removes a log alarm together with the service-managed
-// scheduled query PutLogAlarm provisioned for it.
 func cwDeleteLogAlarm(name string) {
 	if _, ok := cwLogAlarms.Get(name); !ok {
 		return

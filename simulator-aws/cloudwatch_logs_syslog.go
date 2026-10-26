@@ -8,9 +8,8 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// CloudWatch Logs account storage-tier policy and VPC-endpoint syslog
-// ingestion configuration. These operations were added to the public Logs
-// model after the original slice and complete the current vendored surface.
+// CloudWatch Logs storage-tier policy and VPC-endpoint syslog ingestion
+// configuration.
 
 type CWStorageTierPolicy struct {
 	StorageTier     string `json:"storageTier"`
