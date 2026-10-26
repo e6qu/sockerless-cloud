@@ -98,10 +98,9 @@ func TestIAMARNFormatMatcher_ReadsThePublishedShape(t *testing.T) {
 	}
 }
 
-// A tagged CreateSecret is also authorized as secretsmanager:TagResource, on
-// the secret it creates: a grant scoped to a name prefix allows both. The
-// tagging check fell to "*" for any secret named by a path, so such a grant
-// allowed the untagged create and refused the tagged one.
+// A tagged CreateSecret is also authorized as secretsmanager:TagResource on the
+// secret it creates, so a grant scoped to a name prefix allows both, path-named
+// secrets included.
 func TestIAMTaggedCreateSecretAuthorizesTaggingOnTheSecret(t *testing.T) {
 	body := `{"Name":"edd/workspace/ws-1","SecretString":"x","Tags":[{"Key":"edd:workspace","Value":"ws-1"}]}`
 	r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))

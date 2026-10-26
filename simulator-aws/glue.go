@@ -11,12 +11,11 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// AWS Glue — AWS JSON 1.1 protocol (X-Amz-Target: AWSGlue.<Op>).
-// Python shell job runs execute the script stored at the job's S3 script
-// location, in a container running the interpreter the job command names.
+// AWS Glue speaks AWS JSON 1.1 (X-Amz-Target: AWSGlue.<Op>). A Python shell job
+// run executes the script at the job's Amazon S3 script location, in a container
+// running the interpreter the job command names.
 
-// glueJobScriptDir is where a Python shell job's script is mounted inside its
-// job container, and the working directory the script runs from.
+// Mount point and working directory of a Python shell job's script in its container.
 const glueJobScriptDir = "/tmp/glue-script"
 
 type GlueDatabase struct {
@@ -93,7 +92,6 @@ type GlueJobRun struct {
 	LogGroupName  string            `json:"LogGroupName,omitempty"`
 }
 
-// GluePartition models a Data Catalog partition belonging to a table.
 type GluePartition struct {
 	Values            []string          `json:"Values,omitempty"`
 	DatabaseName      string            `json:"DatabaseName"`
@@ -105,7 +103,6 @@ type GluePartition struct {
 	LastAnalyzedTime  *float64          `json:"LastAnalyzedTime,omitempty"`
 }
 
-// GlueCrawler models a Data Catalog crawler keyed by name.
 type GlueCrawler struct {
 	Name         string            `json:"Name"`
 	Role         string            `json:"Role"`
@@ -122,13 +119,11 @@ type GlueCrawler struct {
 	Tags         map[string]string `json:"Tags,omitempty"`
 }
 
-// GlueSchedule mirrors the Glue Schedule structure returned in a Crawler.
 type GlueSchedule struct {
 	ScheduleExpression string `json:"ScheduleExpression,omitempty"`
 	State              string `json:"State,omitempty"`
 }
 
-// GlueTrigger models a Glue workflow trigger keyed by name.
 type GlueTrigger struct {
 	ID           string            `json:"Id,omitempty"`
 	Name         string            `json:"Name"`
@@ -142,7 +137,6 @@ type GlueTrigger struct {
 	Tags         map[string]string `json:"Tags,omitempty"`
 }
 
-// GlueConnection models a Data Catalog connection keyed by name.
 type GlueConnection struct {
 	Name                           string            `json:"Name"`
 	Description                    string            `json:"Description,omitempty"`
@@ -154,15 +148,13 @@ type GlueConnection struct {
 	LastUpdatedTime                float64           `json:"LastUpdatedTime"`
 }
 
-// GlueSecurityConfiguration models a security configuration keyed by name.
-// EncryptionConfiguration is stored verbatim to preserve the (nested) wire shape.
+// Store EncryptionConfiguration verbatim to keep its nested wire shape.
 type GlueSecurityConfiguration struct {
 	Name                    string         `json:"Name"`
 	CreatedTimeStamp        float64        `json:"CreatedTimeStamp"`
 	EncryptionConfiguration map[string]any `json:"EncryptionConfiguration,omitempty"`
 }
 
-// GlueWorkflow models a workflow keyed by name.
 type GlueWorkflow struct {
 	Name                 string            `json:"Name"`
 	Description          string            `json:"Description,omitempty"`
@@ -173,7 +165,6 @@ type GlueWorkflow struct {
 	Tags                 map[string]string `json:"Tags,omitempty"`
 }
 
-// GlueWorkflowRun models a single execution of a workflow.
 type GlueWorkflowRun struct {
 	Name                  string            `json:"Name"`
 	WorkflowRunId         string            `json:"WorkflowRunId"`
@@ -183,8 +174,8 @@ type GlueWorkflowRun struct {
 	Status                string            `json:"Status"`
 }
 
-// GlueClassifier models a classifier. Exactly one of the four sub-objects is set,
-// matching the Classifier union shape; each sub-object is stored verbatim.
+// Exactly one sub-object is set, as in the Classifier union; store each
+// verbatim.
 type GlueClassifier struct {
 	GrokClassifier map[string]any `json:"GrokClassifier,omitempty"`
 	XMLClassifier  map[string]any `json:"XMLClassifier,omitempty"`
@@ -192,8 +183,7 @@ type GlueClassifier struct {
 	CsvClassifier  map[string]any `json:"CsvClassifier,omitempty"`
 }
 
-// GlueUserDefinedFunction models a Data Catalog user-defined function,
-// keyed by database name + function name.
+// Keyed by database name and function name.
 type GlueUserDefinedFunction struct {
 	FunctionName string           `json:"FunctionName"`
 	DatabaseName string           `json:"DatabaseName"`
@@ -206,7 +196,6 @@ type GlueUserDefinedFunction struct {
 	CatalogId    string           `json:"CatalogId,omitempty"`
 }
 
-// GlueRegistry models a schema registry keyed by name.
 type GlueRegistry struct {
 	RegistryName string            `json:"RegistryName"`
 	RegistryArn  string            `json:"RegistryArn"`
@@ -217,7 +206,7 @@ type GlueRegistry struct {
 	Tags         map[string]string `json:"Tags,omitempty"`
 }
 
-// GlueSchema models a schema keyed by registry name + schema name.
+// Keyed by registry name and schema name.
 type GlueSchema struct {
 	RegistryName        string            `json:"RegistryName"`
 	RegistryArn         string            `json:"RegistryArn"`
@@ -236,8 +225,7 @@ type GlueSchema struct {
 	Tags                map[string]string `json:"Tags,omitempty"`
 }
 
-// GlueTableVersion captures one immutable snapshot of a table at a version.
-// VersionId is the string form of a monotonically increasing integer.
+// VersionId is the decimal form of a monotonically increasing integer.
 type GlueTableVersion struct {
 	DatabaseName string    `json:"DatabaseName"`
 	TableName    string    `json:"TableName"`
@@ -245,8 +233,7 @@ type GlueTableVersion struct {
 	Table        GlueTable `json:"Table"`
 }
 
-// GluePartitionIndex models a partition index attached to a table. Keys mirror
-// the KeySchemaElementList descriptor shape (Name + Type).
+// Keys follow the KeySchemaElementList shape (Name, Type).
 type GluePartitionIndex struct {
 	DatabaseName string           `json:"DatabaseName"`
 	TableName    string           `json:"TableName"`
@@ -255,8 +242,8 @@ type GluePartitionIndex struct {
 	IndexStatus  string           `json:"IndexStatus"`
 }
 
-// GlueColumnStatisticsRecord stores the verbatim ColumnStatistics object for one
-// column, scoped to a table (PartitionValues empty) or a partition.
+// Store the ColumnStatistics object verbatim; an empty PartitionValues scopes
+// it to the table rather than a partition.
 type GlueColumnStatisticsRecord struct {
 	DatabaseName    string         `json:"DatabaseName"`
 	TableName       string         `json:"TableName"`
@@ -265,9 +252,8 @@ type GlueColumnStatisticsRecord struct {
 	Statistics      map[string]any `json:"Statistics"`
 }
 
-// GlueResourcePolicy holds the Data Catalog resource policy. The Glue catalog
-// has a single resource policy per account/region, so this store carries at most
-// one row under glueResourcePolicyKey.
+// The Data Catalog has one resource policy per account and Region, stored under
+// glueResourcePolicyKey.
 type GlueResourcePolicy struct {
 	PolicyInJson string  `json:"PolicyInJson"`
 	PolicyHash   string  `json:"PolicyHash"`
@@ -275,8 +261,7 @@ type GlueResourcePolicy struct {
 	UpdateTime   float64 `json:"UpdateTime"`
 }
 
-// GlueCatalogSettings holds the Data Catalog encryption settings (one row per
-// catalog) plus the catalog import status.
+// One row per catalog: the encryption settings and the import status.
 type GlueCatalogSettings struct {
 	DataCatalogEncryptionSettings map[string]any `json:"DataCatalogEncryptionSettings,omitempty"`
 	ImportCompleted               bool           `json:"ImportCompleted"`
@@ -284,8 +269,7 @@ type GlueCatalogSettings struct {
 	ImportedBy                    string         `json:"ImportedBy,omitempty"`
 }
 
-// GlueSchemaVersion models one registered version of a schema, keyed by its
-// SchemaVersionId.
+// Keyed by SchemaVersionId.
 type GlueSchemaVersion struct {
 	SchemaVersionId  string `json:"SchemaVersionId"`
 	SchemaArn        string `json:"SchemaArn"`
@@ -320,18 +304,14 @@ var (
 	glueSchemaVers    sim.Store[GlueSchemaVersion]
 	glueResourcePols  sim.Store[GlueResourcePolicy]
 	glueCatalogSettgs sim.Store[GlueCatalogSettings]
-	// glueMu guards the Glue catalog stores across operations. It is a
-	// read-write lock because the read handlers — every Get and Search below —
-	// exclude nothing but a writer, and a catalog read is most of what this
-	// service serves. A section that writes, or reads and then writes based on
-	// what it read, must keep taking Lock for the whole span; neither is
-	// reentrant.
+	// glueMu guards the Glue catalog stores. Reads take RLock. A section that
+	// writes, or reads and then writes on what it read, holds Lock for the whole
+	// span; neither lock is reentrant.
 	glueMu sync.RWMutex
 )
 
 const glueResourcePolicyKey = "catalog"
 
-// glueCatalogSettingsKey is the single store key for catalog-wide settings.
 const glueCatalogSettingsKey = "catalog"
 
 func registerGlue(r *AWSRouter, srv *sim.Server) {
@@ -485,10 +465,8 @@ func glueWriteError(w http.ResponseWriter, code string, msg string) {
 	awsWriteError(w, awsErrorEnvelope{Protocol: awsJSON11, Model: "glue"}, http.StatusBadRequest, code, msg, "")
 }
 
-// glueResourceFromARN splits the last colon-segment of a Glue ARN into resource type and name.
-// e.g. arn:aws:glue:us-east-1::database/my-db → ("database", "my-db")
-//
-//	arn:aws:glue:us-east-1:123:job/my-job  → ("job", "my-job")
+// glueResourceFromARN splits the last colon segment of a Glue ARN, so
+// arn:aws:glue:us-east-1:123:job/my-job yields ("job", "my-job").
 func glueResourceFromARN(arn string) (resType, name string) {
 	idx := strings.LastIndex(arn, ":")
 	resource := arn[idx+1:]
@@ -528,8 +506,8 @@ func glueArgs(args map[string]string) []string {
 	return out
 }
 
-// glueRFC3339 formats a timestamp the way Glue schema-registry shapes return
-// CreatedTime/UpdatedTime (an ISO-8601/RFC3339 string, not an epoch number).
+// Glue schema-registry shapes return CreatedTime and UpdatedTime as RFC 3339
+// strings, not epoch numbers.
 func glueRFC3339() string {
 	return time.Now().UTC().Format(time.RFC3339)
 }
@@ -538,14 +516,10 @@ func glueGlueArn(resource string) string {
 	return "arn:aws:glue:" + awsRegion() + ":" + awsAccountID() + ":" + resource
 }
 
-// glueListNames answers a List call with the names of store's resources, a
-// NextToken page at a time.
 func glueListNames[T any](w http.ResponseWriter, r *http.Request, store sim.Store[T], name func(T) string, field string, defaultMax int) {
 	gluePage(w, r, store.List, name, func(it T) any { return name(it) }, field, defaultMax)
 }
 
-// gluePage answers a List or Get call with the wire form of the items list
-// returns, a NextToken page at a time in the order of key.
 func gluePage[T any](w http.ResponseWriter, r *http.Request, list func() []T, key func(T) string, wire func(T) any, field string, defaultMax int) {
 	var req struct {
 		NextToken  string `json:"NextToken"`

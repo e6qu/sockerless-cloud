@@ -14,11 +14,11 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/listq"
 )
 
-// AWS Glue connection metadata APIs can address the native Data Catalog
-// without a ConnectionName. That path is implemented directly from durable
-// Glue databases/tables and Amazon S3 objects. Connector-backed calls validate
-// the durable connection and fail with the service's federation-source error
-// when no connector runtime can answer the external data source.
+// AWS Glue connection metadata APIs address the native Data Catalog when the
+// request names no ConnectionName; serve that from the Glue databases, tables and
+// Amazon S3 objects. A connector-backed call validates the connection and fails
+// with the federation-source error, since no connector runtime answers the
+// external source.
 
 type glueEntityRequest struct {
 	CatalogId           string            `json:"CatalogId"`

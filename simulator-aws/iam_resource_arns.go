@@ -11,21 +11,12 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// Deriving the resource ARN a request names, for the services whose requests
-// carry it.
-//
-// The work splits in two, and only one half is ours. Which resource type an
-// action authorizes against is AWS's answer: iamActionResourceTypes is
-// generated from the vendored AWS Service Reference
-// (specs/cloud-api/aws/service-reference/), the same data the Service
-// Authorization Reference publishes. This file supplies the other half —
-// pulling the resource's identifier out of the request the SDK actually sent,
-// which no specification can state — and assembles the ARN in the shape the
-// reference declares for that type.
-//
-// Getting it wrong in either direction denies a call the policy allows: an
-// action the gate leaves undivined is authorized against a literal "*", which
-// matches only a policy whose Resource is itself "*".
+// Which resource type an action authorizes against is AWS's answer:
+// iamActionResourceTypes is generated from the vendored AWS Service Reference.
+// This file pulls the resource's identifier out of the request the SDK sent and
+// assembles the ARN in the shape the reference declares. An action the gate
+// cannot derive authorizes against a literal "*", which matches only a policy
+// whose Resource is "*".
 
 // iamDerivedResourceARNs returns the ARNs a request names, or nil when the
 // action declares no resource type (AWS's way of saying it does not support
@@ -42,10 +33,9 @@ func iamDerivedResourceARNs(r *http.Request, service, op, region, account string
 	arn := func(svc, resource string) string {
 		return "arn:aws:" + svc + ":" + region + ":" + account + ":" + resource
 	}
-	// Every service here spells its tagging operations the same way: the
-	// resource is named by its own ARN, which needs no assembly. This is also
-	// what resolves the tagging actions' long resource-type lists — TagResource
-	// accepts nine ECS types, and the ARN says which one this call means.
+	// Every service here names a tagging target by its own ARN, which also picks the
+	// type out of a tagging action's long resource-type list (TagResource accepts
+	// nine Amazon ECS types).
 	if a := iamRequestARNField(r); a != "" {
 		return []string{a}
 	}
@@ -148,15 +138,10 @@ func iamBudgetsResourceARNs(r *http.Request, types []string, account string) []s
 		func(field string) []string { return fields[strings.ToLower(field)] })
 }
 
-// iamIAMResourceARNs derives the ARNs an IAM request names. IAM is a global
-// service and its ARNs carry no region — "arn:aws:iam::<account>:role/<name>" —
-// so they are assembled here rather than through the regional builder the
-// other services use.
-//
-// IAM speaks the query protocol, so the identifiers are form parameters. A
-// name may carry a path ("/team/", giving "role/team/name"); the API takes the
-// path separately on create and folds it into the ARN, which is what the
-// resource types call a "NameWithPath".
+// iamIAMResourceARNs derives the ARNs an IAM request names. IAM is global and its
+// ARNs carry no region ("arn:aws:iam::<account>:role/<name>"). A name may carry a
+// path ("role/team/name"), which the create takes separately; the resource types
+// call it NameWithPath.
 func iamIAMResourceARNs(r *http.Request, op string, types []string) []string {
 	account := awsAccountID()
 	build := func(resourceType, path, name string) string {
@@ -199,23 +184,17 @@ func iamIAMResourceARNs(r *http.Request, op string, types []string) []string {
 			return []string{serial}
 		}
 	}
-	// Changing a password names nobody: AWS Identity and Access Management
-	// authorizes it against the calling user, which the signature establishes
-	// and the request does not. Reading the caller here is only sound because
-	// sigv4 verification runs before the enforcement gate — main.go orders them
-	// that way deliberately, so the key in the header is one the caller proved
-	// possession of. A caller who is not a user, a role or the account root,
-	// names no user and derives nothing.
+	// Changing a password names nobody: IAM authorizes it against the calling user,
+	// which only the signature establishes. That holds because main.go runs SigV4
+	// verification before the enforcement gate. A caller that is not a user derives
+	// nothing.
 	if op == "ChangePassword" && iamHasType(types, "user") && iamAccessKeys != nil {
 		if key, ok := iamAccessKeys.Get(iamAccessKeyIDFromRequest(r)); ok && key.UserName != "" {
 			return []string{build("user", "", key.UserName)}
 		}
 	}
-	// An access key belongs to a user, and IAM authorizes the user — the key is
-	// the only thing the request names, so the user is resolved through the
-	// simulator's own record of who the key was created for. A key it does not
-	// hold names no user, and guessing one would authorize against a user the
-	// request never mentioned.
+	// An access key names its user through the simulator's record of whom it was
+	// created for; a key the simulator does not hold names no user.
 	if iamHasType(types, "user") {
 		for _, id := range []string{r.FormValue("AccessKeyId")} {
 			if id == "" || iamAccessKeys == nil {
@@ -392,35 +371,19 @@ func iamHasType(types []string, resourceType string) bool {
 }
 
 // iamOrganizationsResourceARNs derives the ARNs an AWS Organizations request
-// names.
-//
-// Organizations is the service whose identifiers say what they identify. Every
-// id the model declares carries a literal prefix — "r-" a root, "ou-" an
-// organizational unit, "p-" a policy, "h-" a handshake, "rp-" a resource
-// policy, "rt-" a responsibility transfer, and a bare twelve digits an account
-// — and the members that accept more than one kind are alternations over
-// exactly those prefixes: TaggableResourceId admits six, PolicyTargetId three,
-// ParentId two. So which resource type a request names is read off the
-// identifier, because that is the only way a caller can say it, and therefore
-// the way AWS reads it too. Ten of these operations name a resource under a
-// member whose own name says nothing about its type — TargetId, ParentId,
-// ChildId, ResourceId — and no table of field spellings could type them.
-//
-// The ARN is then the resource's own. Four types carry an attribute no request
-// supplies — a policy's type and whether AWS manages it, what a handshake is
-// for, what a transfer moves and which way it moves, and a resource policy's
-// assigned id — so those are read from the simulator's state, as Amazon RDS
-// resolves a custom engine version. The rest are a function of the identifier
-// alone and are built from it, which also covers a request naming a resource
-// that does not exist: AWS authorizes such a call and then reports it missing,
-// rather than refusing it as unauthorized.
+// names. Every Organizations id carries a type prefix ("r-" root, "ou-"
+// organizational unit, "p-" policy, "h-" handshake, "rp-" resource policy, "rt-"
+// responsibility transfer; twelve bare digits an account), and multi-kind
+// members are alternations over those prefixes, so read the type off the
+// identifier, as AWS does. A policy's type and management, a handshake's
+// purpose, a transfer's kind and direction and a resource policy's id come from
+// the simulator's state; the rest follow from the identifier alone, which also
+// covers a resource that does not exist: AWS authorizes such a call and then
+// reports it missing.
 func iamOrganizationsResourceARNs(r *http.Request, op string, types []string) []string {
-	// Creating a policy mints an id the service assigns, so the ARN's last
-	// identifier is the wildcard AWS evaluates against — but the two before it
-	// are known: the organization is the one this account is in, and the policy
-	// type is in the request. Filling those and wildcarding only what does not
-	// exist yet is narrower than the "*" it replaces, and narrower than
-	// wildcarding the organization would be.
+	// Creating a policy mints the id, so wildcard only that segment; the
+	// organization and the policy type in the request are known, which is narrower
+	// than "*".
 	if op == "CreatePolicy" && iamHasType(types, "policy") {
 		if typ := iamFirstJSONField(r, "Type"); typ != "" {
 			return []string{orgPolicyArn("p-*", typ, false)}
@@ -567,12 +530,9 @@ func iamCloudMapResourceARNs(r *http.Request, types []string, region, account st
 			}
 		}
 	}
-	// The discovery operations address a namespace and a service by name, while
-	// their ARNs carry the identifiers AWS assigned. Neither can be assembled
-	// from the request, so both are read from the simulator's own state — the
-	// same resolution Amazon RDS uses for a custom engine version, and for the
-	// same reason: the ARN the gate requests has to be the ARN the resource
-	// actually has.
+	// The discovery operations name a namespace and a service, while their ARNs
+	// carry assigned ids, so read both from the simulator's state: the gate must
+	// request the ARN the resource has.
 	var out []string
 	namespaceName := iamFirstValue(func(f string) []string { return fields[strings.ToLower(f)] }, "NamespaceName")
 	serviceName := iamFirstValue(func(f string) []string { return fields[strings.ToLower(f)] }, "ServiceName")
@@ -670,11 +630,9 @@ func iamSQSResourceARNs(r *http.Request, types []string, region, account string)
 	if len(moved) > 0 {
 		return moved
 	}
-	// Cancelling a move names only the opaque handle its start returned; which
-	// queue the task drains is in the task record, the simulator's own state —
-	// the same resolution AWS Cloud Map uses for a name-addressed service —
-	// and the source queue is what the reference authorizes the cancel
-	// against.
+	// Cancelling a move names only its handle; the task record says which queue the
+	// task drains, and the reference authorizes the cancel against that source
+	// queue.
 	if handle := first("TaskHandle"); handle != "" {
 		if task, ok := sqsMoveTasks.Get(handle); ok && strings.HasPrefix(task.SourceArn, "arn:") {
 			return []string{task.SourceArn}
@@ -693,10 +651,8 @@ func iamSQSResourceARNs(r *http.Request, types []string, region, account string)
 }
 
 // iamSecretsManagerResourceARNs derives the secret ARNs an AWS Secrets Manager
-// request names. A secret is addressed by SecretId, which the API accepts as
-// either the secret's name or its full ARN, and named in Name at creation —
-// where SecretId does not exist yet, so a role holding exactly the grant it
-// needs was denied against a policy that plainly granted it (GitHub issue #889).
+// request names: SecretId, which accepts a name or a full ARN, or Name at
+// creation, before SecretId exists.
 func iamSecretsManagerResourceARNs(r *http.Request, types []string, region, account string) []string {
 	if !iamHasType(types, "Secret") {
 		return nil
@@ -780,31 +736,18 @@ func iamKinesisResourceARNs(r *http.Request, types []string, region, account str
 }
 
 // iamStatesResourceARNs derives the ARNs an AWS Step Functions request names.
-// Every one of its resources is addressed by its own ARN — a state machine, an
-// execution, an activity, a map run, a version, an alias — and the ARNs the
-// reference publishes carry parts no request supplies separately: an execution
-// ARN ends in an id AWS assigned, a labelled one carries the map run's label
-// inside the state machine segment. So the ARN the caller sent is the ARN to
-// authorize against, and there is nothing to assemble.
-//
-// Creating a state machine or an activity is the exception that still derives.
-// Both ARN formats end in the name the create request supplies and carry
-// nothing AWS assigns — "stateMachine:${StateMachineName}" and
-// "activity:${ActivityName}" — so the ARN is fully determined before the
-// resource exists. Creating an alias is not: its Name member is the alias's own,
-// while the type it authorizes against is the state machine the alias points
-// at, which the request names only inside a routing entry's version ARN.
+// Every resource is addressed by its own ARN, which carries parts no request
+// supplies separately, so authorize against the ARN the caller sent. Creating a
+// state machine or an activity still derives, since both formats end in the name
+// the request supplies.
 func iamStatesResourceARNs(r *http.Request, op string, types []string, region, account string) []string {
 	fields := iamJSONRequestFields(r)
 	switch op {
 	case "CreateStateMachineAlias":
-		// An alias routes traffic to versions of one state machine, and that
-		// machine is what creating the alias authorizes against. The alias does
-		// not exist yet and the machine is named only inside the version ARNs
-		// the routing carries — a version ARN is the machine's own with the
-		// version appended, so the machine is the ARN without it. Wildcarding
-		// the machine instead would authorize aliasing every state machine,
-		// which is what this reader exists to avoid.
+		// Creating an alias authorizes against the state machine its routing names
+		// inside the version ARNs; a version ARN is the machine's with the version
+		// appended. Wildcarding the machine would authorize aliasing every state
+		// machine.
 		var machines []string
 		seen := map[string]struct{}{}
 		for _, version := range fields["statemachineversionarn"] {
@@ -859,16 +802,10 @@ func iamStatesResourceARNs(r *http.Request, op string, types []string, region, a
 	return out
 }
 
-// iamSTSResourceARNs derives the ARNs an AWS Security Token Service request
-// names. STS is a global service whose resources are identities, so nothing
-// regional is assembled, and each of its three request shapes names its
-// resource differently. The assume-role family names the role by its full ARN,
-// which needs no assembly — an ARN-valued RoleArn is not a name to fill a
-// format with, so this is a hand-written read rather than a table-driven one.
-// AssumeRoot names the member account whose root user the call becomes, as the
-// bare twelve-digit account id the reference's "arn:aws:iam::${Account}:root"
-// format takes. GetFederationToken names the federated user the call mints,
-// whose ARN is the caller's own account plus the name the request supplies.
+// iamSTSResourceARNs derives the ARNs an AWS STS request names. The assume-role
+// family names the role by ARN; AssumeRoot names the member account as twelve
+// digits for "arn:aws:iam::${Account}:root"; GetFederationToken names the
+// federated user, in the caller's account.
 func iamSTSResourceARNs(r *http.Request, types []string, account string) []string {
 	params := iamQueryRequestParameters(r)
 	first := func(field string) string {
@@ -894,16 +831,10 @@ func iamSTSResourceARNs(r *http.Request, types []string, account string) []strin
 	return nil
 }
 
-// iamELBv2ResourceARNs derives the ARNs an Elastic Load Balancing request
-// names. Every one of its resource ARNs carries an identifier AWS assigned —
-// "loadbalancer/app/${LoadBalancerName}/${LoadBalancerId}",
-// "targetgroup/${TargetGroupName}/${TargetGroupId}" — which no request supplies
-// as parts. What a request carries instead is the whole ARN, under a member
-// named for the resource, so there is nothing to assemble: the ARN the caller
-// sent is the ARN the gate authorizes against.
-//
-// The classic load balancer is the exception the reference keeps for the
-// previous generation, addressed by name alone.
+// iamELBv2ResourceARNs derives the ARNs an Elastic Load Balancing request names.
+// Each ARN carries an id AWS assigned, so a request carries the whole ARN and the
+// gate authorizes against it. The classic load balancer, addressed by name
+// alone, is the exception.
 func iamELBv2ResourceARNs(r *http.Request, types []string, region, account string) []string {
 	params := iamQueryRequestParameters(r)
 	if arns := iamELBv2CreatedResourceARNs(params, region, account); len(arns) > 0 {
@@ -938,11 +869,9 @@ func iamELBv2ResourceARNs(r *http.Request, types []string, region, account strin
 			}
 		}
 	}
-	// SetRulePriorities carries each rule's ARN inside a priority entry rather
-	// than in a member of its own — "RulePriorities.member.1.RuleArn" — which
-	// the flat-member reader drops, its contract being members and not paths.
-	// A rule named anywhere in the request is still a rule the call is about,
-	// so the raw form is read for those.
+	// SetRulePriorities nests each rule's ARN in a priority entry
+	// ("RulePriorities.member.1.RuleArn"), which the flat-member reader drops, so
+	// read the raw form for rule ARNs.
 	_ = r.ParseForm()
 	for key, values := range r.Form {
 		if !strings.HasSuffix(strings.ToLower(key), "rulearn") {
@@ -1097,18 +1026,11 @@ func iamApplicationAutoScalingResourceARNs(r *http.Request, types []string, regi
 		func(field string) []string { return fields[strings.ToLower(field)] })
 }
 
-// iamAutoScalingResourceARNs derives the ARNs an Amazon EC2 Auto Scaling
-// request names. Both of its resource types carry two identifiers: one AWS
-// assigns and one the caller chose —
-// "autoScalingGroup:${GroupId}:autoScalingGroupName/${GroupFriendlyName}" — and
-// a request supplies only the second. So neither can be assembled from the
-// request, and both are read from the simulator's own state, where the ARN each
-// resource was given is stored.
-//
-// That is the same resolution Amazon RDS uses for a custom engine version, and
-// for the same reason: the ARN the gate requests has to be the ARN the resource
-// actually has, and an ARN built from the parts a request happens to carry
-// would not be.
+// iamAutoScalingResourceARNs derives the ARNs an Amazon EC2 Auto Scaling request
+// names. Both resource types carry an assigned id and a caller-chosen name
+// ("autoScalingGroup:${GroupId}:autoScalingGroupName/${GroupFriendlyName}"), and a
+// request supplies only the name, so read the stored ARN from the simulator's
+// state.
 func iamAutoScalingResourceARNs(r *http.Request, types []string) []string {
 	params := iamQueryRequestParameters(r)
 	first := func(field string) string {
@@ -1132,12 +1054,9 @@ func iamAutoScalingResourceARNs(r *http.Request, types []string) []string {
 					out = append(out, group.ARN)
 				}
 			}
-			// The tagging calls name the group inside a tag rather than in a
-			// member of their own — "Tags.member.1.ResourceId" — which the
-			// flat-parameter reader drops, its contract being members and not
-			// paths. A group named anywhere in the request is a group the call
-			// is about, so the raw form is read for those, and every tag
-			// contributes because a call tagging two groups is about both.
+			// The tagging calls name the group inside a tag ("Tags.member.1.ResourceId"),
+			// which the flat-parameter reader drops, so read the raw form; a call tagging two
+			// groups is about both.
 			for _, named := range iamAutoScalingTaggedGroups(r) {
 				if group, ok := autoScalingGroups.Get(named); ok && group.ARN != "" {
 					out = append(out, group.ARN)
@@ -1221,21 +1140,11 @@ var iamCloudTrailFieldAliases = map[string][]string{
 	"DashboardName":    {"DashboardId"},
 }
 
-// iamDynamoDBResourceARNs derives the ARNs an Amazon DynamoDB request names.
-//
-// Three of its resource types nest under a table — an index is
-// "table/<name>/index/<index>" — and the table-driven derivation fills those
-// from the request. Four more are named by their own ARN rather than by a
-// table and a name: a backup, an export, an import and a stream, each under a
-// member of its own, which needs no assembly. The export and import family
-// names the table itself that way too — ExportTableToPointInTime, ListExports
-// and ListImports send TableArn where every other table operation sends
-// TableName — so that spelling is read alongside them.
-//
-// A transaction or a batch names no table at the top level at all: it carries
-// one per item. Those are read in iamResourceARNsForRequest instead, before the
-// reference is consulted, because the Service Reference lists neither
-// TransactWriteItems nor TransactGetItems and so declares no type to drive them.
+// iamDynamoDBResourceARNs derives the ARNs an Amazon DynamoDB request names. The
+// index-like types nest under a table and the table-driven derivation fills
+// them; a backup, export, import and stream are named by their own ARN, as the
+// export and import family names the table (TableArn). Transactions and batches
+// carry tables per item and are read in iamResourceARNsForRequest.
 func iamDynamoDBResourceARNs(r *http.Request, types []string, region, account string) []string {
 	// The operations that act on a backup, an export, an import or a stream
 	// name it by ARN outright, as the export and import family does the table.
@@ -1244,11 +1153,8 @@ func iamDynamoDBResourceARNs(r *http.Request, types []string, region, account st
 			return []string{a}
 		}
 	}
-	// A batch names its tables as the keys of RequestItems rather than as a
-	// value anywhere, so nothing that reads member values finds them and a
-	// batch over two tables authorized against "*". Amazon DynamoDB authorizes
-	// each table the batch touches, the same way it authorizes each item of a
-	// transaction against the table that item names.
+	// A batch names its tables as RequestItems keys, which no member-value reader
+	// finds. DynamoDB authorizes each table the batch touches.
 	if iamHasType(types, "table") {
 		if tables := iamJSONObjectKeys(r, "RequestItems"); len(tables) > 0 {
 			out := make([]string, 0, len(tables))
@@ -1295,41 +1201,26 @@ func iamJSONObjectKeys(r *http.Request, field string) []string {
 	return keys
 }
 
-// iamEC2ResourceARNs derives the ARNs an Amazon EC2 request names. EC2 declares
-// 112 resource types across 515 actions — too many to transcribe, and a
-// transcription would rot — so the derivation is driven by the reference
-// itself. Each type's published ARN format ends in the variable naming its
-// identifier ("...:volume/${VolumeId}"), and EC2's query protocol carries that
-// identifier in a request parameter of the same name.
-//
-// Filling the published format, rather than assembling a resource path, is what
-// keeps the irregular shapes right: an Amazon Machine Image and a snapshot
-// carry no account, the Amazon VPC IP Address Manager types carry no region,
-// and five of EC2's types name a resource belonging to another service outright
-// — a certificate is an AWS Certificate Manager ARN and a role an AWS Identity
-// and Access Management one.
-//
-// Where a parameter is spelled differently from the variable the difference is
-// one of two kinds. EC2 drops the resource's own leading word from some of them
-// — a security group's ${SecurityGroupId} arrives as GroupId, a dedicated
-// host's ${DedicatedHostId} as HostId — which is mechanical. The rest are
-// genuine renamings, listed in iamEC2ParameterAliases.
+// iamEC2ResourceARNs derives the ARNs an Amazon EC2 request names, driven by the
+// reference itself: EC2 declares 112 resource types across 515 actions. Each
+// published ARN format ends in the variable naming its identifier
+// ("...:volume/${VolumeId}"), which the query protocol carries in a parameter of
+// the same name. Filling the format keeps the irregular shapes right: an AMI and
+// a snapshot carry no account, the Amazon VPC IP Address Manager types no
+// region, and some types are another service's ARN. EC2 drops the resource's
+// leading word from some parameters (${SecurityGroupId} arrives as GroupId); the
+// genuine renamings are in iamEC2ParameterAliases.
 func iamEC2ResourceARNs(r *http.Request, op string, types []string, region, account string) []string {
 	params := iamQueryRequestParameters(r)
 	lookup := func(field string) []string { return params[strings.ToLower(field)] }
 
-	// The tag operations carry identifiers of mixed types under one member,
-	// and Amazon EC2's identifiers state their type in their prefix — the
-	// convention every id the API assigns follows (i- an instance, vol- a
-	// volume, tgw-attach- a transit gateway attachment). Longest prefix wins,
-	// an id with no known prefix derives nothing, and each id authorizes
-	// against its own resource's ARN — a grant scoped to one instance must
-	// allow tagging that instance and deny tagging another.
-	// The Disassociate/Detach family names an association rather than either
-	// end of it, and the resource the reference authorizes is the parent the
-	// association belongs to. The parent is resolved through the simulator's
-	// own state — the derived ARN is the one the resource actually has — and
-	// through a generation-keyed index, because this path runs per request
+	// The tag operations carry ids of mixed types under one member, and EC2 ids state
+	// their type in their prefix (i-, vol-, tgw-attach-): the longest prefix wins, an
+	// unknown prefix derives nothing, and each id authorizes against its own ARN.
+	//
+	// The Disassociate/Detach family names an association, and the reference
+	// authorizes the parent it belongs to. Resolve the parent through a
+	// generation-keyed index over the simulator's state, since this runs per request
 	// and the association lives inside its parent's row.
 	switch op {
 	case "DisassociateRouteTable":
@@ -1372,13 +1263,10 @@ func iamEC2ResourceARNs(r *http.Request, op string, types []string, region, acco
 			return out
 		}
 	case "ModifyInstanceCreditSpecification":
-		// The machines are named inside a specification entry rather than in a
-		// member of their own — "InstanceCreditSpecification.1.InstanceId" —
-		// which the flat-parameter reader drops, its contract being members and
-		// not paths. Reading the raw form for this one operation keeps that
-		// contract intact: loosening the shared reader would make a filter's
-		// members readable too, and a request would derive from what it was
-		// searching on rather than what it was about.
+		// InstanceCreditSpecification nests the machines
+		// ("InstanceCreditSpecification.1.InstanceId"), which the flat reader drops. Read
+		// the raw form for this operation only: loosening the shared reader would make
+		// filter members derive too.
 		var out []string
 		for _, instance := range iamEC2NestedMembers(r, "InstanceCreditSpecification", "InstanceId") {
 			out = append(out, "arn:aws:ec2:"+region+":"+account+":instance/"+instance)
@@ -1647,17 +1535,11 @@ func iamEC2TypeForIDPrefix(id string) (string, bool) {
 	return bestType, bestLen > 0
 }
 
-// iamEC2ParameterAliases maps an ARN format's identifier variable to the
-// request parameters EC2 actually spells it as, where the two differ by more
-// than the mechanical prefix drop. Every entry is a rename the API made and
-// the reference did not follow: an endpoint service is addressed as ServiceId,
-// a network ACL's ${NaclId} arrives as NetworkAclId, a key pair is named by
-// KeyName, and the copy operations name their *source* resource.
-//
+// iamEC2ParameterAliases maps an ARN format variable to the parameters EC2 spells
+// it as, where they differ by more than the prefix drop: renames the API made and
+// the reference did not follow, and the copy operations' source resources.
 // TestIAMEC2ParameterAliasesAreRealRequestParameters holds every entry to a
-// parameter the vendored Amazon EC2 model declares on an operation that
-// authorizes against that resource type, so a guess or a stale rename fails
-// rather than silently deriving nothing.
+// parameter the vendored model declares.
 var iamEC2ParameterAliases = map[string][]string{
 	"CapacityReservationId": {"SourceCapacityReservationId"},
 	// Buying a host reservation names the dedicated hosts it covers, as a set
@@ -1684,16 +1566,11 @@ var iamEC2ParameterAliases = map[string][]string{
 	"VpcEndpointServiceId":            {"ServiceId"},
 }
 
-// iamQueryRequestParameters indexes a query-protocol request's flat parameters
-// by lower-cased name, collapsing both encodings a list arrives in so every
-// element authorizes separately — terminating three instances must be allowed
-// for all three, not only the first.
-//
-// Amazon EC2's protocol flattens a list to the member's singular name with a
-// 1-based index (InstanceId.1, InstanceId.2). The awsQuery protocol Amazon RDS
-// speaks boxes it instead (Names.member.1) unless the member is flattened.
-// Members of a nested structure (Filters.Filter.1.Name) name no resource and
-// are left out.
+// iamQueryRequestParameters indexes a query request's flat parameters by
+// lower-cased name, collapsing both list encodings so every element authorizes
+// separately: EC2's flattened InstanceId.N and awsQuery's boxed Names.member.N.
+// Nested structure members (Filters.Filter.1.Name) name no resource and are left
+// out.
 func iamQueryRequestParameters(r *http.Request) map[string][]string {
 	_ = r.ParseForm()
 	byIndex := map[string]map[int]string{}
@@ -1733,27 +1610,14 @@ func iamQueryRequestParameters(r *http.Request) map[string][]string {
 	return params
 }
 
-// iamTableDrivenARNs derives the ARNs a request names for a service whose
-// resource types are in the generated table, by filling each type's published
-// ARN format from the identifiers the request supplies. Everything that differs
-// between services lives in the two arguments: aliases carries the renamings
-// that service made and the reference did not follow, and lookup reads a field,
-// which is the only thing the protocols disagree about — Amazon EC2 and Amazon
-// RDS name their identifiers as query parameters, AWS Glue as JSON members.
-//
-// A format naming no identifier is a constant ARN — AWS Glue's root catalog is
-// "arn:aws:glue:<region>:<account>:catalog" and every request that authorizes
-// against it names it by existing — and is emitted as it stands.
-//
-// Two resource types can resolve to the same field, and then the identifier
-// belongs to one of them without the request saying which. Sometimes that is
-// answerable: RunInstances authorizes against a subnet and a secondary subnet,
-// and a SubnetId is the subnet's published variable outright where it reaches
-// the secondary only through the prefix-drop rule, so the exact spelling takes
-// it. Where the claims are equally strong neither is derived — building both
-// would invent an ARN for a resource that does not exist and then require it to
-// be allowed, denying a policy that named the real one — and the request's
-// other fields still are.
+// iamTableDrivenARNs fills each declared type's published ARN format from the
+// identifiers the request supplies. aliases carries the service's renamings and
+// lookup reads a field, the only thing the protocols disagree about. A format
+// naming no identifier is a constant ARN (AWS Glue's root catalog). When two
+// types resolve to one field the exact spelling wins (RunInstances' SubnetId
+// names the subnet, not the secondary subnet); where the claims tie, derive
+// neither, since building both would require allowing a resource that does not
+// exist.
 func iamTableDrivenARNs(service string, types []string, region, account string,
 	aliases map[string][]string, lookup func(field string) []string) []string {
 
@@ -1868,19 +1732,12 @@ func iamNamingField(lookup func(string) []string, aliases map[string][]string, r
 	return "", 0, false
 }
 
-// iamVariableFieldNames returns the field spellings an ARN format variable can
-// arrive under, most specific first: the variable itself, then that service's
-// declared renamings, then the form with the resource's own leading word
-// dropped, and finally the plural of each — a batch operation names the same
-// resource in a list (AWS Glue's BatchGetJobs sends JobNames).
-//
-// A declared renaming outranks the prefix drop because it is evidence and the
-// drop is a guess: every alias is held to the vendored model by a test, where
-// the drop is a rule about spelling that can land on a field meaning something
-// else. AWS Glue is where the order shows. A catalog's ${CatalogName} drops to
-// Name, which on GetTable is the *table's* name, so ranking the drop first made
-// the catalog and the table claim one field and the ambiguity rule then
-// discarded both. The catalog's declared CatalogId settles it.
+// iamVariableFieldNames returns the spellings an ARN format variable can arrive
+// under, most specific first: the variable, the service's declared renamings, the
+// leading-word drop, then the plural of each (AWS Glue's BatchGetJobs sends
+// JobNames). A declared renaming outranks the drop because a test holds it to the
+// model, while the drop is a spelling rule: a Glue catalog's ${CatalogName} drops
+// to Name, which on GetTable is the table's name.
 func iamVariableFieldNames(resourceType, variable string, aliases map[string][]string) []string {
 	names := []string{variable}
 	// A variable name is only unique within a resource type: AWS Systems
@@ -1966,30 +1823,17 @@ func iamFillARNFormat(format, region, account string, values []string) string {
 }
 
 // iamEventBridgeResourceARNs derives the ARNs an Amazon EventBridge request
-// names. Its identifiers are ordinary — a connection's ${ConnectionName}
-// arrives as Name, which the prefix drop resolves — but two of its resource
-// types are one resource seen two ways, and the reference cannot say which.
-//
-// A rule on the default event bus is "rule/${RuleName}"; a rule on a custom bus
-// is "rule/${EventBusName}/${RuleName}". Both end in the same variable, so both
-// claim the same request member and the ambiguity rule would discard the pair.
-// Which applies is decidable, and not by spelling: a request that names a
-// custom bus means the nested form, and one that names none, or names the
-// default bus, means the flat one. So the type that cannot apply is dropped
-// before the derivation runs, leaving one claim on the member.
-//
-// Four more types are constants — the built-in targets EventBridge invokes on
-// an instance, published as "target/reboot-instance" and its three siblings —
-// and two belong to AWS KMS, which filling the published format gets right.
+// names. A rule on the default bus is "rule/${RuleName}" and on a custom bus
+// "rule/${EventBusName}/${RuleName}"; both claim the same member, so drop the
+// form that cannot apply: a request naming a custom bus means the nested form,
+// otherwise the flat one. Four types are constants (the built-in instance
+// targets) and two belong to AWS KMS.
 func iamEventBridgeResourceARNs(r *http.Request, types []string, region, account string) []string {
 	fields := iamJSONRequestFields(r)
 	lookup := func(field string) []string { return fields[strings.ToLower(field)] }
 
-	// PutEvents names its event bus per entry rather than once at the top
-	// level, so nothing flat reads it and the call authorized against "*" —
-	// which denies every grant written for a particular bus. AWS authorizes
-	// each entry against the bus it targets, exactly as it does each item of a
-	// DynamoDB transaction against its own table.
+	// PutEvents names its bus per entry, and AWS authorizes each entry against its
+	// bus, as DynamoDB authorizes each transaction item against its table.
 	if buses := iamEventBridgeEntryBuses(r, region, account); len(buses) > 0 {
 		return buses
 	}
@@ -2009,25 +1853,15 @@ func iamEventBridgeResourceARNs(r *http.Request, types []string, region, account
 	return iamTableDrivenARNs("events", applicable, region, account, iamEventBridgeFieldAliases, lookup)
 }
 
-// iamEventBridgeFieldAliases maps an ARN format's identifier variable to the
-// request members Amazon EventBridge spells it as, where the two differ by more
-// than the mechanical prefix drop. The event-bus, event-source and
-// api-destination operations all address their resource simply as Name — a
-// spelling the drop cannot reach, since it removes only the leading word
-// (${EventBusName} drops to BusName) — and the rule-target operations address
-// the rule as Rule.
-//
-// Every Name entry is scoped to its resource type so it speaks only for the
-// actions that authorize against that type: CreateEventBus also carries an
-// EventSourceName, and an unscoped alias would let the event-source type claim
-// the bus's Name on any action declaring both. The connection's entry is the
-// ARN-valued member CreateApiDestination names its connection by — an ARN
-// needs no assembly and the table passes it through — which also keeps the
-// api-destination's claim on Name uncontested there.
-//
-// TestIAMEventBridgeFieldAliasesAreRealRequestMembers holds every entry to a
-// member the vendored model declares on an operation authorizing against that
-// resource type.
+// iamEventBridgeFieldAliases maps an ARN format variable to the request members
+// Amazon EventBridge spells it as, beyond the prefix drop. The event-bus,
+// event-source and api-destination operations address their resource as Name,
+// and the rule-target operations the rule as Rule. Each Name entry is scoped to
+// its type: CreateEventBus also carries EventSourceName, and an unscoped alias
+// would let the event-source type claim the bus's Name. The connection's entry
+// is CreateApiDestination's ARN-valued connection member.
+// TestIAMEventBridgeFieldAliasesAreRealRequestMembers holds every entry to the
+// vendored model.
 var iamEventBridgeFieldAliases = map[string][]string{
 	"event-bus.EventBusName":             {"Name"},
 	"event-source.EventSourceName":       {"Name"},
@@ -2038,44 +1872,24 @@ var iamEventBridgeFieldAliases = map[string][]string{
 }
 
 // iamFirehoseResourceARNs derives the delivery-stream ARNs an Amazon Data
-// Firehose request names. The service declares one resource type, every
-// operation that authorizes against it addresses the stream as
-// DeliveryStreamName — creation included, where AWS authorizes against the ARN
-// the stream is about to have, exactly as Amazon SNS does for CreateTopic —
-// and the published format ends in that name, so filling it is all it takes.
+// Firehose request names from DeliveryStreamName, creation included: AWS
+// authorizes CreateDeliveryStream against the ARN the stream is about to have,
+// as Amazon SNS does CreateTopic.
 func iamFirehoseResourceARNs(r *http.Request, types []string, region, account string) []string {
 	fields := iamJSONRequestFields(r)
 	return iamTableDrivenARNs("firehose", types, region, account, nil,
 		func(field string) []string { return fields[strings.ToLower(field)] })
 }
 
-// iamGlueResourceARNs derives the ARNs an AWS Glue request names. Glue speaks
-// awsJson, so the identifiers are members of the request body rather than query
-// parameters, and it is the service that makes the two general shapes of the
-// derivation earn their keep.
-//
-// Its ARN formats nest: a table is "table/${DatabaseName}/${TableName}" and a
-// table version adds a third part, so an ARN is only built when the request
-// names every part — a half-filled ARN would carry a literal ${DatabaseName}
-// and match no policy. Its root catalog is the other extreme, a format naming
-// no identifier at all, so every request that authorizes against the catalog
-// names it by existing.
-//
-// Glue also abbreviates almost every identifier the same way: the reference
-// calls a blueprint's identifier ${BlueprintName} and the request member is
-// Name, which the prefix drop resolves, and a batch operation sends the plural
-// of whichever spelling it uses.
+// iamGlueResourceARNs derives the ARNs an AWS Glue request names, from awsJson
+// members. Its formats nest ("table/${DatabaseName}/${TableName}"), so build an
+// ARN only when the request names every part; its root catalog names no
+// identifier. Glue abbreviates identifiers by dropping the leading word
+// (${BlueprintName} arrives as Name), and a batch sends the plural.
 func iamGlueResourceARNs(r *http.Request, types []string, region, account string) []string {
 	fields := iamJSONRequestFields(r)
-	// A data-quality read names a run or a result, not the ruleset the action
-	// declares — AWS Glue authorizes the ruleset the run evaluated, and the run
-	// is what records which one that was. So the ruleset is resolved through
-	// the simulator's own state: the derived ARN is the ruleset the run
-	// actually used, not one inferred from the request.
-	// A dashboard is asked for by the resource it is about, which the request
-	// names generically: an id beside the kind of thing it is. The kind has to
-	// be one the action declares, because a request naming something else is
-	// not about a resource this call authorizes.
+	// A dashboard names its resource generically, an id beside its kind; the kind
+	// must be one the action declares.
 	if kinds := fields["resourcetype"]; len(kinds) > 0 {
 		for _, id := range fields["resourceid"] {
 			resourceType := strings.ToLower(kinds[0])
@@ -2212,19 +2026,6 @@ func iamJSONStrings(value json.RawMessage) ([]string, bool) {
 	return nil, false
 }
 
-// iamRDSResourceARNs derives the ARNs an Amazon RDS request names. RDS speaks
-// the awsQuery protocol, so the identifiers are form parameters, and it is the
-// service where the reference and the API disagree about spelling on almost
-// every resource: the reference calls a database instance ${DbInstanceName} and
-// a cluster parameter group ${ClusterParameterGroupName} where the API sends
-// DBInstanceIdentifier and DBClusterParameterGroupName. Those renamings are the
-// whole of iamRDSFieldAliases, and each was read off the vendored model — the
-// parameter the operations authorizing against that type actually take —
-// rather than derived from the name by a pattern.
-//
-// Two of the twenty-four types carry an identifier no request names — a custom
-// engine version's own id and a proxy target group's — and are resolved through
-// the simulator's state instead, so every one of the twenty-four derives.
 // iamRDSCopyIdentifierPairs names the two ends a copy operation carries, and
 // iamRDSCopySegments the ARN segment of the type both ends share.
 var iamRDSCopyIdentifierPairs = map[string][2]string{
@@ -2281,12 +2082,9 @@ func iamRDSResourceARNs(r *http.Request, op string, types []string, region, acco
 			}
 		}
 	}
-	// A copy authorizes both of its ends. The table-driven builder names one
-	// field per format, so the pairs are read here: a bare name fills the
-	// type's published format — the target's ARN is fully determined before
-	// the resource exists, the same argument that derives an AWS Step
-	// Functions create — and a source named by ARN, the cross-region form,
-	// is authorized as sent.
+	// A copy authorizes both ends. A bare name fills the type's published format,
+	// since the target's ARN is determined before the resource exists; a source
+	// named by ARN (the cross-region form) is authorized as sent.
 	if pair, isCopy := iamRDSCopyIdentifierPairs[op]; isCopy {
 		segment := iamRDSCopySegments[op]
 		var ends []string
@@ -2308,12 +2106,8 @@ func iamRDSResourceARNs(r *http.Request, op string, types []string, region, acco
 		}
 	}
 
-	// Two of Amazon RDS's ARNs carry an identifier no request ever names. A
-	// custom engine version is addressed by its engine and version, a proxy
-	// target group by its proxy and group name, and each ARN carries an id AWS
-	// assigns instead. Those two are resolved through the simulator's own state,
-	// which is what makes the derived ARN the one the resource actually has
-	// rather than one assembled to look right.
+	// A custom engine version and a proxy target group carry an id AWS assigns that
+	// no request names, so resolve them through the simulator's state.
 	var stateful []string
 	generic := make([]string, 0, len(types))
 	for _, resourceType := range types {
@@ -2384,22 +2178,13 @@ var iamRDSFieldAliases = map[string][]string{
 	"SubnetGroupName":           {"DBSubnetGroupName"},
 }
 
-// iamSSMResourceARNs derives the ARNs an AWS Systems Manager request names.
-// Systems Manager speaks awsJson, so the identifiers are request members, and
-// it is the service that makes a variable's *name* carry more than a spelling.
-//
-// Four of its resource types — a maintenance window, an OpsItem, that item's
-// metadata and a service setting — are all published as ${ResourceId}, and the
-// request names each differently, so their aliases are keyed by resource type
-// rather than by variable. A parameter is published as
-// ${ParameterNameWithoutLeadingSlash} and named "/db/password" in every
-// request, so the value loses its leading slash on the way into the ARN, which
-// is the transformation the variable's own name states.
-//
-// Four more of its types are another service's resource outright: an instance
-// is an Amazon EC2 ARN, a task an Amazon ECS one, a role an IAM one, and a
-// bucket an Amazon S3 ARN carrying neither region nor account. Filling the
-// published format is what keeps each of those right.
+// iamSSMResourceARNs derives the ARNs an AWS Systems Manager request names. A
+// maintenance window, an OpsItem, its metadata and a service setting are all
+// published as ${ResourceId} and named differently, so their aliases key by
+// resource type. A parameter is published as ${ParameterNameWithoutLeadingSlash},
+// so its leading slash goes. Four types are another service's resource (an EC2
+// instance, an ECS task, an IAM role, an S3 bucket), which filling the published
+// format gets right.
 func iamSSMResourceARNs(r *http.Request, types []string, region, account string) []string {
 	fields := iamJSONRequestFields(r)
 	// The tagging operations name their own resource type, so the type — not
@@ -2578,10 +2363,8 @@ func iamEventBridgeEntryBuses(r *http.Request, region, account string) []string 
 }
 
 // iamElastiCacheResourceARNs derives the ARNs an Amazon ElastiCache request
-// names. ElastiCache is the service that needed no renamings at all: every one
-// of its twelve resource types is published under the parameter the API sends,
-// so the derivation is the published ARN format and the request, with nothing
-// hand-written in between.
+// names. ElastiCache publishes every resource type under the parameter the API
+// sends, so the derivation needs no renamings.
 func iamElastiCacheResourceARNs(r *http.Request, op string, types []string, region, account string) []string {
 	params := iamQueryRequestParameters(r)
 	lookup := func(field string) []string { return params[strings.ToLower(field)] }
@@ -2663,17 +2446,12 @@ func iamECSResourceARNs(r *http.Request, op string, types []string, arn func(svc
 		}
 	}
 
-	// A resource the request names by its own ARN needs no assembly, and the
-	// newer families name themselves that way: a daemon and its deployments and
-	// revisions, an Amazon ECS Express Mode service, and a service deployment
-	// or revision.
-	//
-	// The member is chosen by the type the operation authorizes against, never
-	// by "whichever ARN the body happens to carry". CreateDaemon authorizes
-	// against the daemon and carries the task definition's ARN as well, so a
-	// reader that took the first ARN it found would authorize the wrong
-	// resource — worse than deriving nothing, because a policy scoped to the
-	// task definition would then permit creating a daemon.
+	// The newer families (a daemon with its deployments and revisions, an Amazon ECS
+	// Express Mode service, a service deployment or revision) name themselves by
+	// ARN. Choose the member by the type the operation authorizes against, never the
+	// first ARN in the body: CreateDaemon also carries the task definition's ARN, and
+	// authorizing against it would let a policy scoped to the task definition create
+	// a daemon.
 	for _, family := range []struct {
 		resourceType string
 		single       []string
@@ -2836,14 +2614,10 @@ func iamECSTaskDefinitionIDs(r *http.Request) []string {
 	return []string{family + ":" + strconv.Itoa(next)}
 }
 
-// iamKMSResourceARNs derives the ARNs an AWS KMS request names. A key is named
-// by KeyId, which may already be an ARN and is passed through when it is.
-//
-// An alias needs one thing said explicitly. Its ARN is "alias/${Alias}", and the
-// API's AliasName already carries that prefix — an alias is created and deleted
-// as "alias/my-key", not "my-key" — so filling the format with it unchanged
-// would produce "alias/alias/my-key", which names nothing. The prefix is
-// stripped once so the ARN carries it once.
+// iamKMSResourceARNs derives the ARNs an AWS KMS request names; a KeyId that is
+// already an ARN passes through. An alias ARN is "alias/${Alias}" and AliasName
+// already carries "alias/", so strip it once rather than build
+// "alias/alias/my-key".
 func iamKMSResourceARNs(r *http.Request, types []string, region, account string) []string {
 	fields := iamJSONRequestFields(r)
 	return iamTableDrivenARNs("kms", types, region, account, iamKMSFieldAliases, func(field string) []string {
@@ -3108,33 +2882,20 @@ func iamCodeBuildReportGroupName(ref string) string {
 	return group
 }
 
-// iamWAFv2ResourceARNs derives the ARNs an AWS WAFv2 request names. WAFv2 is
-// the one service here whose resource ARN cannot be assembled from the request
-// alone in a general way: the ARN carries the resource's generated id and its
-// scope path, and the type is the operation's own suffix (GetIPSet names an
-// ipset, GetWebACL a webacl). wafARN builds it exactly as the handlers do, so
-// a derived ARN is the ARN the resource actually has.
-//
-// Operations that reference other entities inside a rule statement —
-// CreateWebACL naming rule groups and IP sets — authorize against the entity
-// the request creates or reads; the referenced entities are not derived, and
-// the gate never widens beyond what the request names.
+// iamWAFv2ResourceARNs derives the ARNs an AWS WAFv2 request names. The ARN
+// carries the resource's generated id and scope path, and the type is the
+// operation's suffix (GetIPSet names an ipset); wafARN builds it as the handlers
+// do. Entities a rule statement references are not derived.
 func iamWAFv2ResourceARNs(r *http.Request, op string, types []string) []string {
-	// An ARN names the resource outright, whatever the operation is called. The
-	// suffix matching below exists to pick a type when only a name and scope
-	// are given; it is not a precondition for reading an ARN, and treating it
-	// as one left the operations whose names end in something else —
-	// GetSampledRequests, DeleteFirewallManagerRuleGroups — deriving nothing
-	// from the web ACL ARN they carry.
+	// An ARN names the resource outright whatever the operation is called; the
+	// suffix matching below only picks a type when the request gives a name and
+	// scope.
 	if a := iamFirstJSONField(r, "ARN", "WebACLArn", "WebAclArn"); strings.HasPrefix(a, "arn:") {
 		return []string{a}
 	}
-	// The collection an operation is about is named inside its own name, not
-	// only at the end of it: PutManagedRuleSetVersions and
-	// UpdateManagedRuleSetVersionExpiryDate are both about a managed rule set
-	// and neither ends in one. Exactly one collection may be named, so an
-	// operation mentioning two — there is none today, but the rule must not
-	// invent an answer if one appears — derives nothing rather than pick.
+	// The collection is named inside the operation name, not only at its end
+	// (PutManagedRuleSetVersions). An operation naming two collections derives
+	// nothing rather than pick one.
 	collections := []struct{ named, resource string }{
 		{"WebACL", "webacl"},
 		{"IPSet", "ipset"},

@@ -138,23 +138,10 @@ func iamPopulateS3OperationConditionKeys(r *http.Request, operation string, body
 }
 
 // iamSetS3RemainingRetentionDays turns a requested retain-until date into
-// s3:object-lock-remaining-retention-days, the key a bucket policy conditions
-// on to bound how long a caller may lock an object ("NumericLessThanEquals":
-// {"s3:object-lock-remaining-retention-days": "10"}).
-//
-// A request without a retain-until date, or with one this simulator cannot
-// parse, leaves the key unset: a policy that requires it then denies the
-// request, which is the behaviour a retention bound is written for. A date in
-// the past is zero days remaining, not a negative count.
-//
-// The period is rounded UP to whole days, so any part of a day counts as a
-// day. AWS documents the key as the remaining retention period in days and
-// does not document its rounding, and the IAM policy oracle this repo tests
-// against (SimulateCustomPolicy) evaluates a context this simulator supplies,
-// so it cannot settle the question either. Rounding up never understates a
-// lock: an upper bound written for 10 days rejects 10 days and one second,
-// which is the safe direction for a guard whose purpose is to stop a caller
-// locking an object for longer than the bucket allows.
+// s3:object-lock-remaining-retention-days, which a bucket policy bounds a lock
+// with. A missing or unparseable date leaves the key unset, so a policy that
+// requires it denies; a past date is zero days. Round up to whole days: AWS does
+// not document the rounding, and rounding up never understates a lock.
 func iamSetS3RemainingRetentionDays(ctx map[string][]string, retainUntil string) {
 	if retainUntil == "" {
 		return

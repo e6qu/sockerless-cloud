@@ -8,16 +8,10 @@ import (
 	"strings"
 )
 
-// Amazon S3's request-header condition keys.
-//
-// These are the canonical way an S3 policy constrains how an object is written
-// rather than which object it is: refuse a public-read ACL, require server-side
-// encryption with a particular key, allow only one storage class, hold a listing
-// to one prefix. Each names a header or query parameter of the request, and its
-// value is that header, verbatim — nothing is looked up and nothing is derived.
-//
-// The key is spelled exactly as the header it reads, which is why the table
-// below is a list of header names rather than pairs.
+// Amazon S3's request-header keys constrain how an object is written: refuse a
+// public-read ACL, require a KMS key, allow one storage class, hold a listing to
+// one prefix. Each key is spelled as the header it reads and takes its value
+// verbatim.
 var s3RequestHeaderConditionKeys = []string{
 	"x-amz-acl",
 	"x-amz-grant-full-control",
@@ -39,8 +33,6 @@ var s3RequestHeaderConditionKeys = []string{
 // one shape of answer.
 var s3RequestQueryConditionKeys = []string{"prefix", "delimiter", "max-keys"}
 
-// iamPopulateS3RequestConditionKeys adds the keys the request's own headers and
-// parameters settle.
 func iamPopulateS3RequestConditionKeys(r *http.Request, ctx map[string][]string) {
 	for _, header := range s3RequestHeaderConditionKeys {
 		if value := r.Header.Get(header); value != "" {

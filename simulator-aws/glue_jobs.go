@@ -29,8 +29,6 @@ func glueRefusesRole(w http.ResponseWriter, role, resource, refusal string) bool
 
 const glueCrawlerRoleRefusal = "Service is unable to assume provided role. Please verify role's TrustPolicy"
 
-// glueCanAssumeRole refuses a job, session or development endpoint role
-// Glue cannot assume.
 func glueCanAssumeRole(w http.ResponseWriter, role, resource string) bool {
 	return !glueRefusesRole(w, role, resource, "Role "+role+" should be given assume role permissions for Glue Service.")
 }
@@ -102,10 +100,8 @@ func handleGlueGetJob(w http.ResponseWriter, r *http.Request) {
 	glueWriteJSON(w, http.StatusOK, map[string]any{"Job": glueJobWire{job}})
 }
 
-// glueJobWire wraps GlueJob for response emission. The real Job shape
-// has no Tags member — tags ride GetTags. The struct keeps its Tags
-// JSON tag so tag state survives Store persistence; the wrapper strips
-// it from GetJob/GetJobs responses.
+// Drop Tags from GetJob and GetJobs: the Job shape has none (tags ride GetTags),
+// but GlueJob keeps them for persistence.
 type glueJobWire struct {
 	GlueJob
 }
@@ -207,12 +203,8 @@ func gluePythonScript(job GlueJob) ([]byte, error) {
 	return s3ObjectData(obj)
 }
 
-// gluePythonShellImage is the interpreter a Python shell job runs on, chosen by
-// the job command's PythonVersion. AWS: "The Python version being used to run a
-// Python shell job. Allowed values are 2 or 3." Glue runs Python 3 shell jobs
-// on Python 3.9; Python 2 shell jobs ran only on Glue versions AWS has since
-// retired, so a job asking for one is refused rather than quietly run on a
-// different interpreter.
+// Glue runs Python 3 shell jobs on Python 3.9. Python 2 shell jobs ran only on
+// retired Glue versions, so refuse one rather than run it on another interpreter.
 func gluePythonShellImage(job GlueJob) (string, error) {
 	version := glueString(job.Command["PythonVersion"])
 	if version == "" {
@@ -264,8 +256,7 @@ func glueRunPythonJob(jobName, runID string, job GlueJob, script []byte, args ma
 	}
 	holder := roleHolder("glue", jobName+"/"+runID)
 	defer revokeRoleCredentials(holder)
-	// The job runs in its interpreter's container, taking the script and the
-	// job's arguments the way Glue hands them to a Python shell job.
+	// Hand the job its script and arguments the way Glue hands them to a Python shell job.
 	backend := placement.ContainerBackend{}
 	credentials := grantContainerCredentials(backend, network, holder, job.Role, "GlueJobRunnerSession")
 	handle, err := credentials.place(context.Background(), backend, sim.ContainerConfig{
@@ -404,7 +395,7 @@ func handleGlueUpdateJob(w http.ResponseWriter, r *http.Request) {
 		glueWriteError(w, "EntityNotFoundException", "Job not found: "+req.JobName)
 		return
 	}
-	// JobUpdate replaces the configuration; tags are preserved (they ride GetTags).
+	// JobUpdate replaces the configuration but keeps tags (they ride GetTags).
 	upd := req.JobUpdate
 	if !glueCanAssumeRole(w, upd.Role, "job/"+req.JobName) {
 		return

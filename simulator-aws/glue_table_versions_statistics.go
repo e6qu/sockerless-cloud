@@ -9,9 +9,8 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/listq"
 )
 
-// glueResolveTableVersion returns the version id to read for a request: an
-// explicit VersionId if given, otherwise the latest recorded version.
-// Returns ("", false) if the table has no recorded versions.
+// glueResolveTableVersion returns versionID if given, otherwise the latest
+// recorded version, and false when the table has none.
 func glueResolveTableVersion(database, table, versionID string) (string, bool) {
 	if versionID != "" {
 		if _, ok := glueTableVersions.Get(glueTableVersionKey(database, table, versionID)); ok {
@@ -165,8 +164,7 @@ func handleGlueBatchDeleteTableVersion(w http.ResponseWriter, r *http.Request) {
 	glueWriteJSON(w, http.StatusOK, resp)
 }
 
-// glueColumnStatKey is the store key for one column's statistics, scoped to a
-// table (empty values) or a partition.
+// Empty values scope the key to the table rather than a partition.
 func glueColumnStatKey(database, table string, values []string, column string) string {
 	return database + "\x00" + table + "\x00" + strings.Join(values, "\x1f") + "\x00" + column
 }

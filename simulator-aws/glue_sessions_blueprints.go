@@ -13,17 +13,11 @@ import (
 	"github.com/google/uuid"
 )
 
-// AWS Glue — Interactive Sessions, Statements, Dev Endpoints, and Blueprints
-// families. AWS JSON 1.1 protocol (X-Amz-Target: AWSGlue.<Op>), sharing
-// glue.go's mutex, write helpers, and pagination.
-//
-// The simulator has no Spark/Livy backend, so statements settle to AVAILABLE
-// synchronously with a real-shaped but empty StatementOutput (never fabricated
-// cell output). Blueprint runs settle SUCCEEDED synchronously. Sessions and
-// dev endpoints report READY once created — matching the lifecycle a faithful
-// client reads back.
+// The simulator has no Spark or Livy backend, so a statement settles AVAILABLE
+// synchronously with an empty but shaped StatementOutput, and a blueprint run
+// settles SUCCEEDED synchronously. Sessions and development endpoints report
+// READY once created.
 
-// GlueSession models an Interactive Sessions session keyed by Id.
 type GlueSession struct {
 	Id                    string            `json:"Id"`
 	CreatedOn             float64           `json:"CreatedOn"`
@@ -47,23 +41,20 @@ type GlueSession struct {
 	ProfileName           string            `json:"ProfileName,omitempty"`
 	SessionType           string            `json:"SessionType,omitempty"`
 
-	// Tags ride GetTags, not the Session shape; kept for persistence only.
+	// Tags ride GetTags, not the Session shape; keep them for persistence only.
 	Tags map[string]string `json:"-"`
 }
 
-// GlueSessionCmd mirrors the SessionCommand structure.
 type GlueSessionCmd struct {
 	Name          string `json:"Name,omitempty"`
 	PythonVersion string `json:"PythonVersion,omitempty"`
 }
 
-// GlueConnectionsL mirrors the ConnectionsList structure.
 type GlueConnectionsL struct {
 	Connections []string `json:"Connections,omitempty"`
 }
 
-// GlueStatement models a statement run within a session. Keyed in the store by
-// "<sessionId>/<id>"; Id is a per-session monotonically increasing integer.
+// Stored under "<sessionId>/<id>"; Id is a per-session increasing integer.
 type GlueStatement struct {
 	SessionId   string               `json:"-"`
 	Id          int                  `json:"Id"`
@@ -75,7 +66,6 @@ type GlueStatement struct {
 	CompletedOn int64                `json:"CompletedOn"`
 }
 
-// GlueStatementOutput mirrors the StatementOutput structure.
 type GlueStatementOutput struct {
 	Data           *GlueStatementData `json:"Data,omitempty"`
 	ExecutionCount int                `json:"ExecutionCount"`
@@ -85,12 +75,10 @@ type GlueStatementOutput struct {
 	Traceback      []string           `json:"Traceback,omitempty"`
 }
 
-// GlueStatementData mirrors the StatementOutputData structure.
 type GlueStatementData struct {
 	TextPlain string `json:"TextPlain,omitempty"`
 }
 
-// GlueDevEndpoint models a development endpoint keyed by EndpointName.
 type GlueDevEndpoint struct {
 	EndpointName                       string            `json:"EndpointName"`
 	RoleArn                            string            `json:"RoleArn,omitempty"`
@@ -118,11 +106,10 @@ type GlueDevEndpoint struct {
 	SecurityConfiguration              string            `json:"SecurityConfiguration,omitempty"`
 	Arguments                          map[string]string `json:"Arguments,omitempty"`
 
-	// Tags ride GetTags, not the DevEndpoint shape; kept for persistence only.
+	// Tags ride GetTags, not the DevEndpoint shape; keep them for persistence only.
 	Tags map[string]string `json:"-"`
 }
 
-// GlueBlueprint models a blueprint keyed by Name.
 type GlueBlueprint struct {
 	Name                     string  `json:"Name"`
 	Description              string  `json:"Description,omitempty"`
@@ -134,12 +121,11 @@ type GlueBlueprint struct {
 	Status                   string  `json:"Status"`
 	ErrorMessage             string  `json:"ErrorMessage,omitempty"`
 
-	// Tags ride GetTags, not the Blueprint shape; kept for persistence only.
+	// Tags ride GetTags, not the Blueprint shape; keep them for persistence only.
 	Tags map[string]string `json:"-"`
 }
 
-// GlueBlueprintRun models one execution of a blueprint, keyed in the store by
-// "<blueprintName>/<runId>".
+// Stored under "<blueprintName>/<runId>".
 type GlueBlueprintRun struct {
 	BlueprintName        string   `json:"BlueprintName"`
 	RunId                string   `json:"RunId"`
@@ -168,7 +154,6 @@ func registerGlueSessionsBlueprints(r *AWSRouter, srv *sim.Server) {
 	glueBlueprints = sim.MakeStore[GlueBlueprint](srv.DB(), "glue_blueprints")
 	glueBlueprintRuns = sim.MakeStore[GlueBlueprintRun](srv.DB(), "glue_blueprint_runs")
 
-	// Interactive Sessions
 	r.Register("AWSGlue.CreateSession", handleGlueCreateSession)
 	r.Register("AWSGlue.GetSession", handleGlueGetSession)
 	r.Register("AWSGlue.ListSessions", handleGlueListSessions)
@@ -176,13 +161,11 @@ func registerGlueSessionsBlueprints(r *AWSRouter, srv *sim.Server) {
 	r.Register("AWSGlue.DeleteSession", handleGlueDeleteSession)
 	r.Register("AWSGlue.GetSessionEndpoint", handleGlueGetSessionEndpoint)
 
-	// Statements
 	r.Register("AWSGlue.RunStatement", handleGlueRunStatement)
 	r.Register("AWSGlue.GetStatement", handleGlueGetStatement)
 	r.Register("AWSGlue.ListStatements", handleGlueListStatements)
 	r.Register("AWSGlue.CancelStatement", handleGlueCancelStatement)
 
-	// Dev Endpoints
 	r.Register("AWSGlue.CreateDevEndpoint", handleGlueCreateDevEndpoint)
 	r.Register("AWSGlue.GetDevEndpoint", handleGlueGetDevEndpoint)
 	r.Register("AWSGlue.GetDevEndpoints", handleGlueGetDevEndpoints)
@@ -191,7 +174,6 @@ func registerGlueSessionsBlueprints(r *AWSRouter, srv *sim.Server) {
 	r.Register("AWSGlue.UpdateDevEndpoint", handleGlueUpdateDevEndpoint)
 	r.Register("AWSGlue.DeleteDevEndpoint", handleGlueDeleteDevEndpoint)
 
-	// Blueprints
 	r.Register("AWSGlue.CreateBlueprint", handleGlueCreateBlueprint)
 	r.Register("AWSGlue.GetBlueprint", handleGlueGetBlueprint)
 	r.Register("AWSGlue.BatchGetBlueprints", handleGlueBatchGetBlueprints)
@@ -348,7 +330,6 @@ func handleGlueDeleteSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	glueSessions.Delete(req.Id)
-	// Cascade-delete the session's statements.
 	for _, st := range glueStatements.List() {
 		if st.SessionId == req.Id {
 			glueStatements.Delete(glueStatementKey(req.Id, st.Id))
@@ -369,16 +350,11 @@ func handleGlueGetSessionEndpoint(w http.ResponseWriter, r *http.Request) {
 		glueWriteError(w, "EntityNotFoundException", "Session not found: "+req.SessionId)
 		return
 	}
-	// The live Glue API, botocore, and aws-sdk-go-v2 all read this member as
-	// "SparkConnect" on the wire (the vendored smithy model's jsonName
-	// "SPARK_CONNECT" is not honored by the real service or any real client).
-	// All three members of SessionEndpoint are required, and the token was
-	// missing: a generated client reads it without checking, so leaving it out
-	// breaks the contract the model states. It is the session's own — derived
-	// from the session id and the expiry beside it, so two reads of one
-	// session agree and two sessions never share a token. What it authenticates
-	// against is the endpoint in Url, which this simulator does not serve, and
-	// the URL says so already by naming a host it does not answer on.
+	// The Glue API, botocore and aws-sdk-go-v2 all read this member as
+	// "SparkConnect", not the model's jsonName "SPARK_CONNECT". SessionEndpoint
+	// requires all three members, so derive the token from the session id and
+	// expiry: two reads of one session agree and no two sessions share one. The
+	// simulator does not serve the endpoint in Url.
 	expires := glueEpochNow() + 3600
 	token := sha256.Sum256([]byte("glue-spark-connect/" + req.SessionId + "/" +
 		strconv.FormatFloat(expires, 'f', -1, 64)))
@@ -396,8 +372,7 @@ func glueStatementKey(sessionID string, id int) string {
 	return sessionID + "/" + strconv.Itoa(id)
 }
 
-// glueNextStatementID returns the next per-session statement id (1-based).
-// Caller holds glueMu.
+// glueNextStatementID returns the next 1-based per-session statement id. The caller holds glueMu.
 func glueNextStatementID(sessionID string) int {
 	maxID := 0
 	for _, st := range glueStatements.List() {
@@ -431,8 +406,7 @@ func handleGlueRunStatement(w http.ResponseWriter, r *http.Request) {
 	}
 	id := glueNextStatementID(req.SessionId)
 	now := time.Now().UTC().UnixMilli()
-	// No Spark backend: the statement settles AVAILABLE with a real-shaped but
-	// empty output (TextPlain empty), never fabricated cell results.
+	// No Spark backend: the statement settles AVAILABLE with an empty TextPlain, never fabricated cell output.
 	st := GlueStatement{
 		SessionId: req.SessionId,
 		Id:        id,
@@ -602,9 +576,8 @@ func handleGlueCreateDevEndpoint(w http.ResponseWriter, r *http.Request) {
 	if de.NumberOfWorkers != nil {
 		resp["NumberOfWorkers"] = *de.NumberOfWorkers
 	}
-	// WorkerType is one of a closed set, and an endpoint created without one —
-	// the NumberOfNodes form rather than the worker form — has none. Sending
-	// "" put a value in the field that the type does not have.
+	// WorkerType is a closed enum, and an endpoint created with NumberOfNodes has
+	// none; omit it rather than send "".
 	if de.WorkerType != "" {
 		resp["WorkerType"] = de.WorkerType
 	}

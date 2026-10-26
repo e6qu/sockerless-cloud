@@ -9,12 +9,11 @@ import (
 	"testing"
 )
 
-// Amazon RDS and AWS Identity and Access Management do not spell their
-// resource-tag condition keys <service>:ResourceTag/<k>. These tests hold the
-// gate to the spellings the vendored service references declare, and — just as
-// importantly — to NOT writing the spelling of a resource type the request did
-// not target, because a policy written for a DB cluster must not be satisfied
-// by the tags of a DB instance.
+// Amazon RDS and IAM do not spell their resource-tag keys
+// <service>:ResourceTag/<k>. Hold the gate to the spellings the vendored service
+// references declare, and to never writing the key of a resource type the
+// request did not target: a policy for a DB cluster must not be satisfied by a
+// DB instance's tags.
 
 // assertExactConditionContext asserts ctx is exactly want, so a key the gate
 // should not have written fails the test instead of passing unnoticed.
@@ -84,11 +83,9 @@ func rdsResourceTagFixtures() {
 	})
 }
 
-// TestIAMRDSResourceTagsUseTheSpellingsRDSDeclares walks every RDS resource
-// type the simulator tags, by identifier and by ARN, and asserts the gate wrote
-// aws:ResourceTag/<k> plus that type's own key — and nothing else. Before this,
-// the gate wrote rds:ResourceTag/<k>, a key the reference does not declare at
-// all, so every documented RDS tag condition went unmatched.
+// TestIAMRDSResourceTagsUseTheSpellingsRDSDeclares walks every RDS resource type
+// the simulator tags, by identifier and by ARN, and asserts the gate writes
+// aws:ResourceTag/<k> plus that type's own key and nothing else.
 func TestIAMRDSResourceTagsUseTheSpellingsRDSDeclares(t *testing.T) {
 	buildConformanceSimulator(t)
 	rdsResourceTagFixtures()
@@ -238,9 +235,8 @@ func TestIAMRDSResourceTagsPreferTheResourceTheRequestActsOn(t *testing.T) {
 	})
 }
 
-// TestRDSRequestTagConditionKey covers rds:req-tag/${TagKey} — RDS's own
-// spelling of the tags a request carries. RDS's awsQuery tag member is
-// Tags.Tag.N, so a policy requiring a tag on create had no key to read.
+// TestRDSRequestTagConditionKey covers rds:req-tag/${TagKey}, RDS's spelling of
+// the tags a request carries in its Tags.Tag.N member.
 func TestRDSRequestTagConditionKey(t *testing.T) {
 	ctx := queryServiceConditionContext(t, "rds", "CreateDBInstance", url.Values{
 		"DBInstanceIdentifier": {"d"},
@@ -265,10 +261,8 @@ func TestRDSRequestTagConditionKey(t *testing.T) {
 	}
 }
 
-// TestIAMResourceTagsForIAMsOwnResources covers the service the dispatcher had
-// no case for at all: a request against an IAM user, role, policy or instance
-// profile settled neither aws:ResourceTag/<k> nor iam:ResourceTag/<k>, although
-// the simulator stores tags on all four.
+// TestIAMResourceTagsForIAMsOwnResources covers requests against an IAM user,
+// role, policy or instance profile, all of which the simulator stores tags on.
 func TestIAMResourceTagsForIAMsOwnResources(t *testing.T) {
 	buildConformanceSimulator(t)
 

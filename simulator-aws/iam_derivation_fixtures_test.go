@@ -10,19 +10,10 @@ import (
 	"testing"
 )
 
-// The resources the state-resolving derivations look up, created through the
-// simulator's own API.
-//
-// Some derivations answer by resolving an identifier to the resource it belongs
-// to — Amazon EC2's DisassociateRouteTable names an association and the route
-// table is what the call authorizes against. The coverage probe used to send
-// those requests against an empty simulator, so a reader that works measured as
-// absent, and the number understated the derivation.
-//
-// Writing rows into a store to make the number move would measure the fixture.
-// Creating the resource the way a client creates it and then probing the
-// derivation against it measures the reader, which is the question the ratchet
-// is asking. So these go through the same handlers an SDK test drives.
+// Some derivations resolve an identifier to the resource it belongs to: Amazon
+// EC2's DisassociateRouteTable names an association and authorizes against the
+// route table. Create those resources through the handlers an SDK test drives,
+// so the probe measures the reader, not a row written into a store.
 
 // iamSeedDerivationFixtures creates those resources and returns the identifiers
 // a request would name them by, keyed "<service>:<operation>:<member>" — per

@@ -10,12 +10,6 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// IAM credential and account-management surface that hangs off the existing
-// user / group / access-key stores: user and group renames (UpdateUser /
-// UpdateGroup), console login profiles (CreateLoginProfile family +
-// ChangePassword), access-key status and last-used metadata, user tagging,
-// and the account-level password policy singleton.
-
 // IAMLoginProfile is a user's console-password profile. The password itself is
 // stored so ChangePassword can validate the caller's current password; IAM
 // never returns it.
@@ -26,8 +20,7 @@ type IAMLoginProfile struct {
 	PasswordResetRequired bool
 }
 
-// IAMPasswordPolicy is the account-level password policy. AWS stores at most one
-// per account; the sim keys it under the account id.
+// AWS stores at most one per account; keyed by account id.
 type IAMPasswordPolicy struct {
 	MinimumPasswordLength      int
 	RequireSymbols             bool
@@ -95,7 +88,6 @@ func handleIAMUpdateUser(w http.ResponseWriter, r *http.Request) {
 	user.Arn = iamUserArn(user.UserName, user.Path)
 	if newName != "" && newName != name {
 		iamUsers.Delete(name)
-		// Re-key dependent records that index by user name.
 		iamRekeyUser(name, newName)
 	}
 	iamUsers.Put(user.UserName, user)
@@ -330,9 +322,8 @@ func handleIAMGetAccessKeyLastUsed(w http.ResponseWriter, r *http.Request) {
 		iamErrorXML(w, "NoSuchEntity", fmt.Sprintf("The Access Key with id %s cannot be found.", akid), http.StatusNotFound)
 		return
 	}
-	// The sim does not record per-key usage, so the key has never been used:
-	// real IAM omits LastUsedDate and returns the "N/A" sentinel for ServiceName
-	// and Region in that case.
+	// The simulator records no per-key usage, so the key reads as never used: IAM
+	// then omits LastUsedDate and reports ServiceName and Region as "N/A".
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<GetAccessKeyLastUsedResponse xmlns="https://iam.amazonaws.com/doc/2010-05-08/"><GetAccessKeyLastUsedResult><UserName>%s</UserName><AccessKeyLastUsed><ServiceName>N/A</ServiceName><Region>N/A</Region></AccessKeyLastUsed></GetAccessKeyLastUsedResult><ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata></GetAccessKeyLastUsedResponse>`,
 		xmlEscape(key.UserName), sim.NewUUID())

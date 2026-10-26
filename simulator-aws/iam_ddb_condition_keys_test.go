@@ -14,8 +14,7 @@ import (
 // table has to be one the simulator holds.
 func ddbSeedFullTableScanTable(t *testing.T) {
 	t.Helper()
-	// Background work from an earlier test must finish before the store it is
-	// reading is replaced.
+	// Wait for an earlier test's background work before replacing the store it reads.
 	bg.Await()
 	ddbTables = sim.MakeStore[DDBTable](nil, "ddb_tables")
 	ddbTables.Put("Orders", DDBTable{

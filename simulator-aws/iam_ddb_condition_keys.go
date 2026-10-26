@@ -8,20 +8,12 @@ import (
 	"strings"
 )
 
-// Amazon DynamoDB's fine-grained access-control condition keys.
-//
-// These are the keys a policy uses to let a principal reach only its own rows
-// and only some of their columns: dynamodb:LeadingKeys restricts which
-// partition-key values a request may name, and dynamodb:Attributes which
-// attributes it may touch. The rest describe what the request asked the service
-// to do — what it wants returned, and whether it arrived inside a batch or a
-// transaction.
-//
-// Every one of them is settled by the request, which is why they belong here:
-// the values are read out of what the caller sent, not looked up.
+// Amazon DynamoDB's fine-grained access-control keys: dynamodb:LeadingKeys
+// restricts which partition-key values a request may name and
+// dynamodb:Attributes which attributes it may touch; the rest describe what the
+// request asks for and whether it arrives inside a batch or a transaction. The
+// request settles every one of them.
 
-// iamPopulateDynamoDBConditionKeys adds the keys an Amazon DynamoDB request
-// settles.
 func iamPopulateDynamoDBConditionKeys(r *http.Request, action string, body []byte, ctx map[string][]string) {
 	if len(body) == 0 {
 		return
@@ -43,15 +35,12 @@ func iamPopulateDynamoDBConditionKeys(r *http.Request, action string, body []byt
 	if selection, ok := request["Select"].(string); ok && selection != "" {
 		ctx["dynamodb:Select"] = []string{selection}
 	}
-	// dynamodb:FullTableScan is whether the PartiQL SELECT the request runs has
-	// to read every item in the table. Amazon DynamoDB documents a SELECT as a
-	// full table scan unless its WHERE clause restricts the partition key with
-	// an equality or an IN condition, so a WHERE clause over non-key attributes
-	// — a filter — is a full table scan all the same, and so is a statement
-	// with no WHERE clause at all. The key is declared on PartiQLSelect alone;
-	// it stays unset when the statement reads a table the simulator does not
-	// hold, because the table's partition key, and with it the answer, is then
-	// unknown rather than false.
+	// dynamodb:FullTableScan is whether the PartiQL SELECT reads every item.
+	// DynamoDB documents a SELECT as a full table scan unless its WHERE clause
+	// restricts the partition key with an equality or IN, so a filter on non-key
+	// attributes, or no WHERE clause, scans. AWS declares the key on PartiQLSelect
+	// alone. Leave it unset for a table the simulator does not hold, whose partition
+	// key, and so the answer, is unknown.
 	if operation == "PartiQLSelect" {
 		if scan, known := ddbRequestFullTableScan(body); known {
 			ctx["dynamodb:FullTableScan"] = []string{strconv.FormatBool(scan)}

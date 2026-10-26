@@ -13,26 +13,18 @@ import (
 	"strings"
 )
 
-// Call-time IAM enforcement (GitHub issue #657). The policy evaluator
-// (iamEvalDecision) already existed but was wired only into the diagnostic
-// SimulatePrincipalPolicy endpoint. This gate runs it on real API calls: it
-// resolves the caller's SigV4 access-key id to a registered IAM user, evaluates
-// the user's effective policies for the request's action, and denies with the
-// correct per-service error shape when the action isn't allowed.
+// Call-time IAM enforcement: resolve the caller's SigV4 access key to a
+// registered IAM principal, evaluate its effective policies for the request's
+// action, and deny in the service's own error shape.
 //
-// Enforcement applies ONLY to credentials that resolve to a registered IAM
-// principal: a long-term user access key (AKIA…) or a temporary STS credential
-// (ASIA… from AssumeRole / GetSessionToken). Unknown / static test credentials
-// are treated as permissive (the sim's existing default) — so a consumer proving
-// least-privilege mints a real key, while every other test keeps working.
+// Enforce only for a credential that resolves to a registered principal: a
+// long-term user key (AKIA…) or an AWS STS temporary credential (ASIA…). Allow an
+// unknown credential.
 //
-// The decision is the full identity-based evaluation (the principal's own
-// policies, its group policies, and — for assumed roles — the role's policies),
-// combined with any resource-based policy on the target resource (S3 bucket /
-// Lambda / SNS / SQS) and capped by the user's permission boundary. The request
-// condition context carries aws:username/userid/SourceIp/RequestedRegion. The
-// target resource ARN is derived where the request makes it unambiguous (e.g.
-// sns:TopicArn, sqs:QueueUrl) and is "*" otherwise.
+// The decision combines the identity-based policies (own, group and, for an
+// assumed role, the role's) with any resource-based policy on the target, capped
+// by the permissions boundary. Derive the target ARN where the request makes it
+// unambiguous, and "*" otherwise.
 
 // iamEnforce returns true if the request is authorized (the handler should run)
 // and false if it was denied (a response has already been written).
@@ -131,8 +123,6 @@ func iamServicePrincipalAllowed(src iamServiceSource, targets []iamAuthorization
 	return "", true
 }
 
-// iamAuthorizationTarget is one action a request is authorized for, on one
-// resource.
 type iamAuthorizationTarget struct {
 	action   string
 	resource string
@@ -144,8 +134,6 @@ type iamAuthorizationTarget struct {
 	entry *s3ObjectIdentifier
 }
 
-// iamAuthorizationTargets lists what a request is authorized for: see
-// iamOperationTargets.
 func iamAuthorizationTargets(r *http.Request, action string) []iamAuthorizationTarget {
 	service, operation, _ := strings.Cut(action, ":")
 	return iamOperationTargets(r, service, operation, iamResourceARNsForRequest(r, action))
@@ -169,13 +157,8 @@ func iamEnforcePassRole(w http.ResponseWriter, r *http.Request, action string) b
 	return iamEnforcePassRoleWith(w, r, action, iamWriteDeny)
 }
 
-// iamEnforcePassRoleWith is iamEnforcePassRole refusing in the error shape the
-// calling surface uses, which for a REST service is its own rather than the
-// control-plane envelope.
-// iamUnreadableRoleARN stands for a role this gate could not read out of a
-// request body that did not fit. It is not a role any policy can name, so the
-// PassRole check denies -- the safe reading of "the request may be passing a
-// role and we cannot see which".
+// iamUnreadableRoleARN stands for a role the gate could not read from an
+// oversized body. No policy names it, so the PassRole check denies.
 const iamUnreadableRoleARN = "arn:aws:iam::unreadable-request-body:role/unreadable"
 
 func iamEnforcePassRoleWith(w http.ResponseWriter, r *http.Request, action string,
@@ -206,11 +189,10 @@ func iamEnforcePassRoleWith(w http.ResponseWriter, r *http.Request, action strin
 }
 
 // iamPassedRoleARNs returns the distinct IAM role ARNs a request carries.
-// Services name the field differently and nest it at different depths (Amazon
-// ECS sends taskRoleArn and executionRoleArn at the top level and again under
-// overrides; AWS CodeBuild sends serviceRole; AWS Lambda sends Role), so the
-// request is scanned for values that are role ARNs rather than matched against
-// a per-service list of field names that would silently miss the next service.
+// Services name and nest the member differently (Amazon ECS taskRoleArn and
+// executionRoleArn, AWS CodeBuild serviceRole, AWS Lambda Role), so scan every
+// value for a role ARN rather than match a per-service field list that would
+// miss the next service.
 func iamPassedRoleARNs(r *http.Request) []string {
 	var roles []string
 	seen := map[string]struct{}{}
@@ -236,11 +218,9 @@ func iamPassedRoleARNs(r *http.Request) []string {
 		}
 	}
 	if !within && len(roles) == 0 {
-		// The body did not fit, so this scan cannot say the request names no
-		// role. Every operation that passes a role is small -- none of them
-		// carries an upload -- so an oversized body on one of them is treated
-		// as naming a role that no policy grants rather than as naming none,
-		// which would let it through unauthorized.
+		// The body did not fit, so the scan cannot rule out a role. No operation that
+		// passes a role carries an upload, so treat an oversized body as naming a role
+		// no policy grants.
 		roles = append(roles, iamUnreadableRoleARN)
 	}
 	// Query-protocol services carry the role as a form parameter.
@@ -258,8 +238,6 @@ func iamIsRoleARN(v string) bool {
 	return strings.HasPrefix(v, "arn:aws:iam::") && strings.Contains(v, ":role/")
 }
 
-// iamWalkXMLText calls visit for every element's character data anywhere in an
-// XML document.
 func iamWalkXMLText(body []byte, visit func(string)) {
 	decoder := xml.NewDecoder(bytes.NewReader(body))
 	for {
@@ -275,8 +253,6 @@ func iamWalkXMLText(body []byte, visit func(string)) {
 	}
 }
 
-// iamWalkJSONStrings calls visit for every string anywhere in a decoded JSON
-// document.
 func iamWalkJSONStrings(node any, visit func(string)) {
 	switch v := node.(type) {
 	case string:
@@ -292,13 +268,11 @@ func iamWalkJSONStrings(node any, visit func(string)) {
 	}
 }
 
-// iamAuthorize is the shared authorization core used by both the control-plane
-// (POST /) gate and the S3 REST gate. It resolves the caller, evaluates the
-// identity-based policies (own + group + assumed-role), combines them with any
-// resource-based policy on the target resource (granting if either allows,
-// denying on an explicit Deny in either), and caps the result by the user's
-// permission boundary. registered is false for unknown/test credentials (the
-// permissive default — the caller should allow).
+// iamAuthorize is the authorization core shared by the control-plane (POST /)
+// gate and the Amazon S3 REST gate. It allows when an identity-based or
+// resource-based policy allows and neither explicitly denies, capped by the
+// permissions boundary. registered is false for an unknown credential, which the
+// caller allows.
 func iamAuthorize(r *http.Request, action, resource string) (allowed bool, principalArn string, registered bool) {
 	return iamAuthorizeWithContext(r, action, resource, nil)
 }
@@ -323,24 +297,16 @@ func iamRequestConditionContext(
 		ctx["aws:RequestedRegion"] = []string{region}
 	}
 	ctx["aws:PrincipalOrgID"] = []string{awsOrgID()}
-	// Global keys from the request envelope + principal (time, transport,
-	// user-agent, principal ARN + tags, resource account, MFA).
 	iamPopulateGlobalConditionKeys(r, akid, principalArn, userName, ctx)
 	// Service-initiation keys (aws:ViaAWSService=false for a direct client call).
 	iamPopulateServiceContext(r, ctx)
-	// Resource-scoped / service-specific keys (aws:ResourceTag/*, ecs:cluster,
-	// aws:RequestTag/*, aws:TagKeys) from the request's target resource.
 	iamPopulateResourceConditionKeys(r, action, ctx)
-	// Service condition keys the request itself settles (ec2:Region, the Amazon
-	// S3 request-shape keys, cloudwatch:namespace, kms:CallerAccount) — the way
-	// AWS scopes an action whose resource the request never names.
 	iamPopulateServiceConditionKeys(r, action, iamRequestBody(r), ctx)
 	return ctx
 }
 
-// iamAuthorizeWithContext is iamAuthorize with additional condition-context
-// keys the caller supplies — the keys AWS derives from what the request is
-// doing rather than from its envelope, such as iam:PassedToService on the
+// iamAuthorizeWithContext is iamAuthorize plus keys AWS derives from what the
+// request does rather than its envelope, such as iam:PassedToService on the
 // PassRole check.
 func iamAuthorizeWithContext(r *http.Request, action, resource string, extra map[string][]string) (allowed bool, principalArn string, registered bool) {
 	akid := iamAccessKeyIDFromRequest(r)
@@ -396,9 +362,9 @@ func iamAuthorizeWithContext(r *http.Request, action, resource string, extra map
 	return allowed, principalArn, true
 }
 
-// iamEnforceREST gates a non-POST-/ (REST) service request: it authorizes the
-// pre-derived action + resource ARN and, on denial, writes the service-specific
-// error via deny. Returns true when the handler should run.
+// iamEnforceREST authorizes a REST request's pre-derived action and resource
+// ARN, writing the service's own error via deny. It returns true when the
+// handler should run.
 func iamEnforceREST(w http.ResponseWriter, r *http.Request, target iamAuthorizationTarget, deny func(http.ResponseWriter, *http.Request, string, string)) bool {
 	if target.action == "" {
 		return true
@@ -411,14 +377,10 @@ func iamEnforceREST(w http.ResponseWriter, r *http.Request, target iamAuthorizat
 	return false
 }
 
-// iamSigV4CredentialScope returns the credential scope the request was signed
-// under — AKID/date/region/service/aws4_request.
-//
-// SigV4 carries that scope two ways and AWS honours both: in the Authorization
-// header, and, for a presigned URL, in the X-Amz-Credential query parameter.
-// A presigned request is made by the principal who signed it and its policies
-// govern it exactly as they govern a header-signed call, so both forms have to
-// resolve to that principal here.
+// iamSigV4CredentialScope returns the credential scope
+// (AKID/date/region/service/aws4_request) from the Authorization header or, for
+// a presigned URL, the X-Amz-Credential parameter. A presigned request is made by
+// its signer, whose policies govern it like a header-signed call.
 func iamSigV4CredentialScope(r *http.Request) string {
 	if auth := r.Header.Get("Authorization"); strings.HasPrefix(auth, "AWS4-HMAC-SHA256") {
 		if i := strings.Index(auth, "Credential="); i >= 0 {
@@ -432,8 +394,6 @@ func iamSigV4CredentialScope(r *http.Request) string {
 	return r.URL.Query().Get("X-Amz-Credential")
 }
 
-// iamAccessKeyIDFromRequest extracts the SigV4 access-key id the request was
-// signed with.
 func iamAccessKeyIDFromRequest(r *http.Request) string {
 	scope := iamSigV4CredentialScope(r)
 	if s := strings.IndexByte(scope, '/'); s > 0 {
@@ -458,9 +418,8 @@ func iamSourceIP(r *http.Request) string {
 	return host
 }
 
-// iamActionForRequest derives the IAM action string (e.g. "ec2:CreateVolume",
-// "ecs:RunTask") from an awsJson X-Amz-Target or an awsQuery Action, reusing the
-// service-source mapping CloudTrail already maintains.
+// iamActionForRequest derives the IAM action ("ecs:RunTask") from an awsJson
+// X-Amz-Target or an awsQuery Action through the CloudTrail event-source mapping.
 func iamActionForRequest(r *http.Request) (string, bool) {
 	src, ok := awsEventSource(r)
 	if !ok {
@@ -492,17 +451,12 @@ func iamPermissionlessAction(action string) bool {
 	return false
 }
 
-// iamResourceARNsForRequest derives the request's target resource ARNs where
-// they are unambiguously available from the request parameters (so
-// resource-scoped policies and resource-based policies evaluate against the
-// real resources). Most operations target one resource; DynamoDB transactions
-// and batches target every referenced table, and AWS authorizes each item
-// against its own table ARN, so all of them must be allowed. It returns ["*"]
-// when the resource can't be determined from the request alone, which is not a
-// neutral default: a literal "*" matches only a policy whose Resource is itself
-// "*", so a service missing from the switch below denies every resource-scoped
-// grant written against it. A service whose requests name their target belongs
-// here.
+// iamResourceARNsForRequest derives the target resource ARNs the request
+// parameters name. A DynamoDB transaction or batch targets every referenced
+// table, and AWS authorizes each item against its own table. It returns ["*"]
+// when the request alone cannot say, which is not neutral: "*" matches only a
+// policy whose Resource is "*", so a service missing here fails every
+// resource-scoped grant.
 func iamResourceARNsForRequest(r *http.Request, action string) []string {
 	service := strings.SplitN(action, ":", 2)[0]
 	region := iamRequestedRegion(r)
@@ -516,13 +470,10 @@ func iamResourceARNsForRequest(r *http.Request, action string) []string {
 	one := func(s string) []string { return []string{s} }
 	switch service {
 	case "dynamodb":
-		// A transaction carries its table references per item rather than at
-		// the top level, and the AWS Service Reference declares no resource
-		// type for TransactWriteItems or TransactGetItems at all — it lists
-		// neither action — so the table-driven derivation never sees them.
-		// AWS authorizes every table a transaction touches, and deriving none
-		// would deny a single-table transaction its own table (GitHub issue
-		// #870), so they are read here, before the reference is consulted.
+		// A transaction carries its tables per item, and the AWS Service Reference lists
+		// neither TransactWriteItems nor TransactGetItems, so the table-driven derivation
+		// never sees them. AWS authorizes every table a transaction touches; read them
+		// here, before the reference.
 		if tables := iamDynamoDBRequestTables(r); len(tables) > 0 {
 			arns := make([]string, len(tables))
 			for i, name := range tables {
@@ -538,9 +489,8 @@ func iamResourceARNsForRequest(r *http.Request, action string) []string {
 			return one(arn("lambda", "function:"+name))
 		}
 	}
-	// Services whose target resource is derived from the resource types AWS
-	// declares for the action rather than from a hand-written case above; see
-	// iam_resource_arns.go.
+	// Derive the remaining services' targets from the resource types AWS declares
+	// for the action; see iam_resource_arns.go.
 	if arns := iamDerivedResourceARNs(r, service, strings.TrimPrefix(action, service+":"), region, acct); len(arns) > 0 {
 		return arns
 	}
@@ -584,8 +534,6 @@ func iamDynamoDBRequestTables(r *http.Request) []string {
 	return tables
 }
 
-// iamLambdaResourceName extracts the Lambda function name/ARN from the REST path
-// (/2015-03-31/functions/{name}/...) or the request body (FunctionName).
 func iamLambdaResourceName(r *http.Request) string {
 	if name := iamJSONBodyField(r, "FunctionName"); name != "" {
 		return name
@@ -601,13 +549,9 @@ func iamLambdaResourceName(r *http.Request) string {
 	return ""
 }
 
-// iamRequestBody reads the full request body, restoring it so the downstream
-// handler still sees it.
-// iamConditionBodyLimit bounds what the gate holds of a request body. Every
-// request whose members the gate reads is far below it — AWS caps a DynamoDB
-// request at 16 MB — while an Amazon S3 upload has no bound at all, and
-// holding one in memory to look for members it does not carry is what the
-// guest has the least of.
+// iamConditionBodyLimit bounds what the gate holds of a request body. Every body
+// whose members the gate reads is far below it (AWS caps a DynamoDB request at
+// 16 MB), while an Amazon S3 upload has no bound.
 const iamConditionBodyLimit = 16 << 20
 
 // iamRequestBody returns the request body for the gate to read, and leaves the
@@ -618,11 +562,9 @@ func iamRequestBody(r *http.Request) []byte {
 	return body
 }
 
-// iamRequestBodyWithin is iamRequestBody plus whether the body fit. A caller
-// that must not miss what the body says — the iam:PassRole check, whose whole
-// job is to find a role ARN in it — needs to tell "no role in this body" from
-// "this body was too large to look at", because the first is a grant and the
-// second would be a bypass.
+// iamRequestBodyWithin also reports whether the body fit. The iam:PassRole check
+// must tell "no role in this body" from "too large to look at": the first
+// grants, the second would bypass.
 func iamRequestBodyWithin(r *http.Request) ([]byte, bool) {
 	if r.Body == nil {
 		return nil, true
@@ -646,8 +588,6 @@ func iamRequestBodyWithin(r *http.Request) ([]byte, bool) {
 	return nil, false
 }
 
-// iamJSONBodyField reads a top-level string field from an awsJson request body,
-// restoring the body so the downstream handler still sees it.
 func iamJSONBodyField(r *http.Request, field string) string {
 	body := iamRequestBody(r)
 	if len(body) == 0 {

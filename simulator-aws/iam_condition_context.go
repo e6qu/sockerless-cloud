@@ -15,27 +15,11 @@ import (
 	"github.com/fxamacker/cbor/v2"
 )
 
-// Resource-scoped + service-specific IAM condition keys. The policy evaluator
-// supports the condition operators; this feeds the request's target resource
-// into the condition context so tag- and cluster-conditioned grants enforce
-// faithfully:
-//
-//   - aws:ResourceTag/<k> (and the service-prefixed ec2:ResourceTag/<k>) — the
-//     tags of the resource the request targets (e.g. the volume DeleteVolume
-//     acts on), so a policy allowing the action only on resources carrying a
-//     given tag matches when, and only when, the resource carries it.
-//   - ecs:cluster — the cluster ARN an ECS task operation targets.
-//   - aws:RequestTag/<k> + aws:TagKeys — the tags supplied on a tag-on-create /
-//     CreateTags request.
-
-// iamPopulateGlobalConditionKeys adds the global (`aws:`) condition keys that
-// derive from the request envelope and the calling principal: the request time,
-// transport, user-agent, the principal ARN + its tags, the resource account, and
-// MFA state. Service-to-service keys (aws:SourceArn/SourceAccount/CalledVia/
-// ViaAWSService) are intentionally absent — the sim originates direct client
-// calls, not service-initiated ones, so in real AWS those keys are absent here
-// too. aws:PrincipalOrgID is absent because the sim models a single account with
-// no Organizations slice.
+// iamPopulateGlobalConditionKeys adds the global aws: keys the request envelope
+// and calling principal settle: request time, transport, user agent, principal
+// ARN and tags, resource account, and MFA state. The service-to-service keys
+// (aws:SourceArn, aws:SourceAccount, aws:CalledVia, aws:ViaAWSService) stay
+// absent because a direct client call carries none of them in AWS either.
 func iamPopulateGlobalConditionKeys(r *http.Request, akid, principalArn, userName string, ctx map[string][]string) {
 	now := time.Now().UTC()
 	ctx["aws:CurrentTime"] = []string{now.Format(time.RFC3339)}
@@ -49,7 +33,6 @@ func iamPopulateGlobalConditionKeys(r *http.Request, akid, principalArn, userNam
 	}
 	ctx["aws:ResourceAccount"] = []string{awsAccountID()}
 
-	// Principal tags (a user's tags, or an assumed role's tags).
 	for _, t := range iamPrincipalTags(akid, userName) {
 		ctx["aws:PrincipalTag/"+t.Key] = []string{t.Value}
 	}
@@ -84,8 +67,6 @@ func iamPrincipalTags(akid, userName string) []IAMTag {
 	return iamMergeSessionTags(roleTags, tc.SessionTags)
 }
 
-// iamSessionMFA reports whether the credential is an MFA-authenticated session
-// and, if so, its age in seconds.
 func iamSessionMFA(akid string) (present bool, ageSeconds int64) {
 	tc, ok := iamTempCreds.Get(akid)
 	if !ok || !tc.MFA {
@@ -97,15 +78,12 @@ func iamSessionMFA(akid string) (present bool, ageSeconds int64) {
 	return true, 0
 }
 
-// iamPopulateResourceConditionKeys augments ctx with the resource-scoped and
-// service-specific condition keys implied by the request.
 func iamPopulateResourceConditionKeys(r *http.Request, action string, ctx map[string][]string) {
 	service := strings.SplitN(action, ":", 2)[0]
 	if service == "ecs" {
 		iamPopulateECSCluster(r, ctx)
 	}
-	// The tagging a create carries tags a resource that does not exist yet, so
-	// it has no tags of its own to report.
+	// A tag-on-create targets a resource that does not exist yet, so it has no tags to report.
 	if !iamIsTagOnCreateCheck(r, action) {
 		switch service {
 		case "ec2":
@@ -117,16 +95,14 @@ func iamPopulateResourceConditionKeys(r *http.Request, action string, ctx map[st
 		case "wafv2":
 			iamPopulateARNResourceTags(r, action, ctx, iamWAFv2TagsForARN)
 		default:
-			// Every other tag-storing sim service resolves the request's target
-			// resource into aws:ResourceTag/<k> + <service>:ResourceTag/<k>.
+			// Every other tag-storing service resolves its target into aws:ResourceTag/<k>
+			// and <service>:ResourceTag/<k>.
 			iamPopulateServiceResourceTags(r, service, ctx)
 		}
 	}
 	iamPopulateRequestTags(r, service, ctx)
 }
 
-// iamPopulateEC2ResourceTags resolves the tags of the EC2 resource the request
-// targets and exposes them as aws:ResourceTag/<k> and ec2:ResourceTag/<k>.
 func iamPopulateEC2ResourceTags(r *http.Request, ctx map[string][]string) {
 	tags, ok := iamEC2RequestResourceTags(r)
 	if !ok {
@@ -168,9 +144,9 @@ func iamEC2RequestResourceTags(r *http.Request) ([]EC2Tag, bool) {
 	return nil, false
 }
 
-// iamPopulateECSCluster exposes ecs:cluster (the targeted cluster's ARN) for an
-// ECS task operation. ECS is awsJson, so the cluster lives in the request body;
-// the body is read and restored so the downstream handler still sees it.
+// iamPopulateECSCluster exposes ecs:cluster, the targeted cluster's ARN. Amazon
+// ECS speaks awsJson, so read the cluster from the body and restore the body for
+// the handler.
 func iamPopulateECSCluster(r *http.Request, ctx map[string][]string) {
 	if r.Body == nil {
 		return
@@ -223,13 +199,10 @@ func iamPopulateECSResourceTags(r *http.Request, action string, ctx map[string][
 	}
 }
 
-// iamPopulateRequestTags exposes aws:RequestTag/<k> + aws:TagKeys from the tags
-// supplied on a tag-on-create / tagging request, read in the wire shape the
-// addressed service actually sends — see iamRequestTagShapes, which records one
-// row per service and cites the vendored Smithy model it came from. An
-// untagging request carries keys alone, and they become aws:TagKeys. A request
-// carrying neither leaves both keys unset, the way AWS leaves out a condition
-// key that does not apply.
+// iamPopulateRequestTags exposes aws:RequestTag/<k> and aws:TagKeys from the
+// tags a request supplies, in the wire shape iamRequestTagShapes records per
+// service. An untagging request's keys become aws:TagKeys. A request carrying
+// neither leaves both unset, as AWS omits a key that does not apply.
 func iamPopulateRequestTags(r *http.Request, service string, ctx map[string][]string) {
 	tags := iamRequestTags(r, service)
 	if len(tags) == 0 {
@@ -255,27 +228,15 @@ func iamPopulateRequestTags(r *http.Request, service string, ctx map[string][]st
 }
 
 // iamPopulateServiceConditionKeys adds the service-prefixed condition keys the
-// request itself determines.
-//
-// A service condition key is how AWS scopes an action whose resource the
-// request does not name: a policy allows cloudwatch:PutMetricData only where
-// `cloudwatch:namespace` equals one value, or an Amazon EC2 action only in one
-// `ec2:Region`. The evaluator matches conditions by key name and the simulator
-// populated only the global `aws:` keys, so every such policy was evaluated
-// against a context missing the key it tests — and a StringEquals on a key that
-// is not there does not match, so the policy denied the very request it was
-// written to allow.
-//
-// Only keys the request itself settles are added. A key whose value is a fact
-// about a resource the simulator would have to look up, or about a caller
-// relationship it does not model, is left absent, which is what AWS does with a
-// key that does not apply.
+// request itself settles. They scope actions whose resource the request does not
+// name (cloudwatch:namespace on PutMetricData, ec2:Region), and a StringEquals on
+// an absent key does not match. A key about a resource the simulator would have
+// to look up, or about a caller relationship it does not model, stays absent, as
+// AWS omits a key that does not apply.
 func iamPopulateServiceConditionKeys(r *http.Request, action string, body []byte, ctx map[string][]string) {
 	service, name, _ := strings.Cut(action, ":")
 
-	// ec2:Region is the region the request was made in, which is the same fact
-	// aws:RequestedRegion carries. It is the most-declared action condition key
-	// in the vendored service references by a wide margin.
+	// ec2:Region carries the same fact as aws:RequestedRegion.
 	if region := iamRequestedRegion(r); region != "" {
 		switch service {
 		case "ec2":
@@ -283,12 +244,9 @@ func iamPopulateServiceConditionKeys(r *http.Request, action string, body []byte
 		}
 	}
 
-	// The Amazon S3 keys below describe how the request was signed and carried,
-	// which the request states outright. AWS publishes the same family under
-	// each S3 namespace — s3express, s3-outposts and s3-object-lambda declare
-	// their own authType, signatureversion, TlsVersion, signatureAge,
-	// x-amz-content-sha256 and ResourceAccount — so the keys are written under
-	// the namespace the request is authorized in, not always under s3.
+	// AWS publishes the Amazon S3 request-shape keys under each S3 namespace
+	// (s3express, s3-outposts and s3-object-lambda declare their own), so write them
+	// under the namespace the request is authorized in.
 	if iamS3ConditionNamespaces[service] {
 		if r.TLS != nil {
 			ctx[service+":TlsVersion"] = []string{iamTLSVersionName(r.TLS.Version)}
@@ -305,9 +263,8 @@ func iamPopulateServiceConditionKeys(r *http.Request, action string, body []byte
 		if digest := r.Header.Get("x-amz-content-sha256"); digest != "" {
 			ctx[service+":x-amz-content-sha256"] = []string{digest}
 		}
-		// signatureAge is how long ago the request was signed, in
-		// milliseconds — the fact a policy tests to refuse a long-lived
-		// presigned URL.
+		// signatureAge is the milliseconds since signing; a policy tests it to refuse a
+		// long-lived presigned URL.
 		if signed := iamSigV4SigningTime(r); !signed.IsZero() {
 			age := time.Since(signed).Milliseconds()
 			if age < 0 {
@@ -317,9 +274,7 @@ func iamPopulateServiceConditionKeys(r *http.Request, action string, body []byte
 		}
 		ctx[service+":ResourceAccount"] = []string{awsAccountID()}
 	}
-	// The rest are the general-purpose data plane's own, and only it serves
-	// them: an Outposts object or a directory bucket's object is not an
-	// operation this simulator answers.
+	// The remaining keys belong to the s3 namespace alone.
 	if service == "s3" {
 		iamPopulateS3RequestConditionKeys(r, ctx)
 		iamPopulateS3LocationConstraint(body, ctx)
@@ -330,17 +285,14 @@ func iamPopulateServiceConditionKeys(r *http.Request, action string, body []byte
 		}
 	}
 
-	// cloudwatch:namespace is the namespace the metrics in the request are
-	// written to, and it is the documented way to scope PutMetricData — an
-	// action whose resource type the request never names.
+	// cloudwatch:namespace scopes PutMetricData, whose resource type the request never names.
 	if service == "cloudwatch" && name == "PutMetricData" {
 		if namespace := cloudWatchRequestNamespace(r, body); namespace != "" {
 			ctx["cloudwatch:namespace"] = []string{namespace}
 		}
 	}
 
-	// kms:CallerAccount is the account the caller belongs to, which for this
-	// simulator is the account it serves.
+	// kms:CallerAccount is the simulator's one account.
 	if service == "kms" {
 		ctx["kms:CallerAccount"] = []string{awsAccountID()}
 		// The encryption context the request supplied, which is how a policy
@@ -427,10 +379,9 @@ func iamPopulateNamedResourceKeys(r *http.Request, service, name string, body []
 		}
 	}
 
-	// servicediscovery:ServiceCreatedByAccount is the account that created the
-	// AWS Cloud Map service the request names. Every service here was created
-	// through the account this simulator serves, and a service that does not
-	// exist settles no key.
+	// servicediscovery:ServiceCreatedByAccount is the account that created the AWS
+	// Cloud Map service the request names: the simulator's one account, and no key
+	// for a service that does not exist.
 	if service == "servicediscovery" {
 		if id := iamRequestParameter(r, body, "Id"); id != "" {
 			if found, ok := cmServices.Get(id); ok {
@@ -495,10 +446,8 @@ func iamPopulateNamedResourceKeys(r *http.Request, service, name string, body []
 		}
 	}
 
-	// events:creatorAccount is the account that created the rule the request
-	// names. Every rule here was created through the account this simulator
-	// serves, so that is the answer for a rule that exists, and there is none
-	// for a rule that does not.
+	// events:creatorAccount is the account that created the named rule: the
+	// simulator's one account for a rule that exists, and no key otherwise.
 	if service == "events" {
 		// A rule is stored under its bus and its name, and a request that
 		// names no bus is about the default one. The rule operations name it
@@ -595,10 +544,9 @@ func iamPopulateNamedResourceKeys(r *http.Request, service, name string, body []
 		}
 	}
 
-	// kms:RequestAlias is the alias the request named the key by, which is how
-	// a policy grants use of a key through one alias and not another. It is
-	// absent when the request named the key some other way, which is what AWS
-	// does with a key that does not apply.
+	// kms:RequestAlias is the alias the request named the key by, so a policy can
+	// grant use through one alias and not another. It is absent when the request
+	// named the key another way.
 	if service == "kms" {
 		if keyID := iamRequestParameter(r, body, "KeyId"); strings.HasPrefix(keyID, "alias/") {
 			ctx["kms:RequestAlias"] = []string{keyID}
@@ -615,9 +563,6 @@ func iamPopulateNamedResourceKeys(r *http.Request, service, name string, body []
 	}
 }
 
-// iamOrganizationsRequestPolicyType reads the policy type an AWS Organizations
-// request is about, either from the type the request states or from the policy
-// it names.
 var (
 	iamRDSPublicAccessActions = map[string]bool{
 		"CreateDBInstance": true, "CreateDBInstanceReadReplica": true, "CreateDBShardGroup": true,
@@ -693,9 +638,8 @@ func iamPopulateSecretsManagerConditionKeys(r *http.Request, body []byte, ctx ma
 	if !ok {
 		return
 	}
-	// resource/Type is the kind of secret, which Secrets Manager derives from
-	// the service that owns it: a secret this project created through the API
-	// belongs to no other service, and "other" is what that is.
+	// Secrets Manager derives resource/Type from the owning service; a secret
+	// created through the API belongs to none, which is "other".
 	ctx["secretsmanager:resource/Type"] = []string{"other"}
 	if secret.RotationLambdaARN != "" {
 		ctx["secretsmanager:resource/AllowRotationLambdaArn"] = []string{secret.RotationLambdaARN}
@@ -707,10 +651,8 @@ func iamPopulateSecretsManagerConditionKeys(r *http.Request, body []byte, ctx ma
 	ctx["secretsmanager:SecretPrimaryRegion"] = []string{primary}
 }
 
-// iamPopulateS3ObjectConditionKeys adds s3:ExistingObjectTag/<key> — the tags
-// already on the object the request targets, which is how a policy grants a
-// read of objects somebody tagged one way and not another. The tags are the
-// object's own, read at the time of the question.
+// iamPopulateS3ObjectConditionKeys adds s3:ExistingObjectTag/<key>, the tags on
+// the target object at the time of the request.
 func iamPopulateS3ObjectConditionKeys(r *http.Request, ctx map[string][]string) {
 	bucket := sim.PathParam(r, "bucket")
 	key := sim.PathParam(r, "key")
@@ -737,7 +679,6 @@ var iamS3ConditionNamespaces = map[string]bool{
 	"s3-object-lambda": true,
 }
 
-// iamTLSVersionName spells a TLS version the way s3:TlsVersion does.
 func iamTLSVersionName(version uint16) string {
 	switch version {
 	case tls.VersionTLS13:
@@ -752,11 +693,9 @@ func iamTLSVersionName(version uint16) string {
 	return ""
 }
 
-// cloudWatchRequestNamespace reads the namespace a PutMetricData call writes
-// its metrics to. Amazon CloudWatch serves that operation over two protocols:
-// the Query protocol, where the namespace is a form parameter net/http has
-// already parsed, and Smithy RPC v2 CBOR, where it is a request member the SDK
-// additionally gzip-compresses.
+// cloudWatchRequestNamespace reads PutMetricData's namespace from either protocol
+// Amazon CloudWatch serves it over: a Query form parameter, or a Smithy RPC v2
+// CBOR member the SDK may gzip.
 func cloudWatchRequestNamespace(r *http.Request, body []byte) string {
 	if namespace := r.FormValue("Namespace"); namespace != "" {
 		return namespace
@@ -774,9 +713,8 @@ func cloudWatchRequestNamespace(r *http.Request, body []byte) string {
 	return request.Namespace
 }
 
-// iamSigV4SigningTime reads the instant a SigV4 request was signed. Both forms
-// of the signature carry it: the X-Amz-Date header on a header-signed request
-// and the X-Amz-Date query parameter on a presigned URL.
+// iamSigV4SigningTime reads the signing instant from the X-Amz-Date header, or
+// from the X-Amz-Date query parameter of a presigned URL.
 func iamSigV4SigningTime(r *http.Request) time.Time {
 	stamp := r.Header.Get("X-Amz-Date")
 	if stamp == "" {

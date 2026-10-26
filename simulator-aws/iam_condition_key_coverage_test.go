@@ -29,25 +29,15 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// Per-action condition-key coverage. A condition on a key the request context
-// lacks never matches, so a grant scoped by that condition denies the very
-// request it was written to allow, and a deny scoped by it never fires.
-// TestIAM_DeclaredConditionKeysAreResolvedOrClassified proves that the gate
-// names every key some action declares; this measure proves, action by
-// action, that the gate builds the key for a request of that action.
-//
-// For every operation the simulator serves, the probe renders the request a
-// client sends from the vendored Smithy model, with every member filled,
-// classifies it into the actions the gate authorizes it as — through the
-// gate's own classifiers — and builds the gate's own condition context for
-// each. Every (action, key) pair the vendored Service Reference declares for
-// an action some served request is authorized as is satisfied when one of
-// those contexts carries the key.
-//
-// An unsatisfied pair must be listed in iamConditionKeyGapsFile with the
-// reason the gate cannot build it, and a listed pair that the gate now builds
-// fails the test until its row is removed: the list is the exact set of
-// open gaps, never a count of them.
+// A condition on a key the request context lacks never matches, so a grant
+// scoped by it denies the request it was written to allow and a deny scoped by
+// it never fires. For every served operation, render the request a client sends
+// from the vendored Smithy model with every member filled, classify it through
+// the gate's own classifiers, and build the gate's condition context for each
+// action. Each (action, key) pair the vendored Service Reference declares must
+// appear in one of those contexts, or be listed in iamConditionKeyGapsFile with
+// the reason the gate cannot build it; a listed pair the gate builds fails the
+// test until its row goes.
 
 const iamConditionKeyGapsFile = "testdata/iam_condition_key_gaps.tsv"
 
@@ -98,7 +88,6 @@ var iamConditionKeyGapReasons = map[string]string{
 		"covered by TestS3ControlConditionKeysReadTheRequestedJob.",
 }
 
-// iamConditionKeyPair is one key an action declares.
 type iamConditionKeyPair struct {
 	action, key string
 }
@@ -139,7 +128,6 @@ func iamConditionKeyPresent(ctx map[string][]string, key string) bool {
 	return false
 }
 
-// iamDeclaredActionKeys maps each service:Action to the keys it declares.
 func iamDeclaredActionKeys(t *testing.T) map[string][]string {
 	t.Helper()
 	out := map[string][]string{}
@@ -456,7 +444,6 @@ func iamKeyProbeContexts(t *testing.T, probe iamKeyProbe, signer string) map[str
 	return out
 }
 
-// iamConditionKeyGap is one row of the gaps file.
 type iamConditionKeyGap struct {
 	pair   iamConditionKeyPair
 	reason string
@@ -1153,7 +1140,6 @@ func iamProbeFreePort(t *testing.T) string {
 	return strconv.Itoa(l.Addr().(*net.TCPAddr).Port)
 }
 
-// iamProbeCABundle is a PEM bundle of one self-signed CA certificate.
 func iamProbeCABundle(t *testing.T) string {
 	t.Helper()
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)

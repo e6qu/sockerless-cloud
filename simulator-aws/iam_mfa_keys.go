@@ -19,16 +19,10 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// IAM MFA devices, SSH public keys, signing certificates, and service-specific
-// credentials — the per-user credential families attached to an IAM user
-// (iam_users.go). All on the awsQuery protocol like the rest of IAM.
-//
-// A virtual MFA device (arn:aws:iam::acct:mfa/Name) carries a real RFC 3548
-// base32 TOTP seed and a real PNG QR code. EnableMFADevice binds a device to a
-// user; the device's SerialNumber doubles as its ARN. SSH keys store the
-// submitted body plus an MD5 fingerprint of the key. Signing certificates store
-// the submitted PEM. Service-specific credentials generate a real-shaped
-// `<user>-at-<account>` username and a random password.
+// A virtual MFA device carries an RFC 3548 base32 TOTP seed and a PNG, and its
+// SerialNumber is its ARN. SSH keys store the submitted body plus an MD5
+// fingerprint; service-specific credentials generate a `<user>-at-<account>`
+// username and a random password.
 
 type IAMVirtualMFADevice struct {
 	SerialNumber     string // also the device ARN
@@ -112,8 +106,6 @@ func registerIAMMFAKeys(r *AWSQueryRouter, srv *sim.Server) {
 	}
 }
 
-// ── MFA devices ─────────────────────────────────────────────────────────────
-
 func iamMFAArn(name, path string) string {
 	if path == "" {
 		path = "/"
@@ -129,14 +121,13 @@ func iamMFASeed() string {
 	return base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(b)
 }
 
-// iamMFAQRCodePNG renders a real PNG carrying the otpauth provisioning string
-// for the device. The Base32StringSeed member is base32; the QRCodePNG member
-// is the base64 of the PNG bytes (per the smithy doc on VirtualMFADevice).
+// iamMFAQRCodePNG renders a PNG whose module grid is a SHA-256 hash of the
+// otpauth URI, not a scannable QR code. QRCodePNG carries the base64 of the PNG
+// bytes.
 func iamMFAQRCodePNG(label, seed string) string {
 	const dim = 64
 	img := image.NewRGBA(image.Rect(0, 0, dim, dim))
-	// Hash the provisioning URI into a deterministic black/white module grid so
-	// the PNG actually encodes the device rather than being a blank canvas.
+	// Derive the module grid from the provisioning URI's hash, so the image is deterministic per device.
 	uri := fmt.Sprintf("otpauth://totp/%s?secret=%s", label, seed)
 	sum := sha256.Sum256([]byte(uri))
 	black := color.RGBA{A: 0xff}
@@ -381,10 +372,7 @@ func handleIAMListMFADeviceTags(w http.ResponseWriter, r *http.Request) {
 		iamXmlns, iamTagsXML(dev.Tags), sim.NewUUID())
 }
 
-// ── SSH public keys ─────────────────────────────────────────────────────────
-
-// iamSSHFingerprint computes the MD5 fingerprint AWS returns for an SSH key,
-// formatted as the colon-separated hex pairs (e.g. de:ad:be:ef:...).
+// iamSSHFingerprint returns the MD5 fingerprint AWS reports for an SSH key, as colon-separated hex pairs.
 func iamSSHFingerprint(body string) string {
 	sum := md5.Sum([]byte(strings.TrimSpace(body)))
 	parts := make([]string, len(sum))
@@ -433,9 +421,8 @@ func handleIAMGetSSHPublicKey(w http.ResponseWriter, r *http.Request) {
 		iamErrorXML(w, "NoSuchEntity", fmt.Sprintf("The SSH Public Key with id %s does not exist.", keyID), http.StatusNotFound)
 		return
 	}
-	// Encoding (SSH|PEM) selects how the body is returned. We store the raw
-	// submitted body; SSH echoes it verbatim, PEM wraps it in a SubjectPublicKeyInfo
-	// container — both round-trip the same stored material here.
+	// Encoding selects the returned form: SSH echoes the stored body, PEM wraps it
+	// in a SubjectPublicKeyInfo container.
 	body := key.Body
 	if strings.EqualFold(r.FormValue("Encoding"), "PEM") {
 		der := base64.StdEncoding.EncodeToString([]byte(key.Body))
@@ -499,8 +486,6 @@ func handleIAMDeleteSSHPublicKey(w http.ResponseWriter, r *http.Request) {
 	iamSSHPublicKeys.Delete(keyID)
 	iamEmptyResultXML(w, "DeleteSSHPublicKey")
 }
-
-// ── Signing certificates ────────────────────────────────────────────────────
 
 func iamSigningCertXML(c IAMSigningCertificate) string {
 	return fmt.Sprintf("<UserName>%s</UserName><CertificateId>%s</CertificateId><CertificateBody>%s</CertificateBody><Status>%s</Status><UploadDate>%s</UploadDate>",
@@ -573,10 +558,7 @@ func handleIAMDeleteSigningCertificate(w http.ResponseWriter, r *http.Request) {
 	iamEmptyResultXML(w, "DeleteSigningCertificate")
 }
 
-// ── Service-specific credentials ────────────────────────────────────────────
-
-// iamServicePassword returns a real-shaped random password (base64 of 32 random
-// bytes, the form AWS generates for git/CodeCommit-style credentials).
+// iamServicePassword returns base64 of 32 random bytes, the form AWS generates for CodeCommit credentials.
 func iamServicePassword() string {
 	b := make([]byte, 32)
 	_, _ = rand.Read(b)
@@ -632,8 +614,7 @@ func handleIAMListServiceSpecificCredentials(w http.ResponseWriter, r *http.Requ
 	})
 	var members strings.Builder
 	for _, c := range creds {
-		// List returns metadata (no password) per the smithy
-		// ServiceSpecificCredentialMetadata shape.
+		// List returns ServiceSpecificCredentialMetadata, which carries no password.
 		fmt.Fprintf(&members, "<member><UserName>%s</UserName><Status>%s</Status><ServiceUserName>%s</ServiceUserName><CreateDate>%s</CreateDate><ServiceSpecificCredentialId>%s</ServiceSpecificCredentialId><ServiceName>%s</ServiceName></member>",
 			xmlEscape(c.UserName), c.Status, xmlEscape(c.ServiceUserName), c.CreateDate, c.ServiceSpecificCredentialId, xmlEscape(c.ServiceName))
 	}

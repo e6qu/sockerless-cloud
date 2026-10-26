@@ -310,7 +310,6 @@ func handleGlueDeleteWorkflow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	glueWorkflows.Delete(req.Name)
-	// DeleteWorkflow returns the deleted workflow's name.
 	glueWriteJSON(w, http.StatusOK, map[string]any{"Name": req.Name})
 }
 
@@ -333,7 +332,7 @@ func handleGlueStartWorkflowRun(w http.ResponseWriter, r *http.Request) {
 	}
 	runID := "wr_" + strings.ReplaceAll(uuid.NewString(), "-", "")
 	now := glueEpochNow()
-	// The simulator settles the run synchronously (no native async backend).
+	// Settle the run synchronously: the simulator runs no workflow graph.
 	glueWfRuns.Put(req.Name+"\x00"+runID, GlueWorkflowRun{
 		Name:                  req.Name,
 		WorkflowRunId:         runID,
@@ -362,7 +361,6 @@ func handleGlueGetWorkflowRun(w http.ResponseWriter, r *http.Request) {
 	glueWriteJSON(w, http.StatusOK, map[string]any{"Run": run})
 }
 
-// glueClassifierName extracts the classifier name from the single set sub-object.
 func glueClassifierName(c GlueClassifier) string {
 	for _, m := range []map[string]any{c.GrokClassifier, c.XMLClassifier, c.JsonClassifier, c.CsvClassifier} {
 		if m != nil {
@@ -374,9 +372,9 @@ func glueClassifierName(c GlueClassifier) string {
 	return ""
 }
 
-// glueClassifierFromCreate maps a CreateClassifier/UpdateClassifier request body
-// (which carries the trimmed Create*ClassifierRequest sub-objects) into the
-// stored Classifier shape, stamping server-managed timestamp/version fields.
+// glueClassifierFromCreate maps a Create/UpdateClassifier request's
+// Create*ClassifierRequest sub-object into the stored Classifier shape and stamps
+// the server-managed timestamps and version.
 func glueClassifierFromCreate(req map[string]json.RawMessage, prior *GlueClassifier) (GlueClassifier, string, bool) {
 	var out GlueClassifier
 	now := glueEpochNow()
@@ -520,7 +518,6 @@ func handleGlueUpdateClassifier(w http.ResponseWriter, r *http.Request) {
 	glueMu.Lock()
 	defer glueMu.Unlock()
 
-	// The classifier name comes from the single set sub-object's Name field.
 	var name string
 	for _, raw := range req {
 		var m map[string]any
@@ -567,7 +564,6 @@ func handleGlueDeleteClassifier(w http.ResponseWriter, r *http.Request) {
 	glueWriteJSON(w, http.StatusOK, map[string]any{})
 }
 
-// glueUDFKey keys a UDF by its database + function name.
 func glueUDFKey(db, fn string) string { return db + "\x00" + fn }
 
 func handleGlueCreateUserDefinedFunction(w http.ResponseWriter, r *http.Request) {

@@ -10,21 +10,7 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// IAM SAML providers, server certificates, account aliases, and the
-// OpenID Connect provider tag-list op. Extends iam.go.
-//
-// Same AWS Query Protocol as the rest of IAM (POST / + Action=<Op>,
-// form-encoded body, XML response, namespace
-// https://iam.amazonaws.com/doc/2010-05-08/).
-//
-// All four families are real resources with real ARNs:
-//   - SAML provider:   arn:aws:iam::<acct>:saml-provider/<Name>
-//   - server cert:     arn:aws:iam::<acct>:server-certificate<Path><Name>
-//   - account alias:   account-level singleton list (≤ 1 alias per account)
-//   - OIDC tags:       tag list over the existing iamOIDCProviders store
-
-// IAMSAMLProvider is a Security Assertion Markup Language (SAML) identity
-// provider. The submitted metadata document is stored and echoed verbatim.
+// Store and echo the submitted metadata document verbatim.
 type IAMSAMLProvider struct {
 	Arn                  string   `json:"arn"`
 	Name                 string   `json:"name"`
@@ -35,10 +21,7 @@ type IAMSAMLProvider struct {
 	Tags                 []IAMTag `json:"tags,omitempty"`
 }
 
-// IAMServerCertificate is an uploaded X.509 server certificate. The
-// certificate body, chain, and private key are stored and echoed verbatim
-// (GetServerCertificate returns body + chain; the private key is never
-// echoed, matching real IAM).
+// GetServerCertificate returns the body and chain verbatim and never the private key, as IAM does.
 type IAMServerCertificate struct {
 	Name             string   `json:"name"`
 	Id               string   `json:"id"`
@@ -64,30 +47,26 @@ func registerIAMProvidersCerts(r *AWSQueryRouter, srv *sim.Server) {
 	iamAccountAliases = sim.MakeStore[string](srv.DB(), "iam_account_aliases")
 
 	for action, h := range map[string]http.HandlerFunc{
-		// SAML providers
-		"CreateSAMLProvider":   handleIAMCreateSAMLProvider,
-		"GetSAMLProvider":      handleIAMGetSAMLProvider,
-		"UpdateSAMLProvider":   handleIAMUpdateSAMLProvider,
-		"DeleteSAMLProvider":   handleIAMDeleteSAMLProvider,
-		"ListSAMLProviders":    handleIAMListSAMLProviders,
-		"ListSAMLProviderTags": handleIAMListSAMLProviderTags,
-		"TagSAMLProvider":      handleIAMTagSAMLProvider,
-		"UntagSAMLProvider":    handleIAMUntagSAMLProvider,
-		// OIDC provider tags (the providers themselves live in iam_slr_oidc.go)
+		"CreateSAMLProvider":            handleIAMCreateSAMLProvider,
+		"GetSAMLProvider":               handleIAMGetSAMLProvider,
+		"UpdateSAMLProvider":            handleIAMUpdateSAMLProvider,
+		"DeleteSAMLProvider":            handleIAMDeleteSAMLProvider,
+		"ListSAMLProviders":             handleIAMListSAMLProviders,
+		"ListSAMLProviderTags":          handleIAMListSAMLProviderTags,
+		"TagSAMLProvider":               handleIAMTagSAMLProvider,
+		"UntagSAMLProvider":             handleIAMUntagSAMLProvider,
 		"ListOpenIDConnectProviderTags": handleIAMListOIDCProviderTags,
-		// Server certificates
-		"UploadServerCertificate":   handleIAMUploadServerCertificate,
-		"GetServerCertificate":      handleIAMGetServerCertificate,
-		"UpdateServerCertificate":   handleIAMUpdateServerCertificate,
-		"DeleteServerCertificate":   handleIAMDeleteServerCertificate,
-		"ListServerCertificates":    handleIAMListServerCertificates,
-		"ListServerCertificateTags": handleIAMListServerCertificateTags,
-		"TagServerCertificate":      handleIAMTagServerCertificate,
-		"UntagServerCertificate":    handleIAMUntagServerCertificate,
-		// Account aliases
-		"CreateAccountAlias": handleIAMCreateAccountAlias,
-		"DeleteAccountAlias": handleIAMDeleteAccountAlias,
-		"ListAccountAliases": handleIAMListAccountAliases,
+		"UploadServerCertificate":       handleIAMUploadServerCertificate,
+		"GetServerCertificate":          handleIAMGetServerCertificate,
+		"UpdateServerCertificate":       handleIAMUpdateServerCertificate,
+		"DeleteServerCertificate":       handleIAMDeleteServerCertificate,
+		"ListServerCertificates":        handleIAMListServerCertificates,
+		"ListServerCertificateTags":     handleIAMListServerCertificateTags,
+		"TagServerCertificate":          handleIAMTagServerCertificate,
+		"UntagServerCertificate":        handleIAMUntagServerCertificate,
+		"CreateAccountAlias":            handleIAMCreateAccountAlias,
+		"DeleteAccountAlias":            handleIAMDeleteAccountAlias,
+		"ListAccountAliases":            handleIAMListAccountAliases,
 	} {
 		r.Register(action, h)
 	}
@@ -478,8 +457,7 @@ func handleIAMListAccountAliases(w http.ResponseWriter, r *http.Request) {
 </ListAccountAliasesResponse>`, iamXmlns, members.String(), sim.NewUUID())
 }
 
-// iamTagListResultXML emits the ListXxxTags response shape (Tags member list +
-// IsTruncated; the sim never truncates a tag list).
+// iamTagListResultXML emits the ListXxxTags shape; the simulator never truncates a tag list.
 func iamTagListResultXML(w http.ResponseWriter, op string, tags []IAMTag) {
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<%sResponse %s>

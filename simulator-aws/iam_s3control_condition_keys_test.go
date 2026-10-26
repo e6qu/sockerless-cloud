@@ -74,12 +74,9 @@ func TestS3ControlConditionKeysReadTheRequestedJob(t *testing.T) {
 		map[string][]string{"s3:RequestJobPriority": {"900"}})
 }
 
-// TestS3ControlJobConditionKeysDecidePolicies is the defect itself, stated as a
-// decision rather than as a context: a policy that lets a role create only
-// tagging jobs, and only below the priority its pipeline reserves, allows the
-// job it was written for and denies the one it was written against. Before the
-// keys were built, the allow was an implicitDeny — the condition tested keys
-// that were not in the context, so the policy refused every job.
+// TestS3ControlJobConditionKeysDecidePolicies states the keys as a decision: a
+// policy that lets a role create only tagging jobs below a reserved priority
+// allows the job it was written for and denies the one it was written against.
 func TestS3ControlJobConditionKeysDecidePolicies(t *testing.T) {
 	s3ControlConditionStores(t)
 	const caller = "arn:aws:iam::123456789012:role/batch-operator"
@@ -142,12 +139,9 @@ func TestS3ControlConditionKeysReadTheTargetedJob(t *testing.T) {
 	}
 }
 
-// TestS3ControlConditionKeysLeaveTheSuspendedCauseUnset records why the
-// seventh key UpdateJobStatus declares is absent. SuspendedCause is written by
-// S3, not sent by the caller: the vendored S3 Control model types it as a
-// plain 1..1024 string with no enumerated value, and this simulator suspends a
-// job awaiting confirmation without recording a cause. There is therefore
-// nothing to read, and a made-up string would match policies that must not
+// TestS3ControlConditionKeysLeaveTheSuspendedCauseUnset: S3 writes
+// SuspendedCause, the model types it as a free-form string, and the simulator
+// records no cause, so an invented value would match policies that must not
 // match.
 func TestS3ControlConditionKeysLeaveTheSuspendedCauseUnset(t *testing.T) {
 	s3ControlConditionStores(t)

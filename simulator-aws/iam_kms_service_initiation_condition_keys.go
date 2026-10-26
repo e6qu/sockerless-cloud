@@ -5,29 +5,20 @@ import (
 	"strings"
 )
 
-// The two AWS KMS condition keys that describe who reached KMS rather than what
-// the request asked for: kms:ViaService and kms:GrantIsForAWSResource.
-//
-// Both are settled by the origin of the call, not by a request member, so they
-// live here rather than in iam_kms_request_condition_keys.go. Neither is set for
-// a direct client call to KMS — real AWS omits kms:ViaService entirely when the
-// principal calls KMS itself, which is what makes a key grant conditioned on it
-// refuse a direct call — and both are set when an AWS service calls KMS on the
-// principal's behalf (iamStampServiceInitiation marks such a call).
-//
-// The action lists come from the vendored AWS Service Reference
-// (specs/cloud-api/aws/service-reference/kms.servicereference.json.gz,
-// Actions[].ActionConditionKeys), not from memory: a key an action does not
-// declare stays unset on that action.
+// kms:ViaService and kms:GrantIsForAWSResource describe who reached AWS KMS, not
+// what the request asked. AWS omits both on a direct client call, which is what
+// makes a grant conditioned on kms:ViaService refuse one, and sets both when an
+// AWS service calls KMS on the principal's behalf (iamStampServiceInitiation
+// marks such a call). The action lists come from the vendored AWS Service
+// Reference; a key an action does not declare stays unset on it.
 
 func init() {
 	registerIAMRequestConditionPopulator("kms", iamPopulateKMSServiceInitiationConditionKeys)
 }
 
-// kmsViaServiceActions are the 45 AWS KMS actions the service reference
-// declares kms:ViaService on. ReEncryptFrom and ReEncryptTo are the two
-// authorization actions a ReEncrypt request settles, which is how the reference
-// and this simulator both name them.
+// kmsViaServiceActions are the 45 actions the service reference declares
+// kms:ViaService on; ReEncryptFrom and ReEncryptTo are the two authorizations a
+// ReEncrypt settles.
 var kmsViaServiceActions = map[string]bool{
 	"CancelKeyDeletion":                   true,
 	"CreateAlias":                         true,
@@ -101,12 +92,11 @@ func iamPopulateKMSServiceInitiationConditionKeys(r *http.Request, operation str
 	}
 }
 
-// kmsViaServiceEndpoint turns the calling service's principal
-// ("s3.amazonaws.com") into the regional endpoint form kms:ViaService carries
-// ("s3.<region>.amazonaws.com"). A principal that is not one service label
-// under amazonaws.com — "streams.metrics.cloudwatch.amazonaws.com" — has no
-// such endpoint form, so it settles nothing rather than a value invented by
-// splicing the region into the middle of it.
+// kmsViaServiceEndpoint turns a service principal ("s3.amazonaws.com") into the
+// regional endpoint kms:ViaService carries ("s3.<region>.amazonaws.com"). A
+// principal that is not one label under amazonaws.com
+// ("streams.metrics.cloudwatch.amazonaws.com") has no such form and settles
+// nothing.
 func kmsViaServiceEndpoint(principal string) (string, bool) {
 	const domain = ".amazonaws.com"
 	name, ok := strings.CutSuffix(principal, domain)

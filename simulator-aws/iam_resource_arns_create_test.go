@@ -44,8 +44,7 @@ func TestIAMCreateWildcard_OneMatchingTypeResolvesTheRest(t *testing.T) {
 		t.Errorf("an ambiguous create derived %v, want nothing", got)
 	}
 
-	// The parent guard survives the relaxation: creating one alias must not
-	// wildcard every state machine.
+	// Creating one alias must not wildcard every state machine.
 	if got := iamCreateWildcardARNs("states", "CreateStateMachineAlias",
 		[]string{"statemachine"}, region, account); got != nil {
 		t.Errorf("a create widening to its parent derived %v, want nothing", got)
@@ -73,8 +72,7 @@ func TestIAMCreateWildcard_SameWordsInAnotherOrder(t *testing.T) {
 		t.Errorf("RequestSpotInstances derived %v, want %v", got, want)
 	}
 
-	// Sharing a word or two is not saying the same words: the parent guard has
-	// to survive the looser match.
+	// Sharing a word or two is not saying the same words: creating one alias must not wildcard every state machine.
 	if got := iamCreateWildcardARNs("states", "CreateStateMachineAlias",
 		[]string{"statemachine"}, region, account); got != nil {
 		t.Errorf("a create widening to its parent derived %v, want nothing", got)
@@ -160,8 +158,7 @@ func TestIAMCreateWildcard_TheNounItselfBeatsWhatTheNounEndsWith(t *testing.T) {
 		t.Errorf("two exact matches derived %v, want nothing", got)
 	}
 
-	// The parent guard is untouched: an alias's parent is neither the noun nor
-	// something the noun ends with.
+	// An alias's parent is neither the noun nor something the noun ends with.
 	if got := iamCreateWildcardARNs("states", "CreateStateMachineAlias",
 		[]string{"statemachine"}, region, account); got != nil {
 		t.Errorf("a create widening to its parent derived %v, want nothing", got)

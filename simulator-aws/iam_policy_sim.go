@@ -14,12 +14,6 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// IAM policy simulation: SimulateCustomPolicy / SimulatePrincipalPolicy.
-// Implements a real (if compact) policy-evaluation engine over the IAM policy
-// JSON the consumer renders from terraform, so least-privilege IAM can be
-// asserted against the sim. Real API:
-// https://docs.aws.amazon.com/IAM/latest/APIReference/API_SimulateCustomPolicy.html
-
 // iamStringOrList unmarshals an IAM field that may be a single string or a
 // JSON array of strings (Action/Resource/condition values all allow both).
 type iamStringOrList []string
@@ -106,23 +100,12 @@ func (p *iamPrincipal) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
-// iamPrincipalMatches reports whether a statement's Principal admits the caller.
-// A statement with no Principal (identity-based) always matches; "*" matches
-// everyone; an AWS principal matches by ARN glob or by the account id of an
-// account-root principal; a Service principal matches when an AWS service made
-// the call on the principal's behalf (the calling services arrive via
-// ctx["aws:CalledVia"]).
-// iamPrincipalMatch is how a resource policy's Principal element matched the
-// caller, which decides what the match is worth.
-//
-// AWS draws a line here that a plain boolean loses. A statement naming the
-// caller — its user or role ARN, or "*" — authorizes that caller outright. A
-// statement naming an *account* does not: it delegates to that account's own
-// IAM, and the caller is permitted only if an identity-based policy allows the
-// action too. The default AWS KMS key policy is exactly that statement — root
-// principal, kms:* — and reading it as a grant would let any principal in the
-// account use any key whatever its own policies said, which is the opposite of
-// what the "Enable IAM User Permissions" statement means.
+// iamPrincipalMatch records how a resource policy's Principal matched the
+// caller. A statement naming the caller (its ARN, or "*") authorizes it
+// outright; one naming an account delegates to that account's IAM, so the
+// caller also needs an identity-based allow. The default AWS KMS key policy's
+// root-principal kms:* statement is the second kind: reading it as a grant would
+// let any principal in the account use any key.
 type iamPrincipalMatch int
 
 const (
@@ -295,21 +278,12 @@ func iamResourceMatches(stmt iamStatement, resource string) bool {
 }
 
 // iamLogGroupPatternMatches covers the one place CloudWatch Logs spells a log
-// group's ARN two ways and authorizes against both.
-//
-// The AWS Service Reference declares the log-group resource format with no
-// suffix — "…:log-group:${LogGroupName}" — and that is the form a request
-// derives. But DescribeLogGroups RETURNS the ARN with a trailing ":*", and that
-// is the form policies are written in: AWS's own documentation examples, the
-// policies the console generates, and Terraform modules. Matching only the
-// declared form denies a role holding exactly the grant it needs, and because
-// it is the RESOURCE that failed to match, the denial reads "no identity-based
-// policy allows the logs:FilterLogEvents action" — sending the reader to hunt
-// for a missing action that is plainly present in the policy.
-//
-// Only log-group-level resources qualify. A log-stream ARN carries its own
-// segment and keeps matching exactly, so a grant on one stream cannot widen to
-// the whole group.
+// group's ARN two ways and authorizes against both. The Service Reference
+// declares "…:log-group:${LogGroupName}", the form a request derives, but
+// DescribeLogGroups returns it with a trailing ":*", the form AWS's examples,
+// the console and Terraform modules write policies in. Only log-group resources
+// qualify: a log-stream ARN keeps matching exactly, so a grant on one stream
+// cannot widen to the group.
 func iamLogGroupPatternMatches(pattern, resource string) bool {
 	if !strings.HasSuffix(pattern, ":*") {
 		return false
@@ -331,12 +305,10 @@ func iamAnyMatch(ctxVals, wantVals []string, eq func(ctx, want string) bool) boo
 	return false
 }
 
-// iamEvalConditionOp evaluates one (base) condition operator against a set of
-// context values and a set of wanted values, with the default ForAnyValue
-// semantics (the condition holds if any context value satisfies the operator
-// against any wanted value). The full real-AWS operator set is implemented;
-// genuinely unknown operators return false (the gated statement doesn't apply)
-// so an Allow can't spuriously grant on a condition the sim can't evaluate.
+// iamEvalConditionOp evaluates one base condition operator with the default
+// ForAnyValue semantics: the condition holds if any context value satisfies it
+// against any wanted value. An unknown operator returns false, so an Allow never
+// grants on a condition the simulator cannot evaluate.
 func iamEvalConditionOp(op string, ctxVals, wantVals []string) bool {
 	switch op {
 	case "StringEquals", "ArnEquals":
@@ -388,7 +360,6 @@ func iamEvalConditionOp(op string, ctxVals, wantVals []string) bool {
 	}
 }
 
-// iamBinaryEqual compares two base64-encoded binary values byte-for-byte.
 func iamBinaryEqual(c, w string) bool {
 	cb, err1 := base64.StdEncoding.DecodeString(strings.TrimSpace(c))
 	wb, err2 := base64.StdEncoding.DecodeString(strings.TrimSpace(w))
@@ -398,7 +369,6 @@ func iamBinaryEqual(c, w string) bool {
 	return bytes.Equal(cb, wb)
 }
 
-// iamNumCmp returns an equality/ordering comparator for the numeric operators.
 func iamNumCmp(cmp string) func(c, w string) bool {
 	return func(c, w string) bool {
 		cf, err1 := strconv.ParseFloat(strings.TrimSpace(c), 64)
@@ -475,9 +445,7 @@ func iamIPInCIDR(c, w string) bool {
 	return cidr.Contains(ip)
 }
 
-// iamCtxLookup resolves a condition-context key, case-insensitively on the key
-// NAME — IAM condition key names are not case-sensitive, so a policy written
-// with AWS:SourceArn matches the gate's aws:SourceArn (and vice versa).
+// iamCtxLookup matches condition key names case-insensitively, as IAM does: AWS:SourceArn matches aws:SourceArn.
 func iamCtxLookup(ctx map[string][]string, key string) ([]string, bool) {
 	if v, ok := ctx[key]; ok {
 		return v, true
@@ -575,8 +543,6 @@ func iamSubstituteVars(s string, ctx map[string][]string) string {
 	return b.String()
 }
 
-// iamSubstituteVarsStmt returns a copy of stmt with policy variables in its
-// Resource/NotResource patterns resolved against the request context.
 func iamSubstituteVarsStmt(stmt iamStatement, ctx map[string][]string) iamStatement {
 	subst := func(in iamStringOrList) iamStringOrList {
 		if len(in) == 0 {
@@ -704,7 +670,6 @@ func handleIAMSimulatePrincipalPolicy(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	// Additional inline policies to evaluate alongside the principal's.
 	for _, p := range iamQueryList(r, "PolicyInputList") {
 		if doc, err := parseIAMPolicy(p); err == nil {
 			docs = append(docs, doc)
@@ -745,8 +710,6 @@ func iamWriteSimulationResponse(w http.ResponseWriter, op string, docs []iamPoli
 </%sResponse>`, op, op, members.String(), op, sim.NewUUID(), op)
 }
 
-// iamRoleNameFromArn extracts the role name from an arn:aws:iam::acct:role/Name
-// (or role/path/Name) source ARN.
 func iamRoleNameFromArn(arn string) string {
 	const marker = ":role/"
 	i := strings.Index(arn, marker)

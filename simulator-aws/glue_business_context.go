@@ -11,11 +11,6 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// The AWS Glue Data Catalog business-context API stores glossaries, form
-// types, asset types, assets, attachments, and term associations as durable
-// regional catalog state. The wire structures deliberately use the public
-// AWS JSON 1.1 member names so official clients receive the same shapes they
-// receive from AWS.
 type GlueBusinessGlossary struct {
 	Id          string `json:"Id"`
 	Name        string `json:"Name"`
@@ -983,9 +978,9 @@ func handleGluePutAttachment(w http.ResponseWriter, r *http.Request) {
 	}
 	asset.UpdatedAt = glueEpochNow()
 	glueBusinessAssets.Put(asset.Id, asset)
-	// An attachment made against the asset rather than an iterable form names
-	// no form, and the model constrains IterableFormName to a real identifier —
-	// so the member is absent rather than empty.
+	// An attachment on the asset itself names no form, and the model constrains
+	// IterableFormName to a real identifier, so omit the member rather than send it
+	// empty.
 	response := map[string]any{
 		"AssetIdentifier": asset.Id, "AttachmentName": req.AttachmentName, "FormTypeId": req.FormTypeId,
 	}
@@ -1111,9 +1106,8 @@ func handleGlueBatchGetIterableForms(w http.ResponseWriter, r *http.Request) {
 		glueWriteError(w, "EntityNotFoundException", "Iterable form not found: "+req.IterableFormName)
 		return
 	}
-	// A batch-get answers with IterableFormItem members — the item's forms,
-	// attachments and glossary terms. The description belongs to the list
-	// item, which is a different shape, so it is not reported here.
+	// BatchGet answers with IterableFormItem members (forms, attachments, glossary
+	// terms); the description belongs to the list item shape, so omit it.
 	items := make([]map[string]any, 0, len(req.ItemIdentifiers))
 	errors := make([]map[string]any, 0)
 	for _, identifier := range req.ItemIdentifiers {

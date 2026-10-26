@@ -10,13 +10,6 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// IAM list ops + tag reads.
-//
-// ListPolicyVersions is needed by terraform-provider-aws on aws_iam_policy
-// plan/refresh/destroy. ListRoles enumerates roles for audit tooling and
-// data.aws_iam_roles. ListRoleTags / ListPolicyTags read back the tags that
-// CreateRole / CreatePolicy now persist.
-
 type IAMTag struct {
 	Key   string `json:"key"`
 	Value string `json:"value"`
@@ -43,8 +36,7 @@ func iamParseTags(r *http.Request) []IAMTag {
 	return tags
 }
 
-// iamMarkerXML renders the optional `<Marker>` element IAM list ops emit when
-// the result is truncated. An empty next token yields no element.
+// iamMarkerXML renders the <Marker> IAM list operations emit when truncated; an empty next token yields none.
 func iamMarkerXML(next string) string {
 	if next == "" {
 		return ""
@@ -62,9 +54,6 @@ func iamTagsXML(tags []IAMTag) string {
 	return b.String()
 }
 
-// handleIAMListPolicyVersions returns the policy's versions. The sim's default
-// model stores a single version (v1, the default); explicit CreatePolicyVersion
-// is not modeled, so one version is returned.
 func handleIAMListPolicyVersions(w http.ResponseWriter, r *http.Request) {
 	arn := r.FormValue("PolicyArn")
 	policy, ok := iamPolicies.Get(arn)

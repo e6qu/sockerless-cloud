@@ -9,24 +9,16 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// AWS Identity and Access Management account properties and role templates.
+// PutAccountProperties writes an account-scoped key/value map and
+// GetAccountProperties returns exactly what was written.
 //
-// Account properties are a real account-scoped key/value map —
-// PutAccountProperties writes them and GetAccountProperties returns exactly
-// what was written, which is the whole contract.
-//
-// Role templates are a different matter. Every role template lives under the
-// literal account `aws` — arn:<partition>:iam::aws:role-template/... — so the
-// templates and their content (trust policies, inline policies, name
-// patterns) are AWS's own published catalog, like the managed runtime-stack
-// and SKU catalogs this project has declined to invent before. Serving
-// GetRoleTemplateVersion or AcquireRole with fabricated template content
-// would hand a caller a trust policy AWS never published, so both fail
-// loudly, and the failure names the missing catalog rather than a vague
-// unavailability.
+// Role templates live under the literal account `aws`
+// (arn:<partition>:iam::aws:role-template/...): their trust policies, inline
+// policies and name patterns are AWS's own published catalog. Serving
+// GetRoleTemplateVersion or AcquireRole with invented content would hand out a
+// trust policy AWS never published, so both fail and name the missing catalog.
 
-// iamAccountProperties is the account's property map. One row per account,
-// and this simulator serves one account.
+// One row: the simulator serves one account.
 var iamAccountProperties sim.Store[map[string]string]
 
 const iamAccountPropertiesKey = "account"
@@ -39,9 +31,8 @@ func registerIAMAccountProperties(r *AWSQueryRouter, srv *sim.Server) {
 	r.Register("AcquireRole", handleIAMAcquireRole)
 }
 
-// iamRequestAccountProperties reads the property map the query protocol
-// flattens into Properties.entry.N.key/value. The entries are returned in
-// request order, because the namespace rule is about the request as a whole.
+// iamRequestAccountProperties reads Properties.entry.N.key/value in request
+// order; the namespace rule applies to the request as a whole.
 func iamRequestAccountProperties(r *http.Request) [][2]string {
 	var entries [][2]string
 	for i := 1; ; i++ {
@@ -68,11 +59,10 @@ func iamAccountPropertyNamespace(key string) (string, bool) {
 
 func handleIAMPutAccountProperties(w http.ResponseWriter, r *http.Request) {
 	entries := iamRequestAccountProperties(r)
-	// "All properties in a single request must belong to the same namespace."
-	// Accepting a malformed key would store a property GetAccountProperties
-	// then returns in a shape the model says cannot exist, and a policy
-	// conditioned on iam:AccountPropertyNamespaces would be evaluated against
-	// a namespace the caller never named.
+	// "All properties in a single request must belong to the same namespace." A
+	// malformed key would store a property in a shape the model rules out, and
+	// iam:AccountPropertyNamespaces would evaluate against a namespace the caller
+	// never named.
 	namespace := ""
 	for _, entry := range entries {
 		got, ok := iamAccountPropertyNamespace(entry[0])
@@ -115,8 +105,6 @@ func handleIAMGetAccountProperties(w http.ResponseWriter, r *http.Request) {
 </GetAccountPropertiesResponse>`, entries, sim.NewUUID())
 }
 
-// iamRoleTemplateCatalogUnavailable is the reason both template operations
-// fail: the catalog is AWS's, not this simulator's to invent.
 const iamRoleTemplateCatalogUnavailable = "IAM role templates are AWS's own published catalog: " +
 	"every template lives under the literal account 'aws' and carries a trust policy, inline " +
 	"policies and naming patterns that AWS authors. This simulator does not vendor that catalog " +

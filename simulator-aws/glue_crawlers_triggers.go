@@ -62,8 +62,7 @@ func handleGlueCreateCrawler(w http.ResponseWriter, r *http.Request) {
 	glueWriteJSON(w, http.StatusOK, map[string]any{})
 }
 
-// glueCrawlerWire strips the persistence-only Tags member from the wire shape;
-// the real Crawler structure has no Tags field (tags ride GetTags).
+// Drop the persistence-only Tags member: the Crawler structure has none (tags ride GetTags).
 type glueCrawlerWire struct {
 	GlueCrawler
 }
@@ -290,8 +289,7 @@ func handleGlueCreateTrigger(w http.ResponseWriter, r *http.Request) {
 	glueWriteJSON(w, http.StatusOK, map[string]any{"Name": req.Name})
 }
 
-// glueTriggerWire strips the persistence-only Tags member from the wire shape;
-// the real Trigger structure has no Tags field (tags ride GetTags).
+// Drop the persistence-only Tags member: the Trigger structure has none (tags ride GetTags).
 type glueTriggerWire struct {
 	GlueTrigger
 }

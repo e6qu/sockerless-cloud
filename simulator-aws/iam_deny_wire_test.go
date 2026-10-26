@@ -9,15 +9,8 @@ import (
 	"testing"
 )
 
-// TestIAMDenyMessageKeysMatchTheVendoredModels holds the denial-message table
-// to the models it describes.
-//
-// awsJson serialises a member under the name the model declares, and AWS's
-// services disagree on whether an access-denied exception spells it `message`
-// or `Message`. A client reads the name its own model declares, so a denial
-// written under the other spelling reaches it with no message at all. The table
-// records each service's spelling; this reads the models and fails if an entry
-// disagrees with one.
+// TestIAMDenyMessageKeysMatchTheVendoredModels fails when an iamDenyMessageKeys
+// entry disagrees with the service's vendored model.
 func TestIAMDenyMessageKeysMatchTheVendoredModels(t *testing.T) {
 	// The IAM service prefix a table entry is keyed by is not always the model
 	// file's name: Amazon CloudWatch Logs authorizes as "logs", Amazon
@@ -52,8 +45,6 @@ func TestIAMDenyMessageKeysMatchTheVendoredModels(t *testing.T) {
 	}
 }
 
-// smithyAccessDeniedMessageMember reports the wire name of the message member
-// on a service's access-denied exception.
 func smithyAccessDeniedMessageMember(t *testing.T, file string) (string, bool) {
 	t.Helper()
 	path := filepath.Join("..", "specs", "cloud-api", "aws", file+".smithy.json.gz")

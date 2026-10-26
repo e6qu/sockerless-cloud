@@ -109,11 +109,10 @@ func TestKMSGrantIsForAWSResourceOnAServiceInitiatedGrant(t *testing.T) {
 		})
 }
 
-// TestIAMServiceRoleKMSPermissionCarriesViaService proves the internal call path
-// that made these keys worth having: Amazon Data Firehose encrypting a buffered
-// record under a customer-managed CMK is authorized as Firehose calling KMS on
-// the principal's behalf, so the delivery role may hold a KMS permission scoped
-// to use through Firehose and nothing else.
+// TestIAMServiceRoleKMSPermissionCarriesViaService proves Amazon Data Firehose
+// encrypting under a customer managed key is authorized as Firehose calling AWS
+// KMS on the role's behalf, so the role may hold a KMS permission scoped to use
+// through Firehose alone.
 func TestIAMServiceRoleKMSPermissionCarriesViaService(t *testing.T) {
 	bg.Await()
 	iamRoles = sim.MakeStore[IAMRole](nil, "iam_roles")

@@ -190,14 +190,12 @@ func glueTableKey(database, table string) string {
 	return database + "/" + table
 }
 
-// glueTableVersionKey is the store key for one (database, table, versionId)
-// snapshot.
 func glueTableVersionKey(database, table, versionID string) string {
 	return database + "/" + table + "/" + versionID
 }
 
-// glueLatestTableVersion returns the highest VersionId recorded for a table as
-// an integer (0 if none). Caller holds glueMu.
+// glueLatestTableVersion returns the highest VersionId recorded for a table, or
+// 0. The caller holds glueMu.
 func glueLatestTableVersion(database, table string) int {
 	latest := 0
 	for _, v := range glueTableVersions.List() {
@@ -210,8 +208,7 @@ func glueLatestTableVersion(database, table string) int {
 	return latest
 }
 
-// glueRecordTableVersion snapshots a table under the given version id. Caller
-// holds glueMu.
+// glueRecordTableVersion snapshots a table under versionID. The caller holds glueMu.
 func glueRecordTableVersion(database, table, versionID string, t GlueTable) {
 	glueTableVersions.Put(glueTableVersionKey(database, table, versionID), GlueTableVersion{
 		DatabaseName: database,
@@ -342,8 +339,7 @@ func handleGlueDeleteTable(w http.ResponseWriter, r *http.Request) {
 	glueWriteJSON(w, http.StatusOK, map[string]any{})
 }
 
-// glueDeleteTableVersions removes all recorded versions for a table. Caller
-// holds glueMu.
+// glueDeleteTableVersions removes a table's recorded versions. The caller holds glueMu.
 func glueDeleteTableVersions(database, table string) {
 	for _, v := range glueTableVersions.List() {
 		if v.DatabaseName == database && v.TableName == table {
@@ -429,7 +425,6 @@ func handleGlueBatchDeleteTable(w http.ResponseWriter, r *http.Request) {
 		}
 		glueTables.Delete(key)
 		glueDeleteTableVersions(req.DatabaseName, name)
-		// Cascade-delete the table's partitions.
 		for _, p := range gluePartitions.List() {
 			if p.DatabaseName == req.DatabaseName && p.TableName == name {
 				gluePartitions.Delete(gluePartitionKey(req.DatabaseName, name, p.Values))

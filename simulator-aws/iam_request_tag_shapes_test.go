@@ -12,14 +12,10 @@ import (
 	"github.com/fxamacker/cbor/v2"
 )
 
-// aws:RequestTag/${TagKey} and aws:TagKeys are the facts a policy tests to
-// force a tag onto a resource at create time. The gate used to read one wire
-// shape — the awsQuery member prefix `Tag`, which only Amazon EC2's CreateTags
-// sends — so for every other service both keys were silently unset and the
-// documented tag-on-create restriction could not be expressed. These tests hold
-// the gate to the shape each service's own Smithy model declares.
+// aws:RequestTag/${TagKey} and aws:TagKeys are what a policy tests to force a
+// tag onto a resource at create time. Hold the gate to the shape each service's
+// own Smithy model declares.
 
-// queryTagRequest builds the awsQuery POST a service's SDK would send.
 func queryTagRequest(operation string, form url.Values) *http.Request {
 	form.Set("Action", operation)
 	r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(form.Encode()))
@@ -27,7 +23,6 @@ func queryTagRequest(operation string, form url.Values) *http.Request {
 	return r
 }
 
-// jsonTagRequest builds the awsJson POST a service's SDK would send.
 func jsonTagRequest(target, body string) *http.Request {
 	r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
 	r.Header.Set("Content-Type", "application/x-amz-json-1.1")
@@ -35,7 +30,6 @@ func jsonTagRequest(target, body string) *http.Request {
 	return r
 }
 
-// restTagRequest builds the restJson1 request a REST service's SDK would send.
 func restTagRequest(method, target, body string) *http.Request {
 	r := httptest.NewRequest(method, target, strings.NewReader(body))
 	r.Header.Set("Content-Type", "application/json")
@@ -152,8 +146,7 @@ func TestIAMRequestTagsPerServiceWireShape(t *testing.T) {
 				"aws:RequestTag/owner": {"observability"},
 				"aws:TagKeys":          {"owner"},
 			}},
-		// Amazon EC2 (ec2Query): CreateTags sends the flattened `Tag.N` the
-		// gate already read — that behaviour must not regress.
+		// Amazon EC2 (ec2Query): CreateTags sends the flattened `Tag.N`.
 		{"an Amazon EC2 CreateTags call", "ec2",
 			queryTagRequest("CreateTags", url.Values{
 				"ResourceId.1": {"i-0123456789abcdef0"},
@@ -163,8 +156,7 @@ func TestIAMRequestTagsPerServiceWireShape(t *testing.T) {
 				"aws:RequestTag/owner": {"compute"},
 				"aws:TagKeys":          {"owner"},
 			}},
-		// …while EC2 tag-on-create sends TagSpecification.N.Tag.M, which the
-		// single hard-coded prefix never saw.
+		// …while EC2 tag-on-create sends TagSpecification.N.Tag.M.
 		{"an Amazon EC2 volume created with a tag specification", "ec2",
 			queryTagRequest("CreateVolume", url.Values{
 				"AvailabilityZone":                {"us-east-1a"},
@@ -341,11 +333,9 @@ func TestIAMRequestTagsAreUnsetWithoutTags(t *testing.T) {
 	}
 }
 
-// TestIAMRequestTagsDoNotCrossWireShapes is the half that keeps the table
-// honest: reading is per service, not a chain of guesses, so a request that
-// carries tags in another service's spelling settles nothing. Without that,
-// a policy conditioned on aws:TagKeys would match on a shape the service never
-// sends.
+// TestIAMRequestTagsDoNotCrossWireShapes holds reading to one shape per service:
+// a request carrying tags in another service's spelling settles nothing, so
+// aws:TagKeys never matches a shape the service does not send.
 func TestIAMRequestTagsDoNotCrossWireShapes(t *testing.T) {
 	cases := []struct {
 		name    string

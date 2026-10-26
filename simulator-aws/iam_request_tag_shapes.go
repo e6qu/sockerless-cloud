@@ -8,41 +8,23 @@ import (
 	"strings"
 )
 
-// Where each service carries the tags a request supplies — the fact behind
-// aws:RequestTag/${TagKey} and aws:TagKeys.
+// Where each service carries the tags a request supplies, the fact behind
+// aws:RequestTag/${TagKey} and aws:TagKeys. Services disagree on the wire shape;
+// a key read from the wrong shape is absent, and a condition on an absent key
+// does not match, so a tag-on-create rule would deny every create or allow every
+// untagged one.
 //
-// Services do not agree on the wire shape, and the gate used to read exactly
-// one of them: the awsQuery member prefix `Tag` (`Tag.1.Key` / `Tag.1.Value`),
-// which is Amazon EC2's CreateTags spelling and nobody else's. Everywhere else
-// both keys were silently left unset, so the tag-on-create restriction AWS
-// documents could not be expressed at all: a
+// Each row is keyed by IAM service prefix and cites the vendored Smithy model it
+// comes from. Under awsQuery a list whose member carries
+// `"smithy.api#xmlName": "Tag"` serializes as `Tags.Tag.N`, one without as
+// `Tags.member.N`; Amazon EC2's ec2Query flattens every list and prefers
+// `aws.protocols#ec2QueryName`.
 //
-//	"Null": {"aws:RequestTag/owner": "false"}
-//
-// on rds:CreateDBInstance, or a ForAllValues:StringEquals on aws:TagKeys for
-// elasticache:CreateCacheCluster or ecs:CreateCluster, tested a key that was
-// never in the context, and a condition on an absent key does not match — so
-// the statement meant to force a tag onto every created resource either denied
-// every create or allowed every untagged one, depending on which way it was
-// written.
-//
-// The table below is keyed by IAM service prefix and each row cites the
-// vendored Smithy model it was read from (specs/cloud-api/aws/*.smithy.json.gz).
-// For an awsQuery service the member path follows from two model facts: the
-// input member's name (or its `smithy.api#xmlName`), and the list member's
-// name — a list whose `member` carries `"smithy.api#xmlName": "Tag"` serializes
-// as `Tags.Tag.N`, and a list whose member carries no xmlName takes the
-// protocol default `member` and serializes as `Tags.member.N`. Amazon EC2 uses
-// ec2Query, which flattens every list and prefers `aws.protocols#ec2QueryName`.
-//
-// A request that removes tags names only their keys, and AWS reports those
-// keys as aws:TagKeys: that is how a policy stops a caller removing one tag
-// while letting it remove the rest. Each row also records where its service's
-// untagging operation carries that key list.
-//
-// AWS Lambda and Amazon EFS (restJson1) and the Amazon S3 control plane
-// (restXml) reach the gate through iamEnforceREST, so their rows read the REST
-// body and the tagKeys query parameter their models bind.
+// An untagging request names only keys, which AWS reports as aws:TagKeys; each
+// row records where its service carries them. AWS Lambda and Amazon EFS
+// (restJson1) and the Amazon S3 control plane (restXml) reach the gate through
+// iamEnforceREST, so their rows read the REST body and the tagKeys query
+// parameter.
 
 // iamJSONTagList is a JSON body member holding a list of tag structures,
 // together with the key and value member names that service's tag structure
@@ -83,12 +65,11 @@ func iamKeyValueTagList(member string) iamJSONTagList {
 
 var iamRequestTagShapes = map[string]iamRequestTagShape{
 	// Amazon EC2 (ec2Query). CreateTagsRequest$Tags carries
-	// `"smithy.api#xmlName": "Tag"` and ec2Query flattens lists, so CreateTags
-	// and DeleteTags send `Tag.N.Key` — the one shape the gate already read.
-	// Tag-on-create instead sends TagSpecifications, whose xmlName is
-	// `TagSpecification`, holding a TagList whose xmlName is `Tag`:
-	// `TagSpecification.N.Tag.M.Key`. ec2ParseTagSpecs is the simulator's own
-	// reader for both serializations of that member.
+	// `"smithy.api#xmlName": "Tag"` and ec2Query flattens lists, so CreateTags and
+	// DeleteTags send `Tag.N.Key`. Tag-on-create sends TagSpecifications instead
+	// (xmlName `TagSpecification`, holding a TagList with xmlName `Tag`):
+	// `TagSpecification.N.Tag.M.Key`, which ec2ParseTagSpecs reads in both
+	// serializations.
 	"ec2": {query: []string{"Tag"}, queryTags: ec2ParseTagSpecs},
 
 	// Amazon RDS (awsQuery). TagList's member carries

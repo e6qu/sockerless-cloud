@@ -6,19 +6,12 @@ import (
 	"strconv"
 )
 
-// Amazon ECS's request-shape condition keys.
-//
-// These describe what a RunTask, CreateService or CreateCapacityProvider asks
-// for — which capacity provider to place on, how much CPU and memory the task
-// takes, which subnets it lands in, whether exec and managed tags are on. A
-// policy uses them to hold callers to a shape: only Fargate Spot, only tasks
-// under a size, only inside the private subnets, never with exec enabled.
-//
-// Every one is settled by the request. The two sizes come from the task
-// definition or daemon task definition the request names, because that is
-// where Amazon ECS reads them from when the request does not override them.
+// Amazon ECS's request-shape keys hold RunTask, CreateService and
+// CreateCapacityProvider to a shape: capacity provider, CPU and memory, subnets,
+// exec and managed tags. The request settles each; the sizes come from the task
+// definition or daemon task definition it names unless it overrides them, which
+// is how Amazon ECS resolves them.
 
-// iamPopulateECSConditionKeys adds the keys an Amazon ECS request settles.
 func iamPopulateECSConditionKeys(r *http.Request, body []byte, ctx map[string][]string) {
 	if len(body) == 0 {
 		return
