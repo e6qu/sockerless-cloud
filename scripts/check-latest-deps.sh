@@ -134,23 +134,30 @@ trap 'rm -rf "$work"' EXIT
 exec 3>&2
 
 # go_proxy runs one `go list -m` query, a request to the module proxy the Go
-# toolchain puts no deadline on. Each attempt gets its own deadline and a
-# stalled one is retried; any other failure is the query's answer, returned as
-# is. A query that stalls every time fails the run rather than reading as a
-# module with no versions: the callers skip what they cannot look up, and a
-# lookup that never answered is not a clean result.
+# toolchain puts no deadline on. Each attempt gets its own deadline, and a
+# stalled attempt or one the network failed (a TLS handshake or connection that
+# timed out or reset) is retried; any other failure is the query's answer,
+# returned as is. A query that stalls every time fails the run rather than
+# reading as a module with no versions: the callers skip what they cannot look
+# up, and a lookup that never answered is not a clean result.
 go_proxy() {
   local attempt outcome
   for attempt in 1 2 3; do
-    if GOFLAGS='' timeout "$go_proxy_deadline" go list -m "$@"; then
+    if GOFLAGS='' timeout "$go_proxy_deadline" go list -m "$@" 2>"$work/go-proxy.err"; then
+      cat "$work/go-proxy.err" >&2
       return 0
     else
       outcome=$?
     fi
-    [[ $outcome -eq 124 ]] || return "$outcome"
+    if [[ $outcome -ne 124 ]] && ! grep -qE 'TLS handshake timeout|i/o timeout|connection reset by peer|connection refused|unexpected EOF' "$work/go-proxy.err"; then
+      cat "$work/go-proxy.err" >&2
+      return "$outcome"
+    fi
     # To the run's own stderr (fd 3): callers discard the query's stderr.
-    echo "  ..    go list -m $* stalled for ${go_proxy_deadline}s (attempt $attempt of 3)" >&3
+    echo "  ..    go list -m $* failed on the network or stalled for ${go_proxy_deadline}s (attempt $attempt of 3)" >&3
   done
+  cat "$work/go-proxy.err" >&2
+  [[ $outcome -eq 124 ]] || return "$outcome"
   printf 'go list -m %s\n' "$*" >> "$work/go-proxy-stalled"
   return 124
 }
