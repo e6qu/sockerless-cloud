@@ -378,6 +378,13 @@ flowchart LR
 - **Azure Monitor metric alerts.** Azure Monitor serves metrics but no metric
   alert rules, so nothing on Azure can alarm on a metric.
 - **Filestore.** Google Cloud has no managed file share.
+- **Authorization outside AWS.** Every simulator verifies every credential,
+  but only AWS evaluates its policy language on every call. Google Cloud
+  applies IAM policies in four places and Azure applies Azure RBAC to Key
+  Vault data actions only ([Identity and access](iam.md) lists where). The
+  fix is the gate AWS has: derive each operation's permission or action from
+  the specification, evaluate the resource hierarchy's policies or role
+  assignments, and refuse.
 
 ### Extractions, ranked by value over effort
 
@@ -430,7 +437,7 @@ relying on a row.
 | **Built with** | Go, on a shared `sim` framework | Python | Java on Quarkus, compiled to a GraalVM native image |
 | **Breadth** | Every operation of 42 vendored AWS Smithy models served or exempt; every method spelling of 33 Google Cloud Discovery documents routed; 2,653 of 2,660 Azure Swagger operations served | Broad AWS coverage; which services a user gets depends on the tier | Its site claims 126 AWS services; an independent review counted 85 in its service matrix |
 | **Contract** | The cloud's own specification, vendored; responses validated against it at run time; coverage ratchets in CI | Not stated in the pages consulted | "Real wire protocols"; compatibility tests (below) |
-| **Authentication** | SigV4 verified on every AWS request; an IAM gate authorizes every operation, always on | IAM enforcement off by default, enabled with `ENFORCE_IAM=1`; not on the Hobby tier | Any non-empty credentials by default; stricter checks opt-in per service |
+| **Authentication** | SigV4 verified on AWS requests and an IAM gate on every operation; Google Cloud and Azure verify every token, and enforce authorization in fewer places ([Identity and access](iam.md)) | IAM enforcement off by default, enabled with `ENFORCE_IAM=1`; not on the Hobby tier | Any non-empty credentials by default; stricter checks opt-in per service |
 | **Heavy services** | Real engines: PostgreSQL, MySQL and MariaDB for the managed databases, Redis for Memorystore, containers or Firecracker microVMs for compute | Container-backed RDS and ECS from the Base tier, EKS from Ultimate | Real engines in containers: Lambda runtimes, RDS, ElastiCache on Valkey, DocumentDB on MongoDB, MSK on Redpanda, EKS on k3s, and more |
 | **Networks** | Each VPC, subnetwork or virtual network is an engine network over its own range, with the resolver, metadata and NAT at the addresses the cloud reserves | A DNS server that answers `*.amazonaws.com` with LocalStack's address; network behaviour not described | One Docker network per VPC; NAT gateways and routing are records |
 | **State** | SQLite; with `SIM_PERSIST`, kept across restarts, and a restarted simulator adopts its workloads and resumes background work | Persistence and Cloud Pods from the Base tier | Four modes: memory, persistent, hybrid and write-ahead log |
