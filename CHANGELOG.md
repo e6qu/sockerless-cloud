@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.1.0](https://github.com/e6qu/sockerless-cloud/compare/v3.0.1...v3.1.0) (2026-10-27)
+
+
+### Features
+
+* enforce Google Cloud IAM and Azure RBAC; refactor: cut docs and comments to what they must say ([#358](https://github.com/e6qu/sockerless-cloud/issues/358)) ([e02463b](https://github.com/e6qu/sockerless-cloud/commit/e02463b46a841bd96757bdb562c7d8fa543abccc))
+
 ## [3.0.1](https://github.com/e6qu/sockerless-cloud/compare/v3.0.0...v3.0.1) (2026-10-26)
 
 
